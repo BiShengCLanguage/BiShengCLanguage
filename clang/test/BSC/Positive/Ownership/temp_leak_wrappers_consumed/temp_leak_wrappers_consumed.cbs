@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Companion to F14 (umbrella IJP3AP): a wrapped `_Owned`-returning temporary
+// that is actually consumed (assigned to an owned variable, or handed off as
+// an argument) must NOT be reported as a leak. Guards the F14 fix against
+// over-diagnosing -- only evaluated-and-discarded temporaries leak.
+
+_Safe int *_Owned make(void);
+_Safe void consume(int *_Owned);
+
+// paren-wrapped owned temp, assigned then handed off -- consumed, no leak.
+_Safe void assigned_then_consumed(void) {
+  int *_Owned p = (make());
+  consume(p);
+}
+
+// paren-wrapped owned temp consumed directly as a call argument -- no leak.
+_Safe void consumed_as_arg(void) {
+  consume((make()));
+}

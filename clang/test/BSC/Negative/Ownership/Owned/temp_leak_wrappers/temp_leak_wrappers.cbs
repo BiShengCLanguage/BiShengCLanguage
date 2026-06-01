@@ -1,0 +1,42 @@
+// RUN: %clang_cc1 -verify %s
+
+// Regression (umbrella IJP3AP, F14): the temporary-leak check
+// (`Sema::CheckTemporaryVarMemoryLeak`) only inspected a bare `CallExpr`,
+// so any wrapper around an `_Owned`-returning temporary that is evaluated
+// and discarded bypassed the check and silently leaked. The direct form
+// `make();` was diagnosed, but paren / comma / conditional wrappers were
+// not. The fix strips transparent wrappers via `IgnoreParenCastsSafe` and
+// recurses through comma and conditional operands.
+
+_Safe int *_Owned make(void);
+
+_Safe void direct(void) {
+  make(); // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void paren(void) {
+  (make()); // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void paren_nested(void) {
+  ((make())); // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void comma(void) {
+  (void)0, make(); // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void conditional(int c) {
+  c ? make() : nullptr; // expected-error {{memory leak because temporary variable}}
+}
+
+// GNU `x ?: y` (BinaryConditionalOperator) -- the reused common expression is
+// the discarded owned temporary.
+_Safe void gnu_conditional(void) {
+  make() ?: nullptr; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}
+
+// _Safe(...) wrapper (BSC SafeExpr) -- stripped by IgnoreParenCastsSafe.
+_Safe void safe_wrap(void) {
+  _Safe(make()); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}

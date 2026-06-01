@@ -532,6 +532,22 @@ Sema::CheckBSCFunctionPointerType(QualType LHSType, Expr *RHSExpr) {
 }
 
 bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
+  if (E == nullptr)
+    return false;
+  E = E->IgnoreParenCastsSafe();
+  if (auto *BO = dyn_cast<BinaryOperator>(E))
+    if (BO->getOpcode() == BO_Comma)
+      return CheckTemporaryVarMemoryLeak(BO->getRHS());
+  if (auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
+    // BinaryConditionalOperator (GNU `x ?: y`) reuses the common expression,
+    // exposed via getCommonExpr() rather than the OpaqueValueExpr getTrueExpr().
+    Expr *TrueExpr = isa<BinaryConditionalOperator>(CO)
+                         ? cast<BinaryConditionalOperator>(CO)->getCommon()
+                         : CO->getTrueExpr();
+    bool LeakTrue = CheckTemporaryVarMemoryLeak(TrueExpr);
+    bool LeakFalse = CheckTemporaryVarMemoryLeak(CO->getFalseExpr());
+    return LeakTrue || LeakFalse;
+  }
   if (!dyn_cast<CallExpr>(E)) return false;
   QualType RetType = E->getType().getCanonicalType();
   if (RetType.isOwnedQualified() || RetType->isMoveSemanticType()) {
