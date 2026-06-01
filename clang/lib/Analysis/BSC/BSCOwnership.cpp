@@ -1331,13 +1331,18 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
                           VD->getNameAsString() + "." + fullFieldName));
   }
 
-  if (SAllOwnedFields[VD].count(fullFieldName) &&
-      !(SOwnedOwnedFields[VD].count(fullFieldName) ||
-       SNullOwnedFields[VD].count(fullFieldName)) &&
+  // HandleDREUse appends a '*' marker per dereference of the field; strip the
+  // markers to recover the bare field name stored in SAllOwnedFields.
+  string baseFieldName = fullFieldName;
+  while (!baseFieldName.empty() && baseFieldName.back() == '*')
+    baseFieldName.pop_back();
+  if (SAllOwnedFields[VD].count(baseFieldName) &&
+      !(SOwnedOwnedFields[VD].count(baseFieldName) ||
+       SNullOwnedFields[VD].count(baseFieldName)) &&
       diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
-                          VD->getNameAsString() + "." + fullFieldName));
+                          VD->getNameAsString() + "." + baseFieldName));
   }
   // calculate the fields with fullFieldName prefix
   llvm::SmallSet<string, 10> allPrefixStrs;

@@ -1,0 +1,30 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Companion to F67 (umbrella IJP3AP): dereferencing an `_Owned` struct field
+// that is still owned must stay clean, and re-initializing a moved field must
+// clear its moved state so a later deref is accepted again. Guards the F67 fix
+// against over-diagnosing.
+
+_Safe T *_Owned safe_malloc<T>(T);
+void sink(int *_Owned);
+
+struct Inner { int *_Owned p; };
+
+// deref while still owned is fine; consume afterwards to avoid a leak.
+int read_then_consume(void) {
+  struct Inner s = { safe_malloc<int>(1) };
+  int x = *s.p;
+  sink(s.p);
+  return x;
+}
+
+// move out, re-initialize, then deref again -- the moved state is cleared.
+int reinit_then_deref(void) {
+  struct Inner s = { safe_malloc<int>(1) };
+  sink(s.p);
+  s.p = safe_malloc<int>(2);
+  int x = *s.p;
+  sink(s.p);
+  return x;
+}
