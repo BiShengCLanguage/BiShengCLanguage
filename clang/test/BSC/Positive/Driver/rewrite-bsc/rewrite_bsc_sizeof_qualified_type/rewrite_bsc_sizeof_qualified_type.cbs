@@ -1,0 +1,16 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -c %t-rw.c -o %t-rw.output
+// RUN: FileCheck --input-file=%t-rw.c %s
+// expected-no-diagnostics
+// Regression for F59 (umbrella IJP3AP): a function whose only BSC syntax is a
+// BSC-qualified type inside a sizeof / _Alignof operand made BSCFeatureFinder
+// report "no BSC features", so the rewriter copied the source verbatim and
+// leaked `_Owned` / `_Borrow` into the .c output, which then failed to parse as
+// C. The compile-the-output RUN above is the regression gate.
+
+unsigned long size_owned(void) { return sizeof(int *_Owned); }
+unsigned long align_owned(void) { return _Alignof(int *_Owned); }
+unsigned long size_borrow(void) { return sizeof(int *_Borrow); }
+
+// CHECK-NOT: _Owned
+// CHECK-NOT: _Borrow

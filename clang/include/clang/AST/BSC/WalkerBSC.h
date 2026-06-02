@@ -337,6 +337,15 @@ public:
     return false;
   }
   
+  // sizeof / _Alignof / __alignof — the operand may be a BSC-qualified type
+  // whose only appearance is here; without this the walker reports "no BSC
+  // features" and the rewriter copies the source verbatim, leaking qualifiers.
+  bool VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E) {
+    if (E->isArgumentType())
+      return VisitQualType(E->getArgumentType());
+    return Visit(E->getArgumentExpr());
+  }
+
   // nullptr visit
   bool VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *E) {
       return true;
