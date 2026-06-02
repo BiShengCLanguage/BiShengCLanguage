@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Regression (umbrella IJP3AP, F51): the signedness check added to the enum-to-
+// integer safe-zone conversion must not over-reject value-preserving cases:
+// same-type, same-sign widening, and unsigned -> strictly-wider signed (which
+// cannot change the value). Widening targets use long long / unsigned long long
+// (guaranteed wider than int/unsigned int) so the test is target-independent.
+
+enum EU : unsigned int { EU_A = 1 };
+enum ES : int { ES_A = 1 };
+enum EUS : unsigned short { EUS_A = 1 };
+
+_Safe unsigned int same(void) { enum EU e = EU_A; unsigned int n = e; return n; }
+_Safe unsigned long long widen_same_sign(void) { enum EU e = EU_A; unsigned long long n = e; return n; }
+_Safe long long unsigned_to_wider_signed(void) { enum EU e = EU_A; long long n = e; return n; }
+_Safe int ushort_to_int(void) { enum EUS e = EUS_A; int n = e; return n; }
+_Safe long long signed_widen(void) { enum ES e = ES_A; long long n = e; return n; }

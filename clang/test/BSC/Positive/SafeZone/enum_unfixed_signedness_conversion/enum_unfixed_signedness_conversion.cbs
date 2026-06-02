@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Regression (umbrella IJP3AP, F51): the signedness check added for
+// fixed-underlying enum-to-integer conversions is deliberately gated to
+// EnumDecl::isFixed(). An enum WITHOUT an explicit underlying type keeps the
+// implementation-defined lenient behavior of legacy C enums: a same-width
+// opposite-signedness implicit conversion from an enum VARIABLE to an integer
+// stays accepted in the safe zone (the enum-to-integer grant only adds the
+// signedness requirement for fixed-underlying enums). This locks that
+// intentional compatibility exemption so a future change cannot silently
+// tighten it.
+
+// BigU has no fixed underlying type; the value 0xFFFFFFFF does not fit in a
+// signed int, so the compiler picks an unsigned (same-width) underlying type.
+enum BigU { BU = 0xFFFFFFFF };
+
+_Safe int unfixed_unsigned_to_signed_var(void) {
+  enum BigU e = BU;
+  int n = e;
+  return n;
+}
+
+// A signed unfixed enum variable to an unsigned integer is likewise accepted.
+enum NegV { NV = -1 };
+
+_Safe unsigned int unfixed_signed_to_unsigned_var(void) {
+  enum NegV e = NV;
+  unsigned int n = e;
+  return n;
+}

@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Regression (umbrella IJP3AP, F51): the signedness check added for implicit
+// fixed-underlying-enum-to-integer conversions must stay limited to the implicit
+// path. An explicit cast from a fixed-underlying enum to a same-width opposite-
+// signed integer stays allowed, matching the existing arithmetic safe-zone
+// convention where the equivalent raw-integer explicit cast (e.g. (int)u for an
+// unsigned int u) is also allowed. Both the enumerator and the enum variable
+// forms must be accepted.
+
+enum EU : unsigned int { EU_BIG = 0xFFFFFFFFu };
+enum ES : int { ES_NEG = -1 };
+
+_Safe int from_unsigned_constant(void) {
+  int n = (int)EU_BIG;
+  return n;
+}
+
+_Safe int from_unsigned_var(void) {
+  enum EU e = EU_BIG;
+  int n = (int)e;
+  return n;
+}
+
+_Safe unsigned int from_signed_constant(void) {
+  unsigned int n = (unsigned int)ES_NEG;
+  return n;
+}
+
+_Safe unsigned int from_signed_var(void) {
+  enum ES e = ES_NEG;
+  unsigned int n = (unsigned int)e;
+  return n;
+}

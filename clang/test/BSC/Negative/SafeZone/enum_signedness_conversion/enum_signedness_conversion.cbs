@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+
+// Regression (umbrella IJP3AP, F51): an implicit conversion from an enum to an
+// integer of the same width but opposite signedness silently flipped the value
+// in the safe zone. The raw equivalent (unsigned int -> int) was already
+// rejected; the enum-to-integer grant in IsSafeConversion checked only size.
+// It now also requires matching signedness (with a value-preserving exception
+// for unsigned -> strictly-wider signed).
+
+enum EU : unsigned int { EU_BIG = 0xFFFFFFFFu };
+enum ES : int { ES_NEG = -1 };
+
+// Enum variable form: rejected through the enum-to-integer grant.
+_Safe int from_unsigned(void) {
+  enum EU e = EU_BIG;
+  int n = e; // expected-error {{conversion from type 'enum EU' to 'int' is forbidden in the safe zone}}
+  return n;
+}
+
+_Safe unsigned int from_signed(void) {
+  enum ES e = ES_NEG;
+  unsigned int n = e; // expected-error {{conversion from type 'enum ES' to 'unsigned int' is forbidden in the safe zone}}
+  return n;
+}
+
+// Enumerator-constant form: the enum constant is promoted to the underlying
+// type before the assignment check, so the same-width sign flip is caught on the
+// raw integer path with the implicit-cast diagnostic.
+_Safe int from_unsigned_constant(void) {
+  int n = EU_BIG; // expected-error {{implicit conversion from type 'unsigned int' to 'int' is forbidden in the safe zone; use explicit cast or other means instead}}
+  // expected-note@-1 {{source type 'unsigned int' is implicit converted from type 'enum EU'}}
+  return n;
+}

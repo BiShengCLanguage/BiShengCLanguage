@@ -1053,7 +1053,12 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
               if (DestCanon == UnderCanon)
                 IsSafeBehavior = true;
               else if (Context.getTypeSize(DestType) >=
-                       Context.getTypeSize(Underlying))
+                           Context.getTypeSize(Underlying) &&
+                       (!ED->isFixed() ||
+                        Underlying->hasSignedIntegerRepresentation() ==
+                            DestType->hasSignedIntegerRepresentation()))
+                IsSafeBehavior = true;
+              else if (ED->isFixed() && DoesExprValueRangeFitInType(E, DestType))
                 IsSafeBehavior = true;
             } else if (Context.hasSameUnqualifiedType(DestType, Context.IntTy)) {
               IsSafeBehavior = true;
