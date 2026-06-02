@@ -1,0 +1,51 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+_Safe int *_Owned mk(void);
+struct Box { int value; };
+_Safe struct Box *_Owned mk_box(void);
+
+_Safe unsigned long size_of_deref(void)  { return sizeof(*mk()); }
+_Safe unsigned long size_of_deref_p(void){ return sizeof((*mk())); }
+_Safe unsigned long size_of_owned_compare(void) { return sizeof(mk() == nullptr); }
+_Safe unsigned long size_of_owned_member(void) { return sizeof(mk_box()->value); }
+_Safe unsigned long align_of_deref(void) { return __alignof__(*mk()); }
+_Safe unsigned long align_of_owned_member(void) { return __alignof__(mk_box()->value); }
+_Safe int generic_deref(void) { return _Generic(*mk(), int: 1, default: 0); }
+_Safe int generic_owned_member(void) { return _Generic(mk_box()->value, int: 1, default: 0); }
+_Safe unsigned long size_of_paren_deref(void) { return sizeof(*((mk()))); }
+_Safe unsigned long size_of_comma_deref(void) { return sizeof((mk(), 0)); }
+_Safe unsigned long size_of_conditional_deref(int c) {
+  return sizeof(c ? *mk() : 0);
+}
+_Safe unsigned long size_of_lnot_owned(void) { return sizeof(!mk()); }
+_Safe unsigned long size_of_comma_owned_compare(void) {
+  return sizeof((mk(), mk() == nullptr));
+}
+_Safe unsigned long size_of_conditional_owned_compare(int c) {
+  return sizeof(c ? (mk() == nullptr) : 0);
+}
+_Safe unsigned long size_of_paren_member(void) {
+  return sizeof(((mk_box()))->value);
+}
+_Safe unsigned long size_of_comma_member(void) {
+  return sizeof((mk_box(), 0));
+}
+_Safe unsigned long size_of_conditional_member(int c) {
+  return sizeof(c ? mk_box()->value : 0);
+}
+_Safe unsigned long size_of_stmt_expr(void) {
+  return sizeof(({ mk(); 0; }));
+}
+_Safe unsigned long size_of_stmt_expr_condition(void) {
+  return sizeof(({ if (mk()) {} 0; }));
+}
+_Safe unsigned long size_of_stmt_expr_for_increment(void) {
+  return sizeof(({ for (int i = 0; i < 1; mk()) {} 0; }));
+}
+_Safe unsigned long size_of_stmt_expr_do_condition(void) {
+  return sizeof(({ do {} while (mk()); 0; }));
+}
+_Safe int generic_stmt_expr(void) {
+  return _Generic(({ mk(); 0; }), int: 1, default: 0);
+}

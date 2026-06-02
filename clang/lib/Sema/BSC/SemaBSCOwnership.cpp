@@ -534,6 +534,8 @@ Sema::CheckBSCFunctionPointerType(QualType LHSType, Expr *RHSExpr) {
 bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
   if (E == nullptr)
     return false;
+  if (isUnevaluatedContext())
+    return false;
   E = E->IgnoreParenCastsSafe();
   if (auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_LNot)
