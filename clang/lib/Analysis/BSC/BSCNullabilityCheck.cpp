@@ -158,6 +158,11 @@ void VisitMEForFieldPath(Expr *E, FieldPath &FP) {
     VisitMEForFieldPath(ICE->getSubExpr(), FP);
   } else if (auto PE = dyn_cast<ParenExpr>(E)) {
     VisitMEForFieldPath(PE->getSubExpr(), FP);
+  } else if (auto UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Deref) {
+      FP.second = "*" + FP.second;
+      VisitMEForFieldPath(UO->getSubExpr(), FP);
+    }
   }
 }
 
