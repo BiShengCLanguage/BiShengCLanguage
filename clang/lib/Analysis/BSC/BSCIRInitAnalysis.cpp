@@ -1819,12 +1819,16 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
     const Terminator &T = BB.Term;
     if (T.K == Terminator::Call && (CheckAllZones || T.SafeZone == SZ_Safe)) {
       const auto &CD = T.getCall();
+      checkOperand(CD.Callee, State, T.Loc, Diags);
       llvm::DenseSet<unsigned> ExemptArgIndices = collectExemptArgIndices(CD);
       for (unsigned I = 0; I < CD.Args.size(); ++I) {
         if (!ExemptArgIndices.count(I))
           checkOperand(CD.Args[I], State, T.Loc, Diags);
       }
     }
+
+    if (T.K == Terminator::SwitchInt && (CheckAllZones || T.SafeZone == SZ_Safe))
+      checkOperand(T.getSwitchInt().Discriminant, State, T.Loc, Diags);
 
     // Check return slot at Return terminator
     if (T.K == Terminator::Return && (CheckAllZones || T.SafeZone == SZ_Safe)) {

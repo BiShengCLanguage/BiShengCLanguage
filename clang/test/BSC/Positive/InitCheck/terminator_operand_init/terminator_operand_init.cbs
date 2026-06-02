@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Regression (umbrella IJP3AP, F88/F90): adding callee and switch-discriminant
+// checks to the init analysis must not reject initialized operands or direct
+// (constant-callee) calls.
+
+_Safe int callee(int a, int b) { return a + b; }
+
+_Safe int call_init_fnptr(void) {
+  _Safe int (*fp)(int, int) = callee;
+  return fp(2, 3);
+}
+
+_Safe int direct_call(void) {
+  return callee(2, 3);
+}
+
+_Safe int switch_init_discriminant(int x) {
+  switch (x) {
+  case 0:
+    return 1;
+  default:
+    return 2;
+  }
+}

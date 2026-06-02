@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -verify %s
+
+// Regression (umbrella IJP3AP, F88/F90): the init analysis checked Call argument
+// operands and the Return slot, but not the Call *callee* operand (F88) nor the
+// SwitchInt *discriminant* (F90). Calling an uninitialized _Safe function pointer
+// and switching on an uninitialized value were accepted in pure _Safe, while the
+// byte-identical reads were rejected.
+
+struct S { int tag; int other; };
+
+_Safe int call_uninit_fnptr(void) {
+  _Safe int (*fp)(int, int);
+  return fp(2, 3); // expected-error {{use of uninitialized value: `fp`}}
+}
+
+_Safe int switch_uninit_discriminant(void) {
+  struct S s;
+  s.other = 7;
+  switch (s.tag) { // expected-error {{use of uninitialized value: `s.tag`}}
+  case 0:
+    return 1;
+  default:
+    return 2;
+  }
+}
