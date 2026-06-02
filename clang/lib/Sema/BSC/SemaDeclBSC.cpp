@@ -180,6 +180,9 @@ bool Sema::CheckNullabilityQualTypeAssignment(QualType LHSType, QualType RHSType
     Optional<NullabilityKind> LHSNullability = LHSPointee->getNullability(Context);
     Optional<NullabilityKind> RHSNullability = RHSPointee->getNullability(Context);
 
+    if (!RHSNullability && RHSPointee->isPointerType())
+      RHSNullability = NullabilityKind::Nullable;
+
     // Check if nullability qualifiers are incompatible
     // Nullable cannot be assigned to nonnull
     if (LHSNullability && RHSNullability) {

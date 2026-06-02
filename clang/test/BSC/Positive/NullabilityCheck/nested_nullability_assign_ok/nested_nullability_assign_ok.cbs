@@ -1,0 +1,10 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Companion to F66: legitimate nested-pointer nullability assignments stay clean.
+void ok(int **raw, int *_Nonnull *nn) {
+  int *_Nonnull *a = nn;  // nonnull -> nonnull
+  int **b = raw;          // raw -> raw
+  int **c = nn;           // nonnull -> raw (nullable) : widening is fine
+  (void)a; (void)b; (void)c;
+}
