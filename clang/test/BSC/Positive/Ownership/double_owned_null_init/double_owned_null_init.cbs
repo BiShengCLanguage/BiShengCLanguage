@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Regression (umbrella IJP3AP, F23): null-initializing a doubly-_Owned field
+// (`int *_Owned _Nullable *_Owned _Nullable f`) was falsely reported as
+// `*s.f is leak`. The HandleInitListExpr null-init path moved the field and its
+// `.`-prefix subfields to SNullOwnedFields but left the `*`-suffix (deref)
+// entries that initBOP adds in SAllOwnedFields, so checkMemoryLeak saw a phantom
+// leak. The null-init path now also null-marks the `*`-suffix family.
+
+struct S { int *_Owned _Nullable *_Owned _Nullable f; };
+struct Outer { struct S inner; };
+struct Top { struct Outer outer; };
+
+_Safe int null_init(void) {
+  struct S s = { .f = nullptr };
+  return 0;
+}
+
+_Safe int implicit_zero(void) {
+  struct S s = {};
+  return 0;
+}
+
+_Safe int nested_null_init(void) {
+  struct Outer o = { .inner = { .f = nullptr } };
+  return 0;
+}
+
+_Safe int nested_implicit_zero(void) {
+  struct Outer o = {};
+  return 0;
+}
+
+_Safe int deep_nested_implicit_zero(void) {
+  struct Top t = {};
+  return 0;
+}

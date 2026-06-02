@@ -2392,6 +2392,11 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
 void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitListExpr *ILE, std::string fullFieldName) {
   // unexplicitly initialized fields are implicitly initialized automatically
   Expr **Inits = ILE->getInits();
+  // In semantic InitListExpr, omitted fields are ImplicitValueInitExpr both for
+  // `{}` and for partial initializers like `{.a = 1}`. Only `{}` null-inits the
+  // whole nested record family here; partial omission should keep leak checking.
+  bool IsEmptyInitList = ILE->isSemanticForm() && ILE->getSyntacticForm() &&
+                         ILE->getSyntacticForm()->getNumInits() == 0;
   for (const auto &FD : RD->fields()) {
     Expr *FieldInit = Inits[FD->getFieldIndex()];
     std::string memberField = FD->getNameAsString();
@@ -2401,6 +2406,19 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
       if (stat.SAllOwnedFields[VD].count(newFullFieldName)) {
         stat.SOwnedOwnedFields[VD].erase(newFullFieldName);
         stat.SNullOwnedFields[VD].insert(newFullFieldName);
+        auto allPrefixStrs =
+            findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + ".");
+        for (const string &str : allPrefixStrs) {
+          stat.SOwnedOwnedFields[VD].erase(str);
+          stat.SNullOwnedFields[VD].insert(str);
+        }
+        auto starPrefixStrs =
+            findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + "*");
+        for (const string &str : starPrefixStrs) {
+          stat.SOwnedOwnedFields[VD].erase(str);
+          stat.SNullOwnedFields[VD].insert(str);
+        }
+      } else if (isa<ImplicitValueInitExpr>(FieldInit) && IsEmptyInitList) {
         auto allPrefixStrs =
             findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + ".");
         for (const string &str : allPrefixStrs) {
