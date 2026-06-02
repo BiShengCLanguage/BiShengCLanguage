@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Taking `&_Mut` of a subscript, dereference, or pointer-arithmetic spelling
+// over MUTABLE storage (not a string literal) stays valid; the guard must only
+// reject storage rooted in a string literal.
+
+void mutable_array(void) {
+  char arr[6] = "hello";
+  char *_Borrow p = &_Mut arr[0];
+  *p = 'H';
+}
+
+void mutable_array_arith(void) {
+  char arr[6] = "hello";
+  char *_Borrow p = &_Mut *(arr + 1);
+  *p = 'E';
+}
+
+void mutable_array_arith_subscript(void) {
+  char arr[6] = "hello";
+  char *_Borrow p = &_Mut (arr + 1)[0];
+  *p = 'E';
+}

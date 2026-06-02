@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -verify -Wno-string-plus-int %s
+
+// A mutable borrow whose accessed storage is rooted in a string literal writes
+// into read-only memory and is rejected, for every spelling that reaches that
+// storage: direct, dereference, subscript, and pointer-arithmetic forms.
+
+void sink(char *_Borrow p);
+
+void subscript(void) {
+  sink(&_Mut "hello"[0]); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+}
+
+void subscript_paren(void) {
+  sink(&_Mut ("world"[2])); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+}
+
+void subscript_arith(void) {
+  sink(&_Mut ("hello" + 1)[0]); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+}
+
+void deref(void) {
+  sink(&_Mut *"hello"); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+}
+
+void deref_arith(void) {
+  sink(&_Mut *("hello" + 1)); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+}
+
+void deref_arith_index(void) {
+  sink(&_Mut *(1 + "hello")); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+}
+
+void direct(void) {
+  sink(&_Mut "hello"); // expected-error {{cannot take mutable borrow of string literal with '&_Mut'; string literals are immutable}}
+}

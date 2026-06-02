@@ -17058,6 +17058,25 @@ bool Sema::isQualifiedMemberAccess(Expr *E) {
   return false;
 }
 
+#if ENABLE_BSC
+static bool isPointerRootedInStringLiteral(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (isa<StringLiteral>(E))
+    return true;
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->isAdditiveOp())
+      return isPointerRootedInStringLiteral(BO->getLHS()) ||
+             isPointerRootedInStringLiteral(BO->getRHS());
+    return false;
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Plus)
+      return isPointerRootedInStringLiteral(UO->getSubExpr());
+  }
+  return false;
+}
+#endif
+
 ExprResult Sema::BuildUnaryOp(Scope *S, SourceLocation OpLoc,
                               UnaryOperatorKind Opc, Expr *Input) {
   // First things first: handle placeholders so that the
@@ -17123,16 +17142,17 @@ ExprResult Sema::BuildUnaryOp(Scope *S, SourceLocation OpLoc,
       return ExprError();
     }
 
-    // Indirect case: &mut * "string"
+    const Expr *StorageBase = nullptr;
     if (auto *UO = dyn_cast<UnaryOperator>(InputIgnored)) {
-      if (UO->getOpcode() == UO_Deref) {
-        Expr *DerefOperand = UO->getSubExpr()->IgnoreParenImpCasts();
-        if (isa<StringLiteral>(DerefOperand)) {
-          Diag(OpLoc, diag::err_mut_borrow_string_literal_indirect)
-            << Input->getSourceRange();
-          return ExprError();
-        }
-      }
+      if (UO->getOpcode() == UO_Deref)
+        StorageBase = UO->getSubExpr();
+    } else if (auto *ASE = dyn_cast<ArraySubscriptExpr>(InputIgnored)) {
+      StorageBase = ASE->getBase();
+    }
+    if (StorageBase && isPointerRootedInStringLiteral(StorageBase)) {
+      Diag(OpLoc, diag::err_mut_borrow_string_literal_indirect)
+        << Input->getSourceRange();
+      return ExprError();
     }
   }
   #endif

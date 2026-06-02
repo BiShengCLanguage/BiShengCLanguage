@@ -55,12 +55,12 @@ void test_direct_mut_in_safe_block(void) {
 
 // Test error: indirect &_Mut * on string literal in safe zone
 _Safe void test_indirect_mut_error(void) {
-  const char *_Borrow p = &_Mut * "hello";  // expected-error {{cannot take mutable borrow through string literal with '&_Mut *'; string literals are immutable}}
+  const char *_Borrow p = &_Mut * "hello";  // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
 }
 
 void test_indirect_mut_in_safe_block(void) {
   _Safe {
-    const char *_Borrow p = &_Mut * "hello";  // expected-error {{cannot take mutable borrow through string literal with '&_Mut *'; string literals are immutable}}
+    const char *_Borrow p = &_Mut * "hello";  // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
   }
 }
 

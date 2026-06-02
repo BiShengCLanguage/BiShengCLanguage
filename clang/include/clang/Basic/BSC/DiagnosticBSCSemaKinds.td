@@ -377,7 +377,7 @@ def err_nonnull_init_by_default : Error<
 def err_mut_borrow_string_literal : Error<
   "cannot take mutable borrow of string literal with '&_Mut'; string literals are immutable">;
 def err_mut_borrow_string_literal_indirect : Error<
-  "cannot take mutable borrow through string literal with '&_Mut *'; string literals are immutable">;
+  "cannot take mutable borrow into string literal storage; string literals are immutable">;
 def err_pass_string_literal_to_mut_borrow : Error<
   "cannot pass string literal to parameter of type %0; string literals are immutable">;
 

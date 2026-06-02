@@ -84,7 +84,7 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | BOR-016 | err_mut_or_const_expr_func | `%0` for function pointer is not allowed | — |
 | BOR-017 | err_safe_mut | global or static variables are not allowed to be mutably borrowed within the safe zone | — |
 | BOR-018 | err_mut_borrow_string_literal | cannot take mutable borrow of string literal with `&_Mut`; string literals are immutable | — |
-| BOR-019 | err_mut_borrow_string_literal_indirect | cannot take mutable borrow through string literal with `&_Mut *`; string literals are immutable | — |
+| BOR-019 | err_mut_borrow_string_literal_indirect | cannot take mutable borrow into string literal storage; string literals are immutable | — |
 | BOR-020 | err_pass_string_literal_to_mut_borrow | cannot pass string literal to parameter of type %0; string literals are immutable | — |
 
 (`err_bsc_ptr_inc_dec` also fires for `++`/`--` on non-_ArrayElem _Borrow pointers; filed under **OWN** as `OWN-025`. _Borrow pointers qualified with `_ArrayElem` are explicitly allowed.)
