@@ -1,0 +1,30 @@
+// RUN: %clang_cc1 -verify %s
+
+void use(int *_Borrow p);
+void use_const(const int *_Borrow p);
+
+// The comma's LHS borrowee is frozen only for the discarded temporary, so a
+// later write to it is allowed; only the RHS becomes the comma's value.
+void lhs_borrowee_not_frozen(void) {
+  int x = 0;
+  int y = 0;
+  int *_Borrow m = (&_Mut x, &_Mut y); // expected-warning {{left operand of comma operator has no effect}}
+  x = 99;
+  use(m);
+}
+
+// A shared borrow created in the comma's RHS permits reads of its borrowee.
+void const_borrow_in_comma(void) {
+  int x = 0;
+  const int *_Borrow m = (0, &_Const x); // expected-warning {{left operand of comma operator has no effect}}
+  int r = x;
+  use_const(m);
+}
+
+// The borrow's last use is inside the comma; after it the borrowee is free.
+void nll_last_use_in_comma(void) {
+  int x = 0;
+  int *_Borrow m = &_Mut x;
+  int t = (0, (*m)); // expected-warning {{left operand of comma operator has no effect}}
+  x = 99;
+}

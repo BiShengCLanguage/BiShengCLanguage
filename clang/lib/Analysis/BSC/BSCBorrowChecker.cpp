@@ -78,6 +78,7 @@ public:
 
   void VisitBinaryOperator(BinaryOperator *BO);
   void VisitBinAssign(BinaryOperator *BO);
+  void VisitBinComma(BinaryOperator *BO);
   void VisitCallExpr(CallExpr *CE);
   void VisitDeclRefExpr(DeclRefExpr *DRE);
   void VisitDeclStmt(DeclStmt *DS);
@@ -105,6 +106,12 @@ void DefUse::VisitBinaryOperator(BinaryOperator *BO) {
     Visit(BO->getLHS());
     Visit(BO->getRHS());
   }
+}
+
+void DefUse::VisitBinComma(BinaryOperator *BO) {
+  Action = Use;
+  Visit(BO->getLHS());
+  Visit(BO->getRHS());
 }
 
 void DefUse::VisitBinAssign(BinaryOperator *BO) {
@@ -406,6 +413,7 @@ public:
   void VisitArraySubscriptExpr(ArraySubscriptExpr *ASE);
   void VisitBinaryOperator(BinaryOperator *BO);
   void VisitBinAssign(BinaryOperator *BO);
+  void VisitBinComma(BinaryOperator *BO);
   void VisitCallExpr(CallExpr *CE);
   void VisitCStyleCastExpr(CStyleCastExpr *CSCE);
   void VisitDeclRefExpr(DeclRefExpr *DRE);
@@ -468,6 +476,15 @@ void ActionExtract::VisitBinaryOperator(BinaryOperator *BO) {
     Visit(BO->getLHS());
     Visit(BO->getRHS());
   }
+}
+
+void ActionExtract::VisitBinComma(BinaryOperator *BO) {
+  std::vector<std::unique_ptr<Action>> LHSActions =
+      ActionExtract(BO->getLHS(), nullptr, SourceLocation(), rc).GetAction();
+  actions.insert(actions.end(), std::make_move_iterator(LHSActions.begin()),
+                 std::make_move_iterator(LHSActions.end()));
+  op = RHS;
+  Visit(BO->getRHS());
 }
 
 void ActionExtract::VisitBinAssign(BinaryOperator *BO) {
