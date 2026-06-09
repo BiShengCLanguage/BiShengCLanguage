@@ -10795,12 +10795,6 @@ Sema::CheckSingleAssignmentConstraints(QualType LHSType, ExprResult &CallerRHS,
     if (!IsSafeConversion(LHSType, RHS.get())) {
       return IncompatibleBSCSafeZone;
     }
-
-    if (LHSType->isFunctionPointerType() &&
-        (RHS.get()->getType()->isFunctionPointerType() ||
-         RHS.get()->getType()->isFunctionType())) {
-      CheckEnsureInitFunctionPointerType(LHSType, RHS.get());
-    }
   }
 #endif
 

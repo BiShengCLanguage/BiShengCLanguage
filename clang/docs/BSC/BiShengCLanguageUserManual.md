@@ -6023,7 +6023,7 @@ _Safe void init_value(int *_Borrow out) { // ok: 不safe/safe unsafe/unsafe comp
 }
 ```
 
-**函数指针兼容性**：`ensure_init` 是函数类型的一部分。将不具有 `ensure_init` 的函数赋值给需要 `ensure_init` 的函数指针是不允许的：
+**函数指针兼容性**：`ensure_init` 是函数类型的一部分。在 safe zone 中，不能把不具有 `ensure_init` 的函数转换为需要 `ensure_init` 的函数指针，赋值和显式强制转换都不行。在 unsafe zone 中，强制转换由用户自行负责，不受此约束：
 
 ```c
 typedef _Safe void (*InitFn)(int *__attribute__((ensure_init)) _Borrow out);
@@ -6034,6 +6034,10 @@ _Safe void no_attr(int *_Borrow out) { *out = 1; }
 _Safe void test(void) {
     InitFn fn = has_attr; // ok: 签名匹配
     // InitFn fn2 = no_attr; // error: 目标需要 ensure_init 但源没有
+    // InitFn fn3 = (InitFn)no_attr; // error: safe zone 中显式强制转换也不能绕过该约束
+    _Unsafe {
+        InitFn fn4 = (InitFn)no_attr; // ok: unsafe zone 中由用户自行负责，允许强制转换
+    }
 }
 ```
 

@@ -1,0 +1,91 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// In the safe zone an explicit C-style cast must not launder the ensure_init
+// contract onto a function that lacks it: a cast must be no more permissive
+// than an implicit assignment (see init-ensure-init-fnptr-compat.cbs).
+// Otherwise the caller credits *out as initialized while the callee never wrote
+// it -> read of uninitialized memory in a _Safe function. Unsafe-zone casts are
+// the user's responsibility and are allowed (see Positive test).
+//
+// Naming: cast-target *types* are FPtr_<required contract>; cast-source
+// *functions* are fn_<contract they have, or no_contract>.
+
+typedef _Safe int (*FPtr_EnsureInit)(int *_Borrow __attribute__((ensure_init)) out);
+typedef _Safe int (*FPtr_NoContract)(int *_Borrow out);
+
+_Safe int fn_no_contract(int *_Borrow out) { return 0; }
+_Safe int fn_ensure_init(int *_Borrow __attribute__((ensure_init)) out) { *out = 1; return 0; }
+
+// The soundness hole: cast launders the contract, caller reads a never-init local.
+_Safe int leak_uninit(void) {
+    FPtr_EnsureInit g = (FPtr_EnsureInit)fn_no_contract; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    int a;
+    int r = g(&_Mut a);
+    if (r == 0) {
+        return a;
+    }
+    return -1;
+}
+
+// Cast in an assignment expression context (not just initialization).
+_Safe int cast_in_assign(void) {
+    FPtr_EnsureInit g;
+    g = (FPtr_EnsureInit)fn_no_contract; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    return 0;
+}
+
+// Cast of a no-contract function pointer *variable* to a contract type.
+_Safe int cast_fnptr_var(void) {
+    FPtr_NoContract plain_ptr = fn_no_contract;
+    FPtr_EnsureInit g = (FPtr_EnsureInit)plain_ptr; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    return 0;
+}
+
+// Double cast: round-trip through the weaker type cannot reach the contract type.
+_Safe int double_cast(void) {
+    FPtr_EnsureInit g = (FPtr_EnsureInit)(FPtr_NoContract)fn_no_contract; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    return 0;
+}
+
+// Multi-param: target requires the contract on parameter 0, source has none.
+typedef _Safe int (*FPtr_EnsureInit2)(int *_Borrow __attribute__((ensure_init)) a, int *_Borrow b);
+_Safe int fn_no_contract2(int *_Borrow a, int *_Borrow b) { return 0; }
+
+_Safe int multi_param_none(void) {
+    FPtr_EnsureInit2 g = (FPtr_EnsureInit2)fn_no_contract2; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    return 0;
+}
+
+// Multi-param: source has the contract on a different parameter than required.
+_Safe int fn_ensure_init_p1(int *_Borrow a, int *_Borrow __attribute__((ensure_init)) b) { *b = 1; return 0; }
+
+_Safe int multi_param_wrong_slot(void) {
+    FPtr_EnsureInit2 g = (FPtr_EnsureInit2)fn_ensure_init_p1; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    return 0;
+}
+
+// ensure_init_if_ret follows the same rule: a safe-zone cast cannot grant it.
+typedef _Safe int (*FPtr_IfRet0)(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+typedef _Safe int (*FPtr_IfRet1)(int *_Borrow __attribute__((ensure_init_if_ret(1))) out);
+
+_Safe int fn_no_ifret(int *_Borrow out) { return 0; }
+_Safe int fn_ifret0(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) { *out = 1; return 0; }
+_Safe int fn_ifret1(int *_Borrow __attribute__((ensure_init_if_ret(1))) out) { *out = 1; return 1; }
+
+// Cast a no-contract function to an ensure_init_if_ret function pointer.
+_Safe int ifret_cast_missing(void) {
+    FPtr_IfRet0 g = (FPtr_IfRet0)fn_no_ifret; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init_if_ret)) on parameter 0 but source does not have it}}
+    return 0;
+}
+
+// Different cond value: source promises init on return 1, target on return 0.
+_Safe int ifret_cast_cond_mismatch(void) {
+    FPtr_IfRet0 g = (FPtr_IfRet0)fn_ifret1; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init_if_ret(0))) on parameter 0 but source has __attribute__((ensure_init_if_ret(1)))}}
+    return 0;
+}
+
+// Symmetric direction of the cond-value mismatch.
+_Safe int ifret_cast_cond_mismatch_rev(void) {
+    FPtr_IfRet1 g = (FPtr_IfRet1)fn_ifret0; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init_if_ret(1))) on parameter 0 but source has __attribute__((ensure_init_if_ret(0)))}}
+    return 0;
+}

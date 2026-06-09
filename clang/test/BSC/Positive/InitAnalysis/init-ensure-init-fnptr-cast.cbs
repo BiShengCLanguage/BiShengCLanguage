@@ -1,0 +1,129 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// Casts allowed: (1) in the safe zone when the source contract is at least as
+// strong as the target's (only target-stronger is rejected, see Negative test);
+// (2) any function-pointer cast in an unsafe zone (user's responsibility).
+
+typedef _Safe int (*FP0)(int *_Borrow __attribute__((ensure_init)) out);
+typedef _Safe int (*FPN)(int *_Borrow out);
+
+_Safe int bar(int *_Borrow out) { return 0; }
+_Safe int has_attr(int *_Borrow __attribute__((ensure_init)) out) { *out = 1; return 0; }
+
+// Contract -> contract: signatures match, the call marks the local initialized.
+_Safe int cast_contract_to_contract(void) {
+    FP0 g = (FP0)has_attr;
+    int a;
+    int r = g(&_Mut a);
+    return a;
+}
+
+// Contract -> no-contract (stronger -> weaker): caller just loses the credit.
+_Safe int cast_contract_to_plain(void) {
+    FPN g = (FPN)has_attr;
+    int a = 0;
+    g(&_Mut a);
+    return a;
+}
+
+// No-contract -> no-contract: unrelated to the contract.
+_Safe int cast_plain_to_plain(void) {
+    FPN g = (FPN)bar;
+    return 0;
+}
+
+// Cast through an already-contract-typed variable.
+_Safe int cast_contract_var(void) {
+    FP0 g = (FP0)has_attr;
+    FP0 h = (FP0)g;
+    return 0;
+}
+
+// Multi-param: source has the contract the target requires on parameter 0.
+typedef _Safe int (*FP3)(int *_Borrow __attribute__((ensure_init)) a, int *_Borrow b);
+_Safe int qux(int *_Borrow __attribute__((ensure_init)) a, int *_Borrow b) { *a = 1; return 0; }
+
+_Safe int cast_multi_param_ok(void) {
+    FP3 g = (FP3)qux;
+    return 0;
+}
+
+// ensure_init_if_ret follows the same rules.
+typedef _Safe int (*FR0)(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+typedef _Safe int (*FRN)(int *_Borrow out);
+
+_Safe int ret_zero(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) { *out = 1; return 0; }
+
+// Same cond value: local credited only on the matching-return branch.
+_Safe int ifret_cast_same_cond(void) {
+    FR0 g = (FR0)ret_zero;
+    int a;
+    int r = g(&_Mut a);
+    if (r != 0) return r;
+    return a;
+}
+
+// Conditional contract -> no-contract (stronger -> weaker).
+_Safe int ifret_cast_to_plain(void) {
+    FRN g = (FRN)ret_zero;
+    int a = 0;
+    g(&_Mut a);
+    return a;
+}
+
+// --- Unsafe zone: contract check is not applied (user's responsibility).
+
+// No-contract function laundered onto a contract pointer in an unsafe function.
+typedef int (*FPtr_EnsureInitUnsafe)(int *_Borrow __attribute__((ensure_init)) out);
+int fn_no_contract_unsafe(int *_Borrow out) { return 0; }
+
+_Unsafe int unsafe_zone_cast(void) {
+    FPtr_EnsureInitUnsafe g = (FPtr_EnsureInitUnsafe)fn_no_contract_unsafe;
+    return 0;
+}
+
+// Same laundering inside an _Unsafe block of a safe function.
+_Safe int unsafe_block_cast(void) {
+    FP0 g;
+    _Unsafe {
+        g = (FP0)bar;
+    }
+    return 0;
+}
+
+// Cast chain through void* (only reachable in an unsafe zone).
+_Safe int cast_chain_voidptr(void) {
+    FP0 g;
+    _Unsafe {
+        g = (FP0)(void *)bar;
+    }
+    return 0;
+}
+
+// Cast chain through an integer.
+_Safe int cast_chain_integer(void) {
+    FP0 g;
+    _Unsafe {
+        g = (FP0)(unsigned long)bar;
+    }
+    return 0;
+}
+
+// Cast chain whose ultimate operand is not a function.
+_Safe int cast_chain_non_function(int *_Borrow p) {
+    FP0 g;
+    _Unsafe {
+        g = (FP0)(void *)p;
+    }
+    return 0;
+}
+
+// ensure_init_if_ret laundering in an unsafe zone.
+_Safe int ifret_cast_chain(void) {
+    FR0 g;
+    _Unsafe {
+        g = (FR0)(void *)bar;
+    }
+    return 0;
+}

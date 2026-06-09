@@ -607,6 +607,12 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
   if (!LHSFuncType || !RHSFuncType)
     return true;
 
+  // ensure_init is part of the function type. In the safe zone a cast cannot
+  // launder a contract the source lacks (no more permissive than assignment);
+  // in an unsafe zone the cast is the user's responsibility, so it is allowed.
+  if (IsInSafeZone() && !CheckEnsureInitFunctionPointerType(DestType, SrcExpr))
+    return false;
+
   // For heterogeneous function redeclarations (functions with both safe and
   // unsafe declarations), select the appropriate declaration based on the
   // destination function pointer type and assignment constraints.
