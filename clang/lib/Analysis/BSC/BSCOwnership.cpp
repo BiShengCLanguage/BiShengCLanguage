@@ -1349,7 +1349,20 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                           VD->getNameAsString() + "." + fullFieldName));
   }
-  if ((is(VD, Uninitialized) || has(VD, Uninitialized)) && diags.empty()) {
+  // The whole-struct Uninitialized bit is coarse: it is set whenever ANY owned
+  // field is still uninitialized. Each _Owned field is tracked individually, so
+  // reading a field that has already acquired ownership must be accepted even
+  // while a sibling field remains uninitialized. Suppress this field-level
+  // uninit diagnostic when the field
+  // being read -- or the owned pointer it dereferences (`a.`/`a*` -> `a`) -- is
+  // currently owned.
+  bool fieldIsOwned = SOwnedOwnedFields[VD].count(fullFieldName);
+  if (!fieldIsOwned && !fullFieldName.empty() &&
+      (fullFieldName.back() == '.' || fullFieldName.back() == '*'))
+    fieldIsOwned = SOwnedOwnedFields[VD].count(
+        fullFieldName.substr(0, fullFieldName.size() - 1));
+  if ((is(VD, Uninitialized) || has(VD, Uninitialized)) && !fieldIsOwned &&
+      diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfUninit,
                           VD->getNameAsString() + "." + fullFieldName));

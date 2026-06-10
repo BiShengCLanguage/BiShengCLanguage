@@ -1,0 +1,49 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// The fix that stops a field assignment leaving the struct in the
+// Uninitialized state must not suppress genuine diagnostics. Reconciling
+// the whole-struct status only happens when an _Owned field actually acquires
+// ownership, so an unrelated plain-field write does not whitewash an
+// uninitialized owned field.
+
+_Safe int *_Owned mk(void);
+_Safe void take(void *_Owned p);
+
+struct Box { int *_Owned p; int tag; };
+
+// Owned field never assigned: reading it is still uninitialized. Writing only
+// the plain field `tag` must not clear the owned field's uninit state.
+_Safe int read_owned_field_never_assigned(void) {
+    struct Box b;
+    b.tag = 0;
+    int r = *b.p; // expected-error {{use of uninitialized value: `b.p`}} expected-error {{use of uninitialized value: `b.p.`}} expected-error {{use of uninitialized value: `b.p*`}}
+    return r;
+}
+
+// Field assigned then moved out, then the whole struct used: still partially
+// moved.
+_Safe void sink(struct Box x) { take((void *_Owned)x.p); }
+_Safe void use_whole_after_field_moved(void) {
+    struct Box b;
+    b.tag = 0;
+    b.p = mk();
+    take((void *_Owned)b.p);
+    sink(b); // expected-error {{use of partially moved value: `b`, b.p is moved}}
+}
+
+// Owned field assigned but its resource never released: memory leak.
+_Safe void field_assigned_not_freed(void) {
+    struct Box b;
+    b.tag = 0;
+    b.p = mk();
+    *b.p = 5;
+} // expected-error {{field memory leak of value: `b`, b.p is leak}}
+
+// Two owned fields, only one assigned: the whole struct use is still rejected.
+struct Two { int *_Owned a; int *_Owned b; };
+_Safe void sink_two(struct Two x) { take((void *_Owned)x.a); take((void *_Owned)x.b); }
+_Safe void use_whole_with_one_field_uninit(void) {
+    struct Two t;
+    t.a = mk();
+    sink_two(t); // expected-error {{use of uninitialized value: `t`}} expected-error {{use of partially moved value: `t`, t.b is moved}}
+}

@@ -1,0 +1,134 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// Assigning an _Owned field (`b.p = mk();`) grants that field ownership,
+// so the containing struct is no longer
+// wholly uninitialized. A subsequent deref-store `*b.p = v` and read `*b.p` must
+// be accepted, exactly as the brace-initialized form already was. Previously the
+// ownership checker left the struct in the Uninitialized state after a field
+// assignment and wrongly rejected the read with "use of uninitialized value".
+
+_Safe int *_Owned mk(void);
+_Safe void take(void *_Owned p);
+
+struct Box { int *_Owned p; int tag; };
+
+// The reported false positive: field-assign init, write the pointee, read it.
+_Safe int field_assign_then_deref(void) {
+    struct Box b;
+    b.tag = 0;
+    b.p = mk();
+    *b.p = 5;
+    int r = *b.p;
+    take((void *_Owned)b.p);
+    return r;
+}
+
+// Owned field assigned before the plain field (order independence).
+_Safe int owned_field_first(void) {
+    struct Box b;
+    b.p = mk();
+    b.tag = 0;
+    *b.p = 5;
+    int r = *b.p;
+    take((void *_Owned)b.p);
+    return r;
+}
+
+// Repeated stores through the field deref.
+_Safe int repeated_deref_store(void) {
+    struct Box b;
+    b.tag = 0;
+    b.p = mk();
+    *b.p = 5;
+    *b.p = 6;
+    int r = *b.p;
+    take((void *_Owned)b.p);
+    return r;
+}
+
+// Move the whole struct after every owned field has acquired ownership.
+_Safe void sink(struct Box x) { take((void *_Owned)x.p); }
+_Safe void field_assign_then_move_whole(void) {
+    struct Box b;
+    b.tag = 0;
+    b.p = mk();
+    *b.p = 5;
+    sink(b);
+}
+
+// Multiple owned fields, all assigned, all read.
+struct Two { int *_Owned a; int *_Owned b; };
+_Safe int multi_field_all_assigned(void) {
+    struct Two t;
+    t.a = mk();
+    t.b = mk();
+    *t.a = 1;
+    *t.b = 2;
+    int r = *t.a + *t.b;
+    take((void *_Owned)t.a);
+    take((void *_Owned)t.b);
+    return r;
+}
+
+// Nested struct: owned field reached through a plain struct field.
+struct Inner { int *_Owned p; };
+struct Outer { struct Inner in; int tag; };
+_Safe int nested_field_assign(void) {
+    struct Outer o;
+    o.tag = 0;
+    o.in.p = mk();
+    *o.in.p = 7;
+    int r = *o.in.p;
+    take((void *_Owned)o.in.p);
+    return r;
+}
+
+// Brace-initialized control (already accepted before the fix).
+_Safe int brace_init_control(void) {
+    struct Box b = { mk(), 0 };
+    *b.p = 5;
+    int r = *b.p;
+    take((void *_Owned)b.p);
+    return r;
+}
+
+// Direct (non-field) owned pointer control (already accepted before the fix).
+_Safe int direct_pointer_control(void) {
+    int *_Owned p = mk();
+    *p = 5;
+    int r = *p;
+    take((void *_Owned)p);
+    return r;
+}
+
+// Per-field read while a sibling owned field is still uninitialized. Each
+// _Owned field is tracked individually, so reading the already-assigned
+// `t.a` must be accepted even though `t.b` has not been assigned yet. The
+// whole-struct reconciliation does not fire here (not every owned field is
+// owned), so this exercises the field-level uninit gate in checkSFieldUse.
+_Safe int read_assigned_field_before_second_field(void) {
+    struct Two t;
+    t.a = mk();
+    *t.a = 1;      // store through the owned field
+    int r = *t.a;  // read through the owned field, t.b still uninitialized
+    t.b = mk();
+    take((void *_Owned)t.a);
+    take((void *_Owned)t.b);
+    return r;
+}
+
+// Repeated reads of one owned field before the sibling is assigned.
+_Safe int repeated_read_before_sibling(void) {
+    struct Two t;
+    t.a = mk();
+    *t.a = 1;
+    int x = *t.a;
+    int y = *t.a;
+    t.b = mk();
+    *t.b = 2;
+    int z = *t.b;
+    take((void *_Owned)t.a);
+    take((void *_Owned)t.b);
+    return x + y + z;
+}
