@@ -2,15 +2,15 @@
 // expected-no-diagnostics
 
 _Safe int *_Owned _ArrayElem safe_malloc_array(unsigned long size, int init);
-_Safe void safe_free_array(int *_Owned _ArrayElem p);
+_Safe void safe_free_array(void *_Owned _ArrayElem p);
 
 _Safe void test_safe_malloc_array_api(void) {
   int *_Owned _ArrayElem arr = safe_malloc_array(4, 7);
   arr[0] = arr[1] + arr[2];
-  safe_free_array(arr);
+  safe_free_array((void *_Owned _ArrayElem)arr);
 
   int *_Owned _ArrayElem zero = safe_malloc_array(0, 99);
-  safe_free_array(zero);
+  safe_free_array((void *_Owned _ArrayElem)zero);
 }
 
 _Unsafe int *move_to_raw_then_take_back(void) {

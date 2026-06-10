@@ -1,0 +1,16 @@
+#include "bishengc_safety.hbs"
+
+struct NonZeroInit {
+    int a;
+    int * _Nonnull p;
+};
+
+void test_safe_calloc_non_zero_init(void) {
+    struct NonZeroInit * _Owned p = safe_calloc<struct NonZeroInit>(); // expected-note {{in instantiation of function template specialization 'safe_calloc<struct NonZeroInit>' requested here}}
+} // expected-error {{memory leak of value: `p`}}
+// expected-error@bishengc_safety.hbs:* {{type contains nonnull pointer must be properly initialized}}
+
+void test_safe_calloc_array_non_zero_init(void) {
+    struct NonZeroInit * _Owned _ArrayElem arr = safe_calloc_array<struct NonZeroInit>(4); // expected-note {{in instantiation of function template specialization 'safe_calloc_array<struct NonZeroInit>' requested here}}
+} // expected-error {{memory leak of value: `arr`}}
+// expected-error@bishengc_safety.hbs:* {{type contains nonnull pointer must be properly initialized}}

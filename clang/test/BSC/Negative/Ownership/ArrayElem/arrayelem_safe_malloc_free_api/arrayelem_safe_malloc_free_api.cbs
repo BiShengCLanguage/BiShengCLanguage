@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
 _Safe int *_Owned _ArrayElem safe_malloc_array(unsigned long size, int init);
-_Safe void safe_free_array(int *_Owned _ArrayElem p); // expected-note {{passing argument to parameter 'p' here}}
+_Safe void safe_free_array(void *_Owned _ArrayElem p); // expected-note {{passing argument to parameter 'p' here}}
 
 _Safe void bad_assignments(void) {
   int *_Owned p = safe_malloc_array(3, 1); // expected-error {{conversion from type 'int *_Owned _ArrayElem' to 'int *_Owned' is forbidden in the safe zone}}
@@ -11,11 +11,11 @@ _Safe void bad_assignments(void) {
 }
 
 _Safe void bad_free_arg(int *_Owned p) {
-  safe_free_array((int *_Owned _ArrayElem)p); // expected-error {{conversion from type 'int *_Owned' to 'int *_Owned _ArrayElem' is forbidden in the safe zone}}
+  safe_free_array((void *_Owned _ArrayElem)p); // expected-error {{incompatible _Owned types, cannot cast 'int *_Owned' to 'void *_Owned _ArrayElem'}}
 }
 
 _Safe void bad_free_raw(int *p) {
-  safe_free_array((int *_Owned _ArrayElem)p); // expected-error {{conversion from type 'int *' to 'int *_Owned _ArrayElem' is forbidden in the safe zone}}
+  safe_free_array((void *_Owned _ArrayElem)p); // expected-error {{conversion from type 'int *' to 'void *_Owned _ArrayElem' is forbidden in the safe zone}}
 }
 
 _Unsafe void bad_unsafe_cast_to_raw(void) {
@@ -26,5 +26,5 @@ _Unsafe void bad_unsafe_cast_to_raw(void) {
 
 _Safe void bad_multi_level_api_args(void) {
   int **_Owned _ArrayElem pp = safe_malloc_array(2, 0); // expected-error {{conversion from type 'int *_Owned _ArrayElem' to 'int **_Owned _ArrayElem' is forbidden in the safe zone}}
-  safe_free_array(pp); // expected-error {{conversion from type 'int **_Owned _ArrayElem' to 'int *_Owned _ArrayElem' is forbidden in the safe zone}}
+  safe_free_array(pp); // expected-error {{incompatible _Owned types, cannot cast 'int **_Owned _ArrayElem' to 'void *_Owned _ArrayElem'}}
 }

@@ -46,10 +46,10 @@ void test3() {
         _Unsafe { abort(); }
     }
 
-    safe_free_array(arr);
+    safe_free_array((void * _Owned _ArrayElem)arr);
 
     int *_Owned _ArrayElem zero = safe_malloc_array(0, 99);
-    safe_free_array(zero);
+    safe_free_array((void * _Owned _ArrayElem)zero);
 }
 
 void test4() {
@@ -69,7 +69,7 @@ void test4() {
             _Unsafe { abort(); }
         }
     }
-    safe_free_array(arr);
+    safe_free_array((void * _Owned _ArrayElem)arr);
 
     for (unsigned long round = 0; round < 16; ++round) {
         unsigned long len = (round % 7) + 1;
@@ -86,7 +86,84 @@ void test4() {
                 _Unsafe { abort(); }
             }
         }
-        safe_free_array(tmp);
+        safe_free_array((void * _Owned _ArrayElem)tmp);
+    }
+}
+
+void test5() {
+    int *_Owned ip = safe_calloc<int>();
+    if (*ip != 0) {
+        _Unsafe { abort(); }
+    }
+    safe_free((void* _Owned)ip);
+
+    double *_Owned dp = safe_calloc<double>();
+    if (*dp != 0.0) {
+        _Unsafe { abort(); }
+    }
+    safe_free((void* _Owned)dp);
+
+    struct S s = { .a = safe_calloc<int>(), .b = safe_calloc<int>() };
+    if (*s.a != 0 || *s.b != 0) {
+        _Unsafe { abort(); }
+    }
+    safe_free((void* _Owned)s.a);
+    safe_free((void* _Owned)s.b);
+}
+
+void test6() {
+    int *_Owned _ArrayElem arr = safe_calloc_array<int>(4);
+    for (size_t i = 0; i < 4; ++i) {
+        if (arr[i] != 0) {
+            _Unsafe { abort(); }
+        }
+    }
+
+    arr[2] = 42;
+    if (arr[2] != 42 || arr[1] != 0) {
+        _Unsafe { abort(); }
+    }
+
+    safe_free_array((void * _Owned _ArrayElem)arr);
+
+    int *_Owned _ArrayElem zero = safe_calloc_array<int>(0);
+    safe_free_array((void * _Owned _ArrayElem)zero);
+}
+
+void test7() {
+    const unsigned long n = 64;
+    int *_Owned _ArrayElem arr = safe_calloc_array<int>(n);
+    for (unsigned long i = 0; i < n; ++i) {
+        if (arr[i] != 0) {
+            _Unsafe { abort(); }
+        }
+    }
+
+    for (unsigned long i = 0; i < n; ++i) {
+        arr[i] = (int)(i * 2 + 1);
+    }
+    for (unsigned long i = 0; i < n; ++i) {
+        if (arr[i] != (int)(i * 2 + 1)) {
+            _Unsafe { abort(); }
+        }
+    }
+    safe_free_array((void * _Owned _ArrayElem)arr);
+
+    for (unsigned long round = 0; round < 16; ++round) {
+        unsigned long len = (round % 7) + 1;
+        int *_Owned _ArrayElem tmp = safe_calloc_array<int>(len);
+        for (unsigned long i = 0; i < len; ++i) {
+            if (tmp[i] != 0) {
+                _Unsafe { abort(); }
+            }
+            tmp[i] = (int)(i + round);
+        }
+        for (unsigned long i = 0; i < len; ++i) {
+            if (tmp[i] != (int)(i + round)) {
+                _Unsafe { abort(); }
+            }
+        }
+        safe_free_array((void * _Owned _ArrayElem)tmp);
     }
 }
 
@@ -95,5 +172,8 @@ int main() {
     test2();
     test3();
     test4();
+    test5();
+    test6();
+    test7();
     return 0;
 }

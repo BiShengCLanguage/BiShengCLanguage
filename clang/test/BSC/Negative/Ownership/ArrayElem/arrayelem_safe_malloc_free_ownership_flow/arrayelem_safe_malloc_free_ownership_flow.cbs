@@ -1,23 +1,23 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
 _Safe int *_Owned _ArrayElem safe_malloc_array(unsigned long size, int init);
-_Safe void safe_free_array(int *_Owned _ArrayElem p);
+_Safe void safe_free_array(void *_Owned _ArrayElem p);
 
 _Safe void use_after_free(void) {
   int *_Owned _ArrayElem p = safe_malloc_array(2, 1);
-  safe_free_array(p);
+  safe_free_array((void *_Owned _ArrayElem)p);
   p[0] = 3; // expected-error {{use of moved value: `p`}}
 }
 
 _Safe void double_free(void) {
   int *_Owned _ArrayElem p = safe_malloc_array(2, 1);
-  safe_free_array(p);
-  safe_free_array(p); // expected-error {{use of moved value: `p`}}
+  safe_free_array((void *_Owned _ArrayElem)p);
+  safe_free_array((void *_Owned _ArrayElem)p); // expected-error {{invalid cast to `void * _Owned` of moved or uninitialized value: `p`}}
 }
 
 _Safe void use_after_move(void) {
   int *_Owned _ArrayElem p = safe_malloc_array(2, 1);
   int *_Owned _ArrayElem q = p;
   p[0] = 1; // expected-error {{use of moved value: `p`}}
-  safe_free_array(q);
+  safe_free_array((void *_Owned _ArrayElem)q);
 }

@@ -3945,22 +3945,25 @@ T * _Borrow _ArrayElem ptr; // error
 
 **分配与释放**
 
-`_Owned _ArrayElem` 指针的分配与释放通过 `safe_malloc_array` 与 `safe_free_array` 实现：
+`_Owned _ArrayElem` 指针的分配与释放通过 `safe_malloc_array`/`safe_calloc_array` 与 `safe_free_array` 实现：
 
 ```c
 #include "bishengc_safety.hbs"
 // _Safe T *_Owned _ArrayElem safe_malloc_array<T>(size_t size, T initializer);
+// _Safe T *_Owned _ArrayElem safe_calloc_array<T>(size_t size);
 // _Safe void safe_free_array(void *_Owned _ArrayElem);
 
 _Safe int main(void) {
-  int *_Owned _ArrayElem p = safe_malloc_array(10, 2); // 分配带有 10 个 int 的数组，每个元素初始化为 2
-  safe_free_array((void *_Owned _ArrayElem)p);
+  int *_Owned _ArrayElem p1 = safe_malloc_array(10, 2); // 分配带有 10 个 int 的数组，每个元素初始化为 2
+  int *_Owned _ArrayElem p2 = safe_calloc_array<int>(10); // 分配带有 10 个 int 的数组，每个元素初始化为 0
+  safe_free_array((void *_Owned _ArrayElem)p1);
+  safe_free_array((void *_Owned _ArrayElem)p2);
 }
 ```
 
-当 `safe_malloc_array` 的 `size` 为 0 时，该调用返回一个非空但不能解引用的指针。该指针也需要释放，否则仍视为内存泄漏。
+当 `safe_malloc_array`/`safe_calloc_array` 的 `size` 为 0 时，该调用返回一个非空但不能解引用的指针。该指针也需要释放，否则仍视为内存泄漏。
 
-`safe_malloc_array`、`safe_free_array` 实现会通过 `malloc`, `free` 进行分配、释放，因此由 `safe_malloc_array` 分配得到的 `_Owned _ArrayElem` 指针可以在转为裸指针后使用 `free` 释放，由 `malloc` 等分配函数分配得到的裸指针也可以在转为 `_Owned _ArrayElem` 指针后使用 `safe_free_array` 进行释放。
+`safe_malloc_array`/`safe_calloc_array` 与 `safe_free_array` 的实现会通过 `malloc`/`calloc` 与 `free` 进行分配、释放，因此由 `safe_malloc_array`/`safe_calloc_array` 分配得到的 `_Owned _ArrayElem` 指针可以在转为裸指针后使用 `free` 释放，由 `malloc`/`calloc` 等分配函数分配得到的裸指针也可以在转为 `_Owned _ArrayElem` 指针后使用 `safe_free_array` 进行释放。
 
 **允许的运算**
 
@@ -7257,7 +7260,35 @@ _Safe void example(void) {
 }
 ```
 
-#### 6.1.2. `safe_free`
+#### 6.1.2. `safe_calloc`
+
+`safe_calloc` 是 BiShengC 语言提供的一个安全的内存分配函数，其行为与 C 标准库的 `calloc` 类似。
+该函数接收一个泛型类型参数 `T`，在堆上分配一块足以存放一个 `T` 类型对象的内存，并将该内存**零初始化**。
+该函数的返回值为 `T * _Owned` 类型，即指向分配好的堆内存的 `_Owned` 指针。
+当 `_Owned` 指针生命周期结束前，必须通过 `safe_free` 进行释放。
+
+与 `safe_malloc` 不同，`safe_calloc` 不接受用于初始化的实参，所有字段（包括结构体成员与指针成员）均按零值初始化。
+对于指针类型的成员，零初始化意味着其值为空指针。对不可被零初始化的类型使用 `safe_calloc` 将导致编译报错。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void example(void) {
+    int * _Owned p = safe_calloc<int>();
+    // *p == 0
+
+    struct S {
+        int * _Owned _Nullable a;
+        int * _Owned _Nullable b;
+    };
+    struct S * _Owned sp = safe_calloc<struct S>();
+    // sp->a 与 sp->b 均为空指针
+
+    ...
+}
+```
+
+#### 6.1.3. `safe_free`
 
 `safe_free`是 BiShengC 语言提供的一个安全的内存释放函数。
 该函数接收一个`void * _Owned`类型的指针，表示要释放的内存的地址。
@@ -7284,7 +7315,77 @@ _Safe void example(void) {
 }
 ```
 
-#### 6.1.3. `safe_swap`
+#### 6.1.4. `safe_malloc_array`
+
+`safe_malloc_array` 是 BiShengC 语言提供的用于分配数组的安全内存分配函数。
+该函数接收一个泛型类型参数 `T`、数组长度 `size` 以及用于初始化每个元素的值 `initializer`，在堆上分配一块足以存放 `size` 个 `T` 类型对象的内存，并将每个元素初始化为 `initializer`。
+该函数的返回值为 `T * _Owned _ArrayElem` 类型，即指向分配好的堆数组的 `_Owned _ArrayElem` 指针。
+关于 `_Owned _ArrayElem` 指针的语义与使用限制，可参考 [3.3.1.2](#3312-_owned-_arrayelem-指针) 节。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void example(void) {
+    int * _Owned _ArrayElem arr = safe_malloc_array(10, 2);
+    // arr[0] 至 arr[9] 的值均为 2
+
+    arr[3] = 42;
+    safe_free_array((void * _Owned _ArrayElem)arr);
+}
+```
+
+当 `size` 为 0 时，该调用返回一个非空但不能解引用的指针。该指针也需要通过 `safe_free_array` 释放，否则仍视为内存泄漏。
+
+`safe_malloc_array` 的实现通过 `malloc` 进行分配，因此由 `safe_malloc_array` 分配得到的 `_Owned _ArrayElem` 指针可以在转为裸指针后使用 `free` 释放；由 `malloc` 等分配函数分配得到的裸指针也可以在转为 `_Owned _ArrayElem` 指针后使用 `safe_free_array` 进行释放。
+
+#### 6.1.5. `safe_free_array`
+
+`safe_free_array` 是 BiShengC 语言提供的用于释放数组的安全内存释放函数。
+该函数接收一个 `void * _Owned _ArrayElem` 类型的指针，表示要释放的堆数组。
+该函数的返回值为 `void` 类型。
+因此，在调用 `safe_free_array` 进行释放前需要将 `T * _Owned _ArrayElem` 指针显式地转换为 `void * _Owned _ArrayElem` 类型。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void example(void) {
+    int * _Owned _ArrayElem arr = safe_malloc_array(4, 7);
+    safe_free_array((void * _Owned _ArrayElem)arr);
+}
+```
+
+由于 `_Owned _ArrayElem` 指针不允许进行指针算术运算，在调用 `safe_free_array` 前必须保证传入的是未偏移的数组首地址，否则可能导致 invalid free。若需要对数组进行偏移访问，应先生成 `_Borrow _ArrayElem` 借用指针后再进行运算（参见 [3.3.1.2](#3312-_owned-_arrayelem-指针) 节）。
+
+#### 6.1.6. `safe_calloc_array`
+
+`safe_calloc_array` 是 BiShengC 语言提供的用于分配数组的安全内存分配函数，其行为与 C 标准库的 `calloc` 类似。
+该函数接收一个泛型类型参数 `T` 以及数组长度 `size`，在堆上分配一块足以存放 `size` 个 `T` 类型对象的内存，并将所有元素**零初始化**。
+该函数的返回值为 `T * _Owned _ArrayElem` 类型。
+当 `_Owned _ArrayElem` 指针生命周期结束前，必须通过 `safe_free_array` 进行释放。
+
+与 `safe_malloc_array` 不同，`safe_calloc_array` 不接受用于初始化每个元素的实参，所有元素均按零值初始化。
+由于缺少初始化实参，调用 `safe_calloc_array` 时需要显式指定模板类型参数，例如 `safe_calloc_array<int>(10)`。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void example(void) {
+    int * _Owned _ArrayElem arr = safe_calloc_array<int>(10);
+    // arr[0] 至 arr[9] 的值均为 0
+
+    arr[5] = 100;
+    safe_free_array((void * _Owned _ArrayElem)arr);
+
+    int * _Owned _ArrayElem empty = safe_calloc_array<int>(0);
+    safe_free_array((void * _Owned _ArrayElem)empty);
+}
+```
+
+当 `size` 为 0 时，该调用返回一个非空但不能解引用的指针，与 `safe_malloc_array` 的行为一致，同样需要通过 `safe_free_array` 释放。
+
+`safe_calloc_array` 的实现通过 `calloc` 进行分配，因此由 `safe_calloc_array` 分配得到的 `_Owned _ArrayElem` 指针可以在转为裸指针后使用 `free` 释放；由 `calloc` 等分配函数分配得到的裸指针也可以在转为 `_Owned _ArrayElem` 指针后使用 `safe_free_array` 进行释放。
+
+#### 6.1.7. `safe_swap`
 
 `safe_swap`是 BiShengC 语言提供的一个安全交换两个变量的值的函数。
 该函数是一个泛型函数,接收两个类型为`T* _Borrow`类型的参数,即需要交换的变量的值的借用。
@@ -7309,7 +7410,7 @@ _Safe void example(void) {
 }
 ```
 
-#### 6.1.4. `forget`
+#### 6.1.8. `forget`
 
 `forget` 主要用于获取变量的所有权并且“忘记”它，该函数是一个泛型函数，接收一个类型为泛型类型`T`的变量，表示要“忘记”的值：
 1. 如果该变量是 _Owned 指针，那么该指针指向的内存不会被释放；

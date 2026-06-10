@@ -68,3 +68,9 @@ _Safe void safe_free(void * _Nullable _Owned p) {
 		free(__move_to_raw(p));
 	}
 }
+
+_Safe void safe_free_array(void * _Owned _ArrayElem p) {
+	_Unsafe {
+		free(__move_array_to_raw(p));
+	}
+}

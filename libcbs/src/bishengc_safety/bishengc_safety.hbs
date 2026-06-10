@@ -24,6 +24,7 @@ _Safe _Noreturn void bsc_refcell_mut_borrow_failed(void);
 _Safe _Noreturn void bsc_refcell_immut_borrow_failed(void);
 
 _Safe void safe_free(void * _Nullable _Owned p);
+_Safe void safe_free_array(void * _Owned _ArrayElem p);
 
 // Takes ownership and “forgets” about the value without running its destructor.
 _Safe void forget<T>(T t) {
@@ -40,8 +41,24 @@ _Safe T *_Owned safe_malloc<T>(T t) {
             addr = &t;
             forget<T>(t);
             bsc_bad_alloc_handler(sizeof(T));
+            abort();
         } else {
             *addr = t;
+        }
+        return __take_from_raw(addr);
+    }
+}
+
+_Safe T *_Owned safe_calloc<T>(void) {
+    if (0) {
+        T tmp = {0}; // error if T is not zero-initializable
+        (void)tmp;
+    }
+    _Unsafe {
+        T *addr = (T *)calloc(1, sizeof(T));
+        if (!addr) {
+            bsc_bad_alloc_handler(sizeof(T));
+            abort();
         }
         return __take_from_raw(addr);
     }
@@ -58,6 +75,7 @@ _Safe T *_Owned _ArrayElem safe_malloc_array<T>(size_t size, T initializer) {
             (void)tmp;
             forget<T>(initializer);
             bsc_overflow_handler();
+            abort();
         }
 
         T *addr = (T *)malloc(bytes);
@@ -66,6 +84,7 @@ _Safe T *_Owned _ArrayElem safe_malloc_array<T>(size_t size, T initializer) {
             (void)tmp;
             forget<T>(initializer);
             bsc_bad_alloc_handler(bytes);
+            abort();
         }
 
         for (size_t i = 0; i < size; ++i) {
@@ -76,9 +95,26 @@ _Safe T *_Owned _ArrayElem safe_malloc_array<T>(size_t size, T initializer) {
     }
 }
 
-_Safe void safe_free_array<T>(T * _Owned _ArrayElem p) {
+_Safe T *_Owned _ArrayElem safe_calloc_array<T>(size_t size) {
+    if (0) {
+        T tmp = {0}; // error if T is not zero-initializable
+        (void)tmp;
+    }
     _Unsafe {
-        free(__move_array_to_raw(p));
+        size_t bytes = 0;
+        if (size == 0) {
+            // Keep zero-length arrays representable and releasable.
+            bytes = 1;
+        } else if (__builtin_mul_overflow(size, sizeof(T), &bytes)) {
+            bsc_overflow_handler();
+            abort();
+        }
+        T *addr = (T *)((size == 0)? calloc(1, 1) : calloc(size, sizeof(T)));
+        if (!addr) {
+            bsc_bad_alloc_handler(bytes);
+            abort();
+        }
+        return __take_array_from_raw(addr);
     }
 }
 
