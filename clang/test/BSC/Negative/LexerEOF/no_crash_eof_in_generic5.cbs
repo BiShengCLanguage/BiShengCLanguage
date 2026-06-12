@@ -1,0 +1,7 @@
+// RUN: not %clang_cc1 -fsyntax-only -xbsc %s 2>&1 | FileCheck %s
+// CHECK: error:
+// CHECK-NOT: PLEASE submit a bug report
+//
+// Malformed generic expression at EOF while parsing an if condition.
+
+struct Vec<a>{}b(){if(Vec<(>::

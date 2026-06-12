@@ -1110,6 +1110,10 @@ ExprResult Parser::ParseCastExpression(
     ) {
       // Avoid the unnecessary parse-time lookup in the common case
       // where the syntax forbids a type.
+#if ENABLE_BSC
+      if (getLangOpts().BSC && PP.isCurrentLexerExhaustedAfterCache())
+        return ExprError();
+#endif
       const Token &Next = NextToken();
 
       // If this identifier was reverted from a token ID, and the next token

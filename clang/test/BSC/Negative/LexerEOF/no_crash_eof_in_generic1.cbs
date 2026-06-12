@@ -1,0 +1,10 @@
+// RUN: not %clang_cc1 -fsyntax-only -xbsc %s 2>&1 | FileCheck %s
+// CHECK: error:
+// CHECK-NOT: PLEASE submit a bug report
+//
+// Regression test for gitee issue IJPUJX: malformed generic syntax
+// near EOF caused null CurLexer dereference in Preprocessor::Lex().
+// The parser kept calling NextToken()/LookAhead() after EOF,
+// but CurLexer had been reset to null by HandleEndOfFile.
+
+struct Vec<a>{}b(){Vec<>c=Vec<(>::

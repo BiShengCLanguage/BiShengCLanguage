@@ -1767,6 +1767,14 @@ public:
   /// Returns true if incremental processing is enabled
   bool isIncrementalProcessingEnabled() const { return IncrementalProcessing; }
 
+  bool isCurrentLexerExhaustedAfterCache() const {
+    if (CachedLexPos < CachedTokens.size())
+      return false;
+    return (CurLexerKind == CLK_Lexer ||
+            CurLexerKind == CLK_DependencyDirectivesLexer) &&
+           !CurLexer;
+  }
+
   /// Enables the incremental processing
   void enableIncrementalProcessing(bool value = true) {
     IncrementalProcessing = value;
