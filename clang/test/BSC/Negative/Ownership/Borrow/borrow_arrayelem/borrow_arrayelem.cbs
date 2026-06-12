@@ -70,12 +70,14 @@ _Safe void explicit_reborrow_star_p_freeze(void) {
 _Safe void cf_for_freeze(void) {
   int a[6] = {0};
   int * _Borrow _ArrayElem p1 = &_Mut a[0];
-  int * _Borrow _ArrayElem p2;
+  int * _Borrow _ArrayElem _Nullable p2 = nullptr;
   for (int i = 1; i <= 3; ++i) {
     p2 = p1 + i; // expected-note {{`*p1` is borrowed here}}
   }
   *p1 = 1; // expected-error {{cannot assign to `*p1` because it is borrowed}}
-  p2[0] = 2;
+  if (p2) {
+    p2[0] = 2;
+  }
 }
 
 _Safe void elem_assign_while_frozen(void) {
