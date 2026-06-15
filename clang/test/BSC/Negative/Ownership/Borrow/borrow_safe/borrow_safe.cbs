@@ -10,7 +10,7 @@ struct R g_r;
 
 _Safe void foo1(int p) {
   extern int num;
-  static int num1 = 0; // expected-error {{defining mutable global variables is not allowed within the safe zone}}
+  static int num1 = 0;
   static const int c1 = 0; // legal
   &_Mut a; // expected-error {{global or static variables are not allowed to be mutably borrowed within the safe zone}}
           // expected-warning@-1{{expression result unused}}
@@ -35,7 +35,7 @@ _Safe void foo1(int p) {
 _Unsafe void foo2(int p) {
   _Safe {
     extern int num;
-    static int num3 = 0; // expected-error {{defining mutable global variables is not allowed within the safe zone}}
+    static int num3 = 0;
     static const int c2 = 0; // legal
     &_Mut a; // expected-error {{global or static variables are not allowed to be mutably borrowed within the safe zone}}
             // expected-warning@-1{{expression result unused}}

@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -verify %s
+
+int y  = 0;
+_Owned struct B{
+    ~B(B this){
+       y=y+2;
+    }
+};
+_Owned struct A {
+_Public:
+  ~A( A this) {
+    y++;
+  }
+};
+
+_Owned struct C<T> {
+    ~C( C<T> this) {
+    y++;
+  }
+};
+
+int main() {
+  static C<int> c = {}; // expected-error {{type of static local variable cannot be qualified by '_Owned'}}
+  static B b ={}; // expected-error {{type of static local variable cannot be qualified by '_Owned'}}
+  A a ={};
+  return y-1;
+}

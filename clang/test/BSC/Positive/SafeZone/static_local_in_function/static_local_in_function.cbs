@@ -1,0 +1,34 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+_Safe void declare_mutable_static_in_safe_zone(void) {
+  static int counter = 0;
+  static const int limit = 10;
+
+  counter = counter + 1;
+  (void)limit;
+}
+
+_Unsafe void declare_mutable_static_in_nested_safe_zone(void) {
+  _Safe {
+    static int nested_counter = 0;
+    static const int nested_limit = 5;
+
+    nested_counter = nested_counter + 1;
+    (void)nested_limit;
+  }
+}
+
+_Safe void use_static_local_after_declaration(void) {
+  static int value = 1;
+  int local = value;
+  value = local + 1;
+  (void)local;
+}
+
+int main(void) {
+  declare_mutable_static_in_safe_zone();
+  declare_mutable_static_in_nested_safe_zone();
+  use_static_local_after_declaration();
+  return 0;
+}

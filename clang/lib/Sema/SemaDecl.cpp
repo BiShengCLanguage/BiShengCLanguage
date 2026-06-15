@@ -7944,7 +7944,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
                             II, R, TInfo, SC);
     #if ENABLE_BSC
     if (IsInSafeZone() && NewVD->getStorageClass() == SC_Static
-        && !NewVD->getType().isConstQualified()) {
+        && !NewVD->getType().isConstQualified() && !NewVD->isStaticLocal()) {
       Diag(D.getIdentifierLoc(), diag::err_safe_global_var);
     }
     #endif
@@ -8550,9 +8550,11 @@ NamedDecl *Sema::ActOnVariableDeclarator(
   bool IsTypedefName =
       D.getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_typedef;
   if (!IsTypedefName && getLangOpts().BSC && NewVD &&
-      NewVD->getDeclContext()->isFileContext()) {
-    CheckOwnedOrIndirectOwnedType(D.getIdentifierLoc(), R, "global variable");
-    CheckBorrowOrIndirectBorrowType(D.getIdentifierLoc(), R, "global variable");
+      (NewVD->getDeclContext()->isFileContext() || NewVD->isStaticLocal())) {
+    StringRef VarEnv =
+        NewVD->isStaticLocal() ? "static local variable" : "global variable";
+    CheckOwnedOrIndirectOwnedType(D.getIdentifierLoc(), R, VarEnv);
+    CheckBorrowOrIndirectBorrowType(D.getIdentifierLoc(), R, VarEnv);
   }
 #endif
   if (IsMemberSpecialization && !NewVD->isInvalidDecl())

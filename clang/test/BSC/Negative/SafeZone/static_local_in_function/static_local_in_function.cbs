@@ -1,0 +1,56 @@
+// RUN: %clang_cc1 -verify %s
+
+int a = 1;
+
+_Safe void test_static_local_constraints(void) {
+  static int num = 0;
+
+  &_Mut a; // expected-error {{global or static variables are not allowed to be mutably borrowed within the safe zone}}
+          // expected-warning@-1{{expression result unused}}
+  &_Mut num; // expected-error {{global or static variables are not allowed to be mutably borrowed within the safe zone}}
+            // expected-warning@-1{{expression result unused}}
+}
+
+void test_static_local_owned_borrow_types(void) {
+  static int *_Owned owned_ptr; // expected-error {{type of static local variable cannot be qualified by '_Owned'}}
+  static int *_Borrow borrow_ptr; // expected-error {{type of static local variable cannot be qualified by '_Borrow'}}
+  (void)owned_ptr;
+  (void)borrow_ptr;
+}
+
+typedef int * _Owned IntOwnedPtr;
+typedef int * _Borrow IntBorrowPtr;
+
+void test_static_local_owned_borrow_types_through_typedef(void) {
+  static IntOwnedPtr owned_ptr; // expected-error {{type of static local variable cannot be qualified by '_Owned'}}
+  static IntBorrowPtr borrow_ptr; // expected-error {{type of static local variable cannot be qualified by '_Borrow'}}
+  (void)owned_ptr;
+  (void)borrow_ptr;
+}
+
+struct SOwned {
+  int * _Owned ptr;
+};
+struct SBorrow {
+  int * _Borrow ptr;
+};
+
+void test_static_local_owned_borrow_types_through_struct(void) {
+  static struct SOwned owned_ptr; // expected-error {{type of static local variable cannot be qualified by '_Owned'}}
+  static struct SBorrow borrow_ptr; // expected-error {{type of static local variable cannot be qualified by '_Borrow'}}
+  (void)owned_ptr;
+  (void)borrow_ptr;
+}
+
+_Safe void test_nested_safe_zone_static_local(void) {
+  _Unsafe {
+    static int nested = 0;
+    (void)nested;
+  }
+
+  _Safe {
+    static int nested_in_safe = 0;
+    &_Mut nested_in_safe; // expected-error {{global or static variables are not allowed to be mutably borrowed within the safe zone}}
+                          // expected-warning@-1{{expression result unused}}
+  }
+}
