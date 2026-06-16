@@ -3,14 +3,19 @@
 // RUN: FileCheck --input-file=%t-rw.c %s
 // expected-no-diagnostics
 // Regression for F59 (umbrella IJP3AP): a function whose only BSC syntax is a
-// BSC-qualified type inside a sizeof / _Alignof operand made BSCFeatureFinder
-// report "no BSC features", so the rewriter copied the source verbatim and
-// leaked `_Owned` / `_Borrow` into the .c output, which then failed to parse as
-// C. The compile-the-output RUN above is the regression gate.
+// BSC-qualified type inside a type operand made BSCFeatureFinder report "no BSC
+// features", so the rewriter copied the source verbatim and leaked `_Owned` /
+// `_Borrow` into the .c output, which then failed to parse as C. The
+// compile-the-output RUN above is the regression gate.
 
 unsigned long size_owned(void) { return sizeof(int *_Owned); }
 unsigned long align_owned(void) { return _Alignof(int *_Owned); }
+unsigned long gnu_align_owned(void) { return __alignof(int *_Owned); }
 unsigned long size_borrow(void) { return sizeof(int *_Borrow); }
+unsigned long align_borrow(void) { return _Alignof(int *_Borrow); }
+unsigned long gnu_align_borrow(void) { return __alignof(int *_Borrow); }
+int generic_owned(void) { return _Generic((void*)0, int *_Owned: 1, default: 0); }
+int generic_borrow(void) { return _Generic((void*)0, int *_Borrow: 1, default: 0); }
 
 // CHECK-NOT: _Owned
 // CHECK-NOT: _Borrow

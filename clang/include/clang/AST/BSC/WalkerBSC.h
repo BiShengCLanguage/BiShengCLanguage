@@ -346,6 +346,20 @@ public:
     return Visit(E->getArgumentExpr());
   }
 
+  // _Generic association types can carry BSC-qualified types without any other
+  // BSC syntax in the expression.
+  bool VisitGenericSelectionExpr(GenericSelectionExpr *E) {
+    if (Visit(E->getControllingExpr()))
+      return true;
+    for (const GenericSelectionExpr::Association Assoc : E->associations()) {
+      if (!Assoc.getType().isNull() && VisitQualType(Assoc.getType()))
+        return true;
+      if (Visit(Assoc.getAssociationExpr()))
+        return true;
+    }
+    return false;
+  }
+
   // nullptr visit
   bool VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *E) {
       return true;
