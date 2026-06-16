@@ -1,5 +1,8 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -nullability-check=all -verify %s
 // expected-no-diagnostics
+
+typedef char * _Owned _ArrayElem OwnedArrayElemCharPtr;
+typedef char *RawCharPtr;
 
 void takes_nonnull(int *_Nonnull p);
 void consume(int * _Owned);
@@ -25,4 +28,56 @@ void test_builtin_transfer_keeps_path_nonnull_move_to_raw(int * _Owned _Nullable
     int * _Nonnull p2 = __move_to_raw(p);
     *p2 = 1;
   }
+}
+
+void test_move_array_to_raw_preserves_nullable(char *_Owned _ArrayElem _Nullable p) {
+  if (p != nullptr) {
+    char *_Nullable raw = __move_array_to_raw(p);
+    *raw = 0;
+  }
+}
+
+void test_move_array_to_raw_preserves_nonnull(char *_Owned _ArrayElem _Nonnull p) {
+  char *_Nonnull raw = __move_array_to_raw(p);
+  *raw = 0;
+}
+
+void test_take_array_from_raw_preserves_nullable(char *_Nullable raw) {
+  if (raw != nullptr) {
+    char *_Owned _ArrayElem _Nullable p = __take_array_from_raw(raw);
+    *p = 0;
+    (void)__move_array_to_raw(p);
+  }
+}
+
+void test_take_array_from_raw_preserves_nonnull(char *_Nonnull raw) {
+  char *_Owned _ArrayElem _Nonnull p = __take_array_from_raw(raw);
+  *p = 0;
+  (void)__move_array_to_raw(p);
+}
+
+void test_move_array_to_raw_typedef_nullable(OwnedArrayElemCharPtr _Nullable p) {
+  if (p != nullptr) {
+    char *_Nullable raw = __move_array_to_raw(p);
+    *raw = 0;
+  }
+}
+
+void test_move_array_to_raw_typedef_nonnull(OwnedArrayElemCharPtr _Nonnull p) {
+  char *_Nonnull raw = __move_array_to_raw(p);
+  *raw = 0;
+}
+
+void test_take_array_from_raw_typedef_nullable(RawCharPtr _Nullable raw) {
+  if (raw != nullptr) {
+    OwnedArrayElemCharPtr _Nullable p = __take_array_from_raw(raw);
+    *p = 0;
+    (void)__move_array_to_raw(p);
+  }
+}
+
+void test_take_array_from_raw_typedef_nonnull(RawCharPtr _Nonnull raw) {
+  OwnedArrayElemCharPtr _Nonnull p = __take_array_from_raw(raw);
+  *p = 0;
+  (void)__move_array_to_raw(p);
 }

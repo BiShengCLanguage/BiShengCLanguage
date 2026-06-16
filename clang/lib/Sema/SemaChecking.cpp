@@ -246,6 +246,12 @@ static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
                                        unsigned BuiltinID) {
   QualType ArgTy = TheCall->getArg(0)->getType();
   QualType ResultTy = ArgTy.getUnqualifiedType();
+  while (const auto *Typedef = ResultTy->getAs<TypedefType>())
+    ResultTy = Typedef->desugar();
+  // Peel explicit nullability before stripping _Owned/_Borrow/_ArrayElem so
+  // qualifier removal reaches the inner pointer instead of the outer
+  // AttributedType shell.
+  AttributedType::stripOuterNullability(ResultTy);
   ResultTy.removeLocalOwned();
   ResultTy.removeLocalBorrow();
   ResultTy.removeLocalArrayElem(S.Context);

@@ -27,9 +27,14 @@ void static_assert_local_types(void) {
 }
 
 typedef int *_Owned _ArrayElem OwnedArrPtr;
+typedef int * _Owned _ArrayElem OwnedArrayElemIntPtr;
+typedef int * _Owned OwnedIntPtr;
+typedef int *RawIntPtr;
 
 _Static_assert(__is_same(OwnedArrPtr, int *_Owned _ArrayElem),
                "owned _ArrayElem typedef matches spelled form");
+_Static_assert(__is_same(OwnedArrayElemIntPtr, int *_Owned _ArrayElem),
+               "OwnedArrayElemIntPtr matches spelled owned _ArrayElem form");
 _Static_assert(__is_same(typeof(__take_array_from_raw((int *)0)),
                          OwnedArrPtr),
                "take_array_from_raw matches typedef result type");
@@ -40,4 +45,108 @@ void builtin_move_result(void) {
   _Static_assert(__is_same(typeof(__move_array_to_raw(owned)), int *),
                  "__move_array_to_raw spelled operand");
   (void)__move_array_to_raw(owned);
+
+  int *_Owned _ArrayElem _Nullable owned_nullable =
+      __take_array_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_array_to_raw(owned_nullable)),
+                           int *_Nullable),
+                 "__move_array_to_raw nullable _ArrayElem operand");
+  (void)__move_array_to_raw(owned_nullable);
+
+  int *_Owned _ArrayElem _Nonnull owned_nonnull =
+      __take_array_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_array_to_raw(owned_nonnull)),
+                           int *_Nonnull),
+                 "__move_array_to_raw nonnull _ArrayElem operand");
+  (void)__move_array_to_raw(owned_nonnull);
+
+  int *_Nullable raw_nullable = (int *)buf;
+  int *_Nonnull raw_nonnull = (int *)buf;
+  _Static_assert(__is_same(typeof(__take_array_from_raw(raw_nullable)),
+                           int *_Owned _ArrayElem _Nullable),
+                 "__take_array_from_raw nullable raw operand");
+  _Static_assert(__is_same(typeof(__take_array_from_raw(raw_nonnull)),
+                           int *_Owned _ArrayElem _Nonnull),
+                 "__take_array_from_raw nonnull raw operand");
+  (void)__take_array_from_raw(raw_nullable);
+  (void)__take_array_from_raw(raw_nonnull);
+}
+
+void builtin_typedef_nullability_transfer(void) {
+  int buf[1];
+
+  OwnedArrayElemIntPtr _Nullable owned_nullable =
+      __take_array_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_array_to_raw(owned_nullable)),
+                           int *_Nullable),
+                 "__move_array_to_raw typedef owned _Nullable operand");
+  (void)__move_array_to_raw(owned_nullable);
+
+  OwnedArrayElemIntPtr _Nonnull owned_nonnull =
+      __take_array_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_array_to_raw(owned_nonnull)),
+                           int *_Nonnull),
+                 "__move_array_to_raw typedef owned _Nonnull operand");
+  (void)__move_array_to_raw(owned_nonnull);
+
+  RawIntPtr _Nullable raw_nullable = (int *)buf;
+  RawIntPtr _Nonnull raw_nonnull = (int *)buf;
+  _Static_assert(__is_same(typeof(__take_array_from_raw(raw_nullable)),
+                           OwnedArrayElemIntPtr _Nullable),
+                 "__take_array_from_raw typedef raw _Nullable operand");
+  _Static_assert(__is_same(typeof(__take_array_from_raw(raw_nonnull)),
+                           OwnedArrayElemIntPtr _Nonnull),
+                 "__take_array_from_raw typedef raw _Nonnull operand");
+  (void)__take_array_from_raw(raw_nullable);
+  (void)__take_array_from_raw(raw_nonnull);
+}
+
+void builtin_owned_nullability_transfer(void) {
+  int buf[1];
+
+  int *_Owned _Nullable owned_nullable = __take_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_to_raw(owned_nullable)), int *_Nullable),
+                 "__move_to_raw nullable _Owned operand");
+  (void)__move_to_raw(owned_nullable);
+
+  int *_Owned _Nonnull owned_nonnull = __take_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_to_raw(owned_nonnull)), int *_Nonnull),
+                 "__move_to_raw nonnull _Owned operand");
+  (void)__move_to_raw(owned_nonnull);
+
+  int *_Nullable raw_nullable = (int *)buf;
+  int *_Nonnull raw_nonnull = (int *)buf;
+  _Static_assert(__is_same(typeof(__take_from_raw(raw_nullable)),
+                           int *_Owned _Nullable),
+                 "__take_from_raw nullable raw operand");
+  _Static_assert(__is_same(typeof(__take_from_raw(raw_nonnull)),
+                           int *_Owned _Nonnull),
+                 "__take_from_raw nonnull raw operand");
+  (void)__take_from_raw(raw_nullable);
+  (void)__take_from_raw(raw_nonnull);
+}
+
+void builtin_owned_typedef_nullability_transfer(void) {
+  int buf[1];
+
+  OwnedIntPtr _Nullable owned_nullable = __take_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_to_raw(owned_nullable)), int *_Nullable),
+                 "__move_to_raw typedef owned _Nullable operand");
+  (void)__move_to_raw(owned_nullable);
+
+  OwnedIntPtr _Nonnull owned_nonnull = __take_from_raw((int *)buf);
+  _Static_assert(__is_same(typeof(__move_to_raw(owned_nonnull)), int *_Nonnull),
+                 "__move_to_raw typedef owned _Nonnull operand");
+  (void)__move_to_raw(owned_nonnull);
+
+  RawIntPtr _Nullable raw_nullable = (int *)buf;
+  RawIntPtr _Nonnull raw_nonnull = (int *)buf;
+  _Static_assert(__is_same(typeof(__take_from_raw(raw_nullable)),
+                           OwnedIntPtr _Nullable),
+                 "__take_from_raw typedef raw _Nullable operand");
+  _Static_assert(__is_same(typeof(__take_from_raw(raw_nonnull)),
+                           OwnedIntPtr _Nonnull),
+                 "__take_from_raw typedef raw _Nonnull operand");
+  (void)__take_from_raw(raw_nullable);
+  (void)__take_from_raw(raw_nonnull);
 }
