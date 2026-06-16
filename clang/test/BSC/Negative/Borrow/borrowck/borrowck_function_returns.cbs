@@ -1,0 +1,45 @@
+// RUN: %clang_cc1 -verify %s
+
+int *_Borrow return_local_first_level(int *_Borrow seed) {
+  int local = 1;
+  return &_Mut local; // expected-error {{'local' does not live long enough}}
+                      // expected-note@-1 {{'local' dropped here while still borrowed}}
+}
+
+int *_Borrow return_from_two_params(int *_Borrow p, int *_Borrow q) {
+  return p;
+}
+
+void caller_short_first_level_argument_escapes_return(void) {
+  int a = 1;
+  int *_Borrow r = &_Mut a;
+  {
+    int b = 2;
+    r = return_from_two_params(r, &_Mut b); // expected-error {{'b' does not live long enough}}
+  } // expected-note {{'b' dropped here while still borrowed}}
+  *r = 3;
+}
+
+int *_Borrow return_from_second_level(int *_Borrow *_Borrow p);
+
+int *_Borrow return_from_two_first_level_params(int *_Borrow p,
+                                                 int *_Borrow q) {
+  if (*p > 0)
+    return p;
+  return q;
+}
+
+void caller_second_level_return_used_inside_source_lifetime(void) {
+  int a = 1;
+  int b = 2;
+  int c = 3;
+  int d = 4;
+  int e = 5;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r1 = return_from_two_first_level_params(p, &_Mut e);
+  int *_Borrow q = &_Mut b;
+  int *_Borrow r2 = return_from_second_level(&_Mut q);
+  *r1 = c;
+  *r2 = 3;
+  *p = d;
+}

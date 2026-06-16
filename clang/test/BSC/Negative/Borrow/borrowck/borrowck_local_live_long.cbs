@@ -1,0 +1,53 @@
+// RUN: %clang_cc1 -verify %s
+
+void use_mut(int *_Borrow p);
+void use_const(const int *_Borrow p);
+void use_int(int v);
+
+void local_mut_reborrow_extends_inner_nll(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow *_Borrow q = &_Mut p;
+  a = 2; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  **q = 3;
+}
+
+void local_write_through_q_extends_new_object_nll(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow *_Borrow q = &_Mut p;
+  *q = &_Mut b; // expected-note {{'b' is borrowed here}}
+  a = 3; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  b = 4; // expected-error {{cannot assign to 'b' because it is borrowed}}
+  **q = 5;
+}
+
+void local_p_cannot_be_rebound_while_q_is_live(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p; // expected-note {{'p' is borrowed here}}
+  p = &_Mut b; // expected-error {{cannot assign to 'p' because it is borrowed}}
+  **q = 3;
+}
+
+void local_p_cannot_be_read_while_mut_q_is_live(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow r = p; // expected-error {{cannot borrow '*p' as mutable more than once at a time}}
+  use_mut(r);
+  **q = 2;
+}
+
+void local_reborrowed_value_cannot_escape_inner_block(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p;
+  {
+    int b = 2;
+    *q = &_Mut b; // expected-error {{'b' does not live long enough}}
+  } // expected-note {{'b' dropped here while still borrowed}}
+  **q = 3;
+}

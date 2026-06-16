@@ -3,25 +3,25 @@
 _Safe int * _Borrow _ArrayElem borrow_return_local_array(int * _Borrow _ArrayElem p) {
   int a[10] = {0};
   (void)p;
-  return a; // expected-error {{'a[]' does not live long enough}} expected-note {{'a[]' dropped here while still borrowed}}
+  return a; // expected-error {{'a[_]' does not live long enough}} expected-note {{'a[_]' dropped here while still borrowed}}
 }
 
 _Safe int * _Borrow borrow_return_local_array_plain(int * _Borrow p) {
   int a[10] = {0};
   (void)p;
-  return a; // expected-error {{'a[]' does not live long enough}} expected-note {{'a[]' dropped here while still borrowed}}
+  return a; // expected-error {{'a[_]' does not live long enough}} expected-note {{'a[_]' dropped here while still borrowed}}
 }
 
 _Safe void two_mutable_borrow(int * _Borrow _ArrayElem, int * _Borrow _ArrayElem);
 _Safe void two_mutable_borrow_test(void) {
   int a[10] = {0};
-  two_mutable_borrow(a, a); // expected-error {{cannot borrow 'a[]' as mutable more than once at a time}} expected-note {{first mut borrow occurs here}}
+  two_mutable_borrow(a, a); // expected-error {{cannot borrow 'a[_]' as mutable more than once at a time}} expected-note {{first mut borrow occurs here}}
 }
 
 _Safe void two_mutable_plain_borrow(int * _Borrow, int * _Borrow);
 _Safe void two_mutable_plain_borrow_test(void) {
   int a[10] = {0};
-  two_mutable_plain_borrow(a, a); // expected-error {{cannot borrow 'a[]' as mutable more than once at a time}} expected-note {{first mut borrow occurs here}}
+  two_mutable_plain_borrow(a, a); // expected-error {{cannot borrow 'a[_]' as mutable more than once at a time}} expected-note {{first mut borrow occurs here}}
 }
 
 _Safe void arithmetic_reborrow(void) {
@@ -35,7 +35,7 @@ _Safe void arithmetic_reborrow(void) {
 _Safe void decay_reborrow_old(void) {
   int a[10] = {0};
   int * _Borrow p1 = a; // expected-note {{first mut borrow occurs here}}
-  int * _Borrow p2 = a; // expected-error {{cannot borrow 'a[]' as mutable more than once at a time}}
+  int * _Borrow p2 = a; // expected-error {{cannot borrow 'a[_]' as mutable more than once at a time}}
   *p1 = 10;
   *p2 = 5;
 }
@@ -43,7 +43,7 @@ _Safe void decay_reborrow_old(void) {
 _Safe void decay_reborrow_arrayelem(void) {
   int a[10] = {0};
   int * _Borrow _ArrayElem p1 = a; // expected-note {{first mut borrow occurs here}}
-  int * _Borrow _ArrayElem p2 = a; // expected-error {{cannot borrow 'a[]' as mutable more than once at a time}}
+  int * _Borrow _ArrayElem p2 = a; // expected-error {{cannot borrow 'a[_]' as mutable more than once at a time}}
   *p1 = 10;
   *p2 = 5;
 }

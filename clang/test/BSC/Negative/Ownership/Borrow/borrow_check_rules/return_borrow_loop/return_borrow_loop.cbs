@@ -57,8 +57,6 @@ struct S test5(struct S s) {
   int local = 5;
   while (rand())
     s.p = &_Mut local; // expected-error {{'local' does not live long enough}}
-                      // expected-error@-1 {{cannot borrow 'local' as mutable more than once at a time}}
-                      // expected-note@-2 {{first mut borrow occurs here}}
   return s; // expected-note {{'local' dropped here while still borrowed}}
 }
 
@@ -66,8 +64,6 @@ struct S test6(struct G g) {
   int local = 5;
   while (rand())
     g.s.p = &_Mut local; // expected-error {{'local' does not live long enough}}
-                        // expected-error@-1 {{cannot borrow 'local' as mutable more than once at a time}}
-                        // expected-note@-2 {{first mut borrow occurs here}}
   return g.s; // expected-note {{'local' dropped here while still borrowed}}
 }
 
@@ -75,7 +71,5 @@ struct G test7(struct G g) {
   int local = 5;
   while (rand())
     g.s.p = &_Mut local; // expected-error {{'local' does not live long enough}}
-                        // expected-error@-1 {{cannot borrow 'local' as mutable more than once at a time}}
-                        // expected-note@-2 {{first mut borrow occurs here}}
   return g; // expected-note {{'local' dropped here while still borrowed}}
 }

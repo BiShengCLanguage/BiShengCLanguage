@@ -64,7 +64,7 @@ int main() {
 // CHECK-NEXT:     int * p7 = &*(&x);
 // CHECK-NEXT:     int * p = &x;
 // CHECK-NEXT:     float * p1 = &y;
-// CHECK-NEXT:     myInt p3 = p;
+// CHECK-NEXT:     myInt p3 = &*p;
 // CHECK-NEXT:     int * p5 = (int *)&x1;
 // CHECK-NEXT:     const int * b6 = &*p3;
 // CHECK-NEXT:     p7 = &*p;

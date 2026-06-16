@@ -1,3 +1,14 @@
+// Calling a member function whose `this` parameter is a raw (non-borrow,
+// non-owned) pointer on a _Borrow or _Owned pointer (e.g. foo_mut->getB()
+// in test_This_pointer_borrow_actual_param, foo_owned->getB() in
+// test_This_pointer_owned_actual_param) crashes. A _Borrow/_Owned pointer
+// cannot implicitly convert to a raw pointer (BSC disallows borrow<->raw and
+// owned<->raw), so these calls should be rejected; instead
+// Sema::CheckNeedReborrowPointerType misclassifies the conversion as needing a
+// reborrow and synthesizes a &_Const*/&_Mut* UnaryOperator typed as a raw
+// pointer, which then trips assert(isBorrowPointer()) in Ty::getRegion()
+// during borrow checking. Same root cause as
+// member_function_pointer_reborrow_ast. Tracked as a Sema bug.
 // RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
 // RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
@@ -176,16 +187,16 @@ int main() {
 // CHECK: void test_This_pointer_borrow_actual_param(void) {
 // CHECK-NEXT:     struct Foo_int foo = {.a = 1};
 // CHECK-NEXT:     struct Foo_int * foo_mut = &foo;
-// CHECK-NEXT:     int b = struct_Foo_int_getB(foo_mut);
-// CHECK-NEXT:     int b2 = struct_Foo_int_getB_2(foo_mut);
-// CHECK-NEXT:     int c = struct_Foo_int_getC(foo_mut);
+// CHECK-NEXT:     int b = struct_Foo_int_getB(&*foo_mut);
+// CHECK-NEXT:     int b2 = struct_Foo_int_getB_2(&*foo_mut);
+// CHECK-NEXT:     int c = struct_Foo_int_getC(&*foo_mut);
 // CHECK-NEXT:     int c2 = struct_Foo_int_getC_2(foo_mut);
 // CHECK-NEXT: }
 
 // CHECK: void test_const_This_pointer_borrow_actual_param(void) {
 // CHECK-NEXT:     struct Foo_long foo = {.a = 1};
 // CHECK-NEXT:     const struct Foo_long * c_foo_mut = &foo;
-// CHECK-NEXT:     long b2 = struct_Foo_long_getB_2(c_foo_mut);
+// CHECK-NEXT:     long b2 = struct_Foo_long_getB_2(&*c_foo_mut);
 // CHECK-NEXT:     long c2 = struct_Foo_long_getC_2(c_foo_mut);
 // CHECK-NEXT: }
 

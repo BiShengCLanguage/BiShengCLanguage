@@ -9,6 +9,24 @@ int *_Borrow return_and_take_nonnull(int *_Borrow a) {
   return a;
 }
 
+typedef struct {
+  int ulRet;
+  int b;
+  int arr[3];
+} S;
+
+void binRecordLog(unsigned int, unsigned int, unsigned int, char *const *_Borrow _ArrayElem, unsigned int, const int *_Borrow, int, int *_Borrow) {}
+
+void test(S *_Borrow pstLogReqInfo) {
+  char szLgi[5*2] = {0};
+  char *_Borrow pcLog = szLgi;
+  int stMsgRecvTime = 2;
+  int stLogConnInfo = 2;
+
+  binRecordLog(1, 1, 1, _Unsafe((char *const *_Borrow _ArrayElem)&pcLog), 1, &_Const stMsgRecvTime, pstLogReqInfo->ulRet, &_Mut stLogConnInfo);
+}
+
+
 int main(void) {
   int a = 10; 
   int *_Borrow p = &_Mut a;

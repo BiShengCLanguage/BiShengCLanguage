@@ -18,7 +18,7 @@ int main() { return 0; }
 // CHECK:      static _Bool dummy_check_int_P(void);
 // CHECK-EMPTY: 
 // CHECK:      void bar(int *p) {
-// CHECK-NEXT:   int * pb = (1 , (((int *)(int *)(p))));
+// CHECK-NEXT:   int * pb = &*(1 , (((int *)(int *)(p))));
 // CHECK-NEXT:   (void)pb;
 // CHECK-NEXT: }
 // CHECK-EMPTY: 

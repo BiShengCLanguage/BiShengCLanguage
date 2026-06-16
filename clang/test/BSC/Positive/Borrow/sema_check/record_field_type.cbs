@@ -1,0 +1,104 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// legality of a nested borrow as a record field type
+
+struct Point { int x; int y; };
+
+// 2-level const permutations (pointee-const x level-const)
+struct T1 {
+  int *_Borrow *_Borrow p1;
+  int const *_Borrow *_Borrow p2;
+  int *_Borrow const *_Borrow p3;
+  int const *_Borrow const *_Borrow p4;
+  const int *_Borrow *_Borrow p5;
+  const int *_Borrow const *_Borrow p6;
+};
+
+// 3-level const permutations (level-exhaustive + pointee representative)
+struct T2 {
+  int *_Borrow *_Borrow *_Borrow p1;
+  int const *_Borrow *_Borrow *_Borrow p2;
+  int *_Borrow const *_Borrow *_Borrow p3;
+  int *_Borrow *_Borrow const *_Borrow p4;
+  int const *_Borrow const *_Borrow *_Borrow p5;
+  int const *_Borrow *_Borrow const *_Borrow p6;
+  int *_Borrow const *_Borrow const *_Borrow p7;
+  int const *_Borrow const *_Borrow const *_Borrow p8;
+  const int *_Borrow *_Borrow *_Borrow p9;
+  const int *_Borrow const *_Borrow const *_Borrow p10;
+};
+
+// 4-level
+struct T3 {
+  int *_Borrow *_Borrow *_Borrow *_Borrow p1;
+  const int *_Borrow const *_Borrow const *_Borrow const *_Borrow p2;
+};
+
+// 3-level cross owned/raw as a field (2-level cross fields live in var_decl_type_record)
+struct T4 {
+  int *_Borrow *_Borrow *_Owned p1;
+  int *_Owned *_Borrow *_Borrow p2;
+  int *_Borrow *_Borrow *p3;
+  int *_Borrow **_Borrow p4;
+  int *_Borrow *_Owned *_Borrow p5;
+};
+
+// other builtin pointees (2-level)
+struct T5 {
+  char *_Borrow *_Borrow p1;
+  short *_Borrow *_Borrow p2;
+  long *_Borrow *_Borrow p3;
+  unsigned *_Borrow *_Borrow p4;
+  float *_Borrow *_Borrow p5;
+  double *_Borrow *_Borrow p6;
+};
+
+// record pointee (const permutations + 3-level)
+struct T6 {
+  struct Point *_Borrow *_Borrow p1;
+  struct Point const *_Borrow *_Borrow p2;
+  struct Point *_Borrow const *_Borrow p3;
+  const struct Point *_Borrow const *_Borrow p4;
+  struct Point *_Borrow *_Borrow *_Borrow p5;
+  const struct Point *_Borrow const *_Borrow const *_Borrow p6;
+};
+
+// field-specific: const-qualified field pointer (*const, distinct from a const borrow level)
+struct T7 {
+  int *_Borrow *const p1;
+  int *_Borrow *_Borrow *const p2;
+  const int *_Borrow *const p3;
+  const struct Point *const p4;
+};
+
+// field-specific: const-qualified whole struct field
+struct T8 {
+  const struct Point p1;
+  struct Point const p2;
+};
+
+// field-specific: nested struct embedding a record-with-borrow-field
+struct T9 { int *_Borrow *_Borrow p1; };
+struct T10 {
+  int tag;
+  struct T9 inner;
+  int *_Borrow *_Borrow p1;
+};
+
+// field-specific: anonymous struct/union member (a union field cannot be _Borrow-qualified; tested in negative)
+struct T11 {
+  int tag;
+  union { int g; long h; } u;
+  struct { int *_Borrow *_Borrow p1; } s;
+};
+
+// field-specific: borrow field pointing to an incomplete (forward-declared) type
+struct T12;
+struct T13 { struct T12 *_Borrow p1; };
+
+// field-specific: flexible array member of borrow pointers
+struct T14 { int len; int *_Borrow p1[]; };
+
+int main(void) { return 0; }

@@ -1,0 +1,48 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// variable declaration legality of a nested borrow as an array element / array-pointer type
+
+// array element: 2/3-level borrow, const per level, across builtin pointees,
+// plus owned/raw/borrow combined across levels
+void test1(void) {
+  int *_Borrow *_Borrow a1[3];
+  int *_Borrow const *_Borrow a2[3];
+  const int *_Borrow *_Borrow a3[3];
+  const int *_Borrow const *_Borrow a4[3];
+  int *_Borrow *_Borrow *_Borrow a5[2];
+  int *_Borrow *_Borrow const *_Borrow a6[2];
+  const int *_Borrow const *_Borrow const *_Borrow a7[2];
+
+  char *_Borrow *_Borrow a8[3];
+  short *_Borrow *_Borrow a9[3];
+  long *_Borrow *_Borrow a10[3];
+  unsigned *_Borrow *_Borrow a11[3];
+  float *_Borrow *_Borrow a12[3];
+  double *_Borrow *_Borrow a13[3];
+
+  int *_Owned *_Borrow a14[3];
+  int **_Borrow a15[3];
+  int *_Borrow *_Owned a16[3];
+  int *_Borrow *a17[3];
+  int *_Borrow *_Borrow *_Owned a18[2];
+  int *_Owned *_Borrow *_Borrow a19[2];
+  int *_Borrow *_Borrow *a20[2];
+  int *_Borrow **_Borrow a21[2];
+}
+
+// array-pointer variable: multi-level raw/owned/borrow to an array
+void test2(void) {
+  int (*_Borrow *_Borrow c1)[8];
+  int (*_Borrow const *_Borrow c2)[8];
+  int (*_Owned *_Borrow c3)[8];
+  int (*_Borrow *_Owned c4)[8];
+  int (*_Borrow *c5)[8];
+  int (*_Borrow *_Borrow *_Owned c6)[8];
+  int (*_Owned *_Borrow *_Borrow c7)[8];
+  int (*_Borrow *_Borrow *c8)[8];
+  int (*_Borrow **_Borrow c9)[8];
+}
+
+int main(void) { return 0; }

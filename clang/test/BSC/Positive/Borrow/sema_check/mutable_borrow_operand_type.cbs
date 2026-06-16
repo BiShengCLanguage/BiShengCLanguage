@@ -1,0 +1,42 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// _Mut requires a modifiable operand of a borrowable type;
+// this file covers mutable operands (scalars, dereferenced mutable pointers, mutable fields,
+// pointer/borrow/owned operands forming multi-level borrows, nullable propagation, mutable compound literals)
+
+int gx_m;
+struct S1 { int mf; } gs1;
+struct S1 *gp1;
+
+void test(void) {
+  // mutable scalar operand
+  __typeof__(&_Mut gx_m) t1;          (void)sizeof(t1);
+  // dereferenced mutable pointer
+  int *p1 = 0;
+  __typeof__(&_Mut *p1) t2;           (void)sizeof(t2);
+  // mutable struct field
+  __typeof__(&_Mut gs1.mf) t3;        (void)sizeof(t3);
+  // pointer-indirect mutable field
+  __typeof__(&_Mut gp1->mf) t4;       (void)sizeof(t4);
+  // borrow operand forms a 2-level borrow
+  int *_Borrow b1 = &_Mut gx_m;
+  __typeof__(&_Mut b1) t5;            (void)sizeof(t5);
+  // owned pointer operand
+  int *_Owned o1 = 0;
+  __typeof__(&_Mut o1) t6;            (void)sizeof(t6);
+  // raw pointer operand
+  int *r1 = 0;
+  __typeof__(&_Mut r1) t7;            (void)sizeof(t7);
+  // nullable operand: nullability propagates into the result borrow
+  int *_Nullable n1 = 0;
+  __typeof__(&_Mut n1) t8;            (void)sizeof(t8);
+  // mutable compound literal operand
+  __typeof__(&_Mut (int){5}) t9;      (void)sizeof(t9);
+  // multi-level chain via variables (legal, unlike the rvalue nesting &_Mut(&_Mut x))
+  int *_Borrow *_Borrow b2 = &_Mut b1;
+  __typeof__(&_Mut b2) t10;           (void)sizeof(t10);
+}
+
+int main(void) { return 0; }

@@ -1,0 +1,53 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// _Const accepts a borrowable operand of any const-ness (mutable or const);
+// this file covers both, plus pointer/borrow/owned operands, nullable propagation, and string/compound literals
+
+int gx_m;
+const int gx_c = 5;
+struct S1 { int mf; const int cf; } gs1;
+struct S1 *gp1;
+int *gpm = 0;
+const int *gpc = 0;
+
+void test(void) {
+  // mutable scalar operand
+  __typeof__(&_Const gx_m) t1;        (void)sizeof(t1);
+  // const scalar operand
+  __typeof__(&_Const gx_c) t2;        (void)sizeof(t2);
+  // dereferenced mutable pointer operand
+  __typeof__(&_Const *gpm) t3;        (void)sizeof(t3);
+  // dereferenced const pointer operand
+  __typeof__(&_Const *gpc) t4;        (void)sizeof(t4);
+  // mutable struct field operand
+  __typeof__(&_Const gs1.mf) t5;      (void)sizeof(t5);
+  // const struct field operand
+  __typeof__(&_Const gs1.cf) t6;      (void)sizeof(t6);
+  // pointer-indirect mutable field operand
+  __typeof__(&_Const gp1->mf) t7;     (void)sizeof(t7);
+  // borrow operand forms a 2-level borrow
+  int *_Borrow b1 = &_Mut gx_m;
+  __typeof__(&_Const b1) t8;          (void)sizeof(t8);
+  // owned pointer operand
+  int *_Owned o1 = 0;
+  __typeof__(&_Const o1) t9;          (void)sizeof(t9);
+  // raw pointer operand
+  int *r1 = 0;
+  __typeof__(&_Const r1) t10;         (void)sizeof(t10);
+  // nullable operand: nullability propagates into the result borrow
+  int *_Nullable n1 = 0;
+  __typeof__(&_Const n1) t11;         (void)sizeof(t11);
+  // mutable compound literal operand
+  __typeof__(&_Const (int){5}) t12;   (void)sizeof(t12);
+  // const compound literal operand
+  __typeof__(&_Const (const int){5}) t13; (void)sizeof(t13);
+  // string literal operand (const lvalue)
+  __typeof__(&_Const "abc") t14;      (void)sizeof(t14);
+  // multi-level chain via variables (legal)
+  int *_Borrow *_Borrow b2 = &_Mut b1;
+  __typeof__(&_Const b2) t15;         (void)sizeof(t15);
+}
+
+int main(void) { return 0; }

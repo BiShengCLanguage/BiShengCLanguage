@@ -18,14 +18,12 @@ void foo(void) {
   int _ArrayElem scalar; // expected-error {{type of 'int' cannot be qualified by '_ArrayElem'}}
   int *_ArrayElem raw_ptr; // expected-error {{'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type}}
 
-  struct WithBorrow *_Borrow _ArrayElem bp1; // expected-error {{pointee type of 'struct WithBorrow *_Borrow _ArrayElem' cannot be _Borrow pointers or contain _Borrow qualified fields}} expected-error {{type of 'struct WithBorrow' cannot be qualified by '_Borrow' (even indirectly) because 'struct WithBorrow' contains a '_Borrow' type}}
-  struct WithBorrow *_Owned _ArrayElem bp2; // expected-error {{pointee type of 'struct WithBorrow *_Owned _ArrayElem' cannot be _Borrow pointers or contain _Borrow qualified fields}}
-  struct WithBorrowArrayElem *_Borrow _ArrayElem bp3; // expected-error {{pointee type of 'struct WithBorrowArrayElem *_Borrow _ArrayElem' cannot be _Borrow pointers or contain _Borrow qualified fields}} expected-error {{type of 'struct WithBorrowArrayElem' cannot be qualified by '_Borrow' (even indirectly) because 'struct WithBorrowArrayElem' contains a '_Borrow' type}}
-  struct WithBorrowArrayElem *_Owned _ArrayElem bp4; // expected-error {{pointee type of 'struct WithBorrowArrayElem *_Owned _ArrayElem' cannot be _Borrow pointers or contain _Borrow qualified fields}}
-
+  struct WithBorrow *_Borrow _ArrayElem bp1;
+  struct WithBorrow *_Owned _ArrayElem bp2;
+  struct WithBorrowArrayElem *_Borrow _ArrayElem bp3;
+  struct WithBorrowArrayElem *_Owned _ArrayElem bp4;
   struct WithOwned *_Borrow _ArrayElem dp1;
   struct WithOwned *_Owned _ArrayElem dp2;
   struct WithOwnedArrayElem *_Borrow _ArrayElem dp3;
   struct WithOwnedArrayElem *_Owned _ArrayElem dp4;
-  int *_Owned *_Owned _ArrayElem owned_ptr_arr;
 }

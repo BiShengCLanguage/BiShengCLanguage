@@ -46,7 +46,6 @@ Backticks in the Message column are markdown formatting for placeholders and cod
 | OWN-033 | err_bsc_take_array_from_raw_not_raw | argument must be a raw pointer type (have `%0`) | — |
 | OWN-034 | err_bsc_take_array_from_raw_function_pointer | `__take_array_from_raw` does not support function pointer type `%0` | — |
 | OWN-035 | err_arrayelem_requires_safe_pointer | `_ArrayElem` must be combined with `_Owned` or `_Borrow` to qualify a pointer type | — |
-| OWN-036 | err_arrayelem_invalid_pointee | pointee type of `%0` cannot be an _Owned or _Borrow pointer or contain _Owned or _Borrow qualified fields | — |
 | OWN-037 | err_bsc_qualifier_in_knr_function | type with `%0` semantics is not allowed in a K&R-style function definition | — |
 | OWN-038 | err_incompatible_owned_cast | incompatible conversion from non-_Owned type `%0` to _Owned type `%1` in member function call | — |
 | OWN-039 | err_need_explicit_constructor_owned_struct | `%0` requires an explicit constructor because it has a _Private field | — |
@@ -66,9 +65,11 @@ Backticks in the Message column are markdown formatting for placeholders and cod
 
 ---
 
-## BOR — borrow (20 errors)
+## BOR — borrow (21 errors)
 
-Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flushDiagnostics`. Confirmed against the source.
+Borrow-check diagnostics and their associated notes are listed below.
+`err_lifetime_may_not_live_long` is emitted by constraint solving without an
+attached note.
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
@@ -92,6 +93,7 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | BOR-018 | err_mut_borrow_string_literal | cannot take mutable borrow of string literal with `&_Mut`; string literals are immutable | — |
 | BOR-019 | err_mut_borrow_string_literal_indirect | cannot take mutable borrow into string literal storage; string literals are immutable; use `&_Const` with a `const %0 *_Borrow` target, or a plain `const %0 *` | — |
 | BOR-020 | err_pass_string_literal_to_mut_borrow | cannot pass string literal to parameter of type `%0`; string literals are immutable | — |
+| BOR-021 | err_lifetime_may_not_live_long | lifetime may not live long enough | — |
 
 (`err_bsc_ptr_inc_dec` also fires for `++`/`--` on non-_ArrayElem _Borrow pointers; filed under **OWN** as `OWN-025`. _Borrow pointers qualified with `_ArrayElem` are explicitly allowed.)
 
@@ -214,7 +216,7 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | Prefix     | Feature                       | Errors | Warnings |
 |------------|-------------------------------|-------:|---------:|
 | OWN-       | owned                         | 45     | 1        |
-| BOR-       | borrow                        | 20     | 0        |
+| BOR-       | borrow                        | 21     | 0        |
 | INIT-      | initialization                | 31     | 0        |
 | MISC-      | declaration / dispatch        | 6      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |

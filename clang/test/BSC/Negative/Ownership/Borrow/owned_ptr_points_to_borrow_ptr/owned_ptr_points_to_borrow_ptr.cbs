@@ -39,10 +39,8 @@ void test4() {
   int *_Borrow *_Owned bb1 = safe_malloc1(bx);
   int y = 0;
   int *_Borrow b2 = &_Mut y;
-  *bb1 = &_Mut *b2; // expected-note {{'*b2' is borrowed here}}
-                   // expected-note@-1 {{first mut borrow occurs here}}
-  ext(*bb1, b2); // expected-error {{cannot use 'b2' because it was mutably borrowed}}
-                 // expected-error@-1 {{cannot borrow '*b2' as mutable more than once at a time}}
+  *bb1 = &_Mut *b2; // expected-note {{first mut borrow occurs here}}
+  ext(*bb1, b2); // expected-error {{cannot borrow '*b2' as mutable more than once at a time}}
   **bb1 = 2;
   safe_free((void *_Owned)bb1);
 }
@@ -53,10 +51,8 @@ void test5() {
   int *_Borrow *_Owned bb1 = safe_malloc1(bx);
   int y = 0;
   int *_Borrow b2 = &_Mut y;
-  *bb1 = b2; // expected-note {{'*b2' is borrowed here}}
-             // expected-note@-1 {{first mut borrow occurs here}}
-  ext(*bb1, b2); // expected-error {{cannot use 'b2' because it was mutably borrowed}}
-                 // expected-error@-1 {{cannot borrow '*b2' as mutable more than once at a time}}
+  *bb1 = b2; // expected-note {{first mut borrow occurs here}}
+  ext(*bb1, b2); // expected-error {{cannot borrow '*b2' as mutable more than once at a time}}
   **bb1 = 2;
   safe_free((void *_Owned)bb1);
 }

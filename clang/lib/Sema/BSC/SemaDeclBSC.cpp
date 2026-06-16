@@ -719,34 +719,577 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
   // Statements of the CompoundStmt currently being transformed.
   // Used to build replacement CompoundStmts during transformation.
   StmtVector Stmts;
+  // Temporary declarations belong to the CompoundStmt being transformed,
+  // independently of synthetic statement expressions used for evaluation.
+  StmtVector TempDecls;
   unsigned TempVarCounter = 0;
   ReplaceNodesMap &replacedNodesMap;
 
-  VarDecl *NewTempVar(QualType T, Expr *E = nullptr) {
+  VarDecl *NewTempVar(QualType T) {
     std::string Name = "_borrowck_tmp_" + std::to_string(TempVarCounter++);
     VarDecl *VD = VarDecl::Create(
         getSema().Context, FD, SourceLocation(), SourceLocation(),
         &getSema().Context.Idents.get(Name), T, nullptr, SC_None);
-    VD->setInit(E);
     DeclStmt *DS = new (getSema().Context)
         DeclStmt(DeclGroupRef(VD), SourceLocation(), SourceLocation());
-    Stmts.push_back(DS);
+    TempDecls.push_back(DS);
     return VD;
   }
 
-  // Replace the given expression with a new temporary variable, and return the
-  // corresponding DeclRefExpr.
-  Expr *ReplaceWithRefToNewTempVar(Expr *E, QualType T = QualType{}) {
-    if (T.isNull()) {
-      T = E->getType();
-    }
-    VarDecl *VD = NewTempVar(T, E);
+  Expr *CreateTempRef(VarDecl *VD, SourceLocation Loc, bool AsRValue) {
     DeclRefExpr *DRE = DeclRefExpr::Create(
         getSema().Context, NestedNameSpecifierLoc(), SourceLocation(), VD,
-        false, E->getBeginLoc(), T, VK_LValue);
-    if (E->isPRValue())
-        return getSema().DefaultLvalueConversion(DRE).get();
+        false, Loc, VD->getType(), VK_LValue);
+    if (AsRValue)
+      return getSema().DefaultLvalueConversion(DRE).get();
     return DRE;
+  }
+
+  // Preserve array-to-pointer decay when required by the original AST.
+  ExprResult MaybeDecayArrayToPointer(Expr *E, bool NeedDecay) {
+    if (!NeedDecay)
+      return E;
+
+    QualType DecayedTy =
+        getSema().Context.getArrayDecayedType(E->getType());
+    return getSema().ImpCastExprToType(E, DecayedTy,
+                                       CK_ArrayToPointerDecay);
+  }
+
+  /// Normalize E as a stable place. NeedDecay preserves an enclosing
+  /// array-to-pointer conversion after the place itself has been normalized.
+  ExprResult AsPlace(Expr *E, bool NeedDecay = false) {
+    switch (E->getStmtClass()) {
+    case Stmt::DeclRefExprClass:
+      return MaybeDecayArrayToPointer(E, NeedDecay);
+    case Stmt::MemberExprClass: {
+      MemberExpr *ME = cast<MemberExpr>(E);
+      ExprResult Base = AsPlace(ME->getBase());
+      ME->setBase(Base.get());
+      return MaybeDecayArrayToPointer(ME, NeedDecay);
+    }
+    case Stmt::ArraySubscriptExprClass: {
+      ArraySubscriptExpr *ASE = cast<ArraySubscriptExpr>(E);
+      ExprResult Base = AsPlace(ASE->getLHS());
+      ASE->setLHS(Base.get());
+      ExprResult Index = AsTemp(ASE->getRHS());
+      ASE->setRHS(Index.get());
+      return MaybeDecayArrayToPointer(ASE, NeedDecay);
+    }
+    case Stmt::UnaryOperatorClass: {
+      UnaryOperator *UO = cast<UnaryOperator>(E);
+      if (UO->getOpcode() == UO_Extension) {
+        ExprResult SubExpr = AsPlace(UO->getSubExpr());
+        UO->setSubExpr(SubExpr.get());
+        return MaybeDecayArrayToPointer(UO, NeedDecay);
+      }
+
+      if (UO->getOpcode() != UO_Deref) {
+        return AsTemp(UO);
+      }
+
+      ExprResult SubExpr = AsPlace(UO->getSubExpr());
+      UO->setSubExpr(SubExpr.get());
+      return MaybeDecayArrayToPointer(UO, NeedDecay);
+    }
+    case Stmt::BinaryOperatorClass: {
+      BinaryOperator *BO = cast<BinaryOperator>(E);
+      if (!BO->getType().isBorrowQualified() ||
+          (BO->getOpcode() != BO_Add && BO->getOpcode() != BO_Sub)) {
+        return AsTemp(BO);
+      }
+
+      // Pointer arithmetic preserves the abstract place rooted at its pointer
+      // operand. Materialize the offset so its access has a separate action.
+      if (BO->getLHS()->getType()->isPointerType()) {
+        ExprResult LHS = AsPlace(BO->getLHS());
+        BO->setLHS(LHS.get());
+        ExprResult RHS = AsTemp(BO->getRHS());
+        BO->setRHS(RHS.get());
+      } else {
+        ExprResult LHS = AsTemp(BO->getLHS());
+        BO->setLHS(LHS.get());
+        ExprResult RHS = AsPlace(BO->getRHS());
+        BO->setRHS(RHS.get());
+      }
+      // Binary operators cannot produce arrays; their operands handle decay.
+      return BO;
+    }
+    case Stmt::ParenExprClass: {
+      ParenExpr *PE = cast<ParenExpr>(E);
+      ExprResult SubExpr = AsPlace(PE->getSubExpr());
+      PE->setSubExpr(SubExpr.get());
+      return MaybeDecayArrayToPointer(PE, NeedDecay);
+    }
+    case Stmt::ImplicitCastExprClass: {
+      ImplicitCastExpr *ICE = cast<ImplicitCastExpr>(E);
+      if (ICE->getCastKind() == CK_ArrayToPointerDecay) {
+        ExprResult Result = AsPlace(ICE->getSubExpr(), true);
+        replacedNodesMap.Insert(Result.get(), ICE);
+        return Result;
+      }
+      if (ICE->getCastKind() == CK_NullToPointer) {
+        // Null-to-pointer creates a pointer value from an expression that does
+        // not denote a place, so materialize the conversion as a whole.
+        return AsTemp(ICE);
+      }
+      ExprResult SubExpr = AsPlace(ICE->getSubExpr());
+      ICE->setSubExpr(SubExpr.get());
+      return MaybeDecayArrayToPointer(ICE, NeedDecay);
+    }
+    case Stmt::SafeExprClass: {
+      SafeExpr *SE = cast<SafeExpr>(E);
+      ExprResult SubExpr = AsPlace(SE->getSubExpr());
+      SE->setSubExpr(SubExpr.get());
+      return MaybeDecayArrayToPointer(SE, NeedDecay);
+    }
+    case Stmt::SubstNonTypeTemplateParmExprClass: {
+      // Transparent wrapper around the substituted value; lower the inner
+      // expression directly.
+      SubstNonTypeTemplateParmExpr *SNTTP =
+          cast<SubstNonTypeTemplateParmExpr>(E);
+      return AsPlace(SNTTP->getReplacement(), NeedDecay);
+    }
+    default: {
+      ExprResult Result = MaybeDecayArrayToPointer(E, NeedDecay);
+      return AsTemp(Result.get());
+    }
+    }
+  }
+
+  // Normalize a discarded expression without producing a destination value.
+  void AsDiscarded(Expr *E) { ExprIntoDest(nullptr, E); }
+
+  void PushAssignOrExpr(Expr *Dest, Expr *E) {
+    // A discarded expression has no destination, so emit it directly instead
+    // of creating a synthetic assignment.
+    if (!Dest) {
+      Stmts.push_back(E);
+      return;
+    }
+
+    BinaryOperator *Assign = BinaryOperator::Create(
+        getSema().Context, Dest, E, BO_Assign, Dest->getType(), VK_PRValue,
+        OK_Ordinary, E->getExprLoc(), FPOptionsOverride());
+    Stmts.push_back(Assign);
+  }
+
+  /// Normalize E and emit an explicit assignment into Dest. Nested comma and
+  /// assignment expressions emit their preceding writes into Stmts first, so
+  /// every write is represented by its own CFG action site.
+  void ExprIntoDest(Expr *Dest, Expr *E) {
+    switch (E->getStmtClass()) {
+    case Stmt::ArraySubscriptExprClass: {
+      ArraySubscriptExpr *ASE = cast<ArraySubscriptExpr>(E);
+      ExprResult Source = AsPlace(ASE);
+      PushAssignOrExpr(Dest, Source.get());
+      return;
+    }
+    case Stmt::MemberExprClass: {
+      MemberExpr *ME = cast<MemberExpr>(E);
+      ExprResult Source = AsPlace(ME);
+      PushAssignOrExpr(Dest, Source.get());
+      return;
+    }
+    case Stmt::BinaryConditionalOperatorClass: {
+      BinaryConditionalOperator *BCO = cast<BinaryConditionalOperator>(E);
+      PushAssignOrExpr(Dest, BCO);
+      return;
+    }
+    case Stmt::BinaryOperatorClass: {
+      BinaryOperator *BO = cast<BinaryOperator>(E);
+
+      if (BO->getOpcode() == BO_Comma) {
+        // Evaluate the LHS for its effects; only the RHS yields the result.
+        AsDiscarded(BO->getLHS());
+        ExprIntoDest(Dest, BO->getRHS());
+        return;
+      }
+
+      if (BO->getOpcode() == BO_Assign) {
+        ExprResult LHS = AsPlace(BO->getLHS());
+
+        // A discarded assignment only performs the write; its result does not
+        // need to be forwarded through a temporary.
+        if (!Dest) {
+          ExprIntoDest(LHS.get(), BO->getRHS());
+          return;
+        }
+
+        // Lower `Dest = (LHS = RHS)` to
+        // `Tmp = RHS; LHS = Tmp; Dest = Tmp`.
+        VarDecl *TempVD = NewTempVar(BO->getType());
+        Expr *LValue = CreateTempRef(TempVD, BO->getBeginLoc(), false);
+        ExprIntoDest(LValue, BO->getRHS());
+
+        Expr *LHSRValue =
+            CreateTempRef(TempVD, BO->getBeginLoc(), true);
+        PushAssignOrExpr(LHS.get(), LHSRValue);
+
+        Expr *DestRValue =
+            CreateTempRef(TempVD, BO->getBeginLoc(), true);
+        PushAssignOrExpr(Dest, DestRValue);
+        return;
+      }
+
+      if (BO->isLogicalOp()) {
+        auto BuildOperand = [&](Expr *Operand) {
+          llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+          ExprResult Result = AsOperand(Operand);
+          Stmts.push_back(Result.get());
+
+          CompoundStmt *CS = CompoundStmt::Create(
+              SemaRef.Context, Stmts, FPOptionsOverride(),
+              Operand->getBeginLoc(), Operand->getEndLoc(),
+              SafeZoneSpecifier::SZ_None);
+          StmtExpr *SE = new (SemaRef.Context)
+              StmtExpr(CS, Result.get()->getType(), Operand->getBeginLoc(),
+                       Operand->getEndLoc(), 0);
+          replacedNodesMap.Insert(SE, Operand);
+          return SE;
+        };
+
+        BO->setLHS(BuildOperand(BO->getLHS()));
+        BO->setRHS(BuildOperand(BO->getRHS()));
+        PushAssignOrExpr(Dest, BO);
+        return;
+      }
+
+      if (BO->isMultiplicativeOp() || BO->isAdditiveOp() ||
+          BO->isShiftOp() || BO->isRelationalOp() ||
+          BO->isEqualityOp() || BO->isBitwiseOp()) {
+        ExprResult LHS = AsOperand(BO->getLHS());
+        BO->setLHS(LHS.get());
+
+        ExprResult RHS = AsOperand(BO->getRHS());
+        BO->setRHS(RHS.get());
+
+        PushAssignOrExpr(Dest, BO);
+        return;
+      }
+
+      llvm_unreachable("unexpected binary operator");
+    }
+    case Stmt::CompoundAssignOperatorClass: {
+      CompoundAssignOperator *CAO = cast<CompoundAssignOperator>(E);
+      ExprResult LHS = AsPlace(CAO->getLHS());
+      ExprResult RHS = AsOperand(CAO->getRHS());
+
+      // Lower compound assignment to `Tmp = LHS op RHS; LHS = Tmp` and
+      // forward Tmp into Dest only when the enclosing expression consumes the
+      // result. AsPlace materializes side-effecting components, so the same
+      // stable place can be reused.
+      ExprResult Computation = getSema().BuildBinOp(
+          nullptr, CAO->getOperatorLoc(),
+          BinaryOperator::getOpForCompoundAssignment(CAO->getOpcode()),
+          LHS.get(), RHS.get());
+      ExprResult Result = getSema().PerformImplicitConversion(
+          Computation.get(), CAO->getType(), Sema::AA_Assigning);
+
+      VarDecl *TempVD = NewTempVar(CAO->getType());
+      Expr *TempLValue = CreateTempRef(TempVD, CAO->getBeginLoc(), false);
+      PushAssignOrExpr(TempLValue, Result.get());
+
+      Expr *LHSRValue = CreateTempRef(TempVD, CAO->getBeginLoc(), true);
+      PushAssignOrExpr(LHS.get(), LHSRValue);
+
+      if (Dest) {
+        Expr *DestRValue = CreateTempRef(TempVD, CAO->getBeginLoc(), true);
+        PushAssignOrExpr(Dest, DestRValue);
+      }
+      return;
+    }
+    case Stmt::CallExprClass: {
+      CallExpr *CE = cast<CallExpr>(E);
+      if (!CE->getDirectCallee()) {
+        ExprResult Callee = AsOperand(CE->getCallee());
+        CE->setCallee(Callee.get());
+      }
+
+      for (unsigned I = 0; I < CE->getNumArgs(); ++I) {
+        ExprResult Arg = AsOperand(CE->getArg(I));
+        CE->setArg(I, Arg.get());
+      }
+      PushAssignOrExpr(Dest, CE);
+      return;
+    }
+    case Stmt::CompoundLiteralExprClass: {
+      CompoundLiteralExpr *CLE = cast<CompoundLiteralExpr>(E);
+      ExprIntoDest(Dest, CLE->getInitializer());
+      return;
+    }
+    case Stmt::ConditionalOperatorClass: {
+      ConditionalOperator *CO = cast<ConditionalOperator>(E);
+      ExprResult Cond = AsCondition(CO->getCond());
+      VarDecl *TempVD = Dest ? NewTempVar(CO->getType()) : nullptr;
+
+      auto BuildBranch = [&](Expr *Branch) {
+        llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+        Expr *BranchDest = nullptr;
+        if (TempVD)
+          BranchDest =
+              CreateTempRef(TempVD, Branch->getBeginLoc(), false);
+        ExprIntoDest(BranchDest, Branch);
+        return CompoundStmt::Create(
+            SemaRef.Context, Stmts, FPOptionsOverride(),
+            Branch->getBeginLoc(), Branch->getEndLoc(),
+            SafeZoneSpecifier::SZ_None);
+      };
+
+      CompoundStmt *TrueCS = BuildBranch(CO->getTrueExpr());
+      CompoundStmt *FalseCS = BuildBranch(CO->getFalseExpr());
+      IfStmt *IS = IfStmt::Create(
+          SemaRef.Context, SourceLocation(), IfStatementKind::Ordinary,
+          nullptr, nullptr, Cond.get(), SourceLocation(), SourceLocation(),
+          TrueCS, SourceLocation(), FalseCS);
+      Stmts.push_back(IS);
+
+      if (Dest) {
+        Expr *Result = CreateTempRef(TempVD, CO->getExprLoc(), true);
+        PushAssignOrExpr(Dest, Result);
+      }
+      return;
+    }
+    case Stmt::CStyleCastExprClass: {
+      CStyleCastExpr *CSCE = cast<CStyleCastExpr>(E);
+
+      // A void operand has no value for AsOperand; the outer cast only
+      // discards its evaluation.
+      if (CSCE->getSubExpr()->getType()->isVoidType()) {
+        AsDiscarded(CSCE->getSubExpr());
+        return;
+      }
+
+      // A discarded borrow cast still needs a destination type for its region
+      // constraints.
+      if (!Dest && CSCE->getType().isBorrowQualified()) {
+        AsTemp(CSCE);
+        return;
+      }
+
+      ExprResult SubExpr = AsPlace(CSCE->getSubExpr());
+      CSCE->setSubExpr(SubExpr.get());
+      PushAssignOrExpr(Dest, CSCE);
+      return;
+    }
+    case Stmt::InitListExprClass: {
+      InitListExpr *ILE = cast<InitListExpr>(E);
+      for (unsigned I = 0; I < ILE->getNumInits(); ++I) {
+        ExprResult Init = AsOperand(ILE->getInit(I));
+        ILE->setInit(I, Init.get());
+      }
+      PushAssignOrExpr(Dest, ILE);
+      return;
+    }
+    case Stmt::ParenExprClass: {
+      ParenExpr *PE = cast<ParenExpr>(E);
+      ExprIntoDest(Dest, PE->getSubExpr());
+      return;
+    }
+    case Stmt::ImplicitCastExprClass: {
+      ImplicitCastExpr *ICE = cast<ImplicitCastExpr>(E);
+      if (ICE->getCastKind() == CK_NullToPointer) {
+        PushAssignOrExpr(Dest, ICE);
+        return;
+      }
+      ExprResult SubExpr = AsOperand(ICE->getSubExpr());
+      ICE->setSubExpr(SubExpr.get());
+      PushAssignOrExpr(Dest, ICE);
+      return;
+    }
+    case Stmt::SafeExprClass: {
+      SafeExpr *SE = cast<SafeExpr>(E);
+      ExprIntoDest(Dest, SE->getSubExpr());
+      return;
+    }
+    case Stmt::SubstNonTypeTemplateParmExprClass: {
+      // Transparent wrapper around the substituted value; lower the inner
+      // expression directly.
+      SubstNonTypeTemplateParmExpr *SNTTP =
+          cast<SubstNonTypeTemplateParmExpr>(E);
+      ExprIntoDest(Dest, SNTTP->getReplacement());
+      return;
+    }
+    case Stmt::StmtExprClass: {
+      StmtExpr *SE = cast<StmtExpr>(E);
+      StmtResult Res =
+          getDerived().TransformCompoundStmt(SE->getSubStmt(), true);
+      SE->setSubStmt(Res.getAs<CompoundStmt>());
+      PushAssignOrExpr(Dest, SE);
+      return;
+    }
+    case Stmt::UnaryOperatorClass: {
+      UnaryOperator *UO = cast<UnaryOperator>(E);
+
+      if (UO->getOpcode() == UO_Extension) {
+        ExprIntoDest(Dest, UO->getSubExpr());
+        return;
+      }
+
+      if (UO->getOpcode() == UO_Deref) {
+        ExprResult Source = AsPlace(UO);
+        PushAssignOrExpr(Dest, Source.get());
+        return;
+      }
+
+      if (UO->getOpcode() == UO_AddrOf ||
+          UO->getOpcode() == UO_AddrMut ||
+          UO->getOpcode() == UO_AddrConst ||
+          UO->getOpcode() == UO_AddrMutDeref ||
+          UO->getOpcode() == UO_AddrConstDeref) {
+        // A borrow action needs a destination type for its region constraints.
+        // Materialize a discarded borrow without keeping its value live.
+        if (!Dest && UO->getType().isBorrowQualified()) {
+          AsTemp(UO);
+          return;
+        }
+
+        ExprResult SubExpr = AsPlace(UO->getSubExpr());
+        UO->setSubExpr(SubExpr.get());
+        PushAssignOrExpr(Dest, UO);
+        return;
+      }
+
+      if (UO->isArithmeticOp()) {
+        ExprResult SubExpr = AsOperand(UO->getSubExpr());
+        UO->setSubExpr(SubExpr.get());
+        PushAssignOrExpr(Dest, UO);
+        return;
+      }
+
+      if (UO->isIncrementDecrementOp()) {
+        ExprResult SubExpr = AsPlace(UO->getSubExpr());
+        UO->setSubExpr(SubExpr.get());
+        PushAssignOrExpr(Dest, UO);
+        return;
+      }
+
+      llvm_unreachable("unexpected unary operator");
+    }
+    case Stmt::VAArgExprClass: {
+      VAArgExpr *VAE = cast<VAArgExpr>(E);
+      ExprResult SubExpr = AsOperand(VAE->getSubExpr());
+      VAE->setSubExpr(SubExpr.get());
+      PushAssignOrExpr(Dest, VAE);
+      return;
+    }
+    case Stmt::AtomicExprClass: {
+      AtomicExpr *AE = cast<AtomicExpr>(E);
+      for (unsigned I = 0; I < AE->getNumSubExprs(); ++I) {
+        ExprResult Sub = AsOperand(AE->getSubExprs()[I]);
+        AE->getSubExprs()[I] = Sub.get();
+      }
+      PushAssignOrExpr(Dest, AE);
+      return;
+    }
+    case Stmt::CharacterLiteralClass:
+    case Stmt::CXXNullPtrLiteralExprClass:
+    case Stmt::DeclRefExprClass:
+    case Stmt::FloatingLiteralClass:
+    case Stmt::GNUNullExprClass:
+    case Stmt::ImplicitValueInitExprClass:
+    case Stmt::IntegerLiteralClass:
+    case Stmt::PredefinedExprClass:
+    case Stmt::StringLiteralClass:
+    case Stmt::UnaryExprOrTypeTraitExprClass:
+      PushAssignOrExpr(Dest, E);
+      return;
+    case Stmt::AwaitExprClass:
+      llvm_unreachable("await expression is not implemented yet");
+    default:
+      llvm_unreachable("unsupported expression");
+    }
+  }
+
+  ExprResult AsTemp(Expr *E) {
+    VarDecl *VD = NewTempVar(E->getType());
+
+    Expr *Dest = CreateTempRef(VD, E->getBeginLoc(), false);
+    ExprIntoDest(Dest, E);
+
+    Expr *Ref = CreateTempRef(VD, E->getBeginLoc(), E->isPRValue());
+    replacedNodesMap.Insert(Ref, E);
+    return Ref;
+  }
+
+  ExprResult AsOperand(Expr *E) {
+    switch (E->getStmtClass()) {
+    case Stmt::CXXNullPtrLiteralExprClass:
+    case Stmt::ImplicitValueInitExprClass:
+    case Stmt::IntegerLiteralClass:
+    case Stmt::CharacterLiteralClass:
+    case Stmt::FloatingLiteralClass:
+    case Stmt::PredefinedExprClass:
+    case Stmt::StringLiteralClass:
+    case Stmt::UnaryExprOrTypeTraitExprClass:
+      return E;
+    case Stmt::ParenExprClass: {
+      ParenExpr *PE = cast<ParenExpr>(E);
+      ExprResult SubExpr = AsOperand(PE->getSubExpr());
+      PE->setSubExpr(SubExpr.get());
+      return PE;
+    }
+    case Stmt::ImplicitCastExprClass: {
+      ImplicitCastExpr *ICE = cast<ImplicitCastExpr>(E);
+      if (ICE->getCastKind() == CK_ArrayToPointerDecay) {
+        // Don't reuse the original ICE; forward the pre-decay sub-expr to
+        // build a fresh decay replacement.
+        ExprResult Decayed =
+            MaybeDecayArrayToPointer(ICE->getSubExpr(), true);
+        ExprResult Result = AsTemp(Decayed.get());
+        replacedNodesMap.Insert(Result.get(), ICE);
+        return Result;
+      }
+      if (ICE->getCastKind() == CK_NullToPointer)
+        return ICE;
+      ExprResult SubExpr = AsOperand(ICE->getSubExpr());
+      ICE->setSubExpr(SubExpr.get());
+      return ICE;
+    }
+    case Stmt::SafeExprClass: {
+      SafeExpr *SE = cast<SafeExpr>(E);
+      ExprResult SubExpr = AsOperand(SE->getSubExpr());
+      SE->setSubExpr(SubExpr.get());
+      return SE;
+    }
+    case Stmt::SubstNonTypeTemplateParmExprClass: {
+      // Transparent wrapper around the substituted value; lower the inner
+      // expression directly.
+      SubstNonTypeTemplateParmExpr *SNTTP =
+          cast<SubstNonTypeTemplateParmExpr>(E);
+      return AsOperand(SNTTP->getReplacement());
+    }
+    default:
+      return AsTemp(E);
+    }
+  }
+
+  ExprResult AsCondition(Expr *E) {
+    llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+    ExprResult Result = AsOperand(E);
+
+    Stmts.push_back(Result.get());
+    CompoundStmt *CS = CompoundStmt::Create(
+        SemaRef.Context, Stmts, FPOptionsOverride(), E->getBeginLoc(),
+        E->getEndLoc(), SafeZoneSpecifier::SZ_None);
+    StmtExpr *SE = new (SemaRef.Context)
+        StmtExpr(CS, Result.get()->getType(), E->getBeginLoc(), E->getEndLoc(),
+                 0);
+    replacedNodesMap.Insert(SE, E);
+    return SE;
+  }
+
+  ExprResult AsLoopIncrement(Expr *E) {
+    llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+    AsDiscarded(E);
+
+    CompoundStmt *CS = CompoundStmt::Create(
+        SemaRef.Context, Stmts, FPOptionsOverride(), E->getBeginLoc(),
+        E->getEndLoc(), SafeZoneSpecifier::SZ_None);
+    StmtExpr *SE = new (SemaRef.Context)
+        StmtExpr(CS, E->getType(), E->getBeginLoc(), E->getEndLoc(), 0);
+    replacedNodesMap.Insert(SE, E);
+    return SE;
   }
 
   // Ensure the given statement is wrapped with a CompoundStmt. If not, create
@@ -758,13 +1301,6 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
                                 S->getBeginLoc(), S->getEndLoc());
   }
 
-  ExprResult TransformStringLiteralLike(Expr *E) {
-    QualType PtrTy = getSema().Context.getArrayDecayedType(E->getType());
-    Expr *DRE = ReplaceWithRefToNewTempVar(E, PtrTy);
-    replacedNodesMap.Insert(DRE, E);
-    return DRE;
-  }
-
 public:
   BorrowCheckerPrologue(Sema &SemaRef, FunctionDecl *FD,
                         ReplaceNodesMap &replacedNodesMap)
@@ -773,8 +1309,6 @@ public:
   // Don't redo semantic analysis to ensure that AST nodes are not rebuilt to
   // affect destructor insertion and AST recovery.
   bool AlwaysRebuild() { return false; }
-
-  ExprResult TransformConstantExpr(ConstantExpr *E) { return E; }
 
   void applyTransform() {
     StmtResult Res = BaseTransform::TransformStmt(FD->getBody());
@@ -807,7 +1341,10 @@ public:
 #define ABSTRACT_STMT(Stmt)
 #define EXPR(Node, Parent) case Stmt::Node##Class:
 #include "clang/AST/StmtNodes.inc"
-      { return getDerived().TransformExpr(cast<Expr>(S)).get(); }
+      {
+        AsDiscarded(cast<Expr>(S));
+        return Stmts.pop_back_val();
+      }
     }
 
     return S;
@@ -838,11 +1375,23 @@ public:
       return CS;
 
     llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+    llvm::SaveAndRestore<StmtVector> TempDeclsRestore(TempDecls,
+                                                     StmtVector());
     // Traverse and transform all statements in the compound statement.
+    unsigned Index = 0;
     for (Stmt *S : CS->body()) {
+      bool IsLast = ++Index == CS->size();
+      Expr *E = dyn_cast<Expr>(S);
+      if (IsStmtExpr && IsLast && E && !E->getType()->isVoidType()) {
+        ExprResult Res = AsOperand(E);
+        Stmts.push_back(Res.get());
+        continue;
+      }
+
       StmtResult Res = getDerived().TransformStmt(S);
       Stmts.push_back(Res.getAs<Stmt>());
     }
+    Stmts.insert(Stmts.begin(), TempDecls.begin(), TempDecls.end());
     CompoundStmt *NewCS = CompoundStmt::Create(
         SemaRef.Context, Stmts, FPOptionsOverride(), CS->getLBracLoc(),
         CS->getRBracLoc(), CS->getCompSafeZoneSpecifier());
@@ -853,12 +1402,24 @@ public:
 
   StmtResult TransformDeclStmt(DeclStmt *DS) {
     for (Decl *D : DS->decls()) {
-      if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
-        if (VD->hasInit()) {
-          ExprResult Res = getDerived().TransformExpr(VD->getInit());
-          VD->setInit(Res.get());
-        }
-      }
+      VarDecl *VD = dyn_cast<VarDecl>(D);
+      if (!VD || !VD->hasInit())
+        continue;
+
+      Expr *Init = VD->getInit();
+      llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+
+      ExprResult Result = AsOperand(Init);
+      Stmts.push_back(Result.get());
+
+      CompoundStmt *CS = CompoundStmt::Create(
+          SemaRef.Context, Stmts, FPOptionsOverride(), Init->getBeginLoc(),
+          Init->getEndLoc(), SafeZoneSpecifier::SZ_None);
+      StmtExpr *SE = new (SemaRef.Context)
+          StmtExpr(CS, Result.get()->getType(), Init->getBeginLoc(),
+                   Init->getEndLoc(), 0);
+      replacedNodesMap.Insert(SE, Init);
+      VD->setInit(SE);
     }
 
     return DS;
@@ -889,15 +1450,8 @@ public:
     replacedNodesMap.Insert(ResBody.get(), Body);
 
     Expr *Cond = DS->getCond();
-    CompoundStmt *CS = CompoundStmt::Create(
-        SemaRef.Context, Cond, FPOptionsOverride(), Cond->getBeginLoc(),
-        Cond->getEndLoc(), SafeZoneSpecifier::SZ_None);
-    StmtResult ResCS = getDerived().TransformStmt(CS);
-    StmtExpr *SE = new (SemaRef.Context)
-        StmtExpr(cast<CompoundStmt>(ResCS.get()), Cond->getType(),
-                 Cond->getBeginLoc(), Cond->getEndLoc(), 0);
-    DS->setCond(SE);
-    replacedNodesMap.Insert(SE, Cond);
+    ExprResult ResCond = AsCondition(Cond);
+    DS->setCond(ResCond.get());
 
     return DS;
   }
@@ -915,27 +1469,13 @@ public:
     }
 
     if (Expr *Cond = FS->getCond()) {
-      CompoundStmt *CS = CompoundStmt::Create(
-          SemaRef.Context, Cond, FPOptionsOverride(), Cond->getBeginLoc(),
-          Cond->getEndLoc(), SafeZoneSpecifier::SZ_None);
-      StmtResult ResCS = getDerived().TransformStmt(CS);
-      StmtExpr *SE = new (SemaRef.Context)
-          StmtExpr(cast<CompoundStmt>(ResCS.get()), Cond->getType(),
-                   Cond->getBeginLoc(), Cond->getEndLoc(), 0);
-      FS->setCond(SE);
-      replacedNodesMap.Insert(SE, Cond);
+      ExprResult ResCond = AsCondition(Cond);
+      FS->setCond(ResCond.get());
     }
 
     if (Expr *Inc = FS->getInc()) {
-      CompoundStmt *CS = CompoundStmt::Create(
-          SemaRef.Context, Inc, FPOptionsOverride(), Inc->getBeginLoc(),
-          Inc->getEndLoc(), SafeZoneSpecifier::SZ_None);
-      StmtResult ResCS = getDerived().TransformStmt(CS);
-      StmtExpr *SE = new (SemaRef.Context)
-          StmtExpr(cast<CompoundStmt>(ResCS.get()), Inc->getType(),
-                   Inc->getBeginLoc(), Inc->getEndLoc(), 0);
-      FS->setInc(SE);
-      replacedNodesMap.Insert(SE, Inc);
+      ExprResult ResInc = AsLoopIncrement(Inc);
+      FS->setInc(ResInc.get());
     }
 
     Stmt *Body = FS->getBody();
@@ -949,9 +1489,10 @@ public:
 
   StmtResult TransformIfStmt(IfStmt *IS) {
     Expr *Cond = IS->getCond();
-    ExprResult ResCond = getDerived().TransformExpr(Cond);
-    IS->setCond(ResCond.get());
-    replacedNodesMap.Insert(ResCond.get(), Cond);
+    if (!isa<ConstantExpr>(Cond)) {
+      ExprResult ResCond = AsCondition(Cond);
+      IS->setCond(ResCond.get());
+    }
 
     Stmt *Then = IS->getThen();
     CompoundStmt *CSThen = EnsureWrappedWithCompoundStmt(Then);
@@ -983,12 +1524,22 @@ public:
   }
 
   StmtResult TransformReturnStmt(ReturnStmt *RS) {
-    if (Expr *RV = RS->getRetValue()) {
-      ExprResult Res = getDerived().TransformExpr(RV);
-      Expr *E = Res.get();
-      RS->setRetValue(E);
+    Expr *RV = RS->getRetValue();
+    if (!RV)
+      return RS;
+
+    if (RV->getType()->isVoidType()) {
+      AsDiscarded(RV);
+
+      ReturnStmt *NewRS = ReturnStmt::Create(
+          getSema().Context, RS->getReturnLoc(), nullptr,
+          /*NRVOCandidate=*/nullptr);
+      replacedNodesMap.Insert(NewRS, RS);
+      return NewRS;
     }
 
+    ExprResult Res = AsOperand(RV);
+    RS->setRetValue(Res.get());
     return RS;
   }
 
@@ -1001,7 +1552,7 @@ public:
 
   StmtResult TransformSwitchStmt(SwitchStmt *SS) {
     Expr *Cond = SS->getCond();
-    ExprResult ResCond = getDerived().TransformExpr(Cond);
+    ExprResult ResCond = AsOperand(Cond);
     SS->setCond(ResCond.get());
 
     Stmt *Body = SS->getBody();
@@ -1019,15 +1570,8 @@ public:
   // so that the WhileStmt can be transformed correctly by the prologue.
   StmtResult TransformWhileStmt(WhileStmt *WS) {
     Expr *Cond = WS->getCond();
-    CompoundStmt *CS = CompoundStmt::Create(
-        SemaRef.Context, Cond, FPOptionsOverride(), Cond->getBeginLoc(),
-        Cond->getEndLoc(), SafeZoneSpecifier::SZ_None);
-    StmtResult ResCS = getDerived().TransformStmt(CS);
-    StmtExpr *SE = new (SemaRef.Context)
-        StmtExpr(cast<CompoundStmt>(ResCS.get()), Cond->getType(),
-                 Cond->getBeginLoc(), Cond->getEndLoc(), 0);
-    WS->setCond(SE);
-    replacedNodesMap.Insert(SE, Cond);
+    ExprResult ResCond = AsCondition(Cond);
+    WS->setCond(ResCond.get());
 
     Stmt *Body = WS->getBody();
     CompoundStmt *CSBody = EnsureWrappedWithCompoundStmt(Body);
@@ -1036,204 +1580,6 @@ public:
     replacedNodesMap.Insert(ResBody.get(), Body);
 
     return WS;
-  }
-
-  ExprResult TransformArraySubscriptExpr(ArraySubscriptExpr *ASE) {
-    ExprResult ResLHS = getDerived().TransformExpr(ASE->getLHS());
-    ASE->setLHS(ResLHS.get());
-
-    ExprResult ResRHS = getDerived().TransformExpr(ASE->getRHS());
-    ASE->setRHS(ResRHS.get());
-
-    return ASE;
-  }
-
-  ExprResult TransformAwaitExpr(AwaitExpr *AE) {
-    return AE;
-  }
-
-  // Keep consistent with ActionExtract::VisitUnaryExprOrTypeTraitExpr.
-  // Systematic VLA handling to be done later.
-  ExprResult TransformUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E) {
-    return E;
-  }
-
-  // Note: don't replace LHS and RHS with temporary variables directly in this
-  // function, because it may cause incorrect transformation results.
-  ExprResult TransformBinaryOperator(BinaryOperator *BO) {
-    ExprResult ResLHS = getDerived().TransformExpr(BO->getLHS());
-    Expr *ELHS = ResLHS.get();
-    BO->setLHS(ELHS);
-
-    ExprResult ResRHS = getDerived().TransformExpr(BO->getRHS());
-    Expr *ERHS = ResRHS.get();
-    BO->setRHS(ERHS);
-
-    // For logical operators (&&, ||), don't wrap in a temporary variable.
-    // The CFG builder handles them via VisitLogicalOperator which creates
-    // short-circuit blocks. Wrapping them would destroy the short-circuit
-    // semantics and cause incorrect borrow-checker lifetimes.
-    if (BO->isLogicalOp())
-      return BO;
-
-    Expr *DRE = ReplaceWithRefToNewTempVar(BO);
-    replacedNodesMap.Insert(DRE, BO);
-    return DRE;
-  }
-
-  ExprResult TransformCallExpr(CallExpr *CE) {
-    for (unsigned i = 0; i < CE->getNumArgs(); ++i) {
-      ExprResult Res = getDerived().TransformExpr(CE->getArg(i));
-      Expr *E = Res.get();
-
-      Expr *DRE = ReplaceWithRefToNewTempVar(E);
-      CE->setArg(i, DRE);
-      replacedNodesMap.Insert(DRE, E);
-    }
-
-    // If the call expression has a non-void return type, replace it with a
-    // temporary variable. Otherwise, return the original call expression.
-    if (!CE->getCallReturnType(SemaRef.Context)->isVoidType()) {
-      Expr *DRE = ReplaceWithRefToNewTempVar(CE);
-      replacedNodesMap.Insert(DRE, CE);
-      return DRE;
-    }
-    return CE;
-  }
-
-  ExprResult TransformCompoundLiteralExpr(CompoundLiteralExpr *CLE) {
-    ExprResult Res = getDerived().TransformExpr(CLE->getInitializer());
-    Expr *E = Res.get();
-    CLE->setInitializer(E);
-
-    Expr *DRE = ReplaceWithRefToNewTempVar(CLE);
-    replacedNodesMap.Insert(DRE, CLE);
-    return DRE;
-  }
-
-  // Transform ConditionalOperator into a IfStmt and a VarDecl. The result of
-  // the ConditionalOperator is the value of the VarDecl.
-  ExprResult TransformConditionalOperator(ConditionalOperator *CO) {
-    Expr *Cond = CO->getCond();
-    Expr *TrueExpr = CO->getTrueExpr();
-    Expr *FalseExpr = CO->getFalseExpr();
-
-    // Create a new temporary variable.
-    VarDecl *TempVD = NewTempVar(CO->getType());
-
-    // Build true branch of the IfStmt.
-    DeclRefExpr *TempRef1 = DeclRefExpr::Create(
-        getSema().Context, NestedNameSpecifierLoc(), SourceLocation(), TempVD,
-        false, CO->getBeginLoc(), CO->getType(), VK_LValue);
-    BinaryOperator *TrueAssign = BinaryOperator::Create(
-        getSema().Context, TempRef1, TrueExpr, BO_Assign, CO->getType(),
-        VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
-
-    // Build false branch of the IfStmt.
-    DeclRefExpr *TempRef2 = DeclRefExpr::Create(
-        getSema().Context, NestedNameSpecifierLoc(), SourceLocation(), TempVD,
-        false, CO->getBeginLoc(), CO->getType(), VK_LValue);
-    BinaryOperator *FalseAssign = BinaryOperator::Create(
-        getSema().Context, TempRef2, FalseExpr, BO_Assign, CO->getType(),
-        VK_PRValue, OK_Ordinary, SourceLocation(), FPOptionsOverride());
-
-    // Build the IfStmt.
-    IfStmt *IS = IfStmt::Create(getSema().Context, SourceLocation(),
-                                IfStatementKind::Ordinary, nullptr, nullptr,
-                                Cond, SourceLocation(), SourceLocation(),
-                                TrueAssign, SourceLocation(), FalseAssign);
-
-    StmtResult Res = getDerived().TransformStmt(IS);
-    Stmts.push_back(Res.get());
-
-    DeclRefExpr *DRE = DeclRefExpr::Create(
-        getSema().Context, NestedNameSpecifierLoc(), SourceLocation(), TempVD,
-        false, CO->getBeginLoc(), CO->getType(), VK_LValue);
-    replacedNodesMap.Insert(DRE, CO);
-    return DRE;
-  }
-
-  ExprResult TransformCStyleCastExpr(CStyleCastExpr *CSCE) {
-    ExprResult Res = getDerived().TransformExpr(CSCE->getSubExpr());
-    CSCE->setSubExpr(Res.get());
-
-    Expr *DRE = ReplaceWithRefToNewTempVar(CSCE);
-    replacedNodesMap.Insert(DRE, CSCE);
-    return DRE;
-  }
-
-  ExprResult TransformDeclRefExpr(DeclRefExpr *DRE) { return DRE; }
-
-  ExprResult TransformImplicitCastExpr(ImplicitCastExpr *ICE) {
-    ExprResult Res = getDerived().TransformExpr(ICE->getSubExpr());
-    ICE->setSubExpr(Res.get());
-
-    return ICE;
-  }
-
-  ExprResult TransformInitListExpr(InitListExpr *ILE) {
-    for (unsigned i = 0; i < ILE->getNumInits(); ++i) {
-      ExprResult Res = getDerived().TransformExpr(ILE->getInit(i));
-      Expr *E = Res.get();
-
-      Expr *DRE = ReplaceWithRefToNewTempVar(E);
-      ILE->setInit(i, DRE);
-      replacedNodesMap.Insert(DRE, E);
-    }
-
-    Expr *DRE = ReplaceWithRefToNewTempVar(ILE);
-    replacedNodesMap.Insert(DRE, ILE);
-    return ILE;
-  }
-
-  ExprResult TransformMemberExpr(MemberExpr *ME) {
-    ExprResult Res = getDerived().TransformExpr(ME->getBase());
-    ME->setBase(Res.get());
-
-    return ME;
-  }
-
-  ExprResult TransformParenExpr(ParenExpr *PE) {
-    ExprResult Res = getDerived().TransformExpr(PE->getSubExpr());
-    PE->setSubExpr(Res.get());
-
-    return PE;
-  }
-
-  ExprResult TransformPredefinedExpr(PredefinedExpr *PE) {
-    return TransformStringLiteralLike(PE);
-  }
-
-  ExprResult TransformSafeExpr(SafeExpr *SE) {
-    ExprResult Res = getDerived().TransformExpr(SE->getSubExpr());
-    SE->setSubExpr(Res.get());
-
-    return SE;
-  }
-
-  ExprResult TransformStmtExpr(StmtExpr *SE) {
-    StmtResult Res = getDerived().TransformStmt(SE->getSubStmt());
-    SE->setSubStmt(Res.getAs<CompoundStmt>());
-    return SE;
-  }
-
-  ExprResult TransformUnaryOperator(UnaryOperator *UO) {
-    ExprResult Res = getDerived().TransformExpr(UO->getSubExpr());
-    UO->setSubExpr(Res.get());
-
-    // Special handling for post-increment and post-decrement operators because
-    // they are l-values.
-    if (!UO->isLValue() ||
-        (UO->getOpcode() >= UO_PostInc && UO->getOpcode() <= UO_PreDec)) {
-      Expr *DRE = ReplaceWithRefToNewTempVar(UO);
-      replacedNodesMap.Insert(DRE, UO);
-      return DRE;
-    }
-    return UO;
-  }
-
-  ExprResult TransformStringLiteral(StringLiteral *SL) {
-    return TransformStringLiteralLike(SL);
   }
 };
 
@@ -1441,6 +1787,9 @@ public:
   }
 
   StmtResult TransformReturnStmt(ReturnStmt *RS) {
+    if (replacedNodesMap.Contains(RS))
+      return replacedNodesMap.Get(RS);
+
     if (!RS->getRetValue())
       return RS;
 
@@ -1535,6 +1884,13 @@ public:
   }
 
   ExprResult TransformCallExpr(CallExpr *CE) {
+    Expr *Callee = CE->getCallee();
+    if (replacedNodesMap.Contains(Callee)) {
+      Callee = replacedNodesMap.Get(Callee);
+    }
+    ExprResult ResCallee = getDerived().TransformExpr(Callee);
+    CE->setCallee(ResCallee.get());
+
     for (unsigned i = 0; i < CE->getNumArgs(); ++i) {
       Expr *Arg = CE->getArg(i);
       if (replacedNodesMap.Contains(Arg)) {
@@ -1546,6 +1902,26 @@ public:
       CE->setArg(i, E);
     }
     return CE;
+  }
+
+  ExprResult TransformAtomicExpr(AtomicExpr *AE) {
+    for (unsigned I = 0; I < AE->getNumSubExprs(); ++I) {
+      Expr *Sub = AE->getSubExprs()[I];
+      if (replacedNodesMap.Contains(Sub))
+        Sub = replacedNodesMap.Get(Sub);
+      ExprResult Res = getDerived().TransformExpr(Sub);
+      AE->getSubExprs()[I] = Res.get();
+    }
+    return AE;
+  }
+
+  ExprResult TransformVAArgExpr(VAArgExpr *VAE) {
+    Expr *Sub = VAE->getSubExpr();
+    if (replacedNodesMap.Contains(Sub))
+      Sub = replacedNodesMap.Get(Sub);
+    ExprResult Res = getDerived().TransformExpr(Sub);
+    VAE->setSubExpr(Res.get());
+    return VAE;
   }
 
   ExprResult TransformCompoundLiteralExpr(CompoundLiteralExpr *CLE) {
@@ -1669,17 +2045,6 @@ void Sema::BSCBorrowChecker(FunctionDecl *FD) {
   AC.getCFGBuildOptions().AddLifetime = true;
   AC.getCFGBuildOptions().BSCMode = true;
   AC.getCFGBuildOptions().BSCBorrowCk = true;
-  AC.getCFGBuildOptions()
-      .setAlwaysAdd(Stmt::BinaryOperatorClass)
-      .setAlwaysAdd(Stmt::BreakStmtClass)
-      .setAlwaysAdd(Stmt::CompoundStmtClass)
-      .setAlwaysAdd(Stmt::DeclStmtClass)
-      .setAlwaysAdd(Stmt::DoStmtClass)
-      .setAlwaysAdd(Stmt::ForStmtClass)
-      .setAlwaysAdd(Stmt::IfStmtClass)
-      .setAlwaysAdd(Stmt::ReturnStmtClass)
-      .setAlwaysAdd(Stmt::SwitchStmtClass)
-      .setAlwaysAdd(Stmt::WhileStmtClass);
 
   if (AC.getCFG()) {
 #if DEBUG_PRINT

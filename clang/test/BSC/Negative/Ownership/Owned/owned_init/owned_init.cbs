@@ -4,10 +4,10 @@ void test1() {
     int _Owned a = 10;           // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     int _Owned a1 = 10.0f;       // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{incompatible _Owned types, cannot cast 'float' to '_Owned int'}}
     int _Owned c = 10 + 20;      /// expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{incompatible _Owned types, cannot cast 'int' to '_Owned int'}}
-    int _Owned b = (int _Owned)10;   // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+    int _Owned b = (int _Owned)10;   // expected-error 2{{type of 'int' cannot be qualified by '_Owned'}}
     int d = 10;
     int _Owned e = d;   // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{incompatible _Owned types, cannot cast 'int' to '_Owned int'}}
-    int _Owned f = (int _Owned)d; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+    int _Owned f = (int _Owned)d; // expected-error 2{{type of 'int' cannot be qualified by '_Owned'}}
 
     float _Owned f1 = 1.0f;// expected-error {{type of 'float' cannot be qualified by '_Owned'}}
     char _Owned c1 = 'c';// expected-error {{type of 'char' cannot be qualified by '_Owned'}}

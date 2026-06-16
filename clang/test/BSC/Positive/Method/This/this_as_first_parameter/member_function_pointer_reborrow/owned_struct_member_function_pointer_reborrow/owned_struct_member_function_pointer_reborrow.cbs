@@ -1,3 +1,10 @@
+// Calling a member function whose `this` parameter is a raw pointer
+// (e.g. foo.getB() on an _Owned Bar where getB is Bar::getB(This* this))
+// crashes: Sema misclassifies the implicit actual->formal conversion as
+// needing a reborrow and synthesizes a &_Const*/&_Mut* UnaryOperator typed
+// as a raw pointer, which trips assert(isBorrowPointer()) in Ty::getRegion()
+// during borrow checking. Same root cause as
+// member_function_pointer_reborrow_ast. Tracked as a Sema bug.
 // RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
 // RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c

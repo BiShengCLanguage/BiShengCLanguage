@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+
+// a union field cannot be qualified by _Borrow, at any level
+
+struct T1 {
+  int *_Borrow p1;
+};
+
+// two-level builtin pointee
+union T2 {
+  int *_Borrow *_Borrow p1;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+  int *_Borrow const *_Borrow p2;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+  const int *_Borrow const *_Borrow p3;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+};
+
+// three-level builtin pointee
+union T3 {
+  int *_Borrow *_Borrow *_Borrow p1;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+  int *_Borrow *_Borrow const *_Borrow p2;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+};
+
+// record pointee
+union T4 {
+  struct T1 *_Borrow *_Borrow p1;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+  struct T1 *_Borrow const *_Borrow p2;
+  // expected-error@-1 {{type of union field cannot be qualified by '_Borrow'}}
+};

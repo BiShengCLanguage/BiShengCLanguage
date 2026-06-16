@@ -1,0 +1,65 @@
+// RUN: %clang_cc1 -verify %s
+
+void use_mut(int *_Borrow p);
+void use_int(int v);
+
+void control_flow_join_keeps_both_paths_borrowed(void) {
+  int a = 1;
+  int b = 2;
+  int flag = 1;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow r = &_Mut b; // expected-note {{'b' is borrowed here}}
+  int *_Borrow *_Borrow q = &_Mut p;
+  if (flag)
+    q = &_Mut p;
+  else
+    q = &_Mut r;
+  a = 3; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  b = 4; // expected-error {{cannot assign to 'b' because it is borrowed}}
+  **q = 5;
+}
+
+void control_flow_loop_does_not_shorten_q_nll(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow *_Borrow q = &_Mut p;
+  for (int i = 0; i < 2; ++i)
+    **q = i;
+  a = 3; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  **q = 4;
+}
+
+void control_flow_inner_local_assigned_on_one_path_escapes(void) {
+  int a = 1;
+  int flag = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p;
+  if (flag) {
+    int local = 2;
+    *q = &_Mut local; // expected-error {{'local' does not live long enough}}
+  } // expected-note {{'local' dropped here while still borrowed}}
+  **q = 3;
+}
+
+void control_flow_reborrowed_p_cannot_be_reassigned_at_join(void) {
+  int a = 1;
+  int b = 2;
+  int flag = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p; // expected-note {{'p' is borrowed here}}
+  if (flag)
+    use_int(**q);
+  p = &_Mut b; // expected-error {{cannot assign to 'p' because it is borrowed}}
+  **q = 4;
+}
+
+void control_flow_switch_like_if_release(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow r = &_Mut b;
+  int *_Borrow *_Borrow q = &_Mut p;
+  if (a > 0) // expected-error {{cannot use 'a' because it was mutably borrowed}}
+    q = &_Mut r;
+  **q = 4;
+}

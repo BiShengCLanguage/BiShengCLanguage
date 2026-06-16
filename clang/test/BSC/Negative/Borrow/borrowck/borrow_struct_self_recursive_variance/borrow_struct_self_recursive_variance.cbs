@@ -1,0 +1,50 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef struct SelfNode {
+  struct SelfNode *_Borrow next;
+  int value;
+} SelfNode;
+
+typedef struct SelfNodeWrapper {
+  SelfNode node;
+} SelfNodeWrapper;
+
+void self_recursive_mutable_variance_prevents_shortening(void) {
+  SelfNode stable = { nullptr, 0 };
+  SelfNode source = { &_Mut stable, 0 };
+
+  {
+    SelfNode shortened = source; // expected-note {{'(*(*source.next).next).value' is borrowed here}}
+    SelfNode short_lived = { nullptr, 0 };
+    shortened.next->next = &_Mut short_lived; // expected-error {{'short_lived' does not live long enough}}
+  } // expected-note {{'short_lived' dropped here while still borrowed}}
+
+  source.next->next->value = 1; // expected-error {{cannot assign to '(*(*source.next).next).value' because it is borrowed}}
+}
+
+void self_recursive_field_rebind_keeps_record_region_live(void) {
+  SelfNode s3 = { nullptr, 3 };
+  SelfNode s2 = { &_Mut s3, 2 };
+  SelfNode s1 = { &_Mut s2, 1 }; // expected-note {{'s2.value' is borrowed here}}
+  s1.next = nullptr;
+  s2.value = 4; // expected-error {{cannot assign to 's2.value' because it is borrowed}}
+  s1.value = 3;
+}
+
+int self_recursive_copy_keeps_source_borrowed(void) {
+  SelfNode tail = { nullptr, 1 };
+  SelfNode source = { &_Mut tail, 2 }; // expected-note {{'tail' is borrowed here}}
+  SelfNode copy = source; // expected-note {{'(*source.next).value' is borrowed here}}
+  copy.next->value = 3;
+  source.next->value = 4; // expected-error {{cannot assign to '(*source.next).value' because it is borrowed}}
+  return tail.value == 4 ? 0 : 1; // expected-error {{cannot use 'tail.value' because it was mutably borrowed}}
+}
+
+int nested_self_recursive_copy_keeps_source_borrowed(void) {
+  SelfNode tail = { nullptr, 1 };
+  SelfNodeWrapper source = { { &_Mut tail, 2 } }; // expected-note {{'tail' is borrowed here}}
+  SelfNodeWrapper copy = source; // expected-note {{'(*source.node.next).value' is borrowed here}}
+  copy.node.next->value = 3;
+  source.node.next->value = 4; // expected-error {{cannot assign to '(*source.node.next).value' because it is borrowed}}
+  return tail.value == 4 ? 0 : 1; // expected-error {{cannot use 'tail.value' because it was mutably borrowed}}
+}

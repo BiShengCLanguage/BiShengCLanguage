@@ -1,0 +1,55 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+void array_elem_reborrow_releases_before_write(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0];
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  (*q)[1] = 1;
+  arr[0] = 2;
+}
+
+void array_elem_rebind_q_releases_previous_array(void) {
+  int arr[4] = {0};
+  int other[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0];
+  int *_Borrow _ArrayElem r = &_Mut other[0];
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  q = &_Mut r;
+  arr[0] = 1;
+  (*q)[0] = 2;
+  other[0] = 3;
+}
+
+void array_elem_shared_reads_release_before_write(void) {
+  int arr[4] = {1, 2, 3, 4};
+  const int *_Borrow _ArrayElem p = &_Const arr[0];
+  const int *_Borrow _ArrayElem const *_Borrow q = &_Const p;
+  int value = (*q)[1];
+  use_int(value);
+  arr[2] = 5;
+}
+
+void array_decay_borrow_and_reborrow(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = arr;
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  (*q)[2] = 3;
+  arr[3] = 4;
+}
+
+void array_element_borrow_as_single_borrow_releases(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0];
+  int *_Borrow elem = &_Mut p[1];
+  *elem = 1;
+  p[2] = 2;
+}
+
+int main(void) {
+  return 0;
+}

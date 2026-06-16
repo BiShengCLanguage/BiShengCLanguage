@@ -1,0 +1,60 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef int *_Borrow IntBorrow;
+typedef const int *_Borrow ConstIntBorrow;
+typedef IntBorrow *_Borrow IntBorrowRef;
+typedef IntBorrow const *_Borrow ConstIntBorrowRef;
+
+typedef struct TypedefHolder {
+  IntBorrowRef pp;
+  IntBorrow p;
+} TypedefHolder;
+
+void use_holder(TypedefHolder h) { (void)h; }
+void use_int(int v) { (void)v; }
+
+void typedef_second_level_reborrow_release(void) {
+  int a = 1;
+  IntBorrow p = &_Mut a;
+  IntBorrowRef q = &_Mut p;
+  **q = 2;
+  a = 3;
+}
+
+void typedef_const_second_level_shared_reads(void) {
+  int a = 1;
+  IntBorrow p = &_Mut a;
+  ConstIntBorrowRef q = &_Const p;
+  use_int(**q);
+}
+
+void typedef_struct_holder_release(void) {
+  int a = 1;
+  int b = 2;
+  IntBorrow p = &_Mut a;
+  TypedefHolder holder = { .pp = &_Mut p, .p = &_Mut b };
+  **holder.pp = 3;
+  *holder.p = 4;
+}
+
+void typedef_function_style_same_level(IntBorrow p, IntBorrow q) {
+  p = q;
+  *p = 1;
+}
+
+void typedef_alias_rebind_release(void) {
+  int a = 1;
+  int b = 2;
+  IntBorrow p = &_Mut a;
+  IntBorrow r = &_Mut b;
+  IntBorrowRef q = &_Mut p;
+  q = &_Mut r;
+  a = 3;
+  **q = 4;
+}
+
+int main(void) {
+  return 0;
+}

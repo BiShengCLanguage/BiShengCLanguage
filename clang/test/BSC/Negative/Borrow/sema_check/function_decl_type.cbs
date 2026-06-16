@@ -1,0 +1,113 @@
+// RUN: %clang_cc1 -verify %s
+
+// negative scenarios for a borrow in function declarations and function-pointer declarations
+
+struct T1 { int x; int y; };
+struct T2 { int *_Borrow p1; };
+struct T3 { int *_Borrow *_Borrow p1; };
+struct T4 { struct T2 *_Borrow p1; };
+
+// a function return type may carry at most one borrow region in total;
+// multiple borrow regions (multi-level _Borrow, or a borrow pointee whose struct has borrow fields) are rejected
+
+// 2-level borrow return
+int *_Borrow *_Borrow bad1(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// 3-level borrow return
+int *_Borrow *_Borrow *_Borrow bad2(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// pointee-const 2-level borrow return
+const int *_Borrow *_Borrow bad3(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// level-const 2-level borrow return
+int *_Borrow const *_Borrow bad4(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// record-pointee 2-level borrow return
+struct T1 *_Borrow *_Borrow bad5(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// multi-level borrow return through a typedef name
+typedef int *_Borrow *_Borrow TD2;
+TD2 bad6(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+typedef int *_Borrow *_Borrow *_Borrow TD3;
+TD3 bad7(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// function pointer whose pointee returns a multi-level borrow
+int *_Borrow *_Borrow (*bad8)(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+typedef int *_Borrow *_Borrow (*BadFP)(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// function returning a function pointer whose pointee returns a multi-level borrow
+int *_Borrow *_Borrow (*bad9(void))(void);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+int *_Borrow *_Borrow (*bad10(void))(int *_Borrow);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// function taking a function-pointer parameter whose pointee returns a multi-level borrow
+void bad11(int *_Borrow *_Borrow (*fp)(void));
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// a _Borrow return type requires at least one _Borrow-qualified parameter;
+// a no-param (or no-borrow-param) function may not return a borrow
+
+// direct function, no parameters
+int *_Borrow bad12(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+const int *_Borrow bad13(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+struct T1 *_Borrow bad14(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+// function pointer whose pointee returns a borrow with no borrow param
+int *_Borrow (*bad15)(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+// function returning a function pointer whose pointee returns a borrow with no borrow param
+int *_Borrow (*bad16(void))(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+const int *_Borrow (*bad17(void))(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+struct T1 *_Borrow (*bad18(void))(void);
+// expected-error@-1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+
+// a struct with a one-level borrow field: a _Borrow pointer to it already has 2 borrow regions
+struct T2 *_Borrow bad19(struct T2 *_Borrow p);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// a struct with a multi-level borrow field: returning it by value already has 2 borrow regions
+struct T3 bad20(struct T3 p);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// a _Borrow pointer to a struct with a multi-level borrow field
+struct T3 *_Borrow bad21(struct T3 *_Borrow p);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// a _Borrow pointer to a struct whose field is a _Borrow pointer to another borrow-field struct
+struct T4 *_Borrow bad22(struct T4 *_Borrow p);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// function pointer whose pointee returns a borrow pointer to a borrow-field struct
+struct T2 *_Borrow (*bad23)(struct T2 *_Borrow);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// function returning a function pointer whose pointee returns such a borrow pointer
+struct T2 *_Borrow (*bad24(void))(struct T2 *_Borrow);
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}
+
+// function taking a function-pointer parameter whose pointee returns such a borrow pointer
+void bad25(struct T3 *_Borrow (*fp)(struct T3 *_Borrow));
+// expected-error@-1 {{function return type cannot contain multiple borrow regions}}

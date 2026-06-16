@@ -8720,6 +8720,12 @@ public:
   bool VisitBinaryOperator(const BinaryOperator *E);
   bool VisitCastExpr(const CastExpr* E);
   bool VisitUnaryAddrOf(const UnaryOperator *E);
+#if ENABLE_BSC
+  bool VisitUnaryAddrMut(const UnaryOperator *E);
+  bool VisitUnaryAddrConst(const UnaryOperator *E);
+  bool VisitUnaryAddrMutDeref(const UnaryOperator *E);
+  bool VisitUnaryAddrConstDeref(const UnaryOperator *E);
+#endif
   bool VisitObjCStringLiteral(const ObjCStringLiteral *E)
       { return Success(E); }
   bool VisitObjCBoxedExpr(const ObjCBoxedExpr *E) {
@@ -8846,6 +8852,24 @@ bool PointerExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
 bool PointerExprEvaluator::VisitUnaryAddrOf(const UnaryOperator *E) {
   return evaluateLValue(E->getSubExpr(), Result);
 }
+
+#if ENABLE_BSC
+bool PointerExprEvaluator::VisitUnaryAddrMut(const UnaryOperator *E) {
+  return evaluateLValue(E->getSubExpr(), Result);
+}
+
+bool PointerExprEvaluator::VisitUnaryAddrConst(const UnaryOperator *E) {
+  return evaluateLValue(E->getSubExpr(), Result);
+}
+
+bool PointerExprEvaluator::VisitUnaryAddrMutDeref(const UnaryOperator *E) {
+  return evaluatePointer(E->getSubExpr(), Result);
+}
+
+bool PointerExprEvaluator::VisitUnaryAddrConstDeref(const UnaryOperator *E) {
+  return evaluatePointer(E->getSubExpr(), Result);
+}
+#endif
 
 // Is the provided decl 'std::source_location::current'?
 static bool IsDeclSourceLocationCurrent(const FunctionDecl *FD) {

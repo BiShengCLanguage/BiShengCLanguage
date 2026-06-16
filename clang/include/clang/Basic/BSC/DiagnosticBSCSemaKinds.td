@@ -67,7 +67,6 @@ def err_owned_member_access_in_return : Error<
   "cannot use a member of '%0' in a return expression because '%0' is destroyed before the return; copy the member to a local first">;
 def err_funcPtr_incompatible : Error<
   "incompatible _Borrow function pointer types, cannot cast %0 to %1">;
-def err_borrow_on_borrow : Error<"%0 on a '_Borrow' qualified type is not allowed">;
 def err_mut_expr_unmodifiable  : Error<"the expression after '&_Mut' must be modifiable">;
 def err_mut_or_const_expr_func : Error<"%0 cannot be applied to a %select{function|function pointer}1">;
 def err_safe_mut : Error<"global or static variables are not allowed to be mutably borrowed within the safe zone">;
@@ -78,6 +77,7 @@ def err_borrow_qualcheck_incompatible : Error<
 def err_borrow_qualcheck_compare : Error<
   "incompatible _Borrow types, %0 and %1 cannot be compared">;
 def err_typecheck_borrow_func : Error<"return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified">;
+def err_typecheck_multi_level_borrow_func : Error<"function return type cannot contain multiple borrow regions">;
 def err_typecheck_borrow_subscript : Error<"subscript of _Borrow pointer is not allowed">;
 def err_owned_and_borrow_conflict : Error<"cannot combine '_Owned' and '_Borrow' qualifiers on the same type">;
 def err_bsc_qualifier_in_knr_function : Error<
@@ -86,8 +86,6 @@ def err_owned_qualifier_non_pointer : Error<
   "type of %1 cannot be qualified by '%0'">;
 def err_arrayelem_requires_safe_pointer : Error<
   "'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type">;
-def err_arrayelem_invalid_pointee : Error<
-  "pointee type of %0 cannot be _Borrow pointers or contain _Borrow qualified fields">;
 
 
 // BSC trait warnings and errors.
@@ -375,6 +373,8 @@ def note_mutable_borrow_occurs_here : Note<"mutable borrow occurs here">;
 def err_borrow_mut_borrow_when_immut_borrowed : Error<
   "cannot borrow '%0' as mutable because it is also borrowed as immutable">;
 def note_immutable_borrow_occurs_here : Note<"immutable borrow occurs here">;
+def err_lifetime_may_not_live_long : Error<
+  "lifetime may not live long enough">;
 
 // BSC operator overload errors.
 def err_unsupport_overload_fun : Error<"function unsupport overload">;

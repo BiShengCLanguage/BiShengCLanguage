@@ -57,7 +57,7 @@ typedef struct {
 } D;
 
 D C::createD(This* this) {
-    D d2 = {.db=(int _Owned)this->a, .db2=this->a};
+    D d2 = {.db=(int _Owned)this->a, .db2=this->a}; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     return d2;
 }
 

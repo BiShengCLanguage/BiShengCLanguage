@@ -12,7 +12,7 @@ void* const test2(void* p) {   //expected-error {{'const' type qualifier on retu
 }
 
 int _Owned test3(int size) { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-    int _Owned a = (int _Owned)size; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+    int _Owned a = (int _Owned)size; // expected-error 2{{type of 'int' cannot be qualified by '_Owned'}}
     return a;
 }
 
@@ -22,13 +22,13 @@ int const test4(int size) {   //expected-error {{'const' type qualifier on retur
 }
 
 int const _Owned test5(int size) { // expected-error {{type of 'const int' cannot be qualified by '_Owned'}}
-    int const _Owned a = (int const _Owned)size; // expected-error {{type of 'const int' cannot be qualified by '_Owned'}}
+    int const _Owned a = (int const _Owned)size; // expected-error 2{{type of 'const int' cannot be qualified by '_Owned'}}
     return a;
 }
 
 
 _Owned void* test7(void* p) { // expected-error {{type of 'void' cannot be qualified by '_Owned'}}
-    _Owned void* a = (_Owned void*)(p); // expected-error {{type of 'void' cannot be qualified by '_Owned'}}
+    _Owned void* a = (_Owned void*)(p); // expected-error 2{{type of 'void' cannot be qualified by '_Owned'}}
     return a;
 }
 

@@ -108,6 +108,6 @@ void test_owned_and_borrow_pointer(void) {
 // CHECK_REWRITE-NEXT:     int * p2 = &a;
 // CHECK_REWRITE-NEXT:     int * p3 = safe_malloc_int(1);
 // CHECK_REWRITE-NEXT:     test_pointers_int_P(p1);
-// CHECK_REWRITE-NEXT:     test_pointers_int_P_Borrow(p2);
+// CHECK_REWRITE-NEXT:     test_pointers_int_P_Borrow(&*p2);
 // CHECK_REWRITE-NEXT:     test_pointers_int_P((int *)p3);
 // CHECK_REWRITE-NEXT: }

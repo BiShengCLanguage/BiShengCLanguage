@@ -1,0 +1,48 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// a _Borrow operator (&_Mut / &_Const) requires an addressable lvalue operand;
+// this file covers the set of legal lvalue forms, each exercised under both operators
+
+int gx;
+int garr[4];
+struct S1 { int f; } gs1;
+union U1 { int f; } gu1;
+struct S2 { struct S1 a; } gs2;
+struct S1 *gp1;
+int *gp2;
+
+void test(void) {
+  // named scalar
+  __typeof__(&_Mut gx) m1;        (void)sizeof(m1);
+  __typeof__(&_Const gx) c1;      (void)sizeof(c1);
+  // named array
+  __typeof__(&_Mut garr) m2;      (void)sizeof(m2);
+  __typeof__(&_Const garr) c2;    (void)sizeof(c2);
+  // array element
+  __typeof__(&_Mut garr[0]) m3;   (void)sizeof(m3);
+  __typeof__(&_Const garr[0]) c3; (void)sizeof(c3);
+  // dereference
+  __typeof__(&_Mut *gp2) m4;     (void)sizeof(m4);
+  __typeof__(&_Const *gp2) c4;   (void)sizeof(c4);
+  // struct field
+  __typeof__(&_Mut gs1.f) m5;    (void)sizeof(m5);
+  __typeof__(&_Const gs1.f) c5;  (void)sizeof(c5);
+  // union field
+  __typeof__(&_Mut gu1.f) m6;    (void)sizeof(m6);
+  __typeof__(&_Const gu1.f) c6; (void)sizeof(c6);
+  // field path
+  __typeof__(&_Mut gs2.a.f) m7;  (void)sizeof(m7);
+  __typeof__(&_Const gs2.a.f) c7;(void)sizeof(c7);
+  // pointer-indirect field
+  __typeof__(&_Mut gp1->f) m8;   (void)sizeof(m8);
+  __typeof__(&_Const gp1->f) c8; (void)sizeof(c8);
+  // compound literal (mutable lvalue)
+  __typeof__(&_Mut (int){5}) m9;  (void)sizeof(m9);
+  __typeof__(&_Const (int){5}) c9;(void)sizeof(c9);
+  // string literal (const lvalue; _Const is type-legal, _Mut of it is covered by mutable_borrow_operand_type)
+  __typeof__(&_Const "abc") c10;  (void)sizeof(c10);
+}
+
+int main(void) { return 0; }

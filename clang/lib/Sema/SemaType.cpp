@@ -2115,13 +2115,7 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
     }
   }
 
-  QualType Result = Context.getQualifiedType(T, Qs);
-#if ENABLE_BSC
-  if (getLangOpts().BSC && !T.isBorrowQualified() && Result.isBorrowQualified()) {
-    CheckNestedBorrowType(Loc, Result);
-  }
-#endif
-  return Result;
+  return Context.getQualifiedType(T, Qs);
 }
 
 QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
@@ -6278,7 +6272,14 @@ TypeSourceInfo *Sema::GetTypeForDeclaratorCast(Declarator &D, QualType FromTy) {
       transferARCOwnership(state, declSpecTy, ownership);
   }
 
+#if ENABLE_BSC
+  TypeSourceInfo *TInfo =
+      GetFullTypeForDeclarator(state, declSpecTy, ReturnTypeInfo);
+  CheckOwnedQualifierOnNonPointerType(D.getDeclSpec(), TInfo->getType());
+  return TInfo;
+#else
   return GetFullTypeForDeclarator(state, declSpecTy, ReturnTypeInfo);
+#endif
 }
 
 static void fillAttributedTypeLoc(AttributedTypeLoc TL,

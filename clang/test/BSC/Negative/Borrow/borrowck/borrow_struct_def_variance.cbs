@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -verify %s
+
+struct MutableSlot {
+  int *_Borrow *_Borrow value;
+};
+
+void invariant_struct_region_prevents_shortening(void) {
+  int long_lived = 0;
+  int *_Borrow pointee = &_Mut long_lived;
+  struct MutableSlot source = { &_Mut pointee };
+
+  {
+    // The second region is invariant: this copy must not permit a shorter
+    // borrow to be stored into the slot observed through source.
+    struct MutableSlot shortened = source;
+    int short_lived = 0;
+    *shortened.value = &_Mut short_lived; // expected-error {{'short_lived' does not live long enough}}
+  } // expected-note {{'short_lived' dropped here while still borrowed}}
+
+  **source.value = 1;
+}

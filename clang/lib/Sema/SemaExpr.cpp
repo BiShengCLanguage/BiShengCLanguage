@@ -823,27 +823,12 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   // C++ [conv.lval]p3:
   //   If T is cv std::nullptr_t, the result is a null pointer constant.
   CastKind CK = T->isNullPtrType() ? CK_NullToPointer : CK_LValueToRValue;
-  #if ENABLE_BSC
+#if ENABLE_BSC
   if (getLangOpts().BSC && !T->isNullPtrType() && T->getAsCXXRecordDecl())
     CK = CK_NoOp;
   if (getLangOpts().BSC)
     T = transferExplicitNullability(E->getType(), T, Context);
-  /// For type 'const T * borrow' dereference, the result is type 'T'.
-  /// If T is a pointer type, special handling is required.
-  /// We need to remove the const qualifier that modifies type 'T'.
-  /// @code
-  /// const int * owned * borrow b = &const p;
-  /// int * owned a = *b;
-  /// @endcode
-  if (getLangOpts().BSC) {
-    if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
-      QualType QT = UO->getSubExpr()->getType();
-      if (QT.isLocalBorrowQualified() && UO->getOpcode() == UO_Deref) {
-        T = T.removeConstForBorrow(Context);
-      }
-    }
-  }
-  #endif
+#endif
   Res = ImplicitCastExpr::Create(Context, T, CK, E, nullptr, VK_PRValue,
                                  CurFPFeatureOverrides());
 
@@ -6552,11 +6537,15 @@ bool Sema::CheckNeedReborrowPointerType(QualType actualType, QualType formalType
   if (!actualType->isPointerType() || !formalType->isPointerType()){
     return false;
   }
-  if (actualType.isOwnedQualified() && !formalType.isOwnedQualified()) {
+
+  bool actualIsSafe =
+      actualType.isOwnedQualified() || actualType.isBorrowQualified();
+  bool formalIsRaw =
+      !formalType.isOwnedQualified() && !formalType.isBorrowQualified();
+  if (actualIsSafe && formalIsRaw) {
     return true;
   }
-  if (!(actualType.isOwnedQualified() || actualType.isBorrowQualified()) &&
-      formalType.isBorrowQualified()) {
+  if (!actualType.isBorrowQualified() && formalType.isBorrowQualified()) {
     return true;
   }
   return false;
@@ -6702,7 +6691,8 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
           dyn_cast<FunctionProtoType>(Member->getType());
       QualType thisQPT = FPT->getParamType(0); // the type of formal parameter, as type of this
       CheckMemberThisCallAccess(ImplicitArg, thisQPT);
-      bool isNeedReborrow = CheckNeedReborrowPointerType(ImplicitArg->getType(), thisQPT);
+      bool isNeedPointerRebuild =
+          CheckNeedReborrowPointerType(ImplicitArg->getType(), thisQPT);
       if (!Member->isArrow()) { // foo.getA
         if (thisQPT->isPointerType()) {
           // When the first parameter `this` of member function is pointer,
@@ -6719,14 +6709,34 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
             nullptr, VK_PRValue, this->CurFPFeatureOverrides());
         }
       }
-      if (isNeedReborrow) {
-        UnaryOperator::Opcode UO = thisQPT->getPointeeType().isConstQualified()
-                                       ? UO_AddrConstDeref : UO_AddrMutDeref;
-        ImplicitArg = UnaryOperator::Create(
-            this->Context, ImplicitArg, UO, FPT->getParamType(0), VK_PRValue,
-            OK_Ordinary, SourceLocation(), false,
-            this->CurFPFeatureOverrides());
+      if (isNeedPointerRebuild) {
+        if (thisQPT.isBorrowQualified()) {
+          UnaryOperator::Opcode UO =
+              thisQPT->getPointeeType().isConstQualified()
+                  ? UO_AddrConstDeref
+                  : UO_AddrMutDeref;
+          ImplicitArg = UnaryOperator::Create(
+              this->Context, ImplicitArg, UO, FPT->getParamType(0), VK_PRValue,
+              OK_Ordinary, SourceLocation(), false,
+              this->CurFPFeatureOverrides());
+        } else {
+          SourceLocation Loc = ImplicitArg->getExprLoc();
+          ExprResult DerefExpr =
+              CreateBuiltinUnaryOp(Loc, UO_Deref, ImplicitArg);
+          if (DerefExpr.isInvalid())
+            return true;
+          ExprResult AddrExpr =
+              CreateBuiltinUnaryOp(Loc, UO_AddrOf, DerefExpr.get());
+          if (AddrExpr.isInvalid())
+            return true;
+          ImplicitArg = AddrExpr.get();
+        }
       }
+      ExprResult MutableReborrow =
+          MaybeCreateImplicitMutableReborrow(thisQPT, ImplicitArg);
+      if (MutableReborrow.isInvalid())
+        return true;
+      ImplicitArg = MutableReborrow.get();
       bool isNeedCast = CheckNeedCastQualifiedType(ImplicitArg->getType(), thisQPT);
       if (isNeedCast) {
         ImplicitArg = ImplicitCastExpr::Create(
@@ -11009,6 +11019,14 @@ Sema::CheckSingleAssignmentConstraints(QualType LHSType, ExprResult &CallerRHS,
   CastKind Kind;
   Sema::AssignConvertType result =
     CheckAssignmentConstraints(LHSType, RHS, Kind, ConvertRHS);
+
+#if ENABLE_BSC
+  if (getLangOpts().BSC && ConvertRHS && result == Compatible) {
+    RHS = MaybeCreateImplicitMutableReborrow(LHSType, RHS.get());
+    if (RHS.isInvalid())
+      return Incompatible;
+  }
+#endif
 
   // C99 6.5.16.1p2: The value of the right operand is converted to the
   // type of the assignment expression.
@@ -15400,6 +15418,12 @@ static void diagnoseAddressOfInvalidType(Sema &S, SourceLocation Loc,
 }
 
 #if ENABLE_BSC
+static bool isMutableBorrowPointerType(QualType Type) {
+  Type = Type.getCanonicalType();
+  return Type->isPointerType() && Type.isBorrowQualified() &&
+         !Type.isConstBorrow();
+}
+
 bool Sema::IsAddrBorrowDerefOp(ExprResult &OrigOp) {
   // Strip parentheses/implied casts and _Safe/_Unsafe wrappers so forms like
   // &_Mut (*p), &_Mut ((*(p))) and &_Mut _Unsafe(*p) all fold into
@@ -15438,9 +15462,6 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
         Input = ExprError();
       }
     } else {
-      if (Opc == UO_AddrMut && InputExpr->getType().hasBorrow())
-        Diag(OpLoc, diag::err_borrow_on_borrow)
-            << "'&_Mut'" << InputExpr->getSourceRange();
       if (InputExpr->getType().isConstQualified())
         Diag(OpLoc, diag::err_mut_expr_unmodifiable)
             << InputExpr->getSourceRange();
@@ -15469,10 +15490,6 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
   } else if (Opc == UO_AddrConst || Opc == UO_AddrConstDeref) {
     if (Opc == UO_AddrConst && IsAddrBorrowDerefOp(Input)) {
       Opc = UO_AddrConstDeref;
-    } else {
-      if (Opc == UO_AddrConst && InputExpr->getType().hasBorrow())
-        Diag(OpLoc, diag::err_borrow_on_borrow)
-            << "'&_Const'" << InputExpr->getSourceRange();
     }
     if (!resultType.isNull()) {
       if (resultType->isFunctionPointerType()) {
@@ -16942,6 +16959,9 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
 #if ENABLE_BSC
   case UO_AddrMutDeref:
   case UO_AddrConstDeref:
+    Input = DefaultFunctionArrayLvalueConversion(Input.get());
+    if (Input.isInvalid())
+      return ExprError();
     resultType = GetBorrowAddressOperandQualType(Input.get()->getType(), Input,
                                                  InputExpr, Opc, OpLoc);
     break;
@@ -17128,6 +17148,31 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
 
   if (resultType.isNull() || Input.isInvalid())
     return ExprError();
+
+#if ENABLE_BSC
+  if (getLangOpts().BSC && Opc == UO_AddrMutDeref) {
+    auto *CO = dyn_cast<ConditionalOperator>(
+        Input.get()->IgnoreParenImpCastsSafe());
+    if (CO && isMutableBorrowPointerType(CO->getTrueExpr()->getType()) &&
+        isMutableBorrowPointerType(CO->getFalseExpr()->getType())) {
+      // Reborrow each arm so the outer reborrow retains the source borrow on
+      // every control-flow path.
+      ExprResult True =
+          CreateBuiltinUnaryOp(OpLoc, UO_AddrMutDeref, CO->getTrueExpr());
+      if (True.isInvalid())
+        return ExprError();
+      ExprResult False =
+          CreateBuiltinUnaryOp(OpLoc, UO_AddrMutDeref, CO->getFalseExpr());
+      if (False.isInvalid())
+        return ExprError();
+
+      Input = new (Context) ConditionalOperator(
+          CO->getCond(), CO->getQuestionLoc(), True.get(), CO->getColonLoc(),
+          False.get(), CO->getType(), CO->getValueKind(),
+          CO->getObjectKind());
+    }
+  }
+#endif
 
   // Check for array bounds violations in the operand of the UnaryOperator,
   // except for the '*' and '&' operators that have to be handled specially

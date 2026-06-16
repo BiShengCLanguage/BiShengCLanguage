@@ -1,0 +1,88 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// legality of a typedef name as a variable's declared type
+
+typedef int *_Borrow *_Borrow TD1;
+typedef int *_Borrow const *_Borrow TD2;
+typedef const int *_Borrow *_Borrow TD3;
+typedef const int *_Borrow const *_Borrow TD4;
+typedef int *_Borrow *_Borrow *_Borrow TD5;
+typedef int *_Borrow *_Borrow const *_Borrow TD6;
+typedef const int *_Borrow const *_Borrow const *_Borrow TD7;
+typedef char *_Borrow *_Borrow TD8;
+typedef short *_Borrow *_Borrow TD9;
+typedef long *_Borrow *_Borrow TD10;
+typedef unsigned *_Borrow *_Borrow TD11;
+typedef float *_Borrow *_Borrow TD12;
+typedef double *_Borrow *_Borrow TD13;
+
+typedef int *_Owned *_Borrow TD14;
+typedef int **_Borrow TD15;
+typedef int *_Borrow *_Owned TD16;
+typedef int *_Borrow *TD17;
+typedef int *_Borrow *_Borrow *_Owned TD18;
+typedef int *_Owned *_Borrow *_Borrow TD19;
+typedef int *_Borrow *_Borrow *TD20;
+typedef int *_Borrow **_Borrow TD21;
+
+struct Point { int x; int y; };
+typedef struct Point *_Borrow *_Borrow TD22;
+typedef struct Point *_Borrow const *_Borrow TD23;
+typedef const struct Point *_Borrow const *_Borrow TD24;
+typedef struct Point *_Borrow *_Borrow *_Borrow TD25;
+
+// typedef name used directly as a variable type
+void test1(void) {
+  TD1 p1;
+  TD2 p2;
+  TD3 p3;
+  TD4 p4;
+  TD5 p5;
+  TD6 p6;
+  TD7 p7;
+  TD8 p8;
+  TD9 p9;
+  TD10 p10;
+  TD11 p11;
+  TD12 p12;
+  TD13 p13;
+  TD14 p14;
+  TD15 p15;
+  TD16 p16;
+  TD17 p17;
+  TD18 p18;
+  TD19 p19;
+  TD20 p20;
+  TD21 p21;
+  TD22 p22;
+  TD23 p23;
+  TD24 p24;
+  TD25 p25;
+}
+
+// typedef name as an array element type
+void test2(void) {
+  TD1 a1[3];
+  TD4 a2[2];
+  TD5 a3[2];
+  TD14 a4[3];
+  TD15 a5[3];
+  TD22 a6[3];
+  TD25 a7[2];
+}
+
+// further raw/owned/borrow pointer levels on top of a typedef name
+void test3(void) {
+  TD1 *_Borrow p1;
+  TD1 *_Owned p2;
+  TD1 *p3;
+  TD1 *_Borrow *_Borrow p4;
+  TD1 *_Owned *_Borrow p5;
+  TD1 *_Borrow *_Owned p6;
+  TD22 *_Borrow *_Borrow p7;
+  TD22 *_Owned *_Borrow p8;
+}
+
+int main(void) { return 0; }

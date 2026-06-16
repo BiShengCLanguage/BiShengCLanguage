@@ -5,8 +5,8 @@ void deref_q_while_p_alive_in_body(void) {
   int * _Borrow _Nullable p = nullptr;
   int * _Borrow _Nullable q = nullptr;
   q = &_Mut a;
-  p = q; // expected-note {{'*q' is borrowed here}}
-  if (p || q) {
+  p = q; // expected-note 2 {{'*q' is borrowed here}}
+  if (p || q) { // expected-error {{cannot use 'q' because it was mutably borrowed}}
     *q = 1; // expected-error {{cannot assign to '*q' because it is borrowed}}
     *p = 2;
   }
@@ -18,9 +18,8 @@ void deref_q_while_p_alive_in_condition(void) {
   int * _Borrow _Nullable q = nullptr;
   int * _Borrow _Nullable r = nullptr;
   q = &_Mut a;
-  p = q; // expected-note {{'*q' is borrowed here}} expected-note {{first mut borrow occurs here}}
-  if (p || (r = q, p)) { // expected-error {{cannot use 'q' because it was mutably borrowed}}
-    // expected-error@-1 {{cannot borrow '*q' as mutable more than once at a time}}
+  p = q; // expected-note {{first mut borrow occurs here}}
+  if (p || (r = q, p)) { // expected-error {{cannot borrow '*q' as mutable more than once at a time}}
   }
 }
 
@@ -29,8 +28,8 @@ void deref_q_while_p_alive_after_if(void) {
   int * _Borrow _Nullable p = nullptr;
   int * _Borrow _Nullable q = nullptr;
   q = &_Mut a;
-  p = q; // expected-note {{'*q' is borrowed here}}
-  if (p && q) {
+  p = q; // expected-note 2 {{'*q' is borrowed here}}
+  if (p && q) { // expected-error {{cannot use 'q' because it was mutably borrowed}}
     *q = 1; // expected-error {{cannot assign to '*q' because it is borrowed}}
     *p = 2;
   }

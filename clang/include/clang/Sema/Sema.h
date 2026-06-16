@@ -12485,6 +12485,10 @@ public:
   bool CheckBorrowQualTypeCStyleCast(QualType LHSType, QualType RHSType, SourceLocation RLoc);
   bool CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS);
   bool CheckBorrowQualTypeAssignment(QualType LHSType, QualType RHSType, SourceLocation RLoc);
+  /// Materialize the implicit reborrow required when a mutable borrow value is
+  /// copied into another mutable borrow value.
+  ExprResult MaybeCreateImplicitMutableReborrow(QualType DestType,
+                                                Expr *Source);
   bool CheckBorrowFunctionType(QualType ReturnTy, ArrayRef<QualType> ParamTys,
                                SourceLocation SL);
   bool CheckBorrowFunctionPointerType(QualType LHSType, Expr* RHSExpr);
@@ -12493,9 +12497,6 @@ public:
   bool CheckBorrowQualTypeCompare(QualType LHSType, QualType RHSType);
   void CheckBorrowOrIndirectBorrowType(SourceLocation ErrLoc, QualType T,
                                        StringRef Env);
-  /// Check if T contains multi-levels of borrow qualifiers,
-  /// no matter of directly or indirectly via members, report error if so.
-  void CheckNestedBorrowType(SourceLocation ErrLoc, QualType T);
   QualType GetBorrowAddressOperandQualType(QualType resultType,
                                            ExprResult &Input,
                                            const Expr *InputExpr,

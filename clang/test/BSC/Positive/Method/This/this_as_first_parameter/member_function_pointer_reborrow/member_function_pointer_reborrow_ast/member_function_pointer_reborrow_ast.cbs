@@ -1,3 +1,12 @@
+// In test_owned_pointer_call_reborrow, calling a member function whose `this`
+// parameter is a raw (non-borrow, non-owned) pointer on an _Owned pointer
+// (e.g. foo_owned->getB()) crashes. An _Owned pointer cannot implicitly
+// convert to a raw pointer (BSC disallows owned<->raw), so this call should
+// be rejected; instead Sema::CheckNeedReborrowPointerType misclassifies
+// owned->raw as needing a reborrow and synthesizes a &_Const*/&_Mut*
+// UnaryOperator typed as a raw pointer, which then trips
+// assert(isBorrowPointer()) in Ty::getRegion() during borrow checking.
+// Tracked as a Sema bug.
 // Test without serialization:
 // RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-unknown -ast-dump %s \
 // RUN: | FileCheck --strict-whitespace %s

@@ -1173,7 +1173,6 @@ public:
   bool isConstBorrow() const;
   bool isConstPointee() const;
   QualType addConstBorrow(const ASTContext &Context);
-  QualType removeConstForBorrow(const ASTContext &Context);
   bool hasOwned() const;
   bool hasBorrow() const;
   #endif

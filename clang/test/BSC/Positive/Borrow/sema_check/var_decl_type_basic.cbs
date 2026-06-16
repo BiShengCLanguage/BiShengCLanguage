@@ -1,0 +1,35 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// variable declaration legality of a basic nested borrow type
+
+void test1(void) {
+  int *_Borrow *_Borrow p1;
+  int *_Borrow const *_Borrow p2;
+  const int *_Borrow *_Borrow p3;
+  const int *_Borrow const *_Borrow p4;
+
+  int *_Borrow *_Borrow *_Borrow p5;
+  int *_Borrow *_Borrow const *_Borrow p6;
+  int *_Borrow const *_Borrow *_Borrow p7;
+  int *_Borrow const *_Borrow const *_Borrow p8;
+  const int *_Borrow const *_Borrow const *_Borrow p9;
+
+  int *_Borrow *_Borrow *_Borrow *_Borrow p10;
+
+  char *_Borrow *_Borrow p11;
+  short *_Borrow *_Borrow p12;
+  long *_Borrow *_Borrow p13;
+  unsigned *_Borrow *_Borrow p14;
+  float *_Borrow *_Borrow p15;
+  double *_Borrow *_Borrow p16;
+
+  int *_Borrow *_Borrow *_Owned p17;
+  int *_Owned *_Borrow *_Borrow p18;
+  int *_Borrow *_Borrow *p19;
+  int *_Borrow **_Borrow p20;
+  int *_Borrow *_Owned *_Borrow p21;
+}
+
+int main(void) { return 0; }

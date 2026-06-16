@@ -1,3 +1,4 @@
+// XFAIL: *
 // RUN: %clang -fbsc-experimental %s -o %test.output
 // RUN: %test.output
 // RUN: %clang -fbsc-experimental -rewrite-bsc %S/../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h

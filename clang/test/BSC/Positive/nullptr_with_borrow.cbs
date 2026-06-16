@@ -54,6 +54,18 @@ void test_borrow_conditional(int condition) {
   (void)p;
 }
 
+void test_borrow_conditional_mixed_true(int condition) {
+  int value = 0;
+  int * _Borrow _Nullable p = condition ? &_Mut value : nullptr;
+  (void)p;
+}
+
+void test_borrow_conditional_mixed_false(int condition) {
+  int value = 0;
+  int * _Borrow _Nullable p = condition ? nullptr : &_Mut value;
+  (void)p;
+}
+
 // nullptr with multiple _Borrow pointers
 void take_multiple_borrow(int * _Borrow p1, void * _Borrow p2, char * _Borrow p3) {
   (void)p1;

@@ -13,6 +13,12 @@ void test(int *p, int *q) {
   int *_Borrow m = foo((int *_Borrow)p, (int *_Borrow)q);
 }
 
+struct PS { void (*fn)(int); int x; };
+
+_Safe void f(struct PS *raw) {
+  _Unsafe((&_Mut *raw)->fn(1));
+}
+
 int main(){
     int * a = malloc(sizeof(int));
     int * b = malloc(sizeof(int));

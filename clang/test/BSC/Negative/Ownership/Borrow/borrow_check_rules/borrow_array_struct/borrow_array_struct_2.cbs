@@ -10,7 +10,7 @@ void foo1() {
   struct SJ *_Borrow a = &_Mut sj;
   int *_Borrow bb = &_Mut a->arr[1]->b; // expected-note {{first mut borrow occurs here}}
   int *_Borrow ba = &_Mut a->arr[0]->a;
-  int *_Borrow bb2 = &_Mut a->arr[0]->b; // expected-error {{cannot borrow '(*(*a).arr[]).b' as mutable more than once at a time}}
+  int *_Borrow bb2 = &_Mut a->arr[0]->b; // expected-error {{cannot borrow '(*(*a).arr[_]).b' as mutable more than once at a time}}
   (void)ba;
   (void)bb;
   (void)bb2;

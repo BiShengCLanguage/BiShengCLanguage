@@ -1,0 +1,32 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct MutualA MutualA;
+typedef struct MutualB MutualB;
+
+struct MutualA {
+  MutualB *_Borrow b;
+  int value;
+};
+
+struct MutualB {
+  MutualA *_Borrow a;
+  int value;
+};
+
+void use_mutual_recursive_parameter(MutualA *_Borrow a) {
+  (void)a->b;
+}
+
+int mutual_recursive_chain_uses_one_scc_region(void) {
+  MutualA leaf = { nullptr, 1 };
+  MutualB middle = { &_Mut leaf, 2 };
+  MutualA root = { &_Mut middle, 3 };
+  MutualA *_Borrow p = &_Mut root;
+  return p->b->a->value == 1 ? 0 : 1;
+}
+
+int main(void) {
+  return 0;
+}

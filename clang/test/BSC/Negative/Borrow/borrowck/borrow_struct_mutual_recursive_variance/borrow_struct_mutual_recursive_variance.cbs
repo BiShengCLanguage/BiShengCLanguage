@@ -1,0 +1,52 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef struct MutualA MutualA;
+typedef struct MutualB MutualB;
+
+struct MutualA {
+  MutualB *_Borrow b;
+  int value;
+};
+
+struct MutualB {
+  MutualA *_Borrow a;
+  int value;
+};
+
+typedef struct MutualWrapper {
+  MutualA a;
+} MutualWrapper;
+
+void mutual_recursive_mutable_variance_prevents_shortening(void) {
+  MutualA stable = { nullptr, 0 };
+  MutualB bridge = { &_Mut stable, 0 };
+  MutualA source = { &_Mut bridge, 0 };
+
+  {
+    MutualA shortened = source; // expected-note {{'(*(*source.b).a).value' is borrowed here}}
+    MutualA short_lived = { nullptr, 0 };
+    shortened.b->a = &_Mut short_lived; // expected-error {{'short_lived' does not live long enough}}
+  } // expected-note {{'short_lived' dropped here while still borrowed}}
+
+  source.b->a->value = 1; // expected-error {{cannot assign to '(*(*source.b).a).value' because it is borrowed}}
+}
+
+int mutual_recursive_copy_keeps_source_borrowed(void) {
+  MutualA leaf = { nullptr, 1 };
+  MutualB middle = { &_Mut leaf, 2 }; // expected-note {{'leaf' is borrowed here}}
+  MutualA source = { &_Mut middle, 3 };
+  MutualA copy = source; // expected-note {{'(*(*source.b).a).value' is borrowed here}}
+  copy.b->a->value = 4;
+  source.b->a->value = 5; // expected-error {{cannot assign to '(*(*source.b).a).value' because it is borrowed}}
+  return leaf.value == 5 ? 0 : 1; // expected-error {{cannot use 'leaf.value' because it was mutably borrowed}}
+}
+
+int nested_mutual_recursive_copy_keeps_source_borrowed(void) {
+  MutualA leaf = { nullptr, 1 };
+  MutualB middle = { &_Mut leaf, 2 }; // expected-note {{'leaf' is borrowed here}}
+  MutualWrapper source = { { &_Mut middle, 3 } };
+  MutualWrapper copy = source; // expected-note {{'(*(*source.a.b).a).value' is borrowed here}}
+  copy.a.b->a->value = 4;
+  source.a.b->a->value = 5; // expected-error {{cannot assign to '(*(*source.a.b).a).value' because it is borrowed}}
+  return leaf.value == 5 ? 0 : 1; // expected-error {{cannot use 'leaf.value' because it was mutably borrowed}}
+}

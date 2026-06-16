@@ -7,7 +7,7 @@ void test1() {
     void* _Owned p4 = (void* _Owned)p1;   //legal
     float* _Owned p2 = (float* _Owned)p1;   //expected-error {{incompatible _Owned types, cannot cast 'int *_Owned' to 'float *_Owned'}}
     int _Owned a = 10;                     //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-    float _Owned b = (float _Owned)a;     //expected-error {{type of 'float' cannot be qualified by '_Owned'}} //expected-error {{incompatible _Owned types, cannot cast '_Owned int' to '_Owned float'}}
+    float _Owned b = (float _Owned)a;     //expected-error 2{{type of 'float' cannot be qualified by '_Owned'}} //expected-error {{incompatible _Owned types, cannot cast '_Owned int' to '_Owned float'}}
     void* _Owned p5;
     int* _Owned p6 = (int* _Owned)p5;     //legal
 }
@@ -29,10 +29,10 @@ void test3() {
 //with const & muiti-layer pointer
 void test4(int** p0, _Owned int* p1, int* p3) { //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     const int* _Owned p11 = (const int* _Owned)p1;  //expected-error {{cannot cast between _Owned and raw pointer; use __move_to_raw or __take_from_raw for ownership transfer}}
-    _Owned int* const _Owned * _Owned p22 = (_Owned int* const _Owned * _Owned)p0; //expected-error {{type of 'int' cannot be qualified by '_Owned'}} //expected-error {{cannot cast between _Owned and raw pointer; use __move_to_raw or __take_from_raw for ownership transfer}}
+    _Owned int* const _Owned * _Owned p22 = (_Owned int* const _Owned * _Owned)p0; //expected-error 2{{type of 'int' cannot be qualified by '_Owned'}} //expected-error {{cannot cast between _Owned and raw pointer; use __move_to_raw or __take_from_raw for ownership transfer}}
     int* const * _Owned p33 = (int* const * _Owned)p0;  //expected-error {{cannot cast between _Owned and raw pointer; use __move_to_raw or __take_from_raw for ownership transfer}}
     void* _Owned p44 = (void* _Owned)p3;  //expected-error {{cannot cast between _Owned and raw pointer; use __move_to_raw or __take_from_raw for ownership transfer}}
-    _Owned int* p55 = (_Owned int*)p3; //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+    _Owned int* p55 = (_Owned int*)p3; //expected-error 2{{type of 'int' cannot be qualified by '_Owned'}}
 }
 
 void test4_1(int* _Owned * _Owned p0, float** p1) {
@@ -42,7 +42,7 @@ void test4_1(int* _Owned * _Owned p0, float** p1) {
 
 // illegal cases
 void test5(float _Owned f1, float* _Owned f2){ //expected-error {{type of 'float' cannot be qualified by '_Owned'}}
-    int _Owned a1 = (int _Owned)f1;   //expected-error {{incompatible _Owned types, cannot cast '_Owned float' to '_Owned int'}} //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+    int _Owned a1 = (int _Owned)f1;   //expected-error {{incompatible _Owned types, cannot cast '_Owned float' to '_Owned int'}} //expected-error 2{{type of 'int' cannot be qualified by '_Owned'}}
     int* _Owned a2 = (int* _Owned)f2; //expected-error {{incompatible _Owned types, cannot cast 'float *_Owned' to 'int *_Owned'}}
     void* _Owned a4 = (void* _Owned)0;   //expected-error {{incompatible _Owned types, cannot cast 'int' to 'void *_Owned'}}
 }

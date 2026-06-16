@@ -1,0 +1,123 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// variable declaration legality of record x array x borrow combinations
+
+struct Point { int x; int y; };
+
+// records holding a 2-level borrow field (exhaustive 5 with >=1 borrow; scaffolding for arrays)
+struct R1 { int *_Borrow *_Borrow a; };
+struct R2 { int *_Owned *_Borrow a; };
+struct R3 { int **_Borrow a; };
+struct R4 { int *_Borrow *_Owned a; };
+struct R5 { int *_Borrow *a; };
+struct R6 { int *_Borrow *_Borrow *_Borrow a; };
+struct R7 { int *_Owned *_Borrow *_Borrow a; };
+struct R8 { int *_Borrow *_Borrow a; struct R1 b; };
+
+// records whose field is itself an array / array-pointer involving borrow (array-in-record)
+struct SA1 { int *_Borrow arr[8]; };
+struct SA2 { int *_Borrow *_Borrow arr[8]; };
+struct SA3 { int (*_Borrow *_Borrow p)[8]; };
+struct SA4 { struct Point *_Borrow arr[4]; };
+struct SA5 { struct R1 arr[3]; };
+struct SA6 { int *_Borrow *_Borrow mat[2][3]; };
+struct SA7 { struct Point *_Borrow *_Borrow arr[4]; };
+struct SA8 { struct R1 *_Borrow arr[3]; };
+
+// array of records holding a borrow field (record as array element)
+void test1(void) {
+  struct R1 b1[2];
+  struct R2 b2[2];
+  struct R3 b3[2];
+  struct R4 b4[2];
+  struct R5 b5[2];
+  struct R6 b6[2];
+  struct R7 b7[2];
+  struct R8 b8[2];
+  struct R1 b9[2][3];
+  struct R6 b10[2][3];
+  struct SA1 b11[2];
+  struct SA4 b12[2];
+  struct SA5 b13[2];
+  struct SA8 b14[2];
+}
+
+// array element is a multi-level borrow whose pointee is a record (borrow-to-record as element)
+void test2(void) {
+  // 2-level const permutations (pointee-const x level-const)
+  struct Point *_Borrow *_Borrow c1[3];
+  struct Point const *_Borrow *_Borrow c2[3];
+  struct Point *_Borrow const *_Borrow c3[3];
+  struct Point const *_Borrow const *_Borrow c4[3];
+  const struct Point *_Borrow *_Borrow c5[3];
+  const struct Point const *_Borrow *_Borrow c6[3];
+  const struct Point *_Borrow const *_Borrow c7[3];
+  const struct Point const *_Borrow const *_Borrow c8[3];
+  // 3-level const permutations (representative)
+  struct Point *_Borrow *_Borrow *_Borrow c9[3];
+  struct Point *_Borrow const *_Borrow const *_Borrow c10[3];
+  struct Point const *_Borrow const *_Borrow const *_Borrow c11[3];
+  const struct Point const *_Borrow const *_Borrow const *_Borrow c12[3];
+  // 2-level cross owned/raw (exhaustive 4 non-base with >=1 borrow)
+  struct Point *_Owned *_Borrow c13[3];
+  struct Point **_Borrow c14[3];
+  struct Point *_Borrow *_Owned c15[3];
+  struct Point *_Borrow *c16[3];
+  // 3-level cross owned/raw (representative)
+  struct Point *_Borrow *_Borrow *_Owned c17[3];
+  struct Point *_Owned *_Borrow *_Borrow c18[3];
+  struct Point *_Borrow **_Borrow c19[3];
+  struct Point ***_Borrow c20[3];
+  // record-with-borrow-field as pointee
+  struct R1 *_Borrow *_Borrow c21[3];
+  struct R8 *_Borrow *_Borrow c22[3];
+}
+
+// array-pointer to a record with borrow (record as array pointee, single variable)
+void test3(void) {
+  struct Point *(*_Borrow *_Borrow d1)[8];
+  struct Point *(*_Borrow const *_Borrow d2)[8];
+  struct Point *(*_Borrow const *_Borrow const *_Borrow d3)[8];
+  struct Point *(*_Borrow *_Borrow *_Borrow d4)[8];
+  struct Point *(*_Borrow *_Owned *_Borrow d5)[8];
+  struct Point *(*_Borrow **_Borrow d6)[8];
+  struct R1 *(*_Borrow *_Borrow d7)[8];
+  struct R8 *(*_Borrow *_Borrow *_Owned d8)[8];
+}
+
+// record containing an array / array-pointer field involving borrow (array-in-record)
+void test4(void) {
+  struct SA1 a1;
+  struct SA2 a2;
+  struct SA3 a3;
+  struct SA4 a4;
+  struct SA5 a5;
+  struct SA6 a6;
+  struct SA7 a7;
+  struct SA8 a8;
+}
+
+// array of array-pointers to a record (array-pointer as array element)
+void test5(void) {
+  struct Point *(*_Borrow *_Borrow e1[3])[8];
+  struct Point *(*_Borrow const *_Borrow e2[3])[8];
+  struct Point *(*_Borrow *_Borrow *_Borrow e3[3])[8];
+  struct R1 *(*_Borrow *_Borrow e4[3])[8];
+}
+
+// typedef combining record x array x borrow
+typedef struct Point *_Borrow M1[8];
+typedef struct Point *_Borrow *_Borrow M2[8];
+typedef struct R1 M3[4];
+typedef struct Point *(*_Borrow *_Borrow M4)[8];
+
+void test6(void) {
+  M1 f1;
+  M2 f2;
+  M3 f3;
+  M4 f4;
+}
+
+int main(void) { return 0; }

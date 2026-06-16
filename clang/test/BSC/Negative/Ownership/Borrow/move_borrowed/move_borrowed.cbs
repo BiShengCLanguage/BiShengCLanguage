@@ -16,6 +16,6 @@ void test1(int* _Owned oriPtr) {
 // CHECK-EMPTY: 
 // CHECK:      void test1(int * oriPtr) {
 // CHECK-NEXT:     int * p = &*oriPtr;
-// CHECK-NEXT:     use_mut(p);
+// CHECK-NEXT:     use_mut(&*p);
 // CHECK-NEXT:     free_owned_int(oriPtr);
 // CHECK-NEXT: }

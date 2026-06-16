@@ -287,6 +287,15 @@ static std::string getDiagNameFromExpr(Expr *E) {
     return {};
   }
 
+  if (auto *UO = dyn_cast<UnaryOperator>(E)) {
+    // An implicit reborrow should preserve the source name in diagnostics.
+    if (UO->getOpcode() == UO_AddrMutDeref ||
+        UO->getOpcode() == UO_AddrConstDeref) {
+      return getDiagNameFromExpr(UO->getSubExpr());
+    }
+    return {};
+  }
+
   if (VarDecl *VD = getVarDeclFromExpr(E))
     return VD->getNameAsString();
   if (MemberExpr *ME = getMemberExprFromExpr(E))

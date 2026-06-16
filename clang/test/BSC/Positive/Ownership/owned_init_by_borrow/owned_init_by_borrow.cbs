@@ -51,7 +51,7 @@ void test2() {
 // CHECK-L: #line 12 "{{.*}}.cbs"
 // CHECK-L-NEXT: int * * safe_malloc1(int * bp) {
 // CHECK-L-NEXT:   int * *p = (int * *)malloc(sizeof(int *));
-// CHECK-L-NEXT:   *p = bp;
+// CHECK-L-NEXT:   *p = &*bp;
 // CHECK-L-NEXT:   return (int * *)p;
 // CHECK-L-NEXT: }
 
@@ -64,7 +64,7 @@ void test2() {
 // CHECK-L-NEXT: void test1(void) {
 // CHECK-L-NEXT:   int a = 0;
 // CHECK-L-NEXT:   int * p = &a;
-// CHECK-L-NEXT:   int * * ap = safe_malloc1(p);
+// CHECK-L-NEXT:   int * * ap = safe_malloc1(&*p);
 // CHECK-L-NEXT:   safe_free1(ap);
 // CHECK-L-NEXT: }
 

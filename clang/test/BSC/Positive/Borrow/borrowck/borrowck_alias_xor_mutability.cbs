@@ -1,0 +1,65 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct Pair {
+  int left;
+  int right;
+} Pair;
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_const(const int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+void alias_mut_reborrow_then_release(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p;
+  **q = 2;
+  int *_Borrow r = &_Mut a;
+  *r = 3;
+}
+
+void alias_multiple_shared_on_reborrowed_pointer(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow const *_Borrow q1 = &_Const p;
+  int *_Borrow const *_Borrow q2 = &_Const p;
+  int value = **q1 + **q2;
+  use_int(value);
+}
+
+void alias_mut_after_shared_reborrow_ends(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow const *_Borrow q = &_Const p;
+  int value = **q;
+  use_int(value);
+  **(&_Mut p) = 2;
+}
+
+void alias_independent_fields_allow_parallel_mut(void) {
+  Pair s = { .left = 1, .right = 2 };
+  int *_Borrow left = &_Mut s.left;
+  int *_Borrow right = &_Mut s.right;
+  *left = 3;
+  *right = 4;
+}
+
+void alias_arrow_independent_fields_allow_parallel_mut(void) {
+  Pair s = { .left = 1, .right = 2 };
+  Pair *raw = &s;
+  int *_Borrow left = &_Mut raw->left;
+  int *_Borrow right = &_Mut raw->right;
+  *left = 3;
+  *right = 4;
+}
+
+void discarded_cast() {
+    int *_Borrow p = (int *_Borrow)nullptr;
+  ( int*)0;
+}
+
+int main(void) {
+  return 0;
+}

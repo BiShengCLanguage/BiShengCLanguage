@@ -1,0 +1,64 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct Inner {
+  int value;
+  int other;
+} Inner;
+
+typedef struct Outer {
+  Inner inner;
+  int tail;
+  int items[4];
+} Outer;
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+void struct_field_reborrow_releases_before_field_write(void) {
+  Outer s = { .inner = { .value = 1, .other = 2 }, .tail = 3 };
+  int *_Borrow p = &_Mut s.inner.value;
+  int *_Borrow *_Borrow q = &_Mut p;
+  **q = 4;
+  s.inner.value = 5;
+}
+
+void struct_independent_field_write_allowed(void) {
+  Outer s = { .inner = { .value = 1, .other = 2 }, .tail = 3 };
+  int *_Borrow p = &_Mut s.inner.value;
+  int *_Borrow *_Borrow q = &_Mut p;
+  s.inner.other = 4;
+  s.tail = 5;
+  **q = 6;
+}
+
+void struct_arrow_field_reborrow_releases(void) {
+  Outer s = { .inner = { .value = 1, .other = 2 }, .tail = 3 };
+  Outer *raw = &s;
+  int *_Borrow p = &_Mut raw->inner.value;
+  int *_Borrow *_Borrow q = &_Mut p;
+  **q = 4;
+  raw->inner.value = 5;
+}
+
+void struct_nested_field_reborrow(void) {
+  Outer s = { .inner = { .value = 1, .other = 2 }, .tail = 3 };
+  int *_Borrow p = &_Mut s.inner.value;
+  int *_Borrow *_Borrow q = &_Mut p;
+  **q = 4;
+  s.tail = 5;
+}
+
+void struct_array_field_reborrow(void) {
+  Outer s = { .inner = { .value = 1, .other = 2 }, .tail = 3,
+              .items = {0, 1, 2, 3} };
+  int *_Borrow _ArrayElem p = &_Mut s.items[0];
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  (*q)[1] = 4;
+  s.tail = 5;
+}
+
+int main(void) {
+  return 0;
+}

@@ -1,0 +1,61 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_const(const int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+void local_mut_reborrow_ends_at_q_last_use(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p;
+  **q = 2;
+  a = 3;
+}
+
+void local_const_reborrow_ends_at_q_last_use(void) {
+  int a = 1;
+  const int *_Borrow p = &_Const a;
+  const int *_Borrow *_Borrow q = &_Mut p;
+  int value = **q;
+  use_int(value);
+  a = 2;
+}
+
+void local_write_through_q_then_release_inner_objects(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p;
+  *q = &_Mut b;
+  **q = 3;
+  a = 4;
+  b = 5;
+}
+
+void local_rebind_q_ends_previous_nll(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r = &_Mut b;
+  int *_Borrow *_Borrow q = &_Mut p;
+  q = &_Mut r;
+  a = 3;
+  **q = 4;
+  b = 5;
+}
+
+void local_nested_block_does_not_escape_when_used_inside(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  {
+    int *_Borrow *_Borrow q = &_Mut p;
+    **q = 2;
+  }
+  a = 3;
+}
+
+int main(void) {
+  return 0;
+}

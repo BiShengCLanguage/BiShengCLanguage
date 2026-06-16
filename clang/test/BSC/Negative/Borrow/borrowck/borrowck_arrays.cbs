@@ -1,0 +1,49 @@
+// RUN: %clang_cc1 -verify %s
+
+void use_mut(int *_Borrow p);
+void use_int(int v);
+
+void array_elem_reborrow_freezes_whole_array(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0]; // expected-note {{'arr[_]' is borrowed here}}
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  arr[1] = 1; // expected-error {{cannot assign to 'arr[_]' because it is borrowed}}
+  (*q)[0] = 2;
+}
+
+void array_different_indices_cannot_both_be_mutable(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0]; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  int *_Borrow r = &_Mut arr[1]; // expected-error {{cannot borrow 'arr[_]' as mutable more than once at a time}}
+  (*q)[0] = 1;
+  *r = 2;
+}
+
+void array_write_through_q_extends_new_array_object(void) {
+  int arr[4] = {0};
+  int other[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0]; // expected-note {{'arr[_]' is borrowed here}}
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p;
+  *q = &_Mut other[0]; // expected-note {{'other[_]' is borrowed here}}
+  arr[0] = 1; // expected-error {{cannot assign to 'arr[_]' because it is borrowed}}
+  other[0] = 2; // expected-error {{cannot assign to 'other[_]' because it is borrowed}}
+  (*q)[1] = 3;
+}
+
+void arrayelem_handle_cannot_be_used_while_q_mutably_borrows_it(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0];
+  int *_Borrow _ArrayElem *_Borrow q = &_Mut p; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow _ArrayElem r = p + 1; // expected-error {{cannot borrow '*p' as mutable more than once at a time}}
+  (*q)[0] = 1;
+  r[0] = 2;
+}
+
+void arrayelem_single_borrow_freezes_base_handle(void) {
+  int arr[4] = {0};
+  int *_Borrow _ArrayElem p = &_Mut arr[0];
+  int *_Borrow elem = &_Mut p[1]; // expected-note {{'p[_]' is borrowed here}}
+  p[2] = 2; // expected-error {{cannot assign to 'p[_]' because it is borrowed}}
+  *elem = 3;
+}

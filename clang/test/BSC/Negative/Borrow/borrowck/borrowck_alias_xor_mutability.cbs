@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef struct Pair {
+  int left;
+  int right;
+} Pair;
+
+void use_mut(int *_Borrow p);
+void use_const(const int *_Borrow p);
+void use_int(int v);
+
+void alias_two_mutable_reborrows_conflict(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q1 = &_Mut p; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow *_Borrow q2 = &_Mut p; // expected-error {{cannot borrow 'p' as mutable more than once at a time}}
+  **q1 = 2;
+  **q2 = 3;
+}
+
+void alias_shared_reborrow_conflicts_with_mut_reborrow(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q1 = &_Mut p; // expected-note {{mutable borrow occurs here}}
+  int *_Borrow const *_Borrow q2 = &_Const p; // expected-error {{cannot borrow 'p' as immutable because it is also borrowed as mutable}}
+  **q1 = 2;
+  use_int(**q2);
+}
+
+void alias_mut_reborrow_conflicts_with_shared_reborrow(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow const *_Borrow q1 = &_Const p; // expected-note {{immutable borrow occurs here}}
+  int *_Borrow *_Borrow q2 = &_Mut p; // expected-error {{cannot borrow 'p' as mutable because it is also borrowed as immutable}}
+  use_int(**q1);
+  **q2 = 2;
+}
+
+void alias_star_p_frozen_while_q_is_live(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow q = &_Mut p; // expected-note {{'*p' is borrowed here}}
+  *p = 2; // expected-error {{cannot assign to '*p' because it is borrowed}}
+  **q = 3;
+}
+
+void alias_field_path_conflicts_through_second_level(void) {
+  Pair s = { .left = 1, .right = 2 };
+  int *_Borrow p = &_Mut s.left; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow *_Borrow q = &_Mut p;
+  int *_Borrow r = &_Mut s.left; // expected-error {{cannot borrow 's.left' as mutable more than once at a time}}
+  **q = 3;
+  *r = 4;
+}
+
+void alias_arrow_field_path_conflicts_through_second_level(void) {
+  Pair s = { .left = 1, .right = 2 };
+  Pair *raw = &s;
+  int *_Borrow p = &_Mut raw->left; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow *_Borrow q = &_Mut p;
+  int *_Borrow r = &_Mut raw->left; // expected-error {{cannot borrow '(*raw).left' as mutable more than once at a time}}
+  **q = 3;
+  *r = 4;
+}

@@ -1,0 +1,30 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct TwoLevelBorrowFields {
+  int *_Borrow *_Borrow long_slot;
+  int *_Borrow *_Borrow short_slot;
+} TwoLevelBorrowFields;
+
+int second_level_fields_have_independent_inner_regions(void) {
+  int long_lived = 1;
+  int *_Borrow long_ptr = &_Mut long_lived;
+  int *_Borrow short_ptr = nullptr;
+  int *_Borrow long_result = nullptr;
+
+  {
+    int short_lived = 2;
+    short_ptr = &_Mut short_lived;
+    TwoLevelBorrowFields slots = { &_Mut long_ptr, &_Mut short_ptr };
+    long_result = *slots.long_slot;
+    **slots.short_slot = 3;
+  }
+
+  *long_result = 4;
+  return long_lived == 4 ? 0 : 1;
+}
+
+int main(void) {
+  return second_level_fields_have_independent_inner_regions();
+}

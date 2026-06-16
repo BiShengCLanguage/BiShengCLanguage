@@ -1,0 +1,60 @@
+// RUN: %clang_cc1 -verify %s
+
+// a _Borrow operator (&_Mut / &_Const) rejects an rvalue (or non-addressable) operand;
+// both operators share this rule, so each rvalue form is exercised under both
+
+int f(void);
+
+void test(void) {
+  int a = 1, b = 2;
+  // literals
+  int *_Borrow p1 = &_Mut 5;
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p2 = &_Const 5;
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p3 = &_Mut 1.5;
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p4 = &_Mut 'a';
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // arithmetic
+  int *_Borrow p5 = &_Mut (a + b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p6 = &_Const (a * b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // cast
+  int *_Borrow p7 = &_Mut (int)a;
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p8 = &_Const (int)a;
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // function call result
+  int *_Borrow p9 = &_Mut f();
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p10 = &_Const f();
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // borrow rvalue (a borrow expression is itself an rvalue)
+  int *_Borrow *_Borrow p11 = &_Mut (&_Mut a);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow *_Borrow p12 = &_Const (&_Const b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow *_Borrow p13 = &_Mut (&_Const a);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow *_Borrow p14 = &_Const (&_Mut b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow *_Borrow *_Borrow p15 = &_Mut (&_Mut (&_Mut a));
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // comma (BSC treats the result as an rvalue even when the right operand is an lvalue)
+  int *_Borrow p16 = &_Mut (1, a);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // expected-warning@-2 {{left operand of comma operator has no effect}}
+  int *_Borrow p17 = &_Const (1, b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // expected-warning@-2 {{left operand of comma operator has no effect}}
+  // ternary (BSC treats the result as an rvalue even when both arms are lvalues)
+  int *_Borrow p18 = &_Mut (1 ? a : b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  int *_Borrow p19 = &_Const (1 ? a : b);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+  // sizeof (yields a size_t rvalue)
+  int *_Borrow p20 = &_Mut sizeof(a);
+  // expected-error@-1 {{cannot take the address of an rvalue}}
+}

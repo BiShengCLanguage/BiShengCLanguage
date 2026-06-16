@@ -29,7 +29,7 @@ void indirect_callee_extends_borrow_lifetime(void) {
 void indirect_callee_is_an_action_use(struct Box box) {
   struct Box *_Borrow borrow = &_Mut box; // expected-note {{'box' is borrowed here}}
   _Unsafe {
-    (box.fns[0])(20); // expected-error {{cannot use 'box.fns[]' because it was mutably borrowed}}
+    (box.fns[0])(20); // expected-error {{cannot use 'box.fns[_]' because it was mutably borrowed}}
   }
   use_box(borrow);
 }
@@ -58,9 +58,9 @@ void function_pointer_borrow_extends_lifetime(Fn callee, Fn replacement) {
 // The call reads the borrowed array-element path.
 void function_pointer_array_callee_is_an_action_use(Fn first, Fn second) {
   Fn callees[2] = {first, second};
-  Fn *_Borrow borrow = &_Mut callees[0]; // expected-note {{'callees[]' is borrowed here}}
+  Fn *_Borrow borrow = &_Mut callees[0]; // expected-note {{'callees[_]' is borrowed here}}
   _Unsafe {
-    callees[0](20); // expected-error {{cannot use 'callees[]' because it was mutably borrowed}}
+    callees[0](20); // expected-error {{cannot use 'callees[_]' because it was mutably borrowed}}
   }
   use_function_pointer(borrow);
 }

@@ -554,7 +554,13 @@ private:
   CFGBlock *VisitCallExpr(CallExpr *C, AddStmtChoice asc);
   CFGBlock *VisitCaseStmt(CaseStmt *C);
   CFGBlock *VisitChooseExpr(ChooseExpr *C, AddStmtChoice asc);
+#if ENABLE_BSC
+  CFGBlock *VisitCompoundStmt(
+      CompoundStmt *C, bool ExternallyDestructed,
+      AddStmtChoice ResultChoice = AddStmtChoice::AlwaysAdd);
+#else
   CFGBlock *VisitCompoundStmt(CompoundStmt *C, bool ExternallyDestructed);
+#endif
   CFGBlock *VisitConditionalOperator(AbstractConditionalOperator *C,
                                      AddStmtChoice asc);
   CFGBlock *VisitContinueStmt(ContinueStmt *C);
@@ -1518,6 +1524,8 @@ std::unique_ptr<CFG> CFGBuilder::buildCFG(const Decl *D, Stmt *Statement) {
       for (ParmVarDecl *PVD : FD->parameters()) {
         addLocalScopeForVarDecl(PVD);
       }
+      addAutomaticObjHandling(ScopePos, LocalScope::const_iterator(),
+                              Statement);
     }
   }
 #endif
@@ -2468,6 +2476,7 @@ CFGBlock *CFGBuilder::VisitUnaryOperator(UnaryOperator *U, AddStmtChoice asc) {
 CFGBlock *CFGBuilder::VisitLogicalOperator(BinaryOperator *B) {
   CFGBlock *ConfluenceBlock = Block ? Block : createBlock();
 #if ENABLE_BSC
+  // Operands are CFG statements; omit the full expression at confluence.
   if (!BuildOpts.BSCBorrowCk)
     appendStmt(ConfluenceBlock, B);
 #else
@@ -2582,12 +2591,7 @@ CFGBlock *CFGBuilder::VisitBinaryOperator(BinaryOperator *B,
 
   if (B->getOpcode() == BO_Comma) { // ,
     autoCreateBlock();
-#if ENABLE_BSC
-    if (!BuildOpts.BSCBorrowCk)
-      appendStmt(Block, B);
-#else
     appendStmt(Block, B);
-#endif
     addStmt(B->getRHS());
     return addStmt(B->getLHS());
   }
@@ -2716,6 +2720,15 @@ CFGBlock *CFGBuilder::VisitCallExpr(CallExpr *C, AddStmtChoice asc) {
   }
 
   if (!NoReturn && !AddEHEdge) {
+#if ENABLE_BSC
+    if (BuildOpts.BSCBorrowCk) {
+      if (asc.alwaysAdd(*this, C)) {
+        autoCreateBlock();
+        appendCall(Block, C);
+      }
+      return Block;
+    }
+#endif
     autoCreateBlock();
     appendCall(Block, C);
 
@@ -2742,6 +2755,11 @@ CFGBlock *CFGBuilder::VisitCallExpr(CallExpr *C, AddStmtChoice asc) {
     else
       addSuccessor(Block, &cfg->getExit());
   }
+
+#if ENABLE_BSC
+  if (BuildOpts.BSCBorrowCk)
+    return Block;
+#endif
 
   return VisitChildren(C);
 }
@@ -2775,8 +2793,14 @@ CFGBlock *CFGBuilder::VisitChooseExpr(ChooseExpr *C,
   return addStmt(C->getCond());
 }
 
+#if ENABLE_BSC
+CFGBlock *CFGBuilder::VisitCompoundStmt(CompoundStmt *C,
+                                        bool ExternallyDestructed,
+                                        AddStmtChoice ResultChoice) {
+#else
 CFGBlock *CFGBuilder::VisitCompoundStmt(CompoundStmt *C,
                                         bool ExternallyDestructed) {
+#endif
   LocalScope::const_iterator scopeBeginPos = ScopePos;
   addLocalScopeForStmt(C);
 
@@ -2787,12 +2811,24 @@ CFGBlock *CFGBuilder::VisitCompoundStmt(CompoundStmt *C,
   }
 
   CFGBlock *LastBlock = Block;
+#if ENABLE_BSC
+  const Stmt *Result =
+      C->body_empty() ? nullptr : C->getStmtExprResult();
+#endif
 
   for (Stmt *S : llvm::reverse(C->body())) {
     // If we hit a segment of code just containing ';' (NullStmts), we can
     // get a null block back.  In such cases, just use the LastBlock
+#if ENABLE_BSC
+    // A StmtExpr result inherits its caller's choice; its prefix statements
+    // remain block-level expressions.
+    AddStmtChoice Choice =
+        S == Result ? ResultChoice : AddStmtChoice::AlwaysAdd;
+    CFGBlock *newBlock = Visit(S, Choice, ExternallyDestructed);
+#else
     CFGBlock *newBlock = Visit(S, AddStmtChoice::AlwaysAdd,
                                ExternallyDestructed);
+#endif
 
     if (newBlock)
       LastBlock = newBlock;
@@ -2996,11 +3032,7 @@ CFGBlock *CFGBuilder::VisitDeclSubExpr(DeclStmt *DS) {
   // statement-expression.
   CFGBlock *LastBlock = Block;
 
-#if ENABLE_BSC
-  if (Init && !BuildOpts.BSCBorrowCk) {
-#else
   if (Init) {
-#endif
     if (HasTemporaries) {
       // For expression with temporaries go directly to subexpression to omit
       // generating destructors for the second time.
@@ -3205,17 +3237,16 @@ CFGBlock *CFGBuilder::VisitReturnStmt(Stmt *S) {
   // Add the return statement to the block.
   appendStmt(Block, S);
 
+#if ENABLE_BSC
+  // BSC borrow checking does not recursively visit the return value.
+  if (BuildOpts.BSCBorrowCk)
+    return Block;
+#endif
+
   // Visit children
   if (ReturnStmt *RS = dyn_cast<ReturnStmt>(S)) {
-#if ENABLE_BSC
-    if (!BuildOpts.BSCBorrowCk) {
-      if (Expr *O = RS->getRetValue())
-        return Visit(O, AddStmtChoice::AlwaysAdd, /*ExternallyDestructed=*/true);
-    }
-#else
     if (Expr *O = RS->getRetValue())
       return Visit(O, AddStmtChoice::AlwaysAdd, /*ExternallyDestructed=*/true);
-#endif
     return Block;
   }
 
@@ -4315,10 +4346,12 @@ CFGBlock *CFGBuilder::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E,
 ///  expressions (a GCC extension).
 CFGBlock *CFGBuilder::VisitStmtExpr(StmtExpr *SE, AddStmtChoice asc) {
 #if ENABLE_BSC
-  if (!BuildOpts.BSCBorrowCk && asc.alwaysAdd(*this, SE)) {
-#else
-  if (asc.alwaysAdd(*this, SE)) {
+  if (BuildOpts.BSCBorrowCk)
+    return VisitCompoundStmt(SE->getSubStmt(),
+                             /*ExternallyDestructed=*/true, asc);
 #endif
+
+  if (asc.alwaysAdd(*this, SE)) {
     autoCreateBlock();
     appendStmt(Block, SE);
   }
@@ -4904,12 +4937,6 @@ CFGBlock *CFGBuilder::VisitCXXTemporaryObjectExpr(CXXTemporaryObjectExpr *C,
 
 CFGBlock *CFGBuilder::VisitImplicitCastExpr(ImplicitCastExpr *E,
                                             AddStmtChoice asc) {
-#if ENABLE_BSC
-  if (BuildOpts.BSCBorrowCk) {
-    if (!asc.alwaysAdd(*this, E))
-      return Block;
-  }
-#endif
   if (asc.alwaysAdd(*this, E)) {
     autoCreateBlock();
     appendStmt(Block, E);

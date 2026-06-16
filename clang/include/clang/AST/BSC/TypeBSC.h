@@ -17,8 +17,62 @@
 #if ENABLE_BSC
 
 #include "clang/AST/Type.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include <utility>
 
 namespace clang {
+
+class FieldDecl;
+
+/// Describes how the implicit region parameters of a record are projected to
+/// its fields. Field entries contain indices into a concrete record instance's
+/// region vector and may repeat an index for recursive projections.
+class RecordRegionLayout {
+public:
+  using FieldRegionIndicesTy = llvm::SmallVector<unsigned, 2>;
+  using FieldRegionMapTy =
+      llvm::DenseMap<const FieldDecl *, FieldRegionIndicesTy>;
+
+private:
+  unsigned NumRegions = 0;
+  FieldRegionMapTy FieldRegionIndices;
+
+public:
+  RecordRegionLayout() = default;
+  RecordRegionLayout(unsigned NumRegions,
+                     FieldRegionMapTy FieldRegionIndices)
+      : NumRegions(NumRegions),
+        FieldRegionIndices(std::move(FieldRegionIndices)) {}
+
+  unsigned getNumRegions() const { return NumRegions; }
+
+  llvm::ArrayRef<unsigned>
+  getFieldRegionIndices(const FieldDecl *FD) const {
+    auto It = FieldRegionIndices.find(FD);
+    if (It == FieldRegionIndices.end())
+      return {};
+    return It->second;
+  }
+};
+
+using RecordRegionLayoutMap =
+    llvm::DenseMap<const RecordDecl *, RecordRegionLayout>;
+
+/// Return the fixed implicit-region layout of \p RD, building it and any
+/// dependent record layouts on demand.
+const RecordRegionLayout &
+GetOrCreateRecordRegionLayout(const ASTContext &Ctx, const RecordDecl *RD,
+                              RecordRegionLayoutMap &Layouts);
+
+/// Compute the number of borrow regions required to represent \p Type.
+unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type);
+
+/// Compute the number of borrow regions required to represent \p Type,
+/// building record layouts in \p Layouts on demand.
+unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type,
+                           RecordRegionLayoutMap &Layouts);
 
 /// Apply \p NK as outer BSC nullability on \p QT, idempotently.
 /// BSC stores _Nullable/_Nonnull as non-fast qualifier bits (like

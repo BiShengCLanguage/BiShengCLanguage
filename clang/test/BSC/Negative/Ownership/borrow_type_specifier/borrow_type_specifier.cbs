@@ -55,7 +55,7 @@ typedef const int * _Borrow borrow_const_int_ptr_t;
 typedef struct S1 _Borrow   S1_borrow_t1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
 typedef _Borrow struct S1   S1_borrow_t2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
 typedef struct S1 * S1_pt;
-typedef S1_pt _Borrow S1_pointer_borrow_t; // expected-error {{type of 'struct S1' cannot be qualified by '_Borrow' (even indirectly) because 'struct S1' contains a '_Borrow' type}}
+typedef S1_pt _Borrow S1_pointer_borrow_t;
 
 // Test global variables.
 int _Borrow        g_1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}

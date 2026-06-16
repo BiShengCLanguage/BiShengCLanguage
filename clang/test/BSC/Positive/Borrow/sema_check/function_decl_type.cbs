@@ -1,0 +1,103 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// legality of a borrow in function declarations and function-pointer declarations
+
+struct T1 { int x; int y; };
+struct T2 { int *_Borrow p1; };
+struct T3 { int *_Borrow *_Borrow p1; };
+struct T4 { struct T2 *_Borrow p1; };
+
+// parameters: hand-written borrow structures
+void p1(int *_Borrow *_Borrow a);
+void p2(int *_Borrow *_Borrow *_Borrow a);
+void p3(const int *_Borrow *_Borrow a);
+void p4(int *_Borrow const *_Borrow a);
+void p5(const int *_Borrow const *_Borrow a);
+void p6(int *_Owned *_Borrow a);
+void p7(int **_Borrow a);
+void p8(int *_Borrow *_Owned a);
+void p9(int *_Borrow *a);
+void p10(struct T1 *_Borrow *_Borrow a);
+void p11(const struct T1 *_Borrow const *_Borrow a);
+
+// array-pointer parameter
+void a1(int (*_Borrow p)[8]);
+void a2(int (*_Borrow const *_Borrow p)[8]);
+void a3(int (*_Owned *_Borrow p)[8]);
+void a4(struct T1 (*_Borrow *_Borrow p)[8]);
+
+// function-pointer variables (hand-written)
+void (*fp1)(int *_Borrow *_Borrow);
+void (*fp2)(int *_Borrow *_Borrow *_Borrow);
+void (*fp3)(const int *_Borrow *_Borrow);
+void (*fp4)(struct T1 *_Borrow *_Borrow);
+
+// function-pointer array
+void (*fa1[4])(int *_Borrow);
+void (*fa2[4])(int *_Borrow *_Borrow *_Borrow);
+
+// function-pointer type as a parameter (pointed-to signature carries borrow)
+void gp1(void (*fp)(int *_Borrow *_Borrow));
+void gp2(void (*fp)(int *_Borrow *_Borrow *_Borrow));
+void gp3(void (*fp)(const int *_Borrow *_Borrow));
+void gp4(void (*fp)(int *_Owned *_Borrow));
+void gp5(void (*fp)(struct T1 *_Borrow *_Borrow));
+void gp7(int *_Borrow (*fp)(int *_Borrow));
+void gp8(int *_Borrow (*fp)(int *_Borrow *_Borrow));
+void gp9(void (*fp)(int (*_Borrow p)[8]));
+void gp10(void (*fp[4])(int *_Borrow));
+
+// function-pointer type as a return value (pointed-to return is value/one-level borrow; multi-level borrow is rejected elsewhere)
+void (*gr1(void))(int *_Borrow *_Borrow);
+void (*gr2(void))(int *_Borrow *_Borrow *_Borrow);
+void (*gr3(void))(const int *_Borrow *_Borrow);
+void (*gr4(void))(struct T1 *_Borrow *_Borrow);
+int *_Borrow (*gr6(void))(int *_Borrow);
+int *_Borrow (*gr7(void))(int *_Borrow *_Borrow);
+struct T1 (*gr8(void))(void);
+struct T1 (*gr9(void))(int *_Borrow);
+const struct T1 (*gr10(void))(void);
+
+// record-with-borrow-field type as a parameter
+void sf1(struct T2 a);
+void sf2(struct T2 *_Borrow a);
+void sf3(struct T2 *_Borrow *_Borrow a);
+void sf4(struct T3 *_Borrow a);
+void sf5(struct T4 *_Borrow a);
+void sf6(const struct T2 *_Borrow a);
+
+// record-with-borrow-field type as a return value (a by-value struct return carries 1 borrow region iff the field is one-level borrow)
+struct T2 sr1(struct T2 p);
+struct T2 sr1(struct T2 p) { return p; }
+
+// record-with-borrow-field type threaded through a function-pointer signature (params are unrestricted)
+void gf1(void (*fp)(struct T2 *_Borrow));
+
+// returns: struct value / one-level borrow / owned / value are legal (multi-level borrow return is rejected elsewhere)
+struct T1 rs1(void);
+struct T1 rs1(void) { struct T1 t = {0, 0}; return t; }
+
+const struct T1 rs2(void);
+const struct T1 rs2(void) { struct T1 t = {0, 0}; return t; }
+
+struct T1 rs3(struct T1 p);
+struct T1 rs3(struct T1 p) { return p; }
+
+int *_Borrow r1(int *_Borrow p);
+int *_Borrow r1(int *_Borrow p) { return p; }
+
+const int *_Borrow r2(const int *_Borrow p);
+const int *_Borrow r2(const int *_Borrow p) { return p; }
+
+struct T1 *_Borrow r3(struct T1 *_Borrow p);
+struct T1 *_Borrow r3(struct T1 *_Borrow p) { return p; }
+
+int *_Owned r4(int *_Owned p);
+int *_Owned r4(int *_Owned p) { return p; }
+
+int r5(void);
+int r5(void) { return 0; }
+
+int main(void) { return 0; }

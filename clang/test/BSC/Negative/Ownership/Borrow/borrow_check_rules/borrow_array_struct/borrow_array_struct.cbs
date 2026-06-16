@@ -20,7 +20,7 @@ struct S { int a; };
 void foo2() {
   struct S s2[1] = {};
   int *_Borrow a = &_Mut s2[0].a; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow b = &_Mut (*s2).a; // expected-error {{cannot borrow 's2[].a' as mutable more than once at a time}}
+  int *_Borrow b = &_Mut (*s2).a; // expected-error {{cannot borrow 's2[_].a' as mutable more than once at a time}}
   (void)a;
   (void)b;
 }

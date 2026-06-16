@@ -1,0 +1,42 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+int *_Borrow return_first_level(int *_Borrow p) {
+  return p;
+}
+
+int *_Borrow return_from_second_level_implicitly(int *_Borrow *_Borrow p) {
+  return *p;
+}
+
+int *_Borrow return_from_second_level(int *_Borrow *_Borrow p) {
+  return &_Mut **p;
+}
+
+int *_Borrow return_from_two_first_level_params(int *_Borrow p,
+                                                 int *_Borrow q) {
+  if (*p > 0)
+    return p;
+  return q;
+}
+
+void caller_return_values_used_inside_source_lifetimes(void) {
+  int a = 1;
+  int c = 3;
+  int d = 4;
+  int e = 5;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r1 = return_first_level(p);
+  int *_Borrow r3 =
+      return_from_two_first_level_params(&_Mut d, &_Mut e);
+  *r1 = c;
+  *r3 = 4;
+}
+
+int main(void) {
+  return 0;
+}

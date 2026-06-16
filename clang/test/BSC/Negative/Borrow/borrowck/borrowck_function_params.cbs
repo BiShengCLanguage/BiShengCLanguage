@@ -1,0 +1,46 @@
+// RUN: %clang_cc1 -verify %s
+
+void use_mut(int *_Borrow p);
+void use_int(int v);
+
+void lower_layer_param_cannot_be_written_to_outer(int *_Borrow *_Borrow p,
+                                                  int *_Borrow q) {
+  *p = q; // expected-error {{lifetime may not live long enough}}
+}
+
+void lower_layer_reborrow_cannot_be_written_to_outer(int *_Borrow *_Borrow p,
+                                                     int *_Borrow q) {
+  *p = &_Mut *q; // expected-error {{lifetime may not live long enough}}
+}
+
+void same_level_call_short_argument_cannot_extend_result(int *_Borrow *_Borrow p,
+                                                        int *_Borrow *_Borrow q) {
+  *p = *q; // expected-error 2 {{lifetime may not live long enough}}
+}
+
+void same_second_level_const_assign_allowed(const int *_Borrow *_Borrow p,
+                                            const int *_Borrow *_Borrow q) {
+  *p = *q; // expected-error {{lifetime may not live long enough}}
+  use_int(**p);
+}
+
+void caller_short_second_level_argument_escapes(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  {
+    int b = 2;
+    int *_Borrow q = &_Mut b;
+    same_level_call_short_argument_cannot_extend_result(&_Mut p, &_Mut q);
+  }
+  *p = 3;
+}
+
+void caller_mut_reborrow_keeps_argument_frozen(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int b = 2;
+  int *_Borrow q = &_Mut b;
+  same_level_call_short_argument_cannot_extend_result(&_Mut p, &_Mut q);
+  p = &_Mut b;
+}
+

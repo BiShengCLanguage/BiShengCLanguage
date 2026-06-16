@@ -1,0 +1,131 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// variable declaration legality of a record nested borrow type
+
+struct Point { int x; int y; };
+
+// record pointee nested borrow, const on each level
+void test1(void) {
+  struct Point *_Borrow *_Borrow p1;
+  struct Point *_Borrow const *_Borrow p2;
+  const struct Point *_Borrow *_Borrow p3;
+  const struct Point *_Borrow const *_Borrow p4;
+  struct Point *_Borrow *_Borrow *_Borrow p5;
+  struct Point *_Borrow *_Borrow const *_Borrow p6;
+  const struct Point *_Borrow const *_Borrow const *_Borrow p7;
+  struct Point *_Borrow *_Borrow *_Borrow *_Borrow p8;
+}
+
+// records whose field is a nested borrow (or related pointer):
+//   1. no borrow            2. one borrow
+//   3. two-level borrow     4. raw -> borrow
+//   5. owned -> borrow      6. borrow -> owned
+//   7. borrow -> raw       8. struct embedding struct
+struct R1 { int a; int b; };
+struct R2 { int *_Borrow p; };
+struct R3 { int *_Borrow *_Borrow pp; };
+struct R4 { int *_Borrow *raw; };
+struct R5 { int *_Borrow *_Owned owned; };
+struct R6 { int *_Owned *_Borrow borrow; };
+struct R7 { int **_Borrow borrow; };
+struct R8 { int *_Borrow *_Borrow outer; struct R2 inner; };
+
+// declare variables of every record type above
+void test2(void) {
+  struct R1 a1;
+  struct R2 a2;
+  struct R3 a3;
+  struct R4 a4;
+  struct R5 a5;
+  struct R6 a6;
+  struct R7 a7;
+  struct R8 a8;
+}
+
+// multi-level raw/owned/borrow pointers to each record type above;
+// per record: two-level and three-level shapes
+void test3(void) {
+  struct R1 *_Borrow *_Borrow a1;
+  struct R1 *_Owned *_Borrow b1;
+  struct R1 **_Borrow c1;
+  struct R1 *_Borrow *_Owned d1;
+  struct R1 *_Borrow *e1;
+  struct R1 *_Borrow *_Borrow *_Owned f1;
+  struct R1 *_Owned *_Borrow *_Borrow g1;
+  struct R1 *_Borrow *_Borrow *h1;
+  struct R1 *_Borrow **_Borrow i1;
+
+  struct R2 *_Borrow *_Borrow a2;
+  struct R2 *_Owned *_Borrow b2;
+  struct R2 **_Borrow c2;
+  struct R2 *_Borrow *_Owned d2;
+  struct R2 *_Borrow *e2;
+  struct R2 *_Borrow *_Borrow *_Owned f2;
+  struct R2 *_Owned *_Borrow *_Borrow g2;
+  struct R2 *_Borrow *_Borrow *h2;
+  struct R2 *_Borrow **_Borrow i2;
+
+  struct R3 *_Borrow *_Borrow a3;
+  struct R3 *_Owned *_Borrow b3;
+  struct R3 **_Borrow c3;
+  struct R3 *_Borrow *_Owned d3;
+  struct R3 *_Borrow *e3;
+  struct R3 *_Borrow *_Borrow *_Owned f3;
+  struct R3 *_Owned *_Borrow *_Borrow g3;
+  struct R3 *_Borrow *_Borrow *h3;
+  struct R3 *_Borrow **_Borrow i3;
+
+  struct R4 *_Borrow *_Borrow a4;
+  struct R4 *_Owned *_Borrow b4;
+  struct R4 **_Borrow c4;
+  struct R4 *_Borrow *_Owned d4;
+  struct R4 *_Borrow *e4;
+  struct R4 *_Borrow *_Borrow *_Owned f4;
+  struct R4 *_Owned *_Borrow *_Borrow g4;
+  struct R4 *_Borrow *_Borrow *h4;
+  struct R4 *_Borrow **_Borrow i4;
+
+  struct R5 *_Borrow *_Borrow a5;
+  struct R5 *_Owned *_Borrow b5;
+  struct R5 **_Borrow c5;
+  struct R5 *_Borrow *_Owned d5;
+  struct R5 *_Borrow *e5;
+  struct R5 *_Borrow *_Borrow *_Owned f5;
+  struct R5 *_Owned *_Borrow *_Borrow g5;
+  struct R5 *_Borrow *_Borrow *h5;
+  struct R5 *_Borrow **_Borrow i5;
+
+  struct R6 *_Borrow *_Borrow a6;
+  struct R6 *_Owned *_Borrow b6;
+  struct R6 **_Borrow c6;
+  struct R6 *_Borrow *_Owned d6;
+  struct R6 *_Borrow *e6;
+  struct R6 *_Borrow *_Borrow *_Owned f6;
+  struct R6 *_Owned *_Borrow *_Borrow g6;
+  struct R6 *_Borrow *_Borrow *h6;
+  struct R6 *_Borrow **_Borrow i6;
+
+  struct R7 *_Borrow *_Borrow a7;
+  struct R7 *_Owned *_Borrow b7;
+  struct R7 **_Borrow c7;
+  struct R7 *_Borrow *_Owned d7;
+  struct R7 *_Borrow *e7;
+  struct R7 *_Borrow *_Borrow *_Owned f7;
+  struct R7 *_Owned *_Borrow *_Borrow g7;
+  struct R7 *_Borrow *_Borrow *h7;
+  struct R7 *_Borrow **_Borrow i7;
+
+  struct R8 *_Borrow *_Borrow a8;
+  struct R8 *_Owned *_Borrow b8;
+  struct R8 **_Borrow c8;
+  struct R8 *_Borrow *_Owned d8;
+  struct R8 *_Borrow *e8;
+  struct R8 *_Borrow *_Borrow *_Owned f8;
+  struct R8 *_Owned *_Borrow *_Borrow g8;
+  struct R8 *_Borrow *_Borrow *h8;
+  struct R8 *_Borrow **_Borrow i8;
+}
+
+int main(void) { return 0; }

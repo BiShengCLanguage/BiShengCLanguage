@@ -1,0 +1,43 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_const(const int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+void same_level_assign_allowed(int *_Borrow p, int *_Borrow q) {
+  p = q;
+  *p = 1;
+}
+
+void same_second_level_const_assign_allowed(const int *_Borrow *_Borrow p,
+                                            const int *_Borrow *_Borrow q) {
+  use_int(**p);
+}
+
+void different_layer_value_access_allowed(int *_Borrow *_Borrow p,
+                                          int *_Borrow q) {
+  **p = *q;
+  *q = 3;
+}
+
+void call_same_level_lifetimes_intersect_inside_scope(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow q = &_Mut b;
+  same_level_assign_allowed(p, q);
+}
+
+void call_second_level_lifetimes_intersect_inside_scope(void) {
+  int a = 1;
+  int b = 2;
+  const int *_Borrow p = &_Const a;
+  const int *_Borrow q = &_Const b;
+  same_second_level_const_assign_allowed(&_Mut p, &_Mut q);
+}
+
+int main(void) {
+  return 0;
+}

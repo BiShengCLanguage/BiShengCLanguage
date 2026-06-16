@@ -3,23 +3,23 @@
 _Safe void t1(void) {
   int a[10] = {0};
   int * _Borrow _ArrayElem p1 = &_Mut a[0];
-  int * _Borrow _ArrayElem p2 = p1 + 3; // expected-note {{'p1[]' is borrowed here}}
-  p1[1] = 5; // expected-error {{cannot assign to 'p1[]' because it is borrowed}}
+  int * _Borrow _ArrayElem p2 = p1 + 3; // expected-note {{'p1[_]' is borrowed here}}
+  p1[1] = 5; // expected-error {{cannot assign to 'p1[_]' because it is borrowed}}
   p2[0] = 5;
 }
 
 _Safe void t2(void) {
   int a[10] = {0};
   int * _Borrow _ArrayElem p1 = &_Mut a[0]; // expected-note {{first mut borrow occurs here}}
-  int * _Borrow _ArrayElem p2 = &_Mut a[0]; // expected-error {{cannot borrow 'a[]' as mutable more than once at a time}}
+  int * _Borrow _ArrayElem p2 = &_Mut a[0]; // expected-error {{cannot borrow 'a[_]' as mutable more than once at a time}}
   p1[1] = 5;
   p2[0] = 5;
 }
 
 _Safe void t3(void) {
   int a[10] = {0};
-  int * _Borrow _ArrayElem p = &_Mut a[0]; // expected-note {{'a[]' is borrowed here}}
-  a[0] = 5; // expected-error {{cannot assign to 'a[]' because it is borrowed}}
+  int * _Borrow _ArrayElem p = &_Mut a[0]; // expected-note {{'a[_]' is borrowed here}}
+  a[0] = 5; // expected-error {{cannot assign to 'a[_]' because it is borrowed}}
   p[0] = 5;
 }
 
@@ -27,7 +27,7 @@ _Safe int t4(void) {
   int arr[3] = {10, 20, 30};
   int *_Borrow _ArrayElem a = &_Mut arr[0]; // expected-note {{first mut borrow occurs here}}
   a[1] = 99;
-  int *_Borrow b = &_Mut arr[1]; // expected-error {{cannot borrow 'arr[]' as mutable more than once at a time}}
+  int *_Borrow b = &_Mut arr[1]; // expected-error {{cannot borrow 'arr[_]' as mutable more than once at a time}}
   *b = 100;
   a[1] = 200;
   return *b + a[1];
@@ -50,10 +50,10 @@ _Safe void cf_freeze_after_reborrow(void) {
 
 _Safe void cf_direct_write_while_borrowed(void) {
   int a[4] = {0};
-  int * _Borrow _ArrayElem p = &_Mut a[0]; // expected-note {{'a[]' is borrowed here}}
+  int * _Borrow _ArrayElem p = &_Mut a[0]; // expected-note {{'a[_]' is borrowed here}}
   for (int i = 0; i < 4; ++i) {
     if (i == 2)
-      a[i] = 9; // expected-error {{cannot assign to 'a[]' because it is borrowed}}
+      a[i] = 9; // expected-error {{cannot assign to 'a[_]' because it is borrowed}}
     p[i] = i;
   }
 }
@@ -83,8 +83,8 @@ _Safe void cf_for_freeze(void) {
 _Safe void elem_assign_while_frozen(void) {
   int a[3] = {1, 2, 3};
   int * _Borrow _ArrayElem p1 = a;
-  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-note {{'p1[]' is borrowed here}}
-  p1[0] = 5; // expected-error {{cannot assign to 'p1[]' because it is borrowed}}
+  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-note {{'p1[_]' is borrowed here}}
+  p1[0] = 5; // expected-error {{cannot assign to 'p1[_]' because it is borrowed}}
   p2[0] = 30;
 }
 
@@ -108,8 +108,8 @@ _Safe void subscript_index_borrow_use(void) {
 _Safe void multi_reborrow_from_frozen_base(void) {
   int a[4] = {0};
   int * _Borrow _ArrayElem p1 = &_Mut a[0];
-  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-note {{'*p1' is borrowed here}} // expected-note {{first mut borrow occurs here}}
-  int * _Borrow _ArrayElem p3 = p1 + 2; // expected-error {{cannot use 'p1' because it was mutably borrowed}} // expected-error {{cannot borrow '*p1' as mutable more than once at a time}}
+  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-note {{first mut borrow occurs here}}
+  int * _Borrow _ArrayElem p3 = p1 + 2; // expected-error {{cannot borrow '*p1' as mutable more than once at a time}}
   p2[0] = 1;
   p3[0] = 2;
 }
@@ -117,8 +117,8 @@ _Safe void multi_reborrow_from_frozen_base(void) {
 _Safe void arrayelem_handle_copy_while_reborrowed(void) {
   int a[4] = {0};
   int * _Borrow _ArrayElem p1 = &_Mut a[0];
-  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-note {{'*p1' is borrowed here}} // expected-note {{first mut borrow occurs here}}
-  int * _Borrow _ArrayElem p3 = p1; // expected-error {{cannot use 'p1' because it was mutably borrowed}} // expected-error {{cannot borrow '*p1' as mutable more than once at a time}}
+  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-note {{first mut borrow occurs here}}
+  int * _Borrow _ArrayElem p3 = p1; // expected-error {{cannot borrow '*p1' as mutable more than once at a time}}
   p2[0] = 1;
   p3[0] = 2;
 }
@@ -129,8 +129,8 @@ _Safe void arrayelem_handle_copy_while_reborrowed(void) {
 _Safe void arithmetic_reborrow_while_star_p_borrowed(void) {
   int a[4] = {0};
   int * _Borrow _ArrayElem p1 = &_Mut a[0];
-  int * _Borrow q = &_Mut *p1; // expected-note {{'*p1' is borrowed here}} // expected-note {{first mut borrow occurs here}}
-  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-error {{cannot use 'p1' because it was mutably borrowed}} // expected-error {{cannot borrow '*p1' as mutable more than once at a time}}
+  int * _Borrow q = &_Mut *p1; // expected-note {{first mut borrow occurs here}}
+  int * _Borrow _ArrayElem p2 = p1 + 1; // expected-error {{cannot borrow '*p1' as mutable more than once at a time}}
   p2[0] = 1;
   *q = 2;
 }

@@ -1,0 +1,60 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+void use_mut(int *_Borrow p) { (void)p; }
+void use_int(int v) { (void)v; }
+
+void control_flow_if_else_rebind_then_use(void) {
+  int a = 1;
+  int b = 2;
+  int flag = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r = &_Mut b;
+  int *_Borrow *_Borrow q = &_Mut p;
+  if (flag)
+    q = &_Mut p;
+  else
+    q = &_Mut r;
+  **q = 3;
+}
+
+void control_flow_if_else_releases_after_last_use(void) {
+  int a = 1;
+  int b = 2;
+  int flag = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r = &_Mut b;
+  int *_Borrow *_Borrow q = &_Mut p;
+  if (flag)
+    **q = 3;
+  else
+    q = &_Mut r;
+  **q = 4;
+  a = 5;
+  b = 6;
+}
+
+void control_flow_nested_block_q_does_not_escape(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  {
+    int *_Borrow *_Borrow q = &_Mut p;
+    **q = 2;
+  }
+  a = 3;
+}
+
+void control_flow_loop_reborrow_used_in_loop(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  for (int i = 0; i < 2; ++i) {
+    int *_Borrow *_Borrow q = &_Mut p;
+    **q = i;
+  }
+  a = 3;
+}
+
+int main(void) {
+  return 0;
+}

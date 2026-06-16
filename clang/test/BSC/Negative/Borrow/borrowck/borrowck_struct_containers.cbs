@@ -1,0 +1,47 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef struct RefPair {
+  int *_Borrow *_Borrow pp;
+  int *_Borrow p;
+} RefPair;
+
+typedef struct NestedRefPair {
+  RefPair pair;
+  int tag;
+} NestedRefPair;
+
+void use_pair(RefPair p);
+
+void struct_container_member_write_keeps_new_object_live(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  RefPair refs = { .pp = &_Mut p, .p = &_Mut b };
+  {
+    int local = 3;
+    *refs.pp = &_Mut local; // expected-error {{'local' does not live long enough}}
+  } // expected-note {{'local' dropped here while still borrowed}}
+  **refs.pp = 4;
+}
+
+void struct_container_multilevel_member_freezes_original_object(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  RefPair refs = { .pp = &_Mut p, .p = &_Mut b };
+  a = 3; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  **refs.pp = 4;
+}
+
+void struct_container_nested_member_escape(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  NestedRefPair nested = { .pair = { .pp = &_Mut p, .p = &_Mut b },
+                           .tag = 0 };
+  {
+    int local = 3;
+    *nested.pair.pp = &_Mut local; // expected-error {{'local' does not live long enough}}
+  } // expected-note {{'local' dropped here while still borrowed}}
+  **nested.pair.pp = 4;
+}

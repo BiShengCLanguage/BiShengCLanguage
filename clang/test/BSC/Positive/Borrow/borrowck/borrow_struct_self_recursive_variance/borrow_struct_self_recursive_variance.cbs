@@ -1,0 +1,21 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct SelfNode {
+  struct SelfNode *_Borrow next;
+  int value;
+} SelfNode;
+
+int self_recursive_chain_uses_one_record_region(void) {
+  SelfNode fourth = { nullptr, 4 };
+  SelfNode third = { &_Mut fourth, 3 };
+  SelfNode second = { &_Mut third, 2 };
+  SelfNode first = { &_Mut second, 1 };
+  SelfNode *_Borrow root = &_Mut first;
+  return root->next->next->next->value == 4 ? 0 : 1;
+}
+
+int main(void) {
+  return 0;
+}

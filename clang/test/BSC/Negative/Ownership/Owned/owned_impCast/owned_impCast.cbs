@@ -61,7 +61,7 @@ int test7()
 {
     short a = 0;
     _Owned short *b = &a;    // expected-error {{type of 'short' cannot be qualified by '_Owned'}} //expected-error {{incompatible _Owned types, cannot cast 'short *' to '_Owned short *'}}
-    _Owned int **c = (_Owned int**)&b; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+    _Owned int **c = (_Owned int**)&b; // expected-error 2 {{type of 'int' cannot be qualified by '_Owned'}}
     if(**c != 0) {
         return 1;
     }

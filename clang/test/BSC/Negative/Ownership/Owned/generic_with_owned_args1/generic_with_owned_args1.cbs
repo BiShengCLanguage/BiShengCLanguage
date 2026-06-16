@@ -8,6 +8,7 @@ int a = 0;
 _Owned int* Func_1<T>() // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 {
     T tmp = (_Owned int*)a; // expected-warning {{cast to '_Owned int *' from smaller integer type 'int'}} [-Wincompatible-pointer-types-discards-qualifiers] expected-warning {{cast to '_Owned int *' from smaller integer type 'int'}} [-Wincompatible-pointer-types-discards-qualifiers]
+                            // expected-error@-1 {{type of 'int' cannot be qualified by '_Owned'}}
     return tmp;
 }
 

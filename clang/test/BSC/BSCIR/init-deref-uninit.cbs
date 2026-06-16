@@ -36,7 +36,7 @@ _Safe void test_nested_deref_write_uninit(void) {
 }
 
 // Bare local: deref of uninitialized pointer.
-_Safe int test_bare_deref_uninit(int *_Borrow *_Borrow pp) { // expected-error {{type of 'int *_Borrow' cannot be qualified by '_Borrow'}}
+_Safe int test_bare_deref_uninit(int *_Borrow *_Borrow pp) {
   int *_Borrow q;
   return *q; // expected-error {{use of uninitialized value: 'q'}}
 }

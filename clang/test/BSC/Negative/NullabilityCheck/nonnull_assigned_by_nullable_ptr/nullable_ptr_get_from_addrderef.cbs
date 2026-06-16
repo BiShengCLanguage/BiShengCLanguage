@@ -3,7 +3,7 @@
 _Safe void foo(void) {
     int *_Borrow _Nullable ptr = nullptr;
     int *_Borrow cref1 = ptr;  // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
-    int *_Borrow cref = &_Mut *ptr;  // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Borrow cref = &_Mut *ptr;  // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
     return;
 }
 
@@ -11,17 +11,17 @@ _Safe void foo(void) {
 // nullable path state: when p may be null, the resulting borrow may be null
 // too and cannot be assigned to a '_Nonnull' pointer.
 _Safe void nullable_mut_all_forms(int *_Borrow _Nullable ptr) {
-    int *_Borrow _Nonnull q1 = &_Mut *ptr;       // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
-    int *_Borrow _Nonnull q2 = &_Mut *(ptr);     // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
-    int *_Borrow _Nonnull q3 = &_Mut (*ptr);     // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
-    int *_Borrow _Nonnull q4 = &_Mut ((*(ptr))); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Borrow _Nonnull q1 = &_Mut *ptr;       // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    int *_Borrow _Nonnull q2 = &_Mut *(ptr);     // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    int *_Borrow _Nonnull q3 = &_Mut (*ptr);     // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    int *_Borrow _Nonnull q4 = &_Mut ((*(ptr))); // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
 }
 
 _Safe void nullable_const_all_forms(int *_Borrow _Nullable ptr) {
-    const int *_Borrow _Nonnull q1 = &_Const *ptr;       // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
-    const int *_Borrow _Nonnull q2 = &_Const *(ptr);     // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
-    const int *_Borrow _Nonnull q3 = &_Const (*ptr);     // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
-    const int *_Borrow _Nonnull q4 = &_Const ((*(ptr))); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    const int *_Borrow _Nonnull q1 = &_Const *ptr;       // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    const int *_Borrow _Nonnull q2 = &_Const *(ptr);     // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    const int *_Borrow _Nonnull q3 = &_Const (*ptr);     // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    const int *_Borrow _Nonnull q4 = &_Const ((*(ptr))); // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
 }
 
 _Safe void consume(int *_Owned _Nullable);

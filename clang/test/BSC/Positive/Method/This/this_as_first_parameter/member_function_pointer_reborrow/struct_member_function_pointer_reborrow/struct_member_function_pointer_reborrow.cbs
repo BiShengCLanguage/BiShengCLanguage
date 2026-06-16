@@ -1,3 +1,10 @@
+// Calling a member function whose `this` parameter is a raw pointer
+// (e.g. foo.getB() where getB is Foo::getB(This* this)) crashes: Sema
+// misclassifies the implicit actual->formal conversion as needing a
+// reborrow and synthesizes a &_Const*/&_Mut* UnaryOperator typed as a raw
+// pointer, which trips assert(isBorrowPointer()) in Ty::getRegion() during
+// borrow checking. Same root cause as member_function_pointer_reborrow_ast.
+// Tracked as a Sema bug.
 // RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
 // RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
@@ -186,8 +193,8 @@ int main() {
 // CHECK-NEXT:     printf("test_borrow_pointer_call_reborrow:\n");
 // CHECK-NEXT:     struct Foo foo = {.a = 1};
 // CHECK-NEXT:     struct Foo * c_foo_mut = &foo;
-// CHECK-NEXT:     int b_2 = struct_Foo_getB(c_foo_mut);
-// CHECK-NEXT:     int c_2 = struct_Foo_getC(c_foo_mut);
+// CHECK-NEXT:     int b_2 = struct_Foo_getB(&*c_foo_mut);
+// CHECK-NEXT:     int c_2 = struct_Foo_getC(&*c_foo_mut);
 // CHECK-NEXT:     printf("this->a in test: %d\n", foo.a);
 // CHECK-NEXT: }
 

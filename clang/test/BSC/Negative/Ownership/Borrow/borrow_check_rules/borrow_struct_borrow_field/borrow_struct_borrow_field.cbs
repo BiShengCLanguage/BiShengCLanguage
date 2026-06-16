@@ -96,22 +96,20 @@ void test6() {
   struct M m = { &_Mut a, &_Const b };
   struct M *mp = &m;
   int *_Borrow p1 = mp->ma;
-  int *_Borrow p2 = mp->ma;
   use_mut(p1);
+  int *_Borrow p2 = mp->ma;
   use_mut(p2);
   struct M **mpp = &mp;
   int *_Borrow p3 = (*mpp)->ma;
-  int *_Borrow p4 = (*mpp)->ma;
   use_mut(p3);
+  int *_Borrow p4 = (*mpp)->ma;
   use_mut(p4);
 }
 
 void test7() {
   int local = 2;
   int *_Borrow p = &_Mut local;
-  int *_Borrow q = &_Mut *p; // expected-note {{'*p' is borrowed here}}
-                           // expected-note@-1 {{first mut borrow occurs here}}
-  int y = get_by_mut(p) + 2; // expected-error {{cannot use 'p' because it was mutably borrowed}}
-                             // expected-error@-1 {{cannot borrow '*p' as mutable more than once at a time}}
+  int *_Borrow q = &_Mut *p; // expected-note {{first mut borrow occurs here}}
+  int y = get_by_mut(p) + 2; // expected-error {{cannot borrow '*p' as mutable more than once at a time}}
   use_mut(q);
 }

@@ -61,14 +61,10 @@ int test() {
   ~p5; // expected-error {{invalid argument type 'const int *_Borrow' to unary expression}}
   p5 << 6; // expected-error {{invalid operands to binary expression ('const int *_Borrow' and 'int')}}
   p3 >> p4; // expected-error {{invalid operands to binary expression ('int *_Borrow' and 'int *_Borrow')}}
-  &_Mut p3; // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-           // expected-warning@-1 {{expression result unused}}
-  &_Mut p5; // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-           // expected-warning@-1 {{expression result unused}}
-  &_Const p3; // expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-             // expected-warning@-1 {{expression result unused}}
-  &_Const p5; // expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-             // expected-warning@-1 {{expression result unused}}
+  &_Mut p3; // expected-warning {{expression result unused}}
+  &_Mut p5; // expected-warning {{expression result unused}}
+  &_Const p3; // expected-warning {{expression result unused}}
+  &_Const p5; // expected-warning {{expression result unused}}
 
   // unary -- ++
   p3++; // expected-error {{'++' is not supported on 'int *_Borrow'}} expected-note {{declare 'p3' as a raw pointer for pointer arithmetic}}

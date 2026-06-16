@@ -1,0 +1,67 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// result-type of a _Borrow expression: _Mut yields (T) *_Borrow, _Const yields (const T) *_Borrow,
+// where T is the operand's type; const folds on an already-const operand, nullability propagates,
+// a string literal does not decay (the result points to the array), and a const level attaches as *const
+
+int gx;
+const int gcx;
+int *gp;
+const int *gcp;
+struct S1 { int mf; const int cf; } gs;
+
+void test(void) {
+  int *_Borrow b = &_Mut gx;
+  int *_Owned o = 0;
+  int *_Nullable n = 0;
+  int *r = 0;
+
+  // scalar operand (T=int)
+  _Static_assert(__is_same(__typeof__(&_Mut gx), int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const gx), const int *_Borrow), "");
+  // const folds: _Const on an already-const operand is still (const int) *_Borrow, never const-const
+  _Static_assert(__is_same(__typeof__(&_Const gcx), const int *_Borrow), "");
+
+  // dereference operand (T=int)
+  _Static_assert(__is_same(__typeof__(&_Mut *gp), int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const *gp), const int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const *gcp), const int *_Borrow), "");
+
+  // borrow operand: forms a 2-level borrow; _Const adds a level-const before the inner _Borrow
+  _Static_assert(__is_same(__typeof__(&_Mut b), int *_Borrow *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const b), int *const _Borrow *_Borrow), "");
+
+  // owned operand
+  _Static_assert(__is_same(__typeof__(&_Mut o), int *_Owned *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const o), int *const _Owned *_Borrow), "");
+
+  // raw pointer operand (T=int*; the borrow points to the raw pointer)
+  _Static_assert(__is_same(__typeof__(&_Mut r), int **_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const r), int *const *_Borrow), "");
+
+  // field operand
+  _Static_assert(__is_same(__typeof__(&_Mut gs.mf), int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const gs.mf), const int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const gs.cf), const int *_Borrow), "");
+
+  // compound literal operand
+  _Static_assert(__is_same(__typeof__(&_Mut (int){5}), int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const (int){5}), const int *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const (const int){5}), const int *_Borrow), "");
+
+  // string literal operand: the result points to the array (no array-to-pointer decay)
+  _Static_assert(__is_same(__typeof__(&_Const "abc"), const char (*_Borrow)[4]), "");
+
+  // nullable operand: nullability propagates into the result borrow
+  _Static_assert(__is_same(__typeof__(&_Mut n), int *_Nullable *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const n), int *const _Nullable *_Borrow), "");
+
+  // multi-level chain via variables (3 levels); _Const adds the const at the operand's outermost borrow level
+  int *_Borrow *_Borrow b2 = &_Mut b;
+  _Static_assert(__is_same(__typeof__(&_Mut b2), int *_Borrow *_Borrow *_Borrow), "");
+  _Static_assert(__is_same(__typeof__(&_Const b2), int *_Borrow *const _Borrow *_Borrow), "");
+}
+
+int main(void) { return 0; }

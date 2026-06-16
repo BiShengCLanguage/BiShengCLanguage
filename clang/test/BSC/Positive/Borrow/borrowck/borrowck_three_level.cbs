@@ -1,0 +1,52 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct TripleHolder {
+  int *_Borrow *_Borrow *_Borrow ppp;
+} TripleHolder;
+
+void use_int(int v) { (void)v; }
+
+void three_level_last_use_releases_all_objects(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow pp = &_Mut p;
+  int *_Borrow *_Borrow *_Borrow ppp = &_Mut pp;
+  ***ppp = 2;
+  a = 3;
+}
+
+void three_level_rebind_third_level_releases_previous_chain(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r = &_Mut b;
+  int *_Borrow *_Borrow pp = &_Mut p;
+  int *_Borrow *_Borrow rr = &_Mut r;
+  int *_Borrow *_Borrow *_Borrow ppp = &_Mut pp;
+  ppp = &_Mut rr;
+  a = 3;
+  ***ppp = 4;
+}
+
+void three_level_shared_reads(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow pp = &_Mut p;
+  int *_Borrow *_Borrow const *_Borrow ppp1 = &_Const pp;
+  int *_Borrow *_Borrow const *_Borrow ppp2 = &_Const pp;
+  use_int(***ppp1 + ***ppp2);
+}
+
+void three_level_struct_field_holder(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow pp = &_Mut p;
+  TripleHolder holder = { .ppp = &_Mut pp };
+  ***holder.ppp = 2;
+}
+
+int main(void) {
+  return 0;
+}

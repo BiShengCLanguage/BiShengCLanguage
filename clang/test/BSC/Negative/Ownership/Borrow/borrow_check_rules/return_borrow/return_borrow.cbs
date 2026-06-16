@@ -184,12 +184,12 @@ Holder test20(int* _Borrow dummy) {
 
 int *_Borrow test21(int *_Borrow dummy) {
   int a[10] = {1};
-  return &_Mut a[4]; // expected-error {{'a[]' does not live long enough}}
-                     // expected-note@-1 {{'a[]' dropped here while still borrowed}}
+  return &_Mut a[4]; // expected-error {{'a[_]' does not live long enough}}
+                     // expected-note@-1 {{'a[_]' dropped here while still borrowed}}
 }
 
 const char *_Borrow test22(int *_Borrow dummy) {
   const char arr[] = "hello";
-  return &_Const arr[0]; // expected-error {{'arr[]' does not live long enough}}
-                         // expected-note@-1 {{'arr[]' dropped here while still borrowed}}
+  return &_Const arr[0]; // expected-error {{'arr[_]' does not live long enough}}
+                         // expected-note@-1 {{'arr[_]' dropped here while still borrowed}}
 }

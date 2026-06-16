@@ -79,7 +79,7 @@ int case10() {
 }
 
 int case11() {
-  (_Owned int*)0; // expected-warning {{expression result unused}} // expected-warning {{expression result unused}}
+  (_Owned int*)0; // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-warning {{expression result unused}}
   return 0;
 }
 
@@ -87,4 +87,3 @@ int main() {
     struct D * d;
     return 0;
 }
-

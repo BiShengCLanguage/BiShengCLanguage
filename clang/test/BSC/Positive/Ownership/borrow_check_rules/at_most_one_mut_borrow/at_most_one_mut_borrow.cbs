@@ -100,7 +100,7 @@ void test5() {
 // CHECK-L-NEXT:   int * p1 = &*oriPtr;
 // CHECK-L-NEXT:   const int * p2 = &*oriPtr;
 // CHECK-L-NEXT:   int * p3 = &*oriPtr;
-// CHECK-L-NEXT:   use_mut(p3);
+// CHECK-L-NEXT:   use_mut(&*p3);
 // CHECK-L-NEXT:   free(oriPtr);
 // CHECK-L-NEXT: }
 
@@ -125,8 +125,8 @@ void test5() {
 // CHECK-L-NEXT:     p1 = &*oriPtr;
 // CHECK-L-NEXT:   else
 // CHECK-L-NEXT:     p2 = &*oriPtr;
-// CHECK-L-NEXT:   use_mut(p1);
-// CHECK-L-NEXT:   use_mut(p2);
+// CHECK-L-NEXT:   use_mut(&*p1);
+// CHECK-L-NEXT:   use_mut(&*p2);
 // CHECK-L-NEXT:   free_owned_int(oriPtr);
 // CHECK-L-NEXT: }
 
@@ -144,21 +144,21 @@ void test5() {
 // CHECK-L-NEXT:     p2 = &*oriPtr;
 // CHECK-L-NEXT:     p1 = &*oriPtr;
 // CHECK-L-NEXT:   }
-// CHECK-L-NEXT:   use_mut(p1);
+// CHECK-L-NEXT:   use_mut(&*p1);
 // CHECK-L-NEXT:   free_owned_int(oriPtr);
 // CHECK-L-NEXT: }
 
 // CHECK-L: #line 77 "{{.*}}.cbs"
 // CHECK-L-NEXT: int * use_borrow_and_return(int * p) {
-// CHECK-L-NEXT:   return p;
+// CHECK-L-NEXT:   return &*p;
 // CHECK-L-NEXT: }
 
 // CHECK-L: #line 80 "{{.*}}.cbs"
 // CHECK-L-NEXT: void test5(void) {
 // CHECK-L-NEXT:   int local = 42;
 // CHECK-L-NEXT:   int * p1 = &local;
-// CHECK-L-NEXT:   int * p2 = use_borrow_and_return(p1);
-// CHECK-L-NEXT:   use_mut(p2);
+// CHECK-L-NEXT:   int * p2 = &*use_borrow_and_return(&*p1);
+// CHECK-L-NEXT:   use_mut(&*p2);
 // CHECK-L-NEXT: }
 
 int main() {

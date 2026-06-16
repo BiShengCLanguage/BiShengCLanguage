@@ -54,9 +54,9 @@ void test5() {
 
 void test6() {
   int arr[5];
-  int* _Borrow p = &_Mut arr[0]; // expected-note {{'arr[]' is borrowed here}}
+  int* _Borrow p = &_Mut arr[0]; // expected-note {{'arr[_]' is borrowed here}}
   int* _Borrow q = p;
-  int temp = arr[2]; // expected-error {{cannot use 'arr[]' because it was mutably borrowed}}
+  int temp = arr[2]; // expected-error {{cannot use 'arr[_]' because it was mutably borrowed}}
   use_mut(q);
 }
 

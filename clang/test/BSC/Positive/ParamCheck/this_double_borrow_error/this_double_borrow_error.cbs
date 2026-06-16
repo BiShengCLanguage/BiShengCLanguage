@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
+// expected-no-diagnostics
 
 #include <float.h>
 #include <limits.h>
@@ -10,7 +11,7 @@ _Public:
     char a2;
 
     // Case 1: *_Borrow this
-    int foo(const S *_Borrow this, int b1, char b2, double *_Borrow b3) { // expected-error {{type of 'const _Owned struct S' cannot be qualified by '_Borrow' (even indirectly) because 'const _Owned struct S' contains a '_Borrow' type}}
+    int foo(const S *_Borrow this, int b1, char b2, double *_Borrow b3) {
         if(this->a1 == b1 && this->a2 == b2 && *this->a3 == *b3) {
             return 0;
         }

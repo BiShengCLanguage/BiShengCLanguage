@@ -1,0 +1,92 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+typedef int *_Borrow IntBorrow;
+typedef IntBorrow *_Borrow IntBorrowRef;
+typedef const char *_Borrow ConstCharBorrow;
+typedef ConstCharBorrow const *_Borrow ConstCharBorrowRef;
+
+struct HasBorrow {
+  int *_Borrow field;
+};
+
+typedef struct HasBorrow *_Borrow HasBorrowRef;
+
+struct MultiBorrowFields {
+  IntBorrowRef nested_int;
+  HasBorrowRef nested_record;
+  ConstCharBorrowRef nested_string;
+  int (*_Borrow const *_Borrow array_ptr)[8];
+};
+
+void take_nested_int(IntBorrowRef p);
+void take_record_with_borrow_field(HasBorrowRef p);
+void take_nested_string(ConstCharBorrowRef p);
+void take_array_ptr(int (*_Borrow const *_Borrow p)[8]);
+
+void local_declarations(void) {
+  IntBorrowRef nested_int;
+  HasBorrowRef nested_record;
+  ConstCharBorrowRef nested_string;
+  struct MultiBorrowFields fields;
+  int (*_Borrow const *_Borrow array_ptr)[8];
+
+  (void)nested_int;
+  (void)nested_record;
+  (void)nested_string;
+  (void)fields;
+  (void)array_ptr;
+}
+
+void mut_borrow_on_mut_borrow_expr(void) {
+  int value = 0;
+  int *_Borrow mut_borrow = &_Mut value;
+  _Static_assert(__is_same(__typeof__(&_Mut mut_borrow),
+                           int *_Borrow *_Borrow),
+                 "mut borrow of borrow");
+  int *_Borrow *_Borrow mut_borrow_ref = &_Mut mut_borrow;
+  (void)mut_borrow_ref;
+}
+
+void const_borrow_on_mut_borrow_expr(void) {
+  int value = 0;
+  int *_Borrow mut_borrow = &_Mut value;
+  _Static_assert(__is_same(__typeof__(&_Const mut_borrow),
+                           int *_Borrow const *_Borrow),
+                 "const borrow of mut borrow");
+  int *_Borrow const *_Borrow const_mut_borrow_ref = &_Const mut_borrow;
+  (void)const_mut_borrow_ref;
+}
+
+void mut_borrow_on_const_borrow_expr(void) {
+  int value = 0;
+  const int *_Borrow const_borrow = &_Const value;
+  _Static_assert(__is_same(__typeof__(&_Mut const_borrow),
+                           const int *_Borrow *_Borrow),
+                 "mut borrow of const borrow");
+  const int *_Borrow *_Borrow const_borrow_ref = &_Mut const_borrow;
+  (void)const_borrow_ref;
+}
+
+void const_borrow_on_const_borrow_expr(void) {
+  int value = 0;
+  const int *_Borrow const_borrow = &_Const value;
+  _Static_assert(__is_same(__typeof__(&_Const const_borrow),
+                           const int *_Borrow const *_Borrow),
+                 "const borrow of const borrow");
+  const int *_Borrow const *_Borrow const_const_borrow_ref =
+      &_Const const_borrow;
+  (void)const_const_borrow_ref;
+}
+
+void const_borrow_on_record_borrow_expr(void) {
+  int value = 0;
+  struct HasBorrow record = { &_Mut value };
+  struct HasBorrow *_Borrow record_borrow = &_Mut record;
+  _Static_assert(__is_same(__typeof__(&_Const record_borrow),
+                           struct HasBorrow *_Borrow const *_Borrow),
+                 "const borrow of record borrow");
+  struct HasBorrow *_Borrow const *_Borrow const_record_borrow_ref =
+      &_Const record_borrow;
+  (void)const_record_borrow_ref;
+}

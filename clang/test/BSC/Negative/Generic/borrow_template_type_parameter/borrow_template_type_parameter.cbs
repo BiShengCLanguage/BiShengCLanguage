@@ -10,10 +10,8 @@ _Safe int main(void) {
   int * _Borrow ptr = &_Mut x;
 
   // Test convert function - template params are int*, _Borrow is added by function signature
-  int *_Borrow p3 = convert<int *, int *, int *>(ptr, ptr); // expected-error {{cannot use 'ptr' because it was mutably borrowed}}
-                                                           // expected-error@-1 {{cannot borrow '*ptr' as mutable more than once at a time}}
-                                                           // expected-note@-2 {{'*ptr' is borrowed here}}
-                                                           // expected-note@-3 {{first mut borrow occurs here}}
+  int *_Borrow p3 = convert<int *, int *, int *>(ptr, ptr);// expected-error {{cannot borrow '*ptr' as mutable more than once at a time}}
+                                                           // expected-note@-1 {{first mut borrow occurs here}}
   if (*p3 != 42) {
     return 3;
   }

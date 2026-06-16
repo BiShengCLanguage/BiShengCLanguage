@@ -1,0 +1,155 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// typedef declaration legality and desugar equivalence with the hand-written spelling
+
+struct Point { int x; int y; };
+
+// 2-level const permutations (pointee-const x level-const)
+typedef int *_Borrow *_Borrow T1;
+typedef int const *_Borrow *_Borrow T2;
+typedef int *_Borrow const *_Borrow T3;
+typedef int const *_Borrow const *_Borrow T4;
+typedef const int *_Borrow *_Borrow T5;
+typedef const int *_Borrow const *_Borrow T7;
+_Static_assert(__is_same(T1, int *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T2, int const *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T3, int *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T4, int const *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T5, const int *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T7, const int *_Borrow const *_Borrow), "");
+
+// 3-level const permutations (level-exhaustive + pointee representative)
+typedef int *_Borrow *_Borrow *_Borrow T9;
+typedef int const *_Borrow *_Borrow *_Borrow T10;
+typedef int *_Borrow const *_Borrow *_Borrow T11;
+typedef int *_Borrow *_Borrow const *_Borrow T12;
+typedef int const *_Borrow const *_Borrow *_Borrow T13;
+typedef int const *_Borrow *_Borrow const *_Borrow T14;
+typedef int *_Borrow const *_Borrow const *_Borrow T15;
+typedef int const *_Borrow const *_Borrow const *_Borrow T16;
+typedef const int *_Borrow *_Borrow *_Borrow T17;
+typedef const int *_Borrow const *_Borrow const *_Borrow T18;
+_Static_assert(__is_same(T9, int *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T10, int const *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T11, int *_Borrow const *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T12, int *_Borrow *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T13, int const *_Borrow const *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T14, int const *_Borrow *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T15, int *_Borrow const *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T16, int const *_Borrow const *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T17, const int *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T18, const int *_Borrow const *_Borrow const *_Borrow), "");
+
+// 4-level
+typedef int *_Borrow *_Borrow *_Borrow *_Borrow T19;
+typedef const int *_Borrow const *_Borrow const *_Borrow const *_Borrow T20;
+_Static_assert(__is_same(T19, int *_Borrow *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T20, const int *_Borrow const *_Borrow const *_Borrow const *_Borrow), "");
+
+// 2-level cross owned/raw (exhaustive 4 non-base with >=1 borrow)
+typedef int *_Owned *_Borrow T21;
+typedef int **_Borrow T22;
+typedef int *_Borrow *_Owned T23;
+typedef int *_Borrow *T24;
+_Static_assert(__is_same(T21, int *_Owned *_Borrow), "");
+_Static_assert(__is_same(T22, int **_Borrow), "");
+_Static_assert(__is_same(T23, int *_Borrow *_Owned), "");
+_Static_assert(__is_same(T24, int *_Borrow *), "");
+
+// 3-level cross owned/raw (representative)
+typedef int *_Borrow *_Borrow *_Owned T25;
+typedef int *_Owned *_Borrow *_Borrow T26;
+typedef int *_Borrow *_Borrow *T27;
+typedef int *_Borrow **_Borrow T28;
+typedef int *_Borrow *_Owned *_Borrow T29;
+_Static_assert(__is_same(T25, int *_Borrow *_Borrow *_Owned), "");
+_Static_assert(__is_same(T26, int *_Owned *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T27, int *_Borrow *_Borrow *), "");
+_Static_assert(__is_same(T28, int *_Borrow **_Borrow), "");
+_Static_assert(__is_same(T29, int *_Borrow *_Owned *_Borrow), "");
+
+// other builtin pointees (2-level)
+typedef char *_Borrow *_Borrow T30;
+typedef short *_Borrow *_Borrow T31;
+typedef long *_Borrow *_Borrow T32;
+typedef unsigned *_Borrow *_Borrow T33;
+typedef float *_Borrow *_Borrow T34;
+typedef double *_Borrow *_Borrow T35;
+_Static_assert(__is_same(T30, char *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T31, short *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T32, long *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T33, unsigned *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T34, float *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T35, double *_Borrow *_Borrow), "");
+
+// record pointee (const permutations + 3-level)
+typedef struct Point *_Borrow *_Borrow T36;
+typedef struct Point const *_Borrow *_Borrow T37;
+typedef struct Point *_Borrow const *_Borrow T38;
+typedef const struct Point *_Borrow const *_Borrow T39;
+typedef struct Point *_Borrow *_Borrow *_Borrow T40;
+typedef const struct Point *_Borrow const *_Borrow const *_Borrow T41;
+_Static_assert(__is_same(T36, struct Point *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T37, struct Point const *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T38, struct Point *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T39, const struct Point *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T40, struct Point *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T41, const struct Point *_Borrow const *_Borrow const *_Borrow), "");
+
+// chained typedef names: desugar of a base name + one added level
+typedef T1 *_Borrow T42;
+typedef T1 *_Owned T43;
+typedef T1 *T44;
+typedef T1 const *_Borrow T45;
+typedef T1 **_Borrow T46;
+_Static_assert(__is_same(T42, int *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T43, int *_Borrow *_Borrow *_Owned), "");
+_Static_assert(__is_same(T44, int *_Borrow *_Borrow *), "");
+_Static_assert(__is_same(T45, int *_Borrow *_Borrow const *_Borrow), "");
+_Static_assert(__is_same(T46, int *_Borrow *_Borrow **_Borrow), "");
+
+// multi-hop chaining
+typedef T42 *_Borrow T47;
+typedef T42 *_Owned T48;
+typedef T42 *T49;
+typedef T42 *_Borrow const *_Borrow T50;
+_Static_assert(__is_same(T47, int *_Borrow *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T48, int *_Borrow *_Borrow *_Borrow *_Owned), "");
+_Static_assert(__is_same(T49, int *_Borrow *_Borrow *_Borrow *), "");
+_Static_assert(__is_same(T50, int *_Borrow *_Borrow *_Borrow *_Borrow const *_Borrow), "");
+
+// record-pointee typedef chaining
+typedef T36 *_Borrow T51;
+typedef T36 *_Owned T52;
+typedef T36 const *_Borrow T53;
+_Static_assert(__is_same(T51, struct Point *_Borrow *_Borrow *_Borrow), "");
+_Static_assert(__is_same(T52, struct Point *_Borrow *_Borrow *_Owned), "");
+_Static_assert(__is_same(T53, struct Point *_Borrow *_Borrow const *_Borrow), "");
+
+// function-pointer typedef: desugar of a typedef name to the hand-written spelling
+typedef void (*TF1)(int *_Borrow *_Borrow);
+typedef void (*TF2)(int *_Borrow *_Borrow *_Borrow);
+typedef void (*TF3)(const int *_Borrow *_Borrow);
+typedef void (*TF4)(int *_Owned *_Borrow);
+typedef void (*TF5)(int **_Borrow);
+typedef void (*TF6)(int *_Borrow *_Owned);
+typedef void (*TF7)(struct Point *_Borrow *_Borrow);
+typedef void (*TF8)(int (*_Borrow p)[8]);
+_Static_assert(__is_same(TF1, void (*)(int *_Borrow *_Borrow)), "");
+_Static_assert(__is_same(TF2, void (*)(int *_Borrow *_Borrow *_Borrow)), "");
+_Static_assert(__is_same(TF3, void (*)(const int *_Borrow *_Borrow)), "");
+_Static_assert(__is_same(TF4, void (*)(int *_Owned *_Borrow)), "");
+_Static_assert(__is_same(TF5, void (*)(int **_Borrow)), "");
+_Static_assert(__is_same(TF6, void (*)(int *_Borrow *_Owned)), "");
+_Static_assert(__is_same(TF7, void (*)(struct Point *_Borrow *_Borrow)), "");
+_Static_assert(__is_same(TF8, void (*)(int (*_Borrow p)[8])), "");
+
+// function-pointer typedef returning a (one-level) borrow; a borrow return requires a borrow param
+typedef int *_Borrow (*TF10)(int *_Borrow *_Borrow);
+typedef int *_Borrow (*TF11)(T2 p);
+_Static_assert(__is_same(TF10, int *_Borrow (*)(int *_Borrow *_Borrow)), "");
+_Static_assert(__is_same(TF11, int *_Borrow (*)(int const *_Borrow *_Borrow)), "");
+
+int main(void) { return 0; }

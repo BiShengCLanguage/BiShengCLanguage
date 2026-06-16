@@ -170,10 +170,8 @@ void test17() {
   E e = { .c = (struct C) { .p = &_Mut local1 }, .p = &_Mut local2 };
   C c = e.c; // expected-note {{'*e.c.p' is borrowed here}}
              // expected-note@-1 {{first mut borrow occurs here}}
-  int *_Borrow p1 = e.p; // expected-note {{'*e.p' is borrowed here}}
-                        // expected-note@-1 {{first mut borrow occurs here}}
-  int *_Borrow p2 = e.p; // expected-error {{cannot use 'e.p' because it was mutably borrowed}}
-                        // expected-error@-1 {{cannot borrow '*e.p' as mutable more than once at a time}}
+  int *_Borrow p1 = e.p; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow p2 = e.p; // expected-error {{cannot borrow '*e.p' as mutable more than once at a time}}
   use_mut(p1);
   useE(e); // expected-error {{cannot use 'e' because it was mutably borrowed}}
            // expected-error@-1 {{cannot borrow '*e.c.p' as mutable more than once at a time}}

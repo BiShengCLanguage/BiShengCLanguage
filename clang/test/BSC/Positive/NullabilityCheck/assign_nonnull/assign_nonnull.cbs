@@ -20,8 +20,8 @@ void test2(void) {
 // CHECK-EMPTY: 
 // CHECK:      void test1(void) {
 // CHECK-NEXT:     int a = 10;
-// CHECK-NEXT:     int * p1 = foo1(&a);
-// CHECK-NEXT:     int * p2 = foo1(&a);
+// CHECK-NEXT:     int * p1 = &*foo1(&a);
+// CHECK-NEXT:     int * p2 = &*foo1(&a);
 // CHECK-NEXT: }
 // CHECK-EMPTY: 
 // CHECK:      void test2(void) {

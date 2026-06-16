@@ -1,0 +1,46 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef struct TripleHolder {
+  int *_Borrow *_Borrow *_Borrow ppp;
+} TripleHolder;
+
+void use_int(int v);
+
+void three_level_extends_original_object_to_last_use(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow *_Borrow pp = &_Mut p;
+  int *_Borrow *_Borrow *_Borrow ppp = &_Mut pp;
+  a = 2; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  ***ppp = 3;
+}
+
+void three_level_mut_reborrow_conflicts_with_second_mut(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow *_Borrow pp = &_Mut p;
+  int *_Borrow *_Borrow *_Borrow ppp1 = &_Mut pp; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow *_Borrow *_Borrow ppp2 = &_Mut pp; // expected-error {{cannot borrow 'pp' as mutable more than once at a time}}
+  ***ppp1 = 2;
+  ***ppp2 = 3;
+}
+
+void three_level_second_level_pointer_is_frozen(void) {
+  int a = 1;
+  int b = 2;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow r = &_Mut b;
+  int *_Borrow *_Borrow pp = &_Mut p;
+  int *_Borrow *_Borrow *_Borrow ppp = &_Mut pp; // expected-note {{'pp' is borrowed here}}
+  pp = &_Mut r; // expected-error {{cannot assign to 'pp' because it is borrowed}}
+  ***ppp = 3;
+}
+
+void three_level_struct_holder_extends_original_object(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  int *_Borrow *_Borrow pp = &_Mut p;
+  TripleHolder holder = { .ppp = &_Mut pp };
+  a = 2; // expected-error {{cannot assign to 'a' because it is borrowed}}
+  ***holder.ppp = 3;
+}

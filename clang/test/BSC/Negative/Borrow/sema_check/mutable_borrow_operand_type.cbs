@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify %s
+
+// _Mut rejects a top-level-const (immutable) operand;
+// this file covers const scalars, dereferenced const pointers, const fields, top-level-const pointers,
+// string literals, and const compound literals
+
+struct S1 { int mf; const int cf; } gs1;
+
+void test(void) {
+  const int cx = 5;
+  const int *cp = &cx;
+  int *const pc = 0;
+  // const scalar operand
+  (void)&_Mut cx;
+  // expected-error@-1 {{the expression after '&_Mut' must be modifiable}}
+  // dereferenced const pointer operand
+  (void)&_Mut *cp;
+  // expected-error@-1 {{the expression after '&_Mut' must be modifiable}}
+  // const struct field operand
+  (void)&_Mut gs1.cf;
+  // expected-error@-1 {{the expression after '&_Mut' must be modifiable}}
+  // top-level-const pointer operand
+  (void)&_Mut pc;
+  // expected-error@-1 {{the expression after '&_Mut' must be modifiable}}
+  // string literal operand (special message: string literals are immutable)
+  (void)&_Mut "abc";
+  // expected-error@-1 {{cannot take mutable borrow of string literal with '&_Mut'; string literals are immutable}}
+  // const compound literal operand
+  (void)&_Mut (const int){5};
+  // expected-error@-1 {{the expression after '&_Mut' must be modifiable}}
+}

@@ -17,11 +17,258 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/BSC/TypeBSC.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include <algorithm>
+#include <memory>
 
 using namespace clang;
 
+namespace clang {
+namespace bsc_detail {
+
+struct RegionLayoutGraphNode {
+  const RecordDecl *Record = nullptr;
+  const RecordDecl *Definition = nullptr;
+  llvm::SmallVector<RegionLayoutGraphNode *, 4> Successors;
+  bool Scanned = false;
+
+  RegionLayoutGraphNode() = default;
+  RegionLayoutGraphNode(const RecordDecl *Record,
+                        const RecordDecl *Definition)
+      : Record(Record), Definition(Definition) {}
+};
+
+} // namespace bsc_detail
+} // namespace clang
+
+namespace llvm {
+
+template <> struct GraphTraits<clang::bsc_detail::RegionLayoutGraphNode *> {
+  using NodeRef = clang::bsc_detail::RegionLayoutGraphNode *;
+  using ChildIteratorType = llvm::SmallVectorImpl<NodeRef>::iterator;
+
+  static NodeRef getEntryNode(NodeRef Node) { return Node; }
+  static ChildIteratorType child_begin(NodeRef Node) {
+    return Node->Successors.begin();
+  }
+  static ChildIteratorType child_end(NodeRef Node) {
+    return Node->Successors.end();
+  }
+};
+
+} // namespace llvm
+
 namespace {
+
+using RegionLayoutGraphNode = clang::bsc_detail::RegionLayoutGraphNode;
+
+class RecordRegionLayoutBuilder {
+  struct PendingFieldLayout {
+    RecordRegionLayout::FieldRegionIndicesTy Indices;
+    bool AppendSCCRegions = false;
+  };
+
+  struct PendingRecordLayout {
+    RegionLayoutGraphNode *Node;
+    llvm::DenseMap<const FieldDecl *, PendingFieldLayout> Fields;
+  };
+
+  const ASTContext &Ctx;
+  RecordRegionLayoutMap &Layouts;
+  RegionLayoutGraphNode Root;
+  llvm::DenseMap<const RecordDecl *, RegionLayoutGraphNode *> RecordNodes;
+  llvm::SmallVector<std::unique_ptr<RegionLayoutGraphNode>, 8> Nodes;
+
+  static const RecordDecl *GetCanonicalRecord(const RecordDecl *Definition) {
+    return cast<RecordDecl>(Definition->getCanonicalDecl());
+  }
+
+  RegionLayoutGraphNode *GetOrCreateNode(const RecordDecl *Record,
+                                         const RecordDecl *Definition) {
+    auto It = RecordNodes.find(Record);
+    if (It != RecordNodes.end())
+      return It->second;
+
+    Nodes.push_back(
+        std::make_unique<RegionLayoutGraphNode>(Record, Definition));
+    RegionLayoutGraphNode *Node = Nodes.back().get();
+    RecordNodes.try_emplace(Record, Node);
+    Root.Successors.push_back(Node);
+    return Node;
+  }
+
+  static void AddEdge(RegionLayoutGraphNode *From,
+                      RegionLayoutGraphNode *To) {
+    if (std::find(From->Successors.begin(), From->Successors.end(), To) ==
+        From->Successors.end())
+      From->Successors.push_back(To);
+  }
+
+  void CollectType(QualType Type, RegionLayoutGraphNode *Source = nullptr) {
+    Type = Type.getCanonicalType();
+    if (Type->isPointerType()) {
+      if (Type.isBorrowQualified() || Type.isOwnedQualified())
+        CollectType(Type->getPointeeType(), Source);
+      return;
+    }
+
+    if (const ArrayType *AT = Ctx.getAsArrayType(Type)) {
+      CollectType(AT->getElementType(), Source);
+      return;
+    }
+
+    const RecordType *RT = Type->getAs<RecordType>();
+    if (!RT)
+      return;
+    const RecordDecl *Definition = RT->getDecl()->getDefinition();
+    if (!Definition)
+      return;
+    const RecordDecl *Record = GetCanonicalRecord(Definition);
+    if (Layouts.find(Record) != Layouts.end())
+      return;
+
+    RegionLayoutGraphNode *Target = GetOrCreateNode(Record, Definition);
+    if (Source)
+      AddEdge(Source, Target);
+    if (Target->Scanned)
+      return;
+    Target->Scanned = true;
+
+    for (const FieldDecl *FD : Definition->fields())
+      CollectType(FD->getType(), Target);
+  }
+
+  unsigned AllocateRegion(unsigned &NextRegion, bool &HasFieldRegion) {
+    if (!HasFieldRegion) {
+      // The first tracked region of every field is the record's shared slot.
+      HasFieldRegion = true;
+      if (NextRegion == 0)
+        NextRegion = 1;
+      return 0;
+    }
+    return NextRegion++;
+  }
+
+  void BuildFieldLayout(
+      QualType Type,
+      const llvm::DenseSet<RegionLayoutGraphNode *> &SCCNodes,
+      unsigned &NextRegion, bool &HasFieldRegion,
+      PendingFieldLayout &FieldLayout) {
+    Type = Type.getCanonicalType();
+    if (Type->isPointerType()) {
+      if (Type.isBorrowQualified()) {
+        FieldLayout.Indices.push_back(
+            AllocateRegion(NextRegion, HasFieldRegion));
+        BuildFieldLayout(Type->getPointeeType(), SCCNodes, NextRegion,
+                         HasFieldRegion, FieldLayout);
+      } else if (Type.isOwnedQualified()) {
+        BuildFieldLayout(Type->getPointeeType(), SCCNodes, NextRegion,
+                         HasFieldRegion, FieldLayout);
+      }
+      return;
+    }
+
+    if (const ArrayType *AT = Ctx.getAsArrayType(Type)) {
+      BuildFieldLayout(AT->getElementType(), SCCNodes, NextRegion,
+                       HasFieldRegion, FieldLayout);
+      return;
+    }
+
+    if (Type.isBorrowQualified()) {
+      FieldLayout.Indices.push_back(
+          AllocateRegion(NextRegion, HasFieldRegion));
+      return;
+    }
+
+    const RecordType *RT = Type->getAs<RecordType>();
+    if (!RT)
+      return;
+    const RecordDecl *Definition = RT->getDecl()->getDefinition();
+    if (!Definition)
+      return;
+    const RecordDecl *Record = GetCanonicalRecord(Definition);
+    auto NodeIt = RecordNodes.find(Record);
+    if (NodeIt != RecordNodes.end() && SCCNodes.count(NodeIt->second)) {
+      // A record in the same SCC is a recursive tail. Its complete parameter
+      // list is appended after the SCC's region count becomes known.
+      FieldLayout.AppendSCCRegions = true;
+      return;
+    }
+
+    auto LayoutIt = Layouts.find(Record);
+    assert(LayoutIt != Layouts.end() &&
+           "dependency layout should be computed before its user");
+    for (unsigned I = 0; I < LayoutIt->second.getNumRegions(); ++I) {
+      FieldLayout.Indices.push_back(
+          AllocateRegion(NextRegion, HasFieldRegion));
+    }
+  }
+
+  void BuildSCC(llvm::ArrayRef<RegionLayoutGraphNode *> SCC) {
+    llvm::DenseSet<RegionLayoutGraphNode *> SCCNodes(SCC.begin(), SCC.end());
+    llvm::SmallVector<PendingRecordLayout, 4> PendingLayouts;
+    unsigned NumSCCRegions = 0;
+
+    // Records in a recursive SCC use one common formal-region space. Each
+    // record computes its non-recursive needs independently, and the SCC uses
+    // the largest such layout so recursive edges can map parameters by index.
+    for (RegionLayoutGraphNode *Node : SCC) {
+      unsigned NextRegion = 0;
+      llvm::DenseMap<const FieldDecl *, PendingFieldLayout> Fields;
+      for (const FieldDecl *FD : Node->Definition->fields()) {
+        PendingFieldLayout FieldLayout;
+        bool HasFieldRegion = false;
+        BuildFieldLayout(FD->getType(), SCCNodes, NextRegion, HasFieldRegion,
+                         FieldLayout);
+        Fields.try_emplace(FD, std::move(FieldLayout));
+      }
+      NumSCCRegions = std::max(NumSCCRegions, NextRegion);
+      PendingLayouts.push_back({Node, std::move(Fields)});
+    }
+
+    for (PendingRecordLayout &Pending : PendingLayouts) {
+      RecordRegionLayout::FieldRegionMapTy Fields;
+      for (const FieldDecl *FD : Pending.Node->Definition->fields()) {
+        PendingFieldLayout &FieldLayout = Pending.Fields.find(FD)->second;
+        if (FieldLayout.AppendSCCRegions) {
+          for (unsigned I = 0; I < NumSCCRegions; ++I)
+            FieldLayout.Indices.push_back(I);
+        }
+        Fields.try_emplace(FD, std::move(FieldLayout.Indices));
+      }
+      Layouts.try_emplace(Pending.Node->Record, NumSCCRegions,
+                          std::move(Fields));
+    }
+  }
+
+public:
+  RecordRegionLayoutBuilder(const ASTContext &Ctx,
+                            RecordRegionLayoutMap &Layouts)
+      : Ctx(Ctx), Layouts(Layouts) {}
+
+  void Build(const RecordDecl *RD) {
+    const RecordDecl *Definition = RD->getDefinition();
+    assert(Definition && "record layout requires a complete definition");
+    const RecordDecl *Record = GetCanonicalRecord(Definition);
+    if (Layouts.find(Record) != Layouts.end())
+      return;
+
+    CollectType(Ctx.getRecordType(Definition));
+    for (auto I = llvm::scc_begin(&Root), E = llvm::scc_end(&Root); I != E;
+         ++I) {
+      const auto &SCC = *I;
+      if (SCC.size() == 1 && SCC.front() == &Root)
+        continue;
+      BuildSCC(SCC);
+    }
+
+    assert(Layouts.find(Record) != Layouts.end() &&
+           "record layout should have been built");
+  }
+};
+
 bool withBorrowFieldsImpl(QualType QT,
                           llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
   if (QT.isBorrowQualified())
@@ -151,6 +398,51 @@ bool Type::checkFunctionProtoType(SafeZoneSpecifier SZS) const {
 }
 
 namespace clang {
+
+const RecordRegionLayout &
+GetOrCreateRecordRegionLayout(const ASTContext &Ctx, const RecordDecl *RD,
+                              RecordRegionLayoutMap &Layouts) {
+  const RecordDecl *Definition = RD->getDefinition();
+  assert(Definition && "record layout requires a complete definition");
+  const RecordDecl *Record =
+      cast<RecordDecl>(Definition->getCanonicalDecl());
+  auto It = Layouts.find(Record);
+  if (It == Layouts.end()) {
+    RecordRegionLayoutBuilder(Ctx, Layouts).Build(Definition);
+    It = Layouts.find(Record);
+  }
+  assert(It != Layouts.end() && "record layout should have been built");
+  return It->second;
+}
+
+unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type) {
+  RecordRegionLayoutMap Layouts;
+  return ComputeNumRegions(Ctx, Type, Layouts);
+}
+
+unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type,
+                           RecordRegionLayoutMap &Layouts) {
+  Type = Type.getCanonicalType();
+
+  if (Type->isPointerType()) {
+    if (Type.isBorrowQualified())
+      return ComputeNumRegions(Ctx, Type->getPointeeType(), Layouts) + 1;
+    if (Type.isOwnedQualified())
+      return ComputeNumRegions(Ctx, Type->getPointeeType(), Layouts);
+    return 0;
+  }
+
+  if (const ArrayType *AT = Ctx.getAsArrayType(Type))
+    return ComputeNumRegions(Ctx, AT->getElementType(), Layouts);
+
+  if (const RecordType *RT = Type->getAs<RecordType>()) {
+    if (const RecordDecl *Definition = RT->getDecl()->getDefinition())
+      return GetOrCreateRecordRegionLayout(Ctx, Definition, Layouts)
+          .getNumRegions();
+  }
+
+  return 0;
+}
 
 /// Check that SafeType is a valid _Safe-side refinement of UnsafeType
 /// for heterogeneous redeclarations.  The _Safe redeclaration may add
@@ -812,21 +1104,6 @@ QualType QualType::addConstBorrow(const ASTContext &Context) {
   if (isNonnullQualified())
     Qs.addNonnull();
   return Context.getQualifiedType(result.getTypePtr(), Qs);
-}
-
-QualType QualType::removeConstForBorrow(const ASTContext &Context) {
-  // Only applies to pointer types (e.g. const int * from dereferencing const int * borrow).
-  // For non-pointer types (e.g. struct S from dereferencing struct S * borrow),
-  // return unchanged - no const to remove.
-  if (!getTypePtr()->isPointerType())
-    return *this;
-  QualType directPointee = getTypePtr()->getPointeeType();
-  directPointee.removeLocalConst();
-  QualType result = Context.getPointerType(directPointee);
-  // Preserve _Owned / _Borrow / _ArrayElem / _Nullable / _Nonnull qualifiers from the original pointer type.
-  Qualifiers BSCQuals =
-      getOnlyBSCQualifiedType(Context).getLocalQualifiers();
-  return Context.getQualifiedType(result, BSCQuals);
 }
 
 #endif

@@ -16,50 +16,13 @@
 #include "clang/AST/BSC/TypeBSC.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/Builtins.h"
+#include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/Sema.h"
-#include "clang/Sema/SemaDiagnostic.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace clang;
 using namespace sema;
 
 namespace {
-// _Owned/_Borrow _ArrayElem may point at _Owned types or
-// types that contain _Owned members. Still reject pointees that are (or
-// contain) _Borrow, which cannot be owned as array storage.
-bool HasInvalidArrayElemPointeeImpl(
-    QualType QT, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
-  QT = QT.getCanonicalType();
-
-  if (QT.isNull() || QT->isDependentType())
-    return false;
-
-  if (QT->isPointerType())
-    return QT.isBorrowQualified();
-
-  if (const auto *AT = QT->getAsArrayTypeUnsafe())
-    return HasInvalidArrayElemPointeeImpl(AT->getElementType(), Visited);
-
-  if (const auto *RT = dyn_cast<RecordType>(QT)) {
-    if (!Visited.insert(RT).second)
-      return false;
-
-    if (RecordDecl *RD = RT->getDecl()) {
-      for (FieldDecl *FD : RD->fields()) {
-        if (HasInvalidArrayElemPointeeImpl(FD->getType(), Visited))
-          return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-bool HasInvalidArrayElemPointee(QualType Pointee) {
-  llvm::SmallPtrSet<const RecordType *, 8> Visited;
-  return HasInvalidArrayElemPointeeImpl(Pointee, Visited);
-}
-
 QualType StripLocalArrayElemQualifier(ASTContext &Context, QualType QT) {
   if (QT.isNull() || !QT.isArrayElemQualified())
     return QT;
@@ -88,14 +51,6 @@ bool CheckArrayElemQualifierRules(Sema &S, QualType T, SourceLocation Loc) {
           !Current.isBorrowQualified()) {
         S.Diag(Loc, diag::err_arrayelem_requires_safe_pointer);
         return false;
-      }
-
-      if (Current->isPointerType()) {
-        QualType Pointee = Current->getPointeeType();
-        if (!Pointee->isDependentType() && HasInvalidArrayElemPointee(Pointee)) {
-          S.Diag(Loc, diag::err_arrayelem_invalid_pointee) << Current;
-          return false;
-        }
       }
     }
 
@@ -661,35 +616,6 @@ bool isCastingAwayConst(QualType LHS, QualType RHS) {
   // For non-pointer types: casting away const means RHS has const that LHS doesn't
   return RHS.isConstQualified() && !LHS.isConstQualified();
 }
-
-enum BorrowIndirectTypeCheckKind {
-  BorrowQualified,
-  BorrowTypedef,
-  BorrowFields,
-  NotNestedBorrow
-};
-
-/// Returns whether T has multiple levels of borrow qualifiers,
-/// including containing borrow fields.
-BorrowIndirectTypeCheckKind isNestedBorrow(QualType T) {
-  unsigned BorrowPtrLevel = 0;
-  QualType CurType = T;
-  while (const auto *PT = CurType->getAs<PointerType>()) {
-    bool IsBorrowTypedef = CurType->getAs<TypedefType>() &&
-                           CurType.getCanonicalType().isBorrowQualified();
-    if (BorrowPtrLevel != 0 && IsBorrowTypedef)
-      return BorrowTypedef;
-
-    if (CurType.isBorrowQualified() && ++BorrowPtrLevel > 1)
-      return BorrowQualified;
-
-    CurType = PT->getPointeeType();
-  }
-  if (BorrowPtrLevel != 0 && CurType->hasBorrowFields())
-    return BorrowFields;
-
-  return NotNestedBorrow;
-}
 } // namespace
 
 bool Sema::CheckBorrowQualTypeCStyleCast(QualType LHSType, QualType RHSType) {
@@ -919,6 +845,33 @@ bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS) {
   return Res;
 }
 
+static bool isMutableBorrowPointer(QualType Type) {
+  Type = Type.getCanonicalType();
+  return Type->isPointerType() && Type.isBorrowQualified() &&
+         !Type.isConstBorrow();
+}
+
+ExprResult Sema::MaybeCreateImplicitMutableReborrow(QualType DestType,
+                                                    Expr *Source) {
+  if (!isMutableBorrowPointer(DestType) ||
+      !isMutableBorrowPointer(Source->getType())) {
+    return Source;
+  }
+
+  // Explicit borrow operators already carry the reborrow represented by this
+  // conversion. Look through syntax-only wrappers to avoid nesting another
+  // implicit &_Mut * around them.
+  Expr *Core = Source->IgnoreParenImpCastsSafe();
+  const auto *UO = dyn_cast<UnaryOperator>(Core);
+  bool HasExplicitReborrow =
+      UO && (UO->getOpcode() == UO_AddrMut ||
+             UO->getOpcode() == UO_AddrMutDeref);
+  if (HasExplicitReborrow)
+    return Source;
+
+  return CreateBuiltinUnaryOp(Source->getExprLoc(), UO_AddrMutDeref, Source);
+}
+
 bool Sema::CheckBorrowQualTypeCompare(QualType LHSType, QualType RHSType) {
   QualType RHSCanType = RHSType.getCanonicalType();
   QualType LHSCanType = LHSType.getCanonicalType();
@@ -938,6 +891,10 @@ bool Sema::CheckBorrowFunctionType(QualType ReturnTy,
                                    SourceLocation SL) {
   if (ReturnTy->isDependentType()) {
     return true;
+  }
+  if (ComputeNumRegions(Context, ReturnTy) > 1) {
+    Diag(SL, diag::err_typecheck_multi_level_borrow_func);
+    return false;
   }
   if (ReturnTy.hasBorrow()) {
     bool HasBorrowParam = false;
@@ -1107,19 +1064,5 @@ void Sema::CheckBorrowOrIndirectBorrowType(SourceLocation ErrLoc, QualType T,
     Diag(ErrLoc, diag::err_nested_owned_borrow_type_check)
         << BorrowFields << "_Borrow" << Env << T;
   }
-}
-
-void Sema::CheckNestedBorrowType(SourceLocation ErrLoc, QualType T) {
-  BorrowIndirectTypeCheckKind Kind = isNestedBorrow(T);
-  if (Kind == NotNestedBorrow)
-    return;
-  QualType Pointee = T->getPointeeType();
-  if (Kind == BorrowQualified) {
-    Diag(ErrLoc, diag::err_nested_owned_borrow_type_check)
-        << Kind << "_Borrow" << Pointee;
-    return;
-  }
-  Diag(ErrLoc, diag::err_nested_owned_borrow_type_check)
-      << Kind << "_Borrow" << Pointee << Pointee;
 }
 #endif

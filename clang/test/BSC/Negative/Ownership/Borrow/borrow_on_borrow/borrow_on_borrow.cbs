@@ -9,67 +9,43 @@ void test() {
   int b = 1;
   int *_Borrow p1 = &_Mut a; // legal
   const int *_Borrow p2 = &_Const b; // legal
-  int *_Borrow * _Borrow b1 = &_Mut p1; // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'int *_Borrow' cannot be qualified by '_Borrow'}}
+  int *_Borrow * _Borrow b1 = &_Mut p1;
 
-  const int *_Borrow const * _Borrow b2 = &_Const p2; // expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'const int *const _Borrow' cannot be qualified by '_Borrow'}}
+  const int *_Borrow const * _Borrow b2 = &_Const p2;
 
-  int *_Borrow const * _Borrow b3 = &_Const p1; // expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'int *const _Borrow' cannot be qualified by '_Borrow'}}
+  int *_Borrow const * _Borrow b3 = &_Const p1;
 
-  const int * _Borrow * _Borrow b4 = &_Mut p2; // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'const int *_Borrow' cannot be qualified by '_Borrow'}}
+  const int * _Borrow * _Borrow b4 = &_Mut p2;
 
-  int *_Borrow *_Borrow p3 = &_Mut (&_Mut a);  // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
+  int *_Borrow *_Borrow p3 = &_Mut (&_Mut a);
   // expected-error@-1 {{cannot take the address of an rvalue of type 'int *_Borrow'}}
-  // expected-error@-2 {{type of 'int *_Borrow' cannot be qualified by '_Borrow'}}
 
-  const int *_Borrow *_Borrow p4 = &_Mut (&_Const b); // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
+  const int *_Borrow *_Borrow p4 = &_Mut (&_Const b);
   // expected-error@-1 {{cannot take the address of an rvalue of type 'const int *_Borrow'}}
-  // expected-error@-2 {{type of 'const int *_Borrow' cannot be qualified by '_Borrow'}}
 
   const int *_Borrow const * _Borrow p5 = &_Const (&_Const b);  // expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}
-  // expected-error@-1 {{'&_Const' on a '_Borrow' qualified type is not allowed}} 
-  // expected-error@-2 {{type of 'const int *const _Borrow' cannot be qualified by '_Borrow'}}
 
   int *_Borrow const * _Borrow p6 = &_Const (&_Mut a); // expected-error {{cannot take the address of an rvalue of type 'int *_Borrow'}}
-  // expected-error@-1 {{'&_Const' on a '_Borrow' qualified type is not allowed}} 
-  // expected-error@-2 {{type of 'int *const _Borrow' cannot be qualified by '_Borrow'}}
 
   int *_Borrow *_Borrow *_Borrow p7 = &_Mut (&_Mut (&_Mut a));  // expected-error {{cannot take the address of an rvalue of type 'int *_Borrow'}}
-  // expected-error@-1 {{'&_Mut' on a '_Borrow' qualified type is not allowed}} 
-  // expected-error@-2 {{type of 'int *_Borrow *_Borrow' cannot be qualified by '_Borrow'}}
-  // expected-error@-3 {{type of 'int *_Borrow' cannot be qualified by '_Borrow'}}
 
   const int *_Borrow *_Borrow *_Borrow p8 = &_Mut (&_Mut (&_Const a));  // expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}
-  // expected-error@-1 {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-2 {{type of 'const int *_Borrow *_Borrow' cannot be qualified by '_Borrow'}}
-  // expected-error@-3 {{type of 'const int *_Borrow' cannot be qualified by '_Borrow'}}
 
-  &_Mut p1; /* expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-              expected-warning {{expression result unused}} */
+  &_Mut p1; /* expected-warning {{expression result unused}} */
 
-  &_Const p1;/* expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-               expected-warning {{expression result unused}} */
+  &_Const p1;/* expected-warning {{expression result unused}} */
 
-  &_Mut p2; /* expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-              expected-warning {{expression result unused}} */
+  &_Mut p2; /* expected-warning {{expression result unused}} */
 
-  &_Const p2; /* expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-                expected-warning {{expression result unused}} */
+  &_Const p2; /* expected-warning {{expression result unused}} */
 
-  &_Mut (&_Mut a);   /* expected-error {{cannot take the address of an rvalue of type 'int *_Borrow'}}
-                      expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}} */
+  &_Mut (&_Mut a);   /* expected-error {{cannot take the address of an rvalue of type 'int *_Borrow'}} */
 
-  &_Const (&_Const b);/* expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}
-                       expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}*/
+  &_Const (&_Const b);/* expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}*/
 
-  &_Mut (&_Mut a);/* expected-error {{cannot take the address of an rvalue of type 'int *_Borrow'}}
-                       expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}*/
+  &_Mut (&_Mut a);/* expected-error {{cannot take the address of an rvalue of type 'int *_Borrow'}}*/
 
-  &_Const (&_Const b); /* expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}
-                       expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}*/
+  &_Const (&_Const b); /* expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}*/
 
   &p1; // expected-warning {{expression result unused}}
   &p2; // expected-warning {{expression result unused}}
@@ -77,15 +53,11 @@ void test() {
   & (&_Const b); // expected-error {{cannot take the address of an rvalue of type 'const int *_Borrow'}}
 
   struct R r = { 1, &_Mut a };
-  struct R * _Borrow pr = &_Mut r; // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'struct R' cannot be qualified by '_Borrow' (even indirectly) because 'struct R' contains a '_Borrow' type}}
+  struct R * _Borrow pr = &_Mut r;
 
-  const struct R * _Borrow pr2 = &_Const r; // expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'const struct R' cannot be qualified by '_Borrow' (even indirectly) because 'const struct R' contains a '_Borrow' type}}
+  const struct R * _Borrow pr2 = &_Const r;
 
-  &_Const r.p1; /* expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-                  expected-warning {{expression result unused}} */
+  &_Const r.p1; /* expected-warning {{expression result unused}} */
 
-  &_Mut r.p1; /* expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-                expected-warning {{expression result unused}} */
+  &_Mut r.p1; /* expected-warning {{expression result unused}} */
 }

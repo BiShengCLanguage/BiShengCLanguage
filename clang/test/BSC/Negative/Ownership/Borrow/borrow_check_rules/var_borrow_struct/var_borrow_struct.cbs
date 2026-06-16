@@ -63,10 +63,8 @@ void test6(S *_Borrow p) {
 }
 
 void test7(S *_Borrow p) {
-  S *_Borrow p1 = p; // expected-note {{'*p' is borrowed here}}
-                    // expected-note@-1 {{first mut borrow occurs here}}
-  use_mut(p); // expected-error {{cannot use 'p' because it was mutably borrowed}}
-              // expected-error@-1 {{cannot borrow '*p' as mutable more than once at a time}}
+  S *_Borrow p1 = p; // expected-note {{first mut borrow occurs here}}
+  use_mut(p); // expected-error {{cannot borrow '*p' as mutable more than once at a time}}
   use_mut(p1);
 }
 
