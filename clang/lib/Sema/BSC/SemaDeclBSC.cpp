@@ -97,6 +97,18 @@ bool HasDiffBorrorOrOwnedQualifiers(QualType LHSType, QualType RHSType) {
   if (LHSType->isPointerType() && RHSType->isPointerType()) {
     QualType LHSPType = LHSType->getPointeeType();
     QualType RHSPType = RHSType->getPointeeType();
+    const auto *LHSFn = LHSPType->getAs<FunctionProtoType>();
+    const auto *RHSFn = RHSPType->getAs<FunctionProtoType>();
+    if (LHSFn && RHSFn && LHSFn->getNumParams() == RHSFn->getNumParams()) {
+      if (HasDiffBorrorOrOwnedQualifiers(LHSFn->getReturnType(),
+                                         RHSFn->getReturnType()))
+        return true;
+      for (unsigned I = 0, E = LHSFn->getNumParams(); I != E; ++I)
+        if (HasDiffBorrorOrOwnedQualifiers(LHSFn->getParamType(I),
+                                           RHSFn->getParamType(I)))
+          return true;
+      return false;
+    }
     return HasDiffBorrorOrOwnedQualifiers(LHSPType, RHSPType);
   }
   return false;

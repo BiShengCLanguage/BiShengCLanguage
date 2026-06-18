@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// The FunctionProto recursion added to the
+// heterogeneous-redecl owned/borrow compatibility check must not over-reject. A
+// safe/unsafe redeclaration whose fnptr-parameter qualifiers match (or carries
+// no BSC qualifiers) stays compatible.
+
+void g_owned(void (*cb)(int *_Owned));
+_Safe void g_owned(void (*cb)(int *_Owned));
+
+void g_borrow(void (*cb)(int *_Borrow));
+_Safe void g_borrow(void (*cb)(int *_Borrow));
+
+void g_plain(void (*cb)(int *));
+_Safe void g_plain(void (*cb)(int *));
+
+// Qualifiers buried under extra pointer layers still match.
+void g_pp_owned(void (**cb)(int *_Owned));
+_Safe void g_pp_owned(void (**cb)(int *_Owned));
+
+void g_inner(int *_Owned *p);
+_Safe void g_inner(int *_Owned *p);
+
+// The safe side may add a qualifier the unsafe side lacks, at any layer.
+void g_add(void (**cb)(int *));
+_Safe void g_add(void (**cb)(int *_Owned));

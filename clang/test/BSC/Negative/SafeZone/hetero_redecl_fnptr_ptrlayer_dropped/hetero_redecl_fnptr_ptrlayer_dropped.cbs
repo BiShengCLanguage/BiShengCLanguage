@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+// hetero_redecl_fnptr_owned_dropped only reaches a function pointer that is a
+// direct parameter. Here the qualifier the unsafe side carries is buried under
+// one or more ordinary pointer layers; the safe side must still not drop it.
+
+// --- _Owned buried under a plain pointer layer (pointer-to-function-pointer) -
+void he_pp_owned(void (**cb)(int *_Owned)); // expected-note {{previous declaration had parameter of type 'void (**)(int *_Owned)'}}
+_Safe void he_pp_owned(void (**cb)(int *)); // expected-error {{redeclaration of 'he_pp_owned' has incompatible parameter type 'void (**)(int *)'}}
+
+void he_pp_borrow(void (**cb)(int *_Borrow)); // expected-note {{previous declaration had parameter of type 'void (**)(int *_Borrow)'}}
+_Safe void he_pp_borrow(void (**cb)(int *));  // expected-error {{redeclaration of 'he_pp_borrow' has incompatible parameter type 'void (**)(int *)'}}
+
+// --- _Owned on an inner pointer level of a plain pointer parameter ----------
+void he_inner(int *_Owned *p); // expected-note {{previous declaration had parameter of type 'int *_Owned *'}}
+_Safe void he_inner(int **p);  // expected-error {{redeclaration of 'he_inner' has incompatible parameter type 'int **'}}
+
+// --- _Owned on an inner pointer level inside a function-pointer parameter ----
+void he_cb_inner(void (*cb)(int *_Owned *)); // expected-note {{previous declaration had parameter of type 'void (*)(int *_Owned *)'}}
+_Safe void he_cb_inner(void (*cb)(int **));  // expected-error {{redeclaration of 'he_cb_inner' has incompatible parameter type 'void (*)(int **)'}}
+
+// --- two plain pointer layers above the qualifier (arbitrary depth) ----------
+void he_deep(int *_Owned **p); // expected-note {{previous declaration had parameter of type 'int *_Owned **'}}
+_Safe void he_deep(int ***p);  // expected-error {{redeclaration of 'he_deep' has incompatible parameter type 'int ***'}}

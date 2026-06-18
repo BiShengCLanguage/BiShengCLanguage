@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -std=c89 -verify %s
+
+// C89 coverage for the redeclaration fnptr owned/borrow recursion. Two C89
+// concerns: the recursion descends to arbitrary depth — through nested function
+// pointers and through plain pointer layers above a function pointer — and it
+// stays safe against K&R no-prototype function pointers (`void (*cb)()`), where
+// the pointee has no FunctionProtoType. A buried qualifier mismatch must still
+// be diagnosed; a no-prototype parameter differs from a prototyped owned one.
+
+// --- qualifier nested two function-pointer levels deep ----------------------
+_Safe void ss_nested(void (*cb)(void (*inner)(int *_Owned))); // expected-note {{previous declaration is here}}
+_Safe void ss_nested(void (*cb)(void (*inner)(int *)));       // expected-error {{conflicting types for 'ss_nested'}}
+
+void he_nested(void (*cb)(void (*inner)(int *_Owned)));       // expected-note {{previous declaration had parameter of type 'void (*)(void (*)(int *_Owned))'}}
+_Safe void he_nested(void (*cb)(void (*inner)(int *)));       // expected-error {{redeclaration of 'he_nested' has incompatible parameter type 'void (*)(void (*)(int *))'}}
+
+// --- qualifier under a plain pointer layer above a function pointer ----------
+_Safe void ss_pp(void (**cb)(int *_Owned)); // expected-note {{previous declaration is here}}
+_Safe void ss_pp(void (**cb)(int *));       // expected-error {{conflicting types for 'ss_pp'}}
+
+void he_pp(void (**cb)(int *_Owned)); // expected-note {{previous declaration had parameter of type 'void (**)(int *_Owned)'}}
+_Safe void he_pp(void (**cb)(int *)); // expected-error {{redeclaration of 'he_pp' has incompatible parameter type 'void (**)(int *)'}}
+
+// --- K&R no-prototype function-pointer parameter vs a prototyped owned one ---
+_Unsafe void uu_np(void (*cb)(int *_Owned)); // expected-note {{previous declaration is here}}
+_Unsafe void uu_np(void (*cb)());            // expected-error {{conflicting types for 'uu_np'}}
+
+void he_np(void (*cb)(int *_Owned));       // expected-note {{previous declaration had parameter of type 'void (*)(int *_Owned)'}}
+_Safe void he_np(void (*cb)());            // expected-error {{redeclaration of 'he_np' has incompatible parameter type 'void (*)(void)'}}

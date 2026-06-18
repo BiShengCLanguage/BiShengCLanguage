@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -verify %s
+
+// Extends hetero_redecl_fnptr_owned_dropped, which covers _Owned / _Borrow /
+// return-_Owned buried in a function-pointer parameter. This file pins the
+// remaining qualifier kinds for the heterogeneous (safe/unsafe) path:
+//   * _ArrayElem: the safe side may neither drop it nor add it when the unsafe
+//     side has a bare _Owned / _Borrow (manual §7.3).
+//   * ensure_init / ensure_init_if_ret: part of the function-proto extended
+//     parameter info, so an inner-fnptr mismatch — whether a presence
+//     difference or a differing ensure_init_if_ret argument value — is rejected
+//     by ordinary C type compatibility, independent of the owned/borrow
+//     recursion.
+
+// --- _ArrayElem dropped by the safe side ------------------------------------
+void he_ae_drop(void (*cb)(int *_Owned _ArrayElem)); // expected-note {{previous declaration had parameter of type 'void (*)(int *_Owned _ArrayElem)'}}
+_Safe void he_ae_drop(void (*cb)(int *_Owned));      // expected-error {{redeclaration of 'he_ae_drop' has incompatible parameter type 'void (*)(int *_Owned)'}}
+
+// --- _ArrayElem added by the safe side when unsafe has bare _Owned ----------
+void he_ae_add(void (*cb)(int *_Owned));                  // expected-note {{previous declaration had parameter of type 'void (*)(int *_Owned)'}}
+_Safe void he_ae_add(void (*cb)(int *_Owned _ArrayElem)); // expected-error {{redeclaration of 'he_ae_add' has incompatible parameter type 'void (*)(int *_Owned _ArrayElem)'}}
+
+// --- ensure_init mismatch ---------------------------------------------------
+void he_ei(void (*cb)(int *__attribute__((ensure_init)))); // expected-note {{previous declaration had parameter of type 'void (*)(__attribute__((ensure_init)) int *)'}}
+_Safe void he_ei(void (*cb)(int *));                       // expected-error {{redeclaration of 'he_ei' has incompatible parameter type 'void (*)(int *)'}}
+
+// --- ensure_init_if_ret presence mismatch -----------------------------------
+void he_eiir(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration had parameter of type 'int (*)(__attribute__((ensure_init_if_ret(0))) int *)'}}
+_Safe void he_eiir(int (*cb)(int *));                                 // expected-error {{redeclaration of 'he_eiir' has incompatible parameter type 'int (*)(int *)'}}
+
+// --- ensure_init_if_ret differing argument value (0 vs 1) -------------------
+void he_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(0)))));        // expected-note {{previous declaration had parameter of type 'int (*)(__attribute__((ensure_init_if_ret(0))) int *)'}}
+_Safe void he_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(1))))); // expected-error {{redeclaration of 'he_eiir_val' has incompatible parameter type 'int (*)(__attribute__((ensure_init_if_ret(1))) int *)'}}

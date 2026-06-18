@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -verify %s
+
+// A heterogeneous (safe/unsafe)
+// redeclaration must not let the safe side drop a _Owned / _Borrow qualifier
+// the unsafe side carries. AreOwnedBorrowQualifiersCompatible inspected only the
+// outer pointer level, so a qualifier buried inside a function-pointer parameter
+// (or its return type) was dropped silently. It now recurses through
+// FunctionProtoType parameters and return types. The outer-level form
+// (void f(int *_Owned p); _Safe void f(int *p);) was already rejected.
+
+void f_owned(void (*cb)(int *_Owned)); // expected-note {{previous declaration had parameter of type 'void (*)(int *_Owned)'}}
+_Safe void f_owned(void (*cb)(int *)); // expected-error {{redeclaration of 'f_owned' has incompatible parameter type 'void (*)(int *)'}}
+
+void f_borrow(void (*cb)(int *_Borrow)); // expected-note {{previous declaration had parameter of type 'void (*)(int *_Borrow)'}}
+_Safe void f_borrow(void (*cb)(int *));  // expected-error {{redeclaration of 'f_borrow' has incompatible parameter type 'void (*)(int *)'}}
+
+void f_ret(int *_Owned (*cb)(void)); // expected-note {{previous declaration had parameter of type 'int *_Owned (*)(void)'}}
+_Safe void f_ret(int *(*cb)(void));  // expected-error {{redeclaration of 'f_ret' has incompatible parameter type 'int *(*)(void)'}}

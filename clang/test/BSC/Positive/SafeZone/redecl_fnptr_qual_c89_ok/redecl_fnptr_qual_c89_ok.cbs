@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -std=c89 -verify %s
+// expected-no-diagnostics
+
+// C89 companion to redecl_fnptr_qual_c89: the fnptr recursion must not
+// over-reject in C89 mode. Matching qualifiers (at any nesting depth) and
+// matching K&R no-prototype function-pointer parameters stay compatible.
+
+// matching owned buried in a function-pointer parameter
+_Safe void ok_owned(void (*cb)(int *_Owned));
+_Safe void ok_owned(void (*cb)(int *_Owned));
+
+// matching owned nested two function-pointer levels deep
+_Safe void ok_nested(void (*cb)(void (*inner)(int *_Owned)));
+_Safe void ok_nested(void (*cb)(void (*inner)(int *_Owned)));
+
+// matching K&R no-prototype function-pointer parameters
+_Unsafe void ok_np(void (*cb)());
+_Unsafe void ok_np(void (*cb)());
+
+// heterogeneous: matching owned buried in a function-pointer parameter
+void ok_he(void (*cb)(int *_Owned));
+_Safe void ok_he(void (*cb)(int *_Owned));

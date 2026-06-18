@@ -1,0 +1,53 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Companion to homo_redecl_fnptr_qual_dropped. The fnptr recursion added to
+// the homogeneous redeclaration check (HasDiffBorrorOrOwnedQualifiers) must not
+// over-reject: when two same-modifier declarations carry MATCHING
+// function-pointer-parameter / return qualifiers (or no BSC qualifiers at all),
+// they stay compatible per manual §7.2.
+
+// --- safe / safe ---
+_Safe void ss_owned(void (*cb)(int *_Owned));
+_Safe void ss_owned(void (*cb)(int *_Owned));
+
+_Safe void ss_borrow(void (*cb)(int *_Borrow));
+_Safe void ss_borrow(void (*cb)(int *_Borrow));
+
+_Safe void ss_arrayelem(void (*cb)(int *_Owned _ArrayElem));
+_Safe void ss_arrayelem(void (*cb)(int *_Owned _ArrayElem));
+
+_Safe void ss_ret(int *_Owned (*cb)(void));
+_Safe void ss_ret(int *_Owned (*cb)(void));
+
+_Safe void ss_ensure_init(void (*cb)(int *__attribute__((ensure_init))));
+_Safe void ss_ensure_init(void (*cb)(int *__attribute__((ensure_init))));
+
+_Safe void ss_eiir(int (*cb)(int *__attribute__((ensure_init_if_ret(0)))));
+_Safe void ss_eiir(int (*cb)(int *__attribute__((ensure_init_if_ret(0)))));
+
+_Safe void ss_plain(void (*cb)(int *));
+_Safe void ss_plain(void (*cb)(int *));
+
+// --- unsafe / unsafe ---
+_Unsafe void uu_owned(void (*cb)(int *_Owned));
+_Unsafe void uu_owned(void (*cb)(int *_Owned));
+
+_Unsafe void uu_borrow(void (*cb)(int *_Borrow));
+_Unsafe void uu_borrow(void (*cb)(int *_Borrow));
+
+_Unsafe void uu_arrayelem(void (*cb)(int *_Borrow _ArrayElem));
+_Unsafe void uu_arrayelem(void (*cb)(int *_Borrow _ArrayElem));
+
+_Unsafe void uu_ret(int *_Owned (*cb)(void));
+_Unsafe void uu_ret(int *_Owned (*cb)(void));
+
+// --- unsafe / no-attribute ---
+_Unsafe void un_owned(void (*cb)(int *_Owned));
+void un_owned(void (*cb)(int *_Owned));
+
+_Unsafe void un_borrow(void (*cb)(int *_Borrow));
+void un_borrow(void (*cb)(int *_Borrow));
+
+_Unsafe void un_plain(void (*cb)(int *));
+void un_plain(void (*cb)(int *));

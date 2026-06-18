@@ -1,0 +1,60 @@
+// RUN: %clang_cc1 -verify %s
+
+// Companion to the heterogeneous fnptr case. The commit that fixed
+// AreOwnedBorrowQualifiersCompatible only touched the heterogeneous
+// (safe/unsafe) path. The HOMOGENEOUS paths — two _Safe decls, two _Unsafe
+// decls, or _Unsafe-vs-no-attribute — go through HasDiffBorrorOrOwnedQualifiers,
+// which had the same blind spot: it recursed through plain pointer levels but
+// not into function-pointer parameter/return types, so a qualifier buried
+// inside a fnptr parameter was dropped silently and the two decls merged.
+//
+// Per the user manual §7.2, same-modifier redeclarations require pointer types
+// to carry the SAME _Owned / _Borrow / _ArrayElem qualifiers AND a compatible
+// target type (checked recursively). At the outer pointer level these
+// mismatches were already rejected; this test pins the recursive fnptr case
+// across all three homogeneous pairings.
+
+// ---------------------------------------------------------------------------
+// safe / safe
+// ---------------------------------------------------------------------------
+_Safe void ss_owned(void (*cb)(int *_Owned)); // expected-note {{previous declaration is here}}
+_Safe void ss_owned(void (*cb)(int *));       // expected-error {{conflicting types for 'ss_owned'}}
+
+_Safe void ss_borrow(void (*cb)(int *_Borrow)); // expected-note {{previous declaration is here}}
+_Safe void ss_borrow(void (*cb)(int *));        // expected-error {{conflicting types for 'ss_borrow'}}
+
+_Safe void ss_arrayelem(void (*cb)(int *_Owned _ArrayElem)); // expected-note {{previous declaration is here}}
+_Safe void ss_arrayelem(void (*cb)(int *_Owned));            // expected-error {{conflicting types for 'ss_arrayelem'}}
+
+_Safe void ss_ret(int *_Owned (*cb)(void)); // expected-note {{previous declaration is here}}
+_Safe void ss_ret(int *(*cb)(void));        // expected-error {{conflicting types for 'ss_ret'}}
+
+// ---------------------------------------------------------------------------
+// unsafe / unsafe
+// ---------------------------------------------------------------------------
+_Unsafe void uu_owned(void (*cb)(int *_Owned)); // expected-note {{previous declaration is here}}
+_Unsafe void uu_owned(void (*cb)(int *));       // expected-error {{conflicting types for 'uu_owned'}}
+
+_Unsafe void uu_borrow(void (*cb)(int *_Borrow)); // expected-note {{previous declaration is here}}
+_Unsafe void uu_borrow(void (*cb)(int *));        // expected-error {{conflicting types for 'uu_borrow'}}
+
+_Unsafe void uu_arrayelem(void (*cb)(int *_Borrow _ArrayElem)); // expected-note {{previous declaration is here}}
+_Unsafe void uu_arrayelem(void (*cb)(int *_Borrow));            // expected-error {{conflicting types for 'uu_arrayelem'}}
+
+_Unsafe void uu_ret(int *_Owned (*cb)(void)); // expected-note {{previous declaration is here}}
+_Unsafe void uu_ret(int *(*cb)(void));        // expected-error {{conflicting types for 'uu_ret'}}
+
+// ---------------------------------------------------------------------------
+// unsafe / no-attribute (both "unsafe" level -> still homogeneous)
+// ---------------------------------------------------------------------------
+_Unsafe void un_owned(void (*cb)(int *_Owned)); // expected-note {{previous declaration is here}}
+void un_owned(void (*cb)(int *));               // expected-error {{conflicting types for 'un_owned'}}
+
+_Unsafe void un_borrow(void (*cb)(int *_Borrow)); // expected-note {{previous declaration is here}}
+void un_borrow(void (*cb)(int *));                // expected-error {{conflicting types for 'un_borrow'}}
+
+_Unsafe void un_arrayelem(void (*cb)(int *_Owned _ArrayElem)); // expected-note {{previous declaration is here}}
+void un_arrayelem(void (*cb)(int *_Owned));                    // expected-error {{conflicting types for 'un_arrayelem'}}
+
+_Unsafe void un_ret(int *_Owned (*cb)(void)); // expected-note {{previous declaration is here}}
+void un_ret(int *(*cb)(void));                // expected-error {{conflicting types for 'un_ret'}}

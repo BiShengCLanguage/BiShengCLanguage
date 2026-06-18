@@ -1,0 +1,41 @@
+// RUN: %clang_cc1 -verify %s
+
+// ensure_init / ensure_init_if_ret are carried in the function-proto extended
+// parameter info, so a mismatch buried inside a function-pointer parameter
+// changes the canonical function type and is rejected by ordinary C
+// "conflicting types" checking — for every homogeneous pairing, independent of
+// the owned/borrow recursion. A mismatch can be either a presence difference
+// (attribute on one decl only) or a differing ensure_init_if_ret argument value.
+
+// --- safe / safe ---
+_Safe void ss_ei(void (*cb)(int *__attribute__((ensure_init)))); // expected-note {{previous declaration is here}}
+_Safe void ss_ei(void (*cb)(int *));                             // expected-error {{conflicting types for 'ss_ei'}}
+
+_Safe void ss_eiir(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration is here}}
+_Safe void ss_eiir(int (*cb)(int *));                                       // expected-error {{conflicting types for 'ss_eiir'}}
+
+// differing ensure_init_if_ret argument value (0 vs 1)
+_Safe void ss_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration is here}}
+_Safe void ss_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(1))))); // expected-error {{conflicting types for 'ss_eiir_val'}}
+
+// --- unsafe / unsafe ---
+_Unsafe void uu_ei(void (*cb)(int *__attribute__((ensure_init)))); // expected-note {{previous declaration is here}}
+_Unsafe void uu_ei(void (*cb)(int *));                             // expected-error {{conflicting types for 'uu_ei'}}
+
+_Unsafe void uu_eiir(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration is here}}
+_Unsafe void uu_eiir(int (*cb)(int *));                                       // expected-error {{conflicting types for 'uu_eiir'}}
+
+// differing ensure_init_if_ret argument value (0 vs 1)
+_Unsafe void uu_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration is here}}
+_Unsafe void uu_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(1))))); // expected-error {{conflicting types for 'uu_eiir_val'}}
+
+// --- unsafe / no-attribute ---
+_Unsafe void un_ei(void (*cb)(int *__attribute__((ensure_init)))); // expected-note {{previous declaration is here}}
+void un_ei(void (*cb)(int *));                                     // expected-error {{conflicting types for 'un_ei'}}
+
+_Unsafe void un_eiir(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration is here}}
+void un_eiir(int (*cb)(int *));                                               // expected-error {{conflicting types for 'un_eiir'}}
+
+// differing ensure_init_if_ret argument value (0 vs 1)
+_Unsafe void un_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(0))))); // expected-note {{previous declaration is here}}
+void un_eiir_val(int (*cb)(int *__attribute__((ensure_init_if_ret(1)))));         // expected-error {{conflicting types for 'un_eiir_val'}}

@@ -177,6 +177,27 @@ static bool AreOwnedBorrowQualifiersCompatible(QualType UnsafeType,
   // owned ⟷ borrow is always incompatible.
   if ((SafeIsOwned && UnsafeIsBorrow) || (SafeIsBorrow && UnsafeIsOwned))
     return false;
+
+  // Peel one pointer layer and recurse so a buried qualifier is not dropped:
+  // into the pointee's function prototype if it has one, else into the pointee.
+  if (UnsafeType->isPointerType() && SafeType->isPointerType()) {
+    QualType UnsafePointee = UnsafeType->getPointeeType();
+    QualType SafePointee = SafeType->getPointeeType();
+    const auto *UnsafeFn = UnsafePointee->getAs<FunctionProtoType>();
+    const auto *SafeFn = SafePointee->getAs<FunctionProtoType>();
+    if (UnsafeFn && SafeFn &&
+        UnsafeFn->getNumParams() == SafeFn->getNumParams()) {
+      if (!AreOwnedBorrowQualifiersCompatible(UnsafeFn->getReturnType(),
+                                              SafeFn->getReturnType()))
+        return false;
+      for (unsigned I = 0, E = UnsafeFn->getNumParams(); I != E; ++I)
+        if (!AreOwnedBorrowQualifiersCompatible(UnsafeFn->getParamType(I),
+                                                SafeFn->getParamType(I)))
+          return false;
+      return true;
+    }
+    return AreOwnedBorrowQualifiersCompatible(UnsafePointee, SafePointee);
+  }
   return true;
 }
 
