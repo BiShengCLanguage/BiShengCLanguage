@@ -9,12 +9,21 @@
 // Result: silent use-after-move, runtime invalid read.
 
 _Safe T *_Owned safe_malloc<T>(T);
+void safe_free(void *_Owned);
 void sink(int *_Owned);
 void sink_pp(int *_Owned *_Owned);
 
 struct Inner { int *_Owned p; };
 struct Outer { struct Inner inner; };
 struct DoublePtr { int *_Owned *_Owned pp; };
+
+_Owned struct OwnedInner {
+_Public:
+  int *_Owned p;
+  ~OwnedInner(OwnedInner this) {
+    safe_free((void *_Owned)this.p);
+  }
+};
 
 // the move IS tracked: re-using the moved field as a call argument is caught.
 void baseline_reuse_as_arg(void) {
@@ -51,3 +60,19 @@ int deref_multilevel_after_move(void) {
   sink_pp(q.pp);
   return **q.pp; // expected-error {{use of moved value: `q.pp`}}
 }
+
+// The inner owned pointer field is tracked as `pp*`; normalization must not
+// strip all the way back to `pp`.
+int deref_inner_field_after_move(void) {
+  struct DoublePtr q = { safe_malloc<int *_Owned>(safe_malloc<int>(1)) };
+  sink(*q.pp);
+  int x = **q.pp; // expected-error {{use of moved value}}
+  sink_pp(q.pp); // expected-error {{use of partially moved value}}
+  return x;
+}
+
+// Same deref-marker mismatch through the `_Owned struct *` field path.
+int deref_ops_field_after_move(OwnedInner *_Owned s) {
+  sink(s->p);
+  return *s->p; // expected-error {{use of moved value}}
+} // expected-error {{memory leak of value: `s`}}

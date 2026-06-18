@@ -79,6 +79,28 @@ findPrefixStrings(const llvm::SmallSet<string, 10> fieldSet, string prefix) {
   return prefixStrings;
 }
 
+// Deref uses append trailing '*' markers to the field path, e.g. **q.pp is
+// encoded as "pp**". The ownership sets may also contain real '*' keys for
+// nested owned fields, such as "pp*" for the inner owned pointer of pp, so we
+// cannot strip all markers to the bare field. Walk back through "pp**" ->
+// "pp*" -> "pp" and return the outermost moved key that is actually tracked,
+// keeping diagnostics focused on the field that was moved out.
+static string findMovedFieldKey(const llvm::SmallSet<string, 10> &allFields,
+                                const llvm::SmallSet<string, 10> &ownedFields,
+                                const llvm::SmallSet<string, 10> *nullFields,
+                                string fieldName) {
+  string movedFieldName;
+  while (!fieldName.empty()) {
+    if (allFields.count(fieldName) && !ownedFields.count(fieldName) &&
+        (!nullFields || !nullFields->count(fieldName)))
+      movedFieldName = fieldName;
+    if (fieldName.back() != '*')
+      break;
+    fieldName.pop_back();
+  }
+  return movedFieldName;
+}
+
 static unsigned getIndex(Ownership::Status S) {
   int value = static_cast<int>(S);
   unsigned bitIndex = 0;
@@ -1014,11 +1036,13 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
 
   // check condition 3
   // if fullFieldName has been moved, report error
-  if (OPSAllOwnedFields[VD].count(fullFieldName) &&
-      !OPSOwnedOwnedFields[VD].count(fullFieldName) && diags.empty()) {
+  string movedFieldName =
+      findMovedFieldKey(OPSAllOwnedFields[VD], OPSOwnedOwnedFields[VD],
+                        nullptr, fullFieldName);
+  if (!movedFieldName.empty() && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
-                          VD->getNameAsString() + "." + fullFieldName));
+                          VD->getNameAsString() + "." + movedFieldName));
   }
   // calculate the fields with fullFieldName prefix
   llvm::SmallSet<string, 10> allPrefixStrs;
@@ -1331,18 +1355,13 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
                           VD->getNameAsString() + "." + fullFieldName));
   }
 
-  // HandleDREUse appends a '*' marker per dereference of the field; strip the
-  // markers to recover the bare field name stored in SAllOwnedFields.
-  string baseFieldName = fullFieldName;
-  while (!baseFieldName.empty() && baseFieldName.back() == '*')
-    baseFieldName.pop_back();
-  if (SAllOwnedFields[VD].count(baseFieldName) &&
-      !(SOwnedOwnedFields[VD].count(baseFieldName) ||
-       SNullOwnedFields[VD].count(baseFieldName)) &&
-      diags.empty()) {
+  string movedFieldName =
+      findMovedFieldKey(SAllOwnedFields[VD], SOwnedOwnedFields[VD],
+                        &SNullOwnedFields[VD], fullFieldName);
+  if (!movedFieldName.empty() && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
-                          VD->getNameAsString() + "." + baseFieldName));
+                          VD->getNameAsString() + "." + movedFieldName));
   }
   // calculate the fields with fullFieldName prefix
   llvm::SmallSet<string, 10> allPrefixStrs;
