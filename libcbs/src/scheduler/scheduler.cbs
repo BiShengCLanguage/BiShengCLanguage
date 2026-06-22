@@ -55,7 +55,7 @@ _Impl _Trait Future<struct Void> for struct _Yield;
 
 _Trait Future<struct Void> *yield() {
     struct _Yield *ptr = malloc(sizeof(struct _Yield));
-    if (ptr != NULL) {
+    if (ptr == NULL) {
         fprintf(stderr, "Error: memory alloc failed\n");
         exit(EXIT_FAILURE);
     }
