@@ -4,8 +4,14 @@ name: Sync English Translation
 # AI-translate the changed pages to English, and commit them to book-ci. The commit
 # triggers "Publish BiSheng C Manual", which rebuilds and deploys the site.
 #
-# Requires repo secret ANTHROPIC_API_KEY. Without it, translate-sync.sh is a no-op,
-# so this workflow stays green and simply does nothing until the secret is added.
+# Translation runs through the GLM gateway via the `claude` CLI. Needs repo secrets
+# GLM_BUNDLE_API_KEY / GLM_BUNDLE_API_KEY_2 / GLM_API_KEY (the script rotates through
+# them) and GLM_GATEWAY. Without a usable key, translate-sync.sh is a safe no-op, so
+# this workflow stays green and does nothing until the secrets are added.
+#
+# NOTE: the default GLM gateway is a private-network host; if GitHub-hosted runners
+# can't reach it, run this workflow on a self-hosted runner on that network, or point
+# GLM_GATEWAY at a publicly reachable endpoint.
 
 on:
   schedule:
@@ -29,13 +35,19 @@ jobs:
         with:
           ref: book-ci
 
-      - name: Install jq
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+      - name: Install Claude Code CLI
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: AI-translate changed Chinese pages
         id: tr
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GLM_BUNDLE_API_KEY:   ${{ secrets.GLM_BUNDLE_API_KEY }}
+          GLM_BUNDLE_API_KEY_2: ${{ secrets.GLM_BUNDLE_API_KEY_2 }}
+          GLM_API_KEY:          ${{ secrets.GLM_API_KEY }}
+          GLM_GATEWAY:          ${{ secrets.GLM_GATEWAY }}
+          GLM_ENV: ""           # force env-var key source in CI (no local .env file)
         run: |
           chmod +x ./translate-sync.sh
           ./translate-sync.sh
