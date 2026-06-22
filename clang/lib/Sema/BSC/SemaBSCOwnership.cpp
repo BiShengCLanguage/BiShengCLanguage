@@ -535,18 +535,27 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
   if (E == nullptr)
     return false;
   E = E->IgnoreParenCastsSafe();
-  if (auto *BO = dyn_cast<BinaryOperator>(E))
-    if (BO->getOpcode() == BO_Comma)
-      return CheckTemporaryVarMemoryLeak(BO->getRHS());
+  if (auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_LNot)
+      return CheckTemporaryVarMemoryLeak(UO->getSubExpr());
+  }
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma) {
+      bool LeakLHS = CheckTemporaryVarMemoryLeak(BO->getLHS());
+      bool LeakRHS = CheckTemporaryVarMemoryLeak(BO->getRHS());
+      return LeakLHS || LeakRHS;
+    }
+  }
   if (auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
     // BinaryConditionalOperator (GNU `x ?: y`) reuses the common expression,
-    // exposed via getCommonExpr() rather than the OpaqueValueExpr getTrueExpr().
+    // exposed via getCommon() rather than the OpaqueValueExpr getTrueExpr().
     Expr *TrueExpr = isa<BinaryConditionalOperator>(CO)
                          ? cast<BinaryConditionalOperator>(CO)->getCommon()
                          : CO->getTrueExpr();
+    bool LeakCond = CheckTemporaryVarMemoryLeak(CO->getCond());
     bool LeakTrue = CheckTemporaryVarMemoryLeak(TrueExpr);
     bool LeakFalse = CheckTemporaryVarMemoryLeak(CO->getFalseExpr());
-    return LeakTrue || LeakFalse;
+    return LeakCond || LeakTrue || LeakFalse;
   }
   if (!dyn_cast<CallExpr>(E)) return false;
   QualType RetType = E->getType().getCanonicalType();

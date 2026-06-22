@@ -22,12 +22,37 @@ _Safe void paren_nested(void) {
   ((make())); // expected-error {{memory leak because temporary variable}}
 }
 
+_Safe void cast_wrap(void) {
+  (int *_Owned)make(); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}
+
+_Safe void logical_not(void) {
+  !make(); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}
+
+_Safe void logical_not_combinations(int c) {
+  !((make())); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  !((int *_Owned)make()); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  !(make(), c); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  !(c ? make() : make()); // expected-error 2 {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  c ? !make() : !make(); // expected-error 2 {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  make() ?: make(); // expected-error 2 {{memory leak because temporary variable}}
+}
+
 _Safe void comma(void) {
   (void)0, make(); // expected-error {{memory leak because temporary variable}}
 }
 
+_Safe void comma_lhs(void) {
+  make(), 0; // expected-error {{memory leak because temporary variable}}
+}
+
 _Safe void conditional(int c) {
   c ? make() : nullptr; // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void conditional_cond(void) {
+  make() ? 0 : 1; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
 }
 
 // GNU `x ?: y` (BinaryConditionalOperator) -- the reused common expression is

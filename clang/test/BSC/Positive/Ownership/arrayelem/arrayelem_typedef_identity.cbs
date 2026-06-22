@@ -68,8 +68,8 @@ void builtin_move_result(void) {
   _Static_assert(__is_same(typeof(__take_array_from_raw(raw_nonnull)),
                            int *_Owned _ArrayElem _Nonnull),
                  "__take_array_from_raw nonnull raw operand");
-  (void)__take_array_from_raw(raw_nullable);
-  (void)__take_array_from_raw(raw_nonnull);
+  (void)__move_array_to_raw(__take_array_from_raw(raw_nullable));
+  (void)__move_array_to_raw(__take_array_from_raw(raw_nonnull));
 }
 
 void builtin_typedef_nullability_transfer(void) {
@@ -97,8 +97,8 @@ void builtin_typedef_nullability_transfer(void) {
   _Static_assert(__is_same(typeof(__take_array_from_raw(raw_nonnull)),
                            OwnedArrayElemIntPtr _Nonnull),
                  "__take_array_from_raw typedef raw _Nonnull operand");
-  (void)__take_array_from_raw(raw_nullable);
-  (void)__take_array_from_raw(raw_nonnull);
+  (void)__move_array_to_raw(__take_array_from_raw(raw_nullable));
+  (void)__move_array_to_raw(__take_array_from_raw(raw_nonnull));
 }
 
 void builtin_owned_nullability_transfer(void) {
@@ -122,8 +122,8 @@ void builtin_owned_nullability_transfer(void) {
   _Static_assert(__is_same(typeof(__take_from_raw(raw_nonnull)),
                            int *_Owned _Nonnull),
                  "__take_from_raw nonnull raw operand");
-  (void)__take_from_raw(raw_nullable);
-  (void)__take_from_raw(raw_nonnull);
+  (void)__move_to_raw(__take_from_raw(raw_nullable));
+  (void)__move_to_raw(__take_from_raw(raw_nonnull));
 }
 
 void builtin_owned_typedef_nullability_transfer(void) {
@@ -147,6 +147,6 @@ void builtin_owned_typedef_nullability_transfer(void) {
   _Static_assert(__is_same(typeof(__take_from_raw(raw_nonnull)),
                            OwnedIntPtr _Nonnull),
                  "__take_from_raw typedef raw _Nonnull operand");
-  (void)__take_from_raw(raw_nullable);
-  (void)__take_from_raw(raw_nonnull);
+  (void)__move_to_raw(__take_from_raw(raw_nullable));
+  (void)__move_to_raw(__take_from_raw(raw_nonnull));
 }
