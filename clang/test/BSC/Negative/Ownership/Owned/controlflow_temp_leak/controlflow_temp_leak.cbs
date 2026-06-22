@@ -1,0 +1,56 @@
+// RUN: %clang_cc1 -verify %s
+
+// Regression (umbrella IJP3AP, F22): the temporary-leak check ran only for
+// expression statements (ActOnExprStmt), so an _Owned-returning temporary
+// discarded in a control-flow condition or the for-increment leaked silently.
+// The check is now invoked from ActOnCondition (if/while/for/switch),
+// ActOnDoStmt (do-while), and ActOnForStmt (for-increment).
+
+_Safe int *_Owned mk(void);
+
+_Safe void if_cond(void) {
+  if (mk()) {} // expected-error {{memory leak because temporary variable}}
+}
+
+// Integration coverage with F14: once the temporary-leak helper strips wrappers,
+// the F22 control-flow entry points must diagnose wrapped discarded temporaries.
+_Safe void wrapped_if_cond(int c) {
+  if ((mk())) {} // expected-error {{memory leak because temporary variable}}
+  if (!mk()) {} // expected-error {{memory leak because temporary variable}}
+  if (++c, mk()) {} // expected-error {{memory leak because temporary variable}}
+  if (c ? mk() : mk()) {} // expected-error 2 {{memory leak because temporary variable}}
+}
+
+_Safe void while_cond(void) {
+  while (mk()) {} // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void wrapped_while_cond(int c) {
+  while (++c, mk()) {} // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void for_cond(void) {
+  for (; mk(); ) {} // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void wrapped_for_cond(int c) {
+  for (; c ? mk() : mk(); ) {} // expected-error 2 {{memory leak because temporary variable}}
+}
+
+_Safe void switch_cond(void) {
+  switch (mk()) {} // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void wrapped_switch_cond(void) {
+  switch ((mk())) {} // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void for_inc(void) {
+  for (int i = 0; i < 1; mk()) {} // expected-error {{memory leak because temporary variable}}
+  for (int i = 0; i < 1; (mk())) {} // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe void do_cond(void) {
+  do {} while (mk()); // expected-error {{memory leak because temporary variable}}
+  do {} while (!mk()); // expected-error {{memory leak because temporary variable}}
+}

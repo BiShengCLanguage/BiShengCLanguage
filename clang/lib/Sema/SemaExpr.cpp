@@ -21427,6 +21427,12 @@ Sema::ConditionResult Sema::ActOnCondition(Scope *S, SourceLocation Loc,
   if (!SubExpr)
     return MissingOK ? ConditionResult() : ConditionError();
 
+#if ENABLE_BSC
+  // An _Owned-returning temporary discarded in a control-flow condition leaks.
+  if (getLangOpts().BSC && CheckTemporaryVarMemoryLeak(SubExpr))
+    return ConditionError();
+#endif
+
   ExprResult Cond;
   switch (CK) {
   case ConditionKind::Boolean:

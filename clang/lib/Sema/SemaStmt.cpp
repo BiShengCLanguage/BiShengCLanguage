@@ -1743,6 +1743,12 @@ Sema::ActOnDoStmt(SourceLocation DoLoc, Stmt *Body,
                   Expr *Cond, SourceLocation CondRParen) {
   assert(Cond && "ActOnDoStmt(): missing expression");
 
+#if ENABLE_BSC
+  // An _Owned-returning temporary discarded in a do-while condition leaks.
+  if (getLangOpts().BSC && CheckTemporaryVarMemoryLeak(Cond))
+    return StmtError();
+#endif
+
   CheckBreakContinueBinding(Cond);
   ExprResult CondResult = CheckBooleanCondition(DoLoc, Cond);
   if (CondResult.isInvalid())
@@ -2202,6 +2208,12 @@ StmtResult Sema::ActOnForStmt(SourceLocation ForLoc, SourceLocation LParenLoc,
 
   CheckBreakContinueBinding(Second.get().second);
   CheckBreakContinueBinding(third.get());
+
+#if ENABLE_BSC
+  // An _Owned-returning temporary discarded in the for-increment leaks.
+  if (getLangOpts().BSC && third.get() && CheckTemporaryVarMemoryLeak(third.get()))
+    return StmtError();
+#endif
 
   if (!Second.get().first)
     CheckForLoopConditionalStatement(*this, Second.get().second, third.get(),
