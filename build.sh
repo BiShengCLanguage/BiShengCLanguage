@@ -8,7 +8,7 @@
 # split_manual.py. The site therefore always tracks the published compiler manual.
 #
 #   zh release  (manual on bishengc/15.0.4)         -> site/
-#   zh preview  (manual on bishengc_manual_preview) -> site/preview/
+#   zh preview  (manual on manual-preview branch) -> site/preview/
 #   en release  (overlay/en/src)                    -> site/en/
 #   en preview  (overlay/en-preview/src)            -> site/en/preview/
 #
@@ -28,7 +28,7 @@ TODAY=$(date +%Y/%m/%d)
 
 # Which compiler branch feeds each Chinese edition.
 ZH_MAIN_REF="bishengc/15.0.4"
-ZH_PREV_REF="bishengc_manual_preview"
+ZH_PREV_REF="manual-preview"
 
 rm -rf "$SITE"; mkdir -p "$SITE"
 
