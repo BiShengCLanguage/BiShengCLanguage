@@ -1,0 +1,132 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// Test: a struct member whose type is an empty struct has no bytes to
+// initialize, so it is vacuously initialized and must not block promotion of
+// the enclosing struct once every other (non-empty) field is set.
+
+struct Empty { };
+
+// A whole local of empty-struct type has no initializable storage, so reading
+// it is always allowed.
+struct OnlyEmpty { struct Empty a; struct Empty b; };
+
+_Safe int whole_empty_local(void) {
+    struct Empty x;
+    struct Empty y = x; // ok: empty struct is vacuously initialized
+    struct OnlyEmpty p;
+    struct OnlyEmpty q = p; // ok: all fields are empty
+    return 0;
+}
+
+// Empty field first, non-empty field set → struct promotes.
+struct OuterFirst { struct Empty e; int n; };
+
+_Safe int empty_field_first(void) {
+    struct OuterFirst o;
+    o.n = 5;
+    struct OuterFirst c = o; // ok: e is vacuous, n is set
+    return c.n;
+}
+
+// Empty field not first → order independence.
+struct OuterLast { int n; struct Empty e; };
+
+_Safe int empty_field_last(void) {
+    struct OuterLast o;
+    o.n = 5;
+    struct OuterLast c = o; // ok
+    return c.n;
+}
+
+// Empty struct nested inside a non-empty wrapper that is itself a field.
+struct Mid { struct Empty e; };
+struct OuterNested { struct Mid m; int n; };
+
+_Safe int nested_empty(void) {
+    struct OuterNested o;
+    o.n = 5;
+    struct OuterNested c = o; // ok: m is recursively vacuous
+    return c.n;
+}
+
+// Empty struct nested several levels deep.
+struct E0 { };
+struct E1 { struct E0 a; };
+struct E2 { struct E1 a; };
+struct OuterDeep { struct E2 z; int n; };
+
+_Safe int deeply_nested_empty(void) {
+    struct OuterDeep o;
+    o.n = 5;
+    struct OuterDeep c = o; // ok
+    return c.n;
+}
+
+// Generic struct with an empty field.
+struct OuterGeneric<T> { struct Empty e; T val; };
+
+_Safe int generic_empty_field(void) {
+    struct OuterGeneric<int> o;
+    o.val = 7;
+    struct OuterGeneric<int> c = o; // ok
+    return c.val;
+}
+
+// Empty struct passed as a type argument.
+struct Box<T> { T val; };
+
+_Safe int empty_type_argument(void) {
+    struct Box<struct Empty> b;
+    struct Box<struct Empty> c = b; // ok: val is vacuous
+    return 0;
+}
+
+// ensure_init callee: the empty sibling must not block promotion of *out.
+struct S { struct Empty e; int n; };
+
+void ensure_init_empty_field(struct S *__attribute__((ensure_init)) out) {
+    (*out).n = 9; // ok: contract fulfilled despite the empty sibling
+}
+
+// Direct read of an empty member from a partially-initialized enclosing struct:
+// the member has no storage, so reading it is always allowed even though the
+// enclosing struct has not yet been promoted.
+struct OuterDirect { struct Empty e; int n; };
+
+_Safe int direct_empty_member_read(void) {
+    struct OuterDirect o;
+    o.n = 1;
+    struct Empty x = o.e; // ok: o.e has no storage to read
+    return o.n;
+}
+
+// Direct read of an empty member before any field of the enclosing struct is
+// set at all.
+_Safe int direct_empty_member_read_untouched(void) {
+    struct OuterDirect o;
+    struct Empty x = o.e; // ok: o.e is vacuous regardless of o's state
+    return 0;
+}
+
+// Nested/recursive read of a vacuous member that recursively contains only
+// empty-struct fields.
+struct WrapEmpty { struct Empty inner; };
+struct OuterNestedRead { struct WrapEmpty w; int n; };
+
+_Safe int nested_empty_member_read(void) {
+    struct OuterNestedRead o;
+    struct WrapEmpty w = o.w; // ok: w is recursively vacuous
+    return 0;
+}
+
+// ensure_init over a wholly fieldless pointee: the contract is automatically
+// satisfied even though the callee writes nothing.
+void ensure_init_empty_pointee(struct Empty *__attribute__((ensure_init)) out) {
+} // ok: *out has no storage to initialize
+
+// ensure_init over a recursively-vacuous pointee.
+struct OnlyEmptyTwo { struct Empty a; struct WrapEmpty b; };
+
+void ensure_init_recursive_empty(struct OnlyEmptyTwo *__attribute__((ensure_init)) out) {
+} // ok: *out is recursively vacuous

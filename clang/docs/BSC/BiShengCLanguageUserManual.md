@@ -5760,6 +5760,28 @@ _Safe void rule2_full(void) {
 }
 ```
 
+没有可初始化存储的结构体被视为已初始化。这包括：没有任何字段的结构体，以及递归地只包含此类结构体字段的结构体。此类结构体作为某个结构体的成员时不会阻止该结构体的整体提升，直接读取此类成员也总是合法的。无名位域（如 `unsigned : 3;`）仍占用存储空间，含有无名位域的结构体不属于此类——直接整体读取仍会报告未初始化。
+
+```c
+struct Empty { };
+struct Wrap { struct Empty inner; };      // 递归地只含空结构体字段
+struct Outer { struct Empty e; struct Wrap w; int n; };
+
+_Safe void rule2_empty_field(void) {
+    struct Outer o;
+    o.n = 1;
+    struct Empty x = o.e;   // ok: o.e 无可初始化存储，直接读取合法
+    struct Outer c = o;     // ok: e、w 均无需初始化，o 自动提升为整体已初始化
+}
+
+struct Bits { unsigned : 3; };
+
+_Safe void rule2_bitfield(void) {
+    struct Bits b;
+    struct Bits c = b;      // error: use of uninitialized value: `b`
+}
+```
+
 3. 控制流分支中的初始化必须覆盖所有路径。如果变量仅在部分分支中被初始化，分析会报告"可能未初始化"。
 
 ```c
@@ -5952,6 +5974,14 @@ _Safe void field_level(void) {
     }
     struct Pair q = p; // ok
 }
+```
+
+当 `ensure_init` 指针所指向的类型没有可初始化存储（空结构体或递归地只含空结构体字段的结构体，见 3.6.3）时，该契约被自动视为已履行：被调用端即使不写入 `*param` 也不会在返回处报错。
+
+```c
+struct Empty { };
+void init_empty(struct Empty *__attribute__((ensure_init)) out) {
+} // ok: *out 无可初始化存储，契约自动满足
 ```
 
 ```c

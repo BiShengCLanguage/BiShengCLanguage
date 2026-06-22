@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// A struct that contains an empty-struct field passes cleanly through function
+// parameter and return positions. A parameter enters fully initialized, and a
+// member-by-member local build promotes despite the vacuous empty sibling.
+
+struct Empty {};
+struct S { struct Empty e; int x; };
+struct OnlyEmpty { struct Empty a; struct Empty b; };
+
+// Parameter in, returned out.
+_Safe struct S id(struct S s) { return s; }
+
+// Flows through a callee (parameter) and back (return).
+_Safe struct S forward(struct S s) { return id(s); }
+
+// A struct made only of empty fields works as parameter and return too.
+_Safe struct OnlyEmpty id_only_empty(struct OnlyEmpty s) { return s; }
+
+// Built member-by-member locally, then returned.
+_Safe struct S make(int v) {
+    struct S s;
+    s.x = v;
+    return s;
+}
+
+// The returned value is usable through its non-empty field.
+_Safe int use(int v) {
+    struct S t = make(v);
+    return t.x;
+}

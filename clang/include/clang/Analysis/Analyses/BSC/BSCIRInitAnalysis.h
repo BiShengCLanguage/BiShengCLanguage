@@ -165,6 +165,8 @@ public:
   /// Run the analysis and collect diagnostics.
   void run(SmallVectorImpl<InitDiagInfo> &Diags) const;
 
+  static bool isVacuouslyInitialized(QualType Ty);
+
 private:
   const Body &B;
   bool CheckAllZones;

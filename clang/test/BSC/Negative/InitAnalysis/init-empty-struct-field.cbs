@@ -1,0 +1,89 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Test: treating an empty-struct member as vacuously initialized must not
+// over-credit a struct whose real (non-empty) fields are still uninitialized.
+
+struct Empty { };
+
+// Empty field present, but the only non-empty field is never set.
+struct Outer { struct Empty e; int n; };
+
+_Safe int empty_present_real_unset(void) {
+    struct Outer o;
+    struct Outer c = o; // expected-error {{use of uninitialized value: `o`}}
+    return c.n;
+}
+
+// Empty field plus two ints, only one int set.
+struct Outer2 { struct Empty e; int a; int b; };
+
+_Safe int empty_present_one_unset(void) {
+    struct Outer2 o;
+    o.a = 1;
+    struct Outer2 c = o; // expected-error {{use of uninitialized value: `o`}}
+    return c.a;
+}
+
+// A union sibling is NOT vacuous: an unwritten union next to an empty field
+// must still block promotion.
+struct WithUnion { struct Empty e; union { int a; float b; } u; };
+
+_Safe int empty_with_unset_union(void) {
+    struct WithUnion o;
+    struct WithUnion c = o; // expected-error {{use of uninitialized value: `o`}}
+    return 0;
+}
+
+// ensure_init callee: empty sibling does not excuse leaving the real field
+// uninitialized.
+struct S { struct Empty e; int n; };
+
+void ensure_init_real_unset(struct S *__attribute__((ensure_init)) out) {
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// A NAMED bit-field has writable storage and is not vacuous: a struct with a
+// named bit-field left unset still blocks promotion.
+struct NamedBits { unsigned f : 3; };
+
+_Safe int named_bitfield_unset(void) {
+    struct NamedBits o;
+    struct NamedBits c = o; // expected-error {{use of uninitialized value: `o`}}
+    return 0;
+}
+
+// An unnamed bit-field reserves storage, so a struct carrying one is not
+// vacuous: a non-zero-width unnamed bit-field has uninitialized bits and a
+// whole-struct read of it must still be diagnosed.
+struct Bits3 { unsigned : 3; };
+
+_Safe int unnamed_bitfield_nonzero(void) {
+    struct Bits3 o;
+    struct Bits3 c = o; // expected-error {{use of uninitialized value: `o`}}
+    return 0;
+}
+
+// A zero-width unnamed bit-field record is likewise treated conservatively as
+// having storage: a whole-struct read of it is still diagnosed.
+struct Bits0 { unsigned : 0; };
+
+_Safe int unnamed_bitfield_zero(void) {
+    struct Bits0 o;
+    struct Bits0 c = o; // expected-error {{use of uninitialized value: `o`}}
+    return 0;
+}
+
+// An unnamed-bit-field record sibling is not vacuous and still blocks promotion
+// of the enclosing struct even when the named field is set.
+struct WithBits { struct Bits3 eb; int n; };
+
+_Safe int bits_sibling_blocks(void) {
+    struct WithBits o;
+    o.n = 1;
+    struct WithBits c = o; // expected-error {{use of uninitialized value: `o`}}
+    return c.n;
+}
+
+// ensure_init over a pointee carrying an unnamed bit-field: the pointee has
+// storage, so the contract is not auto-satisfied and an empty body fails.
+void ensure_init_bits_pointee(struct Bits3 *__attribute__((ensure_init)) out) {
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}

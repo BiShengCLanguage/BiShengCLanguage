@@ -38,6 +38,8 @@ static bool isImplicitlyInitialized(const LocalDecl &LD, const Body &B) {
   if (B.SourceFD)
     if (isVaListType(LD.Ty, B.SourceFD->getASTContext()))
       return true;
+  if (InitAnalysis::isVacuouslyInitialized(LD.Ty))
+    return true;
   return false;
 }
 
@@ -139,10 +141,13 @@ InitLattice InitAnalysis::entryState(const Body &B) const {
   if (B.SourceFD) {
     for (unsigned I = 0; I < B.SourceFD->getNumParams(); ++I) {
       const ParmVarDecl *PVD = B.SourceFD->getParamDecl(I);
-      if (PVD->hasAttr<EnsureInitAttr>()) {
-        State.EnsureInitDerefStates[LocalId{I + 1}] = InitState::Uninitialized;
-      } else if (PVD->hasAttr<EnsureInitIfRetAttr>()) {
-        State.EnsureInitDerefStates[LocalId{I + 1}] = InitState::Uninitialized;
+      if (PVD->hasAttr<EnsureInitAttr>() ||
+          PVD->hasAttr<EnsureInitIfRetAttr>()) {
+        QualType PointeeTy = PVD->getType()->getPointeeType();
+        InitState Seed = isVacuouslyInitialized(PointeeTy)
+                             ? InitState::Initialized
+                             : InitState::Uninitialized;
+        State.EnsureInitDerefStates[LocalId{I + 1}] = Seed;
       }
     }
   }
@@ -840,6 +845,17 @@ unsigned InitAnalysis::getNumFields(QualType Ty) {
   return Count;
 }
 
+bool InitAnalysis::isVacuouslyInitialized(QualType Ty) {
+  const RecordDecl *RD = Ty->getAsRecordDecl();
+  if (!RD || RD->isUnion())
+    return false;
+  for (auto It = RD->field_begin(); It != RD->field_end(); ++It) {
+    if (!isVacuouslyInitialized(It->getType()))
+      return false;
+  }
+  return true;
+}
+
 QualType InitAnalysis::getFieldType(LocalId Id,
                                     ArrayRef<unsigned> Path) const {
   // For ensure_init struct pointees, use the pointee type.
@@ -971,8 +987,11 @@ void InitAnalysis::tryPromoteParent(InitLattice &State, const FieldPath &FP,
     Sibling.Base = FP.Base;
     Sibling.Indices = Parent.Indices;
     Sibling.Indices.push_back(I);
-    if (getFieldInitState(State, Sibling) != InitState::Initialized)
-      return; // Not all siblings initialized yet.
+    if (getFieldInitState(State, Sibling) == InitState::Initialized)
+      continue;
+    if (isVacuouslyInitialized(getFieldType(FP.Base, Sibling.Indices)))
+      continue;
+    return; // Not all siblings initialized yet.
   }
 
   // All siblings initialized. Promote parent.
@@ -1263,6 +1282,9 @@ void InitAnalysis::checkOperand(const Operand &Op, const InitLattice &State,
 
   // Check field-level state if the operand has a field projection.
   if (auto FP = getFieldPathPrefix(Op.getPlace())) {
+    if (isVacuouslyInitialized(getFieldType(FP->Base, FP->Indices)))
+      return;
+
     InitState FS = getFieldInitState(State, *FP);
     if (FS == InitState::Initialized)
       return;
