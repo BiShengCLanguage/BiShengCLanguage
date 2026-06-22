@@ -9,8 +9,19 @@
 // leak. The null-init path now also null-marks the `*`-suffix family.
 
 struct S { int *_Owned _Nullable *_Owned _Nullable f; };
+struct DeepS { int *_Owned _Nullable *_Owned _Nullable *_Owned _Nullable f; };
+struct MultiS {
+  int *_Owned _Nullable *_Owned _Nullable first;
+  int *_Owned _Nullable *_Owned _Nullable second;
+};
 struct Outer { struct S inner; };
+struct DeepOuter { struct DeepS inner; };
+struct MultiOuter { struct MultiS inner; };
 struct Top { struct Outer outer; };
+struct TaggedOuter {
+  int tag;
+  struct S inner;
+};
 
 _Safe int null_init(void) {
   struct S s = { .f = nullptr };
@@ -19,6 +30,31 @@ _Safe int null_init(void) {
 
 _Safe int implicit_zero(void) {
   struct S s = {};
+  return 0;
+}
+
+_Safe int implicit_zero_with_zero_initializer(void) {
+  struct S s = {0};
+  return 0;
+}
+
+_Safe int deep_pointer_null_init(void) {
+  struct DeepS s = { .f = nullptr };
+  return 0;
+}
+
+_Safe int deep_pointer_implicit_zero(void) {
+  struct DeepS s = {};
+  return 0;
+}
+
+_Safe int multiple_owned_fields_null_init(void) {
+  struct MultiS s = { .first = nullptr, .second = nullptr };
+  return 0;
+}
+
+_Safe int multiple_owned_fields_implicit_zero(void) {
+  struct MultiS s = {};
   return 0;
 }
 
@@ -34,5 +70,20 @@ _Safe int nested_implicit_zero(void) {
 
 _Safe int deep_nested_implicit_zero(void) {
   struct Top t = {};
+  return 0;
+}
+
+_Safe int partial_with_explicit_nested_zero(void) {
+  struct TaggedOuter o = { .tag = 1, .inner = {} };
+  return 0;
+}
+
+_Safe int partial_with_explicit_deep_nested_zero(void) {
+  struct DeepOuter o = { .inner = {} };
+  return 0;
+}
+
+_Safe int nested_multiple_owned_fields_zero(void) {
+  struct MultiOuter o = {};
   return 0;
 }

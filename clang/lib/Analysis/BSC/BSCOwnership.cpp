@@ -2397,51 +2397,59 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
   // whole nested record family here; partial omission should keep leak checking.
   bool IsEmptyInitList = ILE->isSemanticForm() && ILE->getSyntacticForm() &&
                          ILE->getSyntacticForm()->getNumInits() == 0;
+
+  auto markAsNull = [this, VD](const string &fieldName) {
+    stat.SOwnedOwnedFields[VD].erase(fieldName);
+    stat.SNullOwnedFields[VD].insert(fieldName);
+  };
+
+  auto markPrefixAsNull = [this, VD, &markAsNull](const string &prefix) {
+    auto prefixStrs = findPrefixStrings(stat.SAllOwnedFields[VD], prefix);
+    for (const string &str : prefixStrs)
+      markAsNull(str);
+  };
+
   for (const auto &FD : RD->fields()) {
     Expr *FieldInit = Inits[FD->getFieldIndex()];
     std::string memberField = FD->getNameAsString();
-    std::string newFullFieldName = fullFieldName.empty() ? memberField : fullFieldName + "." + memberField;
+    std::string newFullFieldName =
+        fullFieldName.empty() ? memberField : fullFieldName + "." + memberField;
+    bool IsTrackedOwnedField = stat.SAllOwnedFields[VD].count(newFullFieldName);
+    bool IsImplicitValueInit = isa<ImplicitValueInitExpr>(FieldInit);
+
     // allow ImplicitValueInit, e.g. struct S s = {0}
-    if (FieldInit->isNullExpr(OS.ctx) || isa<ImplicitValueInitExpr>(FieldInit)) {
-      if (stat.SAllOwnedFields[VD].count(newFullFieldName)) {
-        stat.SOwnedOwnedFields[VD].erase(newFullFieldName);
-        stat.SNullOwnedFields[VD].insert(newFullFieldName);
-        auto allPrefixStrs =
-            findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + ".");
-        for (const string &str : allPrefixStrs) {
-          stat.SOwnedOwnedFields[VD].erase(str);
-          stat.SNullOwnedFields[VD].insert(str);
-        }
-        auto starPrefixStrs =
-            findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + "*");
-        for (const string &str : starPrefixStrs) {
-          stat.SOwnedOwnedFields[VD].erase(str);
-          stat.SNullOwnedFields[VD].insert(str);
-        }
-      } else if (isa<ImplicitValueInitExpr>(FieldInit) && IsEmptyInitList) {
-        auto allPrefixStrs =
-            findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + ".");
-        for (const string &str : allPrefixStrs) {
-          stat.SOwnedOwnedFields[VD].erase(str);
-          stat.SNullOwnedFields[VD].insert(str);
-        }
+    if (FieldInit->isNullExpr(OS.ctx) || IsImplicitValueInit) {
+      if (IsTrackedOwnedField) {
+        // For `int *_Owned _Nullable *_Owned _Nullable f`, null-init also
+        // covers deref-derived keys like "f*" (the internal key for `*f`).
+        markAsNull(newFullFieldName);
+        markPrefixAsNull(newFullFieldName + ".");
+        markPrefixAsNull(newFullFieldName + "*");
+      } else if (IsImplicitValueInit && IsEmptyInitList) {
+        // For `struct Outer o = {};`, the record field itself (e.g. "inner")
+        // may not be tracked, but its owned descendants ("inner.f") are.
+        markPrefixAsNull(newFullFieldName + ".");
       }
-    } else if (InitListExpr *FieldILE = dyn_cast<InitListExpr>(FieldInit)) {
+      continue;
+    }
+
+    if (InitListExpr *FieldILE = dyn_cast<InitListExpr>(FieldInit)) {
       QualType QT = FieldInit->getType().getCanonicalType();
       if (QT->isRecordType() && QT->hasOwnedFields()) {
         RecordDecl *FieldRD = dyn_cast<RecordType>(QT)->getDecl();
         HandleInitListExpr(VD, FieldRD, FieldILE, newFullFieldName);
       }
-    } else if (IsCastFromVoidPointer(FieldInit)) {
-      if (stat.SAllOwnedFields[VD].count(newFullFieldName)) {
-        stat.SOwnedOwnedFields[VD].insert(newFullFieldName);
-        stat.SNullOwnedFields[VD].erase(newFullFieldName);
-        auto allPrefixStrs =
-            findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + ".");
-        for (const string &str : allPrefixStrs) {
-          stat.SOwnedOwnedFields[VD].erase(str);
-          stat.SNullOwnedFields[VD].erase(str);
-        }
+      continue;
+    }
+
+    if (IsCastFromVoidPointer(FieldInit) && IsTrackedOwnedField) {
+      stat.SOwnedOwnedFields[VD].insert(newFullFieldName);
+      stat.SNullOwnedFields[VD].erase(newFullFieldName);
+      auto allPrefixStrs =
+          findPrefixStrings(stat.SAllOwnedFields[VD], newFullFieldName + ".");
+      for (const string &str : allPrefixStrs) {
+        stat.SOwnedOwnedFields[VD].erase(str);
+        stat.SNullOwnedFields[VD].erase(str);
       }
     }
   }
