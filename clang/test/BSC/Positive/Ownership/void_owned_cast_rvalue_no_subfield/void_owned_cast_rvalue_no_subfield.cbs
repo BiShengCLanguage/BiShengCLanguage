@@ -1,0 +1,73 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+void *malloc(unsigned long);
+void free(void *);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+int *_Owned mkSingle(void) { return safe_malloc(5); }
+
+void test_single_call(void) {
+  safe_free((void *_Owned)mkSingle());
+}
+
+void test_single_declref(void) {
+  int *_Owned p = safe_malloc(5);
+  safe_free((void *_Owned)p);
+}
+
+void test_single_comma(void) {
+  int *_Owned p = safe_malloc(5);
+  safe_free((void *_Owned)(0, p)); // expected-warning {{left operand of comma operator has no effect}}
+}
+
+void test_nested_inner_freed_comma(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)*outer);
+  safe_free((void *_Owned)(0, outer)); // expected-warning {{left operand of comma operator has no effect}}
+}
+
+void test_nested_inner_freed_nested_comma(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)*outer);
+  safe_free((void *_Owned)(0, (1, outer))); // expected-warning 2 {{left operand of comma operator has no effect}}
+}
+
+void test_nested_inner_freed_safe_expr(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)*outer);
+  safe_free((void *_Owned)_Safe(outer));
+}
+
+void test_nested_inner_freed_comma_safe_expr(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)*outer);
+  safe_free((void *_Owned)(0, _Safe(outer))); // expected-warning {{left operand of comma operator has no effect}}
+}
+
+void test_nested_inner_freed_via_comma_deref(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)(0, *outer)); // expected-warning {{left operand of comma operator has no effect}}
+  safe_free((void *_Owned)outer);
+}
+
+struct Inner {
+  int *_Owned data;
+};
+
+void test_struct_field_freed(void) {
+  struct Inner *_Owned s = safe_malloc((struct Inner){.data = safe_malloc(5)});
+  safe_free((void *_Owned)s->data);
+  safe_free((void *_Owned)(0, s)); // expected-warning {{left operand of comma operator has no effect}}
+}

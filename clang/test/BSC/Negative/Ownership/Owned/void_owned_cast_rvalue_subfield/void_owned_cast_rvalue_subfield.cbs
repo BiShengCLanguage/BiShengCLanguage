@@ -1,0 +1,84 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+void *malloc(unsigned long);
+void free(void *);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+int *_Owned *_Owned mkNested(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  return outer;
+}
+
+int *_Owned *_Owned *_Owned mkDeep(void) {
+  int *_Owned a = safe_malloc(5);
+  int *_Owned *_Owned b = safe_malloc(a);
+  int *_Owned *_Owned *_Owned c = safe_malloc(b);
+  return c;
+}
+
+struct Inner {
+  int *_Owned data;
+};
+
+struct Inner *_Owned mkInner(void) {
+  struct Inner *_Owned s = safe_malloc((struct Inner){.data = safe_malloc(5)});
+  return s;
+}
+
+void test_call_nested(void) {
+  safe_free((void *_Owned)mkNested()); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `int *_Owned *_Owned`, int *_Owned is _Owned}}
+}
+
+void test_call_deep(void) {
+  safe_free((void *_Owned)mkDeep()); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `int *_Owned *_Owned *_Owned`, int *_Owned *_Owned is _Owned}}
+}
+
+void test_call_struct(void) {
+  safe_free((void *_Owned)mkInner()); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `struct Inner *_Owned`, struct Inner is _Owned}}
+}
+
+void test_comma_named(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)(0, outer)); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  // expected-warning@-1 {{left operand of comma operator has no effect}}
+}
+
+void test_comma_nested_rhs_named(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)(0, (1, outer))); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  // expected-warning@-1 2 {{left operand of comma operator has no effect}}
+}
+
+void test_safe_expr_named(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)_Safe(outer)); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+}
+
+void test_comma_safe_expr_named(void) {
+  int *_Owned inner = safe_malloc(5);
+  int *_Owned *_Owned outer = safe_malloc(inner);
+  safe_free((void *_Owned)(0, _Safe(outer))); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  // expected-warning@-1 {{left operand of comma operator has no effect}}
+}
+
+void test_conditional(int c) {
+  int *_Owned ia = safe_malloc(5);
+  int *_Owned *_Owned a = safe_malloc(ia);
+  int *_Owned ib = safe_malloc(5);
+  int *_Owned *_Owned b = safe_malloc(ib);
+  safe_free((void *_Owned)(c ? a : b)); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `int *_Owned *_Owned`, int *_Owned is _Owned}}
+} // expected-error {{memory leak of value: `b`}}
+  // expected-error@-1 {{field memory leak of value: `b`, *b is leak}}
+  // expected-error@-2 {{memory leak of value: `a`}}
+  // expected-error@-3 {{field memory leak of value: `a`, *a is leak}}

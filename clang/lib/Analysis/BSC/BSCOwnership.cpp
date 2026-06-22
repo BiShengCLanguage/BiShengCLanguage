@@ -2273,8 +2273,14 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
   if (CSCE->getType()->isVoidPointerType() &&
       CSCE->getType().isOwnedQualified()) {
 
-    // ignore explicit/implicit casts, get canonicial expr
-    const Expr *InnerE = CSCE->getSubExpr()->IgnoreParenCasts();
+    // ignore explicit/implicit casts, get canonical expr
+    const Expr *InnerE = CSCE->getSubExpr()->IgnoreParenCastsSafe();
+    // The value of a comma expression is its RHS; keep peeling nested comma RHS.
+    while (const BinaryOperator *BO = dyn_cast<BinaryOperator>(InnerE)) {
+      if (BO->getOpcode() != BO_Comma)
+        break;
+      InnerE = BO->getRHS()->IgnoreParenCastsSafe();
+    }
 
     // @code
     // (void * owned)s
@@ -2328,6 +2334,19 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
             stat.checkCastField(VD, DRE->getLocation(), fieldName);
         reporter.addDiags(diags);
       }
+    }
+    // @code
+    // (void * owned)mkNested()
+    // @endcode
+    else if (InnerE->getType()->hasOwnedFields()) {
+      QualType InnerTy = InnerE->getType();
+      SmallVector<OwnershipDiagInfo> diags;
+      diags.push_back(OwnershipDiagInfo(
+          InnerE->getExprLoc(), OwnershipDiagKind::InvalidCastFieldOwned,
+          InnerTy.getAsString(),
+          InnerTy->getPointeeType().getAsString() + " is"));
+      reporter.addDiags(diags);
+      Visit(CSCE->getSubExpr());
     }
     // if the canonical node is not handled, continue traverse to avoid breaking visit
     else {
