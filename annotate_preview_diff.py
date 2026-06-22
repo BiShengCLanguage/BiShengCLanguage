@@ -1,85 +1,130 @@
 #!/usr/bin/env python3
-"""Annotate preview manual pages with an inline diff vs the release edition.
+"""Annotate preview manual pages with an INLINE diff vs the release edition.
 
 Usage: annotate_preview_diff.py <release_src_dir> <preview_src_dir> <lang:zh|en>
 
-For every page that exists in BOTH src trees, compute a line-level diff of the
-preview page against the release page. If they differ, prepend a small callout and
-render the changed lines as a ```diff fenced block at the TOP of the page (mdBook's
-highlighter colours `-` red and `+` green), leaving the real page content untouched
-below. Pages that are identical are left alone.
+For every page that exists in BOTH src trees, diff the preview page against the
+release page at BLOCK granularity and rewrite the preview page so that each change
+is shown ```diff'd right where it occurs — unchanged blocks render as normal
+Markdown, and only the changed/added regions become a small red/green diff block in
+place. Identical pages are left alone.
 
-Why a diff block at the top rather than inline surgery: injecting -/+ markers inside
-the live body would corrupt code fences, tables, and headings. A self-contained
-```diff summary is always valid Markdown and never breaks the page that follows.
+Why block-level (not raw line surgery): a block is an atomic unit — a whole fenced
+code block, table, heading, or blank-line-delimited paragraph. Diffing the SEQUENCE
+of blocks means an inline diff never splits a code fence or table mid-way; each diff
+hunk sits between intact blocks. Unchanged code/tables keep rendering natively.
 """
-import os, sys, difflib
+import os, sys, difflib, re
 
 rel_dir, prev_dir, lang = sys.argv[1], sys.argv[2], sys.argv[3]
 
 CALLOUT = {
-    "zh": ("> 🔍 **本页含预览版改动**：以下为相对正式版的差异（<span style=\"color:#22863a\">绿色 +</span> 为新增，"
-           "<span style=\"color:#b31d28\">红色 -</span> 为删除）。完整正文见下方。"),
-    "en": ("> 🔍 **This page has preview-only changes.** The diff vs the release edition is shown below "
-           "(<span style=\"color:#22863a\">green +</span> added, <span style=\"color:#b31d28\">red -</span> removed). "
-           "Full content follows."),
+    "zh": ("> 🔍 **本页含预览版改动**：下文用 <span style=\"color:#22863a\">绿色 +</span> 标注新增、"
+           "<span style=\"color:#b31d28\">红色 -</span> 标注删除，差异就地显示在对应位置。"),
+    "en": ("> 🔍 **This page has preview-only changes.** Differences are shown inline below where they "
+           "occur — <span style=\"color:#22863a\">green +</span> added, <span style=\"color:#b31d28\">red -</span> removed."),
 }
 
-import re
 def _backtick_runs(text):
-    """Lengths of every run of backticks in text (to pick a safe outer fence)."""
     return [len(m.group(0)) for m in re.finditer(r"`+", text)]
 
-def rel_lines(p):
-    return open(p, encoding="utf-8").read().splitlines()
+def diff_fence(body):
+    """A ```diff fence long enough that inner ``` runs in `body` can't close it."""
+    longest = max(_backtick_runs(body), default=0)
+    f = "`" * max(4, longest + 1)
+    return f"{f}diff\n{body}\n{f}"
 
-def make_diff_block(rel, prev):
-    """Return a compact unified-ish diff body (changed hunks only), or '' if identical."""
-    sm = difflib.SequenceMatcher(a=rel, b=prev, autojunk=False)
-    out = []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
+def split_blocks(lines):
+    """Split a page into atomic blocks. A fenced code block (``` / ~~~, any length)
+    is ONE block; otherwise blocks are separated by blank lines. Returns list of
+    blocks, each a list of lines (no trailing blank)."""
+    blocks, cur = [], []
+    i, n = 0, len(lines)
+    fence_re = re.compile(r"^(\s*)(`{3,}|~{3,})")
+    def flush():
+        nonlocal cur
+        if cur:
+            # drop trailing blanks inside the accumulated chunk into separate splits
+            blocks.append(cur)
+            cur = []
+    while i < n:
+        m = fence_re.match(lines[i])
+        if m:
+            flush()
+            fence = m.group(2)[0]
+            # capture the whole code block until the matching closing fence
+            code = [lines[i]]; i += 1
+            close = re.compile(r"^\s*" + re.escape(m.group(2)[0]) + "{%d,}\\s*$" % len(m.group(2)))
+            while i < n:
+                code.append(lines[i])
+                if close.match(lines[i]):
+                    i += 1; break
+                i += 1
+            blocks.append(code)
             continue
-        # a few lines of leading context help orient the reader
-        ctx_start = max(0, i1 - 2)
-        for k in range(ctx_start, i1):
-            out.append("  " + rel[k])
-        if tag in ("replace", "delete"):
-            for k in range(i1, i2):
-                out.append("- " + rel[k])
-        if tag in ("replace", "insert"):
-            for k in range(j1, j2):
-                out.append("+ " + prev[k])
-        out.append("")  # blank between hunks
-    return "\n".join(out).rstrip()
+        if lines[i].strip() == "":
+            flush(); i += 1; continue
+        cur.append(lines[i]); i += 1
+    flush()
+    return blocks
+
+def block_key(block):
+    return "\n".join(block)
+
+def hunk_diff(rel_block_lines, prev_block_lines):
+    """Render a -/+ diff body between two block groups (lists of lines)."""
+    out = []
+    for ln in rel_block_lines:
+        out.append("- " + ln)
+    for ln in prev_block_lines:
+        out.append("+ " + ln)
+    return "\n".join(out)
 
 def annotate(page_rel_path):
     relp = os.path.join(rel_dir, page_rel_path)
     prevp = os.path.join(prev_dir, page_rel_path)
     if not (os.path.isfile(relp) and os.path.isfile(prevp)):
         return False
-    rel, prev = rel_lines(relp), rel_lines(prevp)
-    if rel == prev:
+    rel_raw = open(relp, encoding="utf-8").read().splitlines()
+    prev_raw = open(prevp, encoding="utf-8").read().splitlines()
+    if rel_raw == prev_raw:
         return False
-    body = make_diff_block(rel, prev)
-    if not body:
-        return False
-    # keep the page's own H1 first, then the callout + diff, then the rest
-    content = open(prevp, encoding="utf-8").read()
-    lines = content.splitlines()
-    head, rest = "", content
-    if lines and lines[0].startswith("# "):
-        head = lines[0]
-        rest = "\n".join(lines[1:]).lstrip("\n")
-    # The diff body can itself contain ``` fences (copied from the manual's code
-    # blocks). Wrap in a LONGER fence so those inner backticks don't close it early.
-    longest = max(_backtick_runs(body), default=0)
-    fence = "`" * max(4, longest + 1)
-    block = f"{fence}diff\n{body}\n{fence}"
-    new = (f"{head}\n\n{CALLOUT[lang]}\n\n"
-           f"<details>\n<summary>{'查看改动' if lang=='zh' else 'View changes'}</summary>\n\n"
-           f"{block}\n\n</details>\n\n{rest}\n")
-    open(prevp, "w", encoding="utf-8").write(new)
+
+    # Keep the preview page's own H1 as the first line; diff the rest block-wise.
+    head = ""
+    if prev_raw and prev_raw[0].startswith("# "):
+        head = prev_raw[0]
+        prev_raw = prev_raw[1:]
+    if rel_raw and rel_raw[0].startswith("# "):
+        rel_raw = rel_raw[1:]
+
+    rel_blocks = split_blocks(rel_raw)
+    prev_blocks = split_blocks(prev_raw)
+    sm = difflib.SequenceMatcher(
+        a=[block_key(b) for b in rel_blocks],
+        b=[block_key(b) for b in prev_blocks], autojunk=False)
+
+    out_parts = []
+    if head:
+        out_parts.append(head)
+    out_parts.append(CALLOUT[lang])
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for b in prev_blocks[j1:j2]:
+                out_parts.append("\n".join(b))
+        elif tag == "insert":
+            body = "\n".join("+ " + ln for b in prev_blocks[j1:j2] for ln in b)
+            out_parts.append(diff_fence(body))
+        elif tag == "delete":
+            body = "\n".join("- " + ln for b in rel_blocks[i1:i2] for ln in b)
+            out_parts.append(diff_fence(body))
+        else:  # replace — show removed then added, in place
+            rel_lines_ = [ln for b in rel_blocks[i1:i2] for ln in b]
+            prev_lines_ = [ln for b in prev_blocks[j1:j2] for ln in b]
+            out_parts.append(diff_fence(hunk_diff(rel_lines_, prev_lines_)))
+
+    open(prevp, "w", encoding="utf-8").write("\n\n".join(out_parts) + "\n")
     return True
 
 def page_title(path):
