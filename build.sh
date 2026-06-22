@@ -114,6 +114,21 @@ attach_preview_link() {  # $1 work, $2 url, $3 lang, $4 dir(toprev|torel)
 ZH_MAIN=$(make_zh_src "$ZH_MAIN_REF")
 ZH_PREV=$(make_zh_src "$ZH_PREV_REF")
 
+# Annotate the PREVIEW pages with an inline red/green diff vs the release edition and
+# a "what differs" summary on the preview intro page. The annotator rewrites files in
+# place, so we always run it on a THROWAWAY copy — never on the committed overlay.
+#
+# zh: $ZH_PREV/src is already a fresh temp split dir → safe to annotate in place.
+echo "[INFO] annotating preview zh pages with release diff"
+python3 "$HERE/annotate_preview_diff.py" "$ZH_MAIN/src" "$ZH_PREV/src" zh || \
+  echo "[WARN] preview zh diff annotation failed — building preview without diffs"
+# en: copy the committed en-preview overlay to a temp dir, annotate THAT.
+EN_PREV_SRC="$WORKROOT/en-preview-src"
+cp -r "$OVERLAY/en-preview/src" "$EN_PREV_SRC"
+echo "[INFO] annotating preview en pages with release diff"
+python3 "$HERE/annotate_preview_diff.py" "$OVERLAY/en/src" "$EN_PREV_SRC" en || \
+  echo "[WARN] preview en diff annotation failed — building preview without diffs"
+
 build_edition() {  # $1 src dir, $2 toml, $3 lang, $4 dest sub, $5 ref, $6 meta-file
   local src="$1" toml="$2" lang="$3" sub="$4" ref="$5" meta="$6" work
   work=$(mktemp -d)
@@ -133,7 +148,7 @@ build_edition() {  # $1 src dir, $2 toml, $3 lang, $4 dest sub, $5 ref, $6 meta-
 build_edition "$ZH_MAIN/src"            book.zh.toml zh ""           "$ZH_MAIN_REF" "$ZH_MAIN/.meta"
 build_edition "$ZH_PREV/src"            book.zh.toml zh "preview"    "$ZH_PREV_REF" "$ZH_PREV/.meta"
 build_edition "$OVERLAY/en/src"         book.en.toml en "en"         "$ZH_MAIN_REF" "$ZH_MAIN/.meta"
-build_edition "$OVERLAY/en-preview/src" book.en.toml en "en/preview" "$ZH_PREV_REF" "$ZH_PREV/.meta"
+build_edition "$EN_PREV_SRC"            book.en.toml en "en/preview" "$ZH_PREV_REF" "$ZH_PREV/.meta"
 
 touch "$SITE/.nojekyll"
 rm -rf "$WORKROOT"

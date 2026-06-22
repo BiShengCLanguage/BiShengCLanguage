@@ -93,3 +93,19 @@ pre {
   color: var(--icons-hover);
   text-decoration: none;
 }
+
+/* Preview-edition diff blocks (vs the release edition). Guarantee red/green even if
+   highlight.js doesn't tokenise `diff` at runtime, by colouring the hljs classes and
+   providing a CSS fallback. The annotator emits a ```diff fenced block. */
+pre > code.language-diff { display: block; }
+pre > code.language-diff .hljs-addition { color: #22863a; background: rgba(46,160,67,0.12); display: inline-block; width: 100%; }
+pre > code.language-diff .hljs-deletion  { color: #b31d28; background: rgba(203,36,49,0.12); display: inline-block; width: 100%; }
+
+/* The preview "what differs" callout + <details> styling. */
+.content details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--links, #4183c4);
+  margin: 0.4em 0;
+}
+.content blockquote:has(+ details) { margin-bottom: 0.2em; }
