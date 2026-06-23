@@ -1593,7 +1593,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPFieldUse(
   SmallVector<OwnershipDiagInfo> diags;
 
   // check field's parent
-  for (int i = fullFieldName.length() - 2; i > 0; i--) {
+  for (int i = fullFieldName.length() - 2; i >= 0; i--) {
     string current = fullFieldName.substr(0, i + 1);
     if (BOPAllOwnedFields[VD].count(current) &&
         !BOPOwnedOwnedFields[VD].count(current)) {
@@ -1710,7 +1710,7 @@ Ownership::OwnershipStatus::checkBOPFieldAssign(const VarDecl *VD,
   // // 3. the field and the field's subfields must be all moved
 
   // the parent field must be owned
-  for (int i = fullFieldName.length() - 2; i > 0; i--) {
+  for (int i = fullFieldName.length() - 2; i >= 0; i--) {
     string current = fullFieldName.substr(0, i + 1);
     if (BOPAllOwnedFields[VD].count(current) &&
         !BOPOwnedOwnedFields[VD].count(current)) {

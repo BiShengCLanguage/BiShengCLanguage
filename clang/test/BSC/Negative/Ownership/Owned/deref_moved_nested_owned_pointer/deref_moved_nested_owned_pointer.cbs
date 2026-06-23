@@ -1,0 +1,82 @@
+// RUN: %clang_cc1 -verify %s
+
+// Provenance: umbrella IJP3AP F110.
+// A nested basic owned pointer (e.g. `int *_Owned *_Owned`) tracks each
+// dereference level as a separate owned field ("*", "**", ...). Moving an
+// inner level frees its pointee, so a use or assignment THROUGH that moved
+// level (a deeper dereference) must be diagnosed as use of moved value rather
+// than silently accepted.
+
+void *malloc(unsigned long);
+void free(void *);
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+void consume(int *_Owned p) { safe_free((void *_Owned)p); }
+void consume2(int *_Owned *_Owned p) {
+  safe_free((void *_Owned)*p);
+  safe_free((void *_Owned)p);
+}
+
+void use_deref_through_moved_level() {
+  int *_Owned inner = safe_malloc(7);
+  int *_Owned *_Owned bop = safe_malloc(inner);
+  consume(*bop);
+  int x = **bop; // expected-error {{use of moved value: `**bop`}}
+  (void)x;
+  safe_free((void *_Owned)bop);
+}
+
+void assign_deref_through_moved_level() {
+  int *_Owned inner = safe_malloc(7);
+  int *_Owned *_Owned bop = safe_malloc(inner);
+  consume(*bop);
+  **bop = 5; // expected-error {{assign to part of moved value: `**bop`}}
+  safe_free((void *_Owned)bop);
+}
+
+void deref_through_moved_level_three() {
+  int *_Owned a = safe_malloc(1);
+  int *_Owned *_Owned b = safe_malloc(a);
+  int *_Owned *_Owned *_Owned c = safe_malloc(b);
+  consume2(*c);
+  int x = ***c; // expected-error {{use of moved value: `***c`}}
+  (void)x;
+  safe_free((void *_Owned)c);
+}
+
+void deref_through_only_middle_moved() {
+  int *_Owned a = safe_malloc(1);
+  int *_Owned *_Owned b = safe_malloc(a);
+  int *_Owned *_Owned *_Owned c = safe_malloc(b);
+  consume(**c);
+  int x = ***c; // expected-error {{use of moved value: `***c`}}
+  (void)x;
+  safe_free((void *_Owned)*c);
+  safe_free((void *_Owned)c);
+}
+
+// Same shape as above, but assign through the deepest level.
+void assign_through_only_middle_moved() {
+  int *_Owned a = safe_malloc(1);
+  int *_Owned *_Owned b = safe_malloc(a);
+  int *_Owned *_Owned *_Owned c = safe_malloc(b);
+  consume(**c);
+  ***c = 5; // expected-error {{assign to part of moved value: `***c`}}
+  safe_free((void *_Owned)*c);
+  safe_free((void *_Owned)c);
+}
+
+void deref_after_whole_var_moved() {
+  int *_Owned inner = safe_malloc(7);
+  int *_Owned *_Owned bop = safe_malloc(inner);
+  consume2(bop);
+  int x = **bop; // expected-error {{use of moved value: `**bop`}}
+  (void)x;
+}
+
+int main() { return 0; }

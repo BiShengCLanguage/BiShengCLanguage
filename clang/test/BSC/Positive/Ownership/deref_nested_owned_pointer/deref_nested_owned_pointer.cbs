@@ -1,0 +1,57 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Provenance: umbrella IJP3AP F110.
+// Dereferencing a nested basic owned pointer through a level that has NOT been
+// moved (or after the level is re-initialized) is well defined and must keep
+// compiling clean. This guards the use-of-moved tightening against
+// over-diagnosis.
+
+void *malloc(unsigned long);
+void free(void *);
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+void consume(int *_Owned p) { safe_free((void *_Owned)p); }
+
+void deref_with_nothing_moved() {
+  int *_Owned inner = safe_malloc(7);
+  int *_Owned *_Owned bop = safe_malloc(inner);
+  int x = **bop;
+  (void)x;
+  safe_free((void *_Owned)*bop);
+  safe_free((void *_Owned)bop);
+}
+
+void read_then_move_inner() {
+  int *_Owned inner = safe_malloc(7);
+  int *_Owned *_Owned bop = safe_malloc(inner);
+  int x = **bop;
+  (void)x;
+  consume(*bop);
+  safe_free((void *_Owned)bop);
+}
+
+void reinit_inner_then_deref() {
+  int *_Owned inner = safe_malloc(7);
+  int *_Owned *_Owned bop = safe_malloc(inner);
+  consume(*bop);
+  *bop = safe_malloc(9);
+  int x = **bop;
+  (void)x;
+  consume(*bop);
+  safe_free((void *_Owned)bop);
+}
+
+void single_level_read_then_move() {
+  int *_Owned p = safe_malloc(7);
+  int x = *p;
+  (void)x;
+  consume(p);
+}
+
+int main() { return 0; }
