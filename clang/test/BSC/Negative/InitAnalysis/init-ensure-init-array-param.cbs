@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// An array parameter decays to a pointer (the size is discarded), so the
+// ensure_init / ensure_init_if_ret contract applies to it exactly as to a
+// pointer parameter: it is verified against *param (element 0). This file
+// keeps every signature well-formed so the init-analysis runs (a sema error
+// would skip the CFG-based pass for the whole TU).
+
+// --- ensure_init -------------------------------------------------------------
+
+// Writing *arr satisfies the contract.
+void arr_ok(int __attribute__((ensure_init)) arr[2]) {
+    *arr = 1;
+}
+
+// Leaving *arr uninitialized is caught, same as a pointer parameter.
+void arr_bad(int __attribute__((ensure_init)) arr[2]) {
+} // expected-error {{'*arr' not initialized at return in __attribute__((ensure_init)) function}}
+
+// An unsized array parameter behaves identically.
+void arr_unsized_bad(int __attribute__((ensure_init)) arr[]) {
+} // expected-error {{'*arr' not initialized at return in __attribute__((ensure_init)) function}}
+
+// --- ensure_init_if_ret ------------------------------------------------------
+
+// *arr initialized on the cond-value return path: contract satisfied.
+int ifret_ok(int __attribute__((ensure_init_if_ret(0))) arr[2]) {
+    *arr = 1;
+    return 0;
+}
+
+// Returns the cond value (0) without initializing *arr: caught.
+int ifret_bad(int __attribute__((ensure_init_if_ret(0))) arr[2]) {
+    return 0; // expected-error {{'*arr' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+}

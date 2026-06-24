@@ -10,13 +10,13 @@ def Operator : InheritableAttr {
 
 def EnsureInit : InheritableParamAttr {
   let Spellings = [GNU<"ensure_init">];
-  let Subjects = SubjectList<[ParmVar]>;
+  let Subjects = SubjectList<[ParmVar], ErrorDiag>;
   let Documentation = [Undocumented];
 }
 
 def EnsureInitIfRet : InheritableParamAttr {
   let Spellings = [GNU<"ensure_init_if_ret">];
-  let Subjects = SubjectList<[ParmVar]>;
+  let Subjects = SubjectList<[ParmVar], ErrorDiag>;
   let Args = [IntArgument<"CondValue">];
   let Documentation = [Undocumented];
 }

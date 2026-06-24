@@ -10,21 +10,22 @@
 // --- Subject must be a parameter --------------------------------------------
 
 // On a variable
-int __attribute__((ensure_init_if_ret(0))) g; // expected-warning {{'ensure_init_if_ret' attribute only applies to parameters}}
+int __attribute__((ensure_init_if_ret(0))) g; // expected-error {{'ensure_init_if_ret' attribute only applies to parameters}}
 
 // On a function (return type slot)
-__attribute__((ensure_init_if_ret(0))) int return_attr(int *out); // expected-warning {{'ensure_init_if_ret' attribute only applies to parameters}}
+__attribute__((ensure_init_if_ret(0))) int return_attr(int *out); // expected-error {{'ensure_init_if_ret' attribute only applies to parameters}}
 
 
-// --- Subject must be a (non-array) pointer parameter ------------------------
-// The contract is about *param, so a non-pointer or array parameter is
-// rejected (same rule as __attribute__((ensure_init))).
+// --- Subject must be a pointer parameter ------------------------------------
+// The contract is about *param, so a non-pointer scalar is rejected. An array
+// parameter decays to a pointer (same rule as __attribute__((ensure_init))),
+// so it is a valid pointer parameter and is accepted.
 
-int int_param(int __attribute__((ensure_init_if_ret(0))) p); // expected-warning {{attribute only applies to pointer parameters}}
+int int_param(int __attribute__((ensure_init_if_ret(0))) p); // expected-error {{attribute only applies to pointer parameters}}
 
-int arr_param(int __attribute__((ensure_init_if_ret(0))) p[2]); // expected-warning {{attribute only applies to pointer parameters}}
+int arr_param(int __attribute__((ensure_init_if_ret(0))) p[2]);
 
-int arr_param_unsized(int __attribute__((ensure_init_if_ret(0))) p[]); // expected-warning {{attribute only applies to pointer parameters}}
+int arr_param_unsized(int __attribute__((ensure_init_if_ret(0))) p[]);
 
 
 // --- Function return type ---------------------------------------------------

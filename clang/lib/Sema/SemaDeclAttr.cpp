@@ -8303,9 +8303,8 @@ static void handleOperatorAttr(Sema &S, Decl *D, const ParsedAttr &Attrs) {
 
 static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   auto *PVD = dyn_cast<ParmVarDecl>(D);
-  if (!PVD || !PVD->getType()->isPointerType() ||
-      PVD->getOriginalType()->isArrayType()) {
-    S.Diag(AL.getLoc(), diag::warn_attribute_wrong_decl_type_str)
+  if (!PVD || !PVD->getType()->isPointerType()) {
+    S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
         << AL << "pointer parameters";
     return;
   }
@@ -8317,12 +8316,11 @@ static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 }
 
 static void handleEnsureInitIfRetAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-  // The contract is about *param, so it requires a (non-array) pointer
-  // parameter — same precondition as __attribute__((ensure_init)).
+  // Same pointer-parameter precondition as ensure_init (array params decay to
+  // pointers and are accepted); a genuine non-pointer scalar is a hard error.
   auto *PVD = dyn_cast<ParmVarDecl>(D);
-  if (!PVD || !PVD->getType()->isPointerType() ||
-      PVD->getOriginalType()->isArrayType()) {
-    S.Diag(AL.getLoc(), diag::warn_attribute_wrong_decl_type_str)
+  if (!PVD || !PVD->getType()->isPointerType()) {
+    S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
         << AL << "pointer parameters";
     return;
   }

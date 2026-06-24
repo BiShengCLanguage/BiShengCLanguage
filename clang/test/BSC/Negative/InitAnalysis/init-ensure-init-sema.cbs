@@ -1,14 +1,33 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
-// Test sema validation: ensure_init on non-pointer param produces warning.
+// Test sema validation: ensure_init placement rules. A wrong subject
+// (non-parameter, or non-pointer scalar parameter) is a hard error; an array
+// parameter decays to a pointer and is accepted.
 
-void bad_attr(int __attribute__((ensure_init)) x); // expected-warning {{attribute only applies to pointer parameters}}
+// --- Subject must be a parameter --------------------------------------------
+// Spec frames ensure_init as a parameter attribute, so a non-parameter subject
+// is a hard error (not a warn-and-drop): the init contract is never silently
+// lost when written on the wrong declaration.
 
-// ensure_init on array parameter (decays to pointer, but should be rejected).
-void bad_array(int __attribute__((ensure_init)) arr[2]); // expected-warning {{attribute only applies to pointer parameters}}
-void bad_array2(int __attribute__((ensure_init)) arr[]); // expected-warning {{attribute only applies to pointer parameters}}
+int g __attribute__((ensure_init)); // expected-error {{'ensure_init' attribute only applies to parameters}}
 
-// Definition: ensure_init rejected on array, so no init-analysis tracking.
-void bad_array_def(int __attribute__((ensure_init)) arr[2]) { // expected-warning {{attribute only applies to pointer parameters}}
-    arr[0] = 1;
-} // no ensure_init error: attribute was rejected
+__attribute__((ensure_init)) int ret_attr(int *out); // expected-error {{'ensure_init' attribute only applies to parameters}}
+
+void local_attr(void) {
+    int x __attribute__((ensure_init)); // expected-error {{'ensure_init' attribute only applies to parameters}}
+    x = 0;
+    (void)x;
+}
+
+// --- Subject must be a pointer parameter ------------------------------------
+// A genuine non-pointer scalar is unsatisfiable (*param is ill-typed): error.
+
+void bad_attr(int __attribute__((ensure_init)) x); // expected-error {{attribute only applies to pointer parameters}}
+
+// --- Array parameter is a pointer parameter ---------------------------------
+// An array parameter decays to a pointer (the size is discarded), so it is a
+// valid pointer parameter and the attribute is accepted with no diagnostic.
+// Contract enforcement on array params is covered by init-ensure-init-array-param.cbs.
+
+void ok_array(int __attribute__((ensure_init)) arr[2]);
+void ok_array_unsized(int __attribute__((ensure_init)) arr[]);
