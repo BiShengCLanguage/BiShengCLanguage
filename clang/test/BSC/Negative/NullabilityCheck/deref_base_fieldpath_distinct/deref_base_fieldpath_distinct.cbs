@@ -1,11 +1,5 @@
 // RUN: %clang_cc1 -nullability-check=all -verify %s
 
-// Regression (umbrella IJP3AP, F33): VisitMEForFieldPath didn't handle
-// `UnaryOperator UO_Deref`, so `(*X).f` produced FieldPath {nullptr, ".f"} for
-// every X — all `(*X).f` collided on one key, and narrowing `(*ps).f` leaked
-// to an unrelated `(*qs).f` (false negative -> runtime nullable deref / SIGSEGV).
-// The deref base is now folded into the key, so distinct bases stay distinct.
-
 struct Inner { int *_Borrow _Nullable f; };
 
 int distinct_bases(struct Inner *_Nonnull ps, struct Inner *_Nonnull qs) {

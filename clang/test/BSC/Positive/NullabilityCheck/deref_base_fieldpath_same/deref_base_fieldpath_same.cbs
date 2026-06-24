@@ -1,9 +1,6 @@
 // RUN: %clang_cc1 -nullability-check=all -verify %s
 // expected-no-diagnostics
 
-// Companion to F33: narrowing and dereferencing the SAME `(*X).f` path must stay
-// clean (the deref-base key is consistent for the same base).
-
 struct Inner { int *_Borrow _Nullable f; };
 
 int same_base(struct Inner *_Nonnull ps) {
