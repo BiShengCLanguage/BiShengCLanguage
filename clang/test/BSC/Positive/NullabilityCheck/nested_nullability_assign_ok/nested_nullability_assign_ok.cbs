@@ -1,10 +1,18 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -nullability-check=all -verify %s
 // expected-no-diagnostics
 
-// Companion to F66: legitimate nested-pointer nullability assignments stay clean.
 void ok(int **raw, int *_Nonnull *nn) {
-  int *_Nonnull *a = nn;  // nonnull -> nonnull
-  int **b = raw;          // raw -> raw
-  int **c = nn;           // nonnull -> raw (nullable) : widening is fine
-  (void)a; (void)b; (void)c;
+  int *_Nonnull *a = nn;
+  int **b = raw;
+  int **c = nn;
+}
+
+void from_borrow(int *_Borrow *p) {
+  int *_Borrow *p1 = p;
+  int *_Borrow _Nullable *p2 = p;
+}
+
+void from_owned(int *_Owned *p) {
+  int *_Owned *p1 = p;
+  int *_Owned _Nullable *p2 = p;
 }
