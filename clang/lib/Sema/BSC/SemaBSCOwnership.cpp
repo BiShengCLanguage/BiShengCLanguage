@@ -557,7 +557,8 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
     bool LeakFalse = CheckTemporaryVarMemoryLeak(CO->getFalseExpr());
     return LeakCond || LeakTrue || LeakFalse;
   }
-  if (!dyn_cast<CallExpr>(E)) return false;
+  if (!isa<CallExpr>(E) && !isa<CompoundLiteralExpr>(E))
+    return false;
   QualType RetType = E->getType().getCanonicalType();
   if (RetType.isOwnedQualified() || RetType->isMoveSemanticType()) {
     std::string ExprString;

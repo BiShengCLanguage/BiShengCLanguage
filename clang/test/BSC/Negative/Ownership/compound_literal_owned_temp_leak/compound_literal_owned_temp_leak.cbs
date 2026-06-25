@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -verify %s
+
+struct S { int *_Owned f; };
+struct M { int *_Owned f; int *_Owned g; };
+struct B { int *_Owned p; };
+int *_Owned mk(void);
+
+void bare_stmt(void) {
+  (struct S){.f = mk()}; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}
+
+void multi_owned_field(void) {
+  (struct M){.f = mk(), .g = mk()}; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}
+
+int member_access(void) {
+  return (struct B){.p = mk()}.p == nullptr; // expected-error {{memory leak because temporary variable}}
+}
+
+void wrapped_literals(int c) {
+  (void)0, (struct S){.f = mk()}; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  c ? (struct S){.f = mk()} : (struct S){.f = mk()}; // expected-error 2 {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+}

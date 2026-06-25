@@ -1,0 +1,42 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long);
+void free(void *);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+struct P { int x; };
+struct Q { int *_Borrow b; };
+struct S { int *_Owned f; };
+
+int member_plain(void) {
+  return (struct P){.x = 5}.x;
+}
+
+int init_from_literal(void) {
+  struct P p = (struct P){.x = 7};
+  return p.x;
+}
+
+int member_borrow(int *_Borrow r) {
+  return *(struct Q){.b = r}.b;
+}
+
+void init_owned_field(void) {
+  struct S s = (struct S){.f = safe_malloc(1)};
+  safe_free(s.f);
+}
+
+int use_then_free_owned_field(void) {
+  struct S s = (struct S){.f = safe_malloc(2)};
+  int v = *s.f;
+  safe_free(s.f);
+  return v;
+}
