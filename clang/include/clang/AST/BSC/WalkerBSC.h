@@ -92,6 +92,9 @@ public:
         QT->hasBorrowFields() || QT->hasOwnedFields()) {
       return true;
     }
+    if (QT->getNullability(Context)) {
+      return true;
+    }
     if (IsDesugaredFromTraitType(QT)) {
       return true;
     }

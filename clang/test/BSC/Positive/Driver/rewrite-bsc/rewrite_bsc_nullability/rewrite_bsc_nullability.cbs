@@ -1,0 +1,44 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// The nullability qualifiers _Nullable / _Nonnull are compile-time-only type
+// annotations with no runtime semantics. The BSC-to-C rewriter must drop them
+// from the emitted type spellings so the resulting file is plain, portable C,
+// exactly as it already drops _Owned / _Borrow.
+// Provenance: BiShengC umbrella issue IJP3AP.
+
+// CHECK-NOT: _Nullable
+// CHECK-NOT: _Nonnull
+
+struct S { int *_Nullable p; };
+struct N { int *_Nonnull q; };
+struct M { int *_Nonnull a; int *_Nullable b; };
+
+int useS(struct S s) { return s.p ? 1 : 0; }
+int useN(struct N n) { return *n.q; }
+
+int *_Nullable mkNull(int *_Nonnull in) { return in; }
+
+int main(void) {
+  struct S s = {0};
+  struct N n;
+  int x = 0;
+  n.q = &x;
+  int *_Nullable lp = mkNull(n.q);
+  return useS(s) + useN(n) + (lp ? 0 : 0);
+}
+
+// CHECK:      struct S {
+// CHECK-NEXT:     int *p;
+// CHECK-NEXT: };
+// CHECK:      struct N {
+// CHECK-NEXT:     int *q;
+// CHECK-NEXT: };
+// CHECK:      struct M {
+// CHECK-NEXT:     int *a;
+// CHECK-NEXT:     int *b;
+// CHECK-NEXT: };
+// CHECK:      int *mkNull(int *in) {
+// CHECK:          int *lp = mkNull(n.q);

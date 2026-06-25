@@ -1818,6 +1818,10 @@ void TypePrinter::printAttributedBefore(const AttributedType *T,
 
   // Print nullability type specifiers.
   if (T->getImmediateNullability()) {
+#if ENABLE_BSC
+    if (Policy.RewriteBSC)
+      return;
+#endif
     if (T->getAttrKind() == attr::TypeNonNull)
       OS << " _Nonnull";
     else if (T->getAttrKind() == attr::TypeNullable)

@@ -1,0 +1,45 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// Nullability qualifiers must be stripped at every level they can appear:
+// nested behind another pointer, inside a typedef, inside a function-pointer
+// field's return/parameter types, and on a local variable of an otherwise
+// plain function.
+// Provenance: BiShengC umbrella issue IJP3AP.
+
+// CHECK-NOT: _Nullable
+// CHECK-NOT: _Nonnull
+
+typedef int *_Nullable NP;
+
+struct W { int *_Nullable *pp; };
+struct FP { int *_Nullable (*fp)(int *_Nonnull); };
+
+NP idnp(NP x) { return x; }
+
+void plain(void) {
+  int *_Nullable q = 0;
+  (void)q;
+}
+
+int main(void) {
+  struct W w = {0};
+  struct FP f = {0};
+  NP n = 0;
+  (void)w; (void)f;
+  n = idnp(n);
+  plain();
+  return n ? 0 : 0;
+}
+
+// CHECK:      typedef int *NP;
+// CHECK:      struct W {
+// CHECK-NEXT:     int **pp;
+// CHECK-NEXT: };
+// CHECK:      struct FP {
+// CHECK-NEXT:     int *(*fp)(int *);
+// CHECK-NEXT: };
+// CHECK:      void plain(void) {
+// CHECK-NEXT:     int *q = 0;
