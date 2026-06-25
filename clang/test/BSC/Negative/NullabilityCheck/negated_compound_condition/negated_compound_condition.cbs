@@ -1,0 +1,13 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+int from_and(int *_Nullable p, int x) {
+  if (!(p == nullptr && x > 0))
+    return *p; // expected-error {{nullable pointer cannot be dereferenced}}
+  return -1;
+}
+
+int double_negation(int *_Nullable p) {
+  if (!!(p == nullptr))
+    return *p; // expected-error {{nullable pointer cannot be dereferenced}}
+  return 0;
+}

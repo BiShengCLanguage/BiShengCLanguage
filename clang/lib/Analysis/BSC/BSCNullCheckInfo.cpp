@@ -195,42 +195,38 @@ const Expr *extractDistinguishedTrackablePtr(const Expr *Cond, ASTContext &Ctx,
 }
 } // namespace
 
-void NullCheckInfo::init(const Expr *Cond) {
+void NullCheckInfo::init(const Expr *Cond, bool Negate) {
+  bool EvaluationResult;
+  if (Cond->EvaluateAsBooleanCondition(EvaluationResult, ctx)) {
+    triviality = (EvaluationResult != Negate) ? ConstTrue : ConstFalse;
+    return;
+  }
   Cond = Cond->IgnoreParenImpCasts();
   // recursively process logical operators
   if (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
     if (UO->getOpcode() == UO_LNot) {
-      NullCheckInfo SubInfo(UO->getSubExpr(), ctx);
-      SubInfo.invert();
-      *this = std::move(SubInfo);
+      init(UO->getSubExpr(), !Negate);
       return;
     }
   }
   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
     if (BO->isLogicalOp()) {
-      NullCheckInfo LHSInfo(BO->getLHS(), ctx);
+      NullCheckInfo LHSInfo(ctx);
+      LHSInfo.init(BO->getLHS(), Negate);
+      LHSInfo.obliviateInfeasible();
+      NullCheckInfo RHSInfo(ctx);
+      RHSInfo.init(BO->getRHS(), Negate);
+      RHSInfo.obliviateInfeasible();
       *this = std::move(LHSInfo);
-      NullCheckInfo RHSInfo(BO->getRHS(), ctx);
-      if (BO->getOpcode() == BO_LAnd) {
+      if ((BO->getOpcode() == BO_LAnd) != Negate)
         *this &= std::move(RHSInfo);
-      }
-      if (BO->getOpcode() == BO_LOr) {
+      else
         *this |= std::move(RHSInfo);
-      }
       return;
     }
   }
   // basic case: extract and register pointer expression
-  extractAndInsert(Cond);
-}
-
-void NullCheckInfo::invert() {
-  if (triviality == ConstTrue) {
-    triviality = ConstFalse;
-  } else if (triviality == ConstFalse) {
-    triviality = ConstTrue;
-  }
-  nullCheckedExprs.swap(presentCheckedExprs);
+  extractAndInsert(Cond, Negate);
 }
 
 NullCheckInfo &NullCheckInfo::operator&=(NullCheckInfo &&RHS) {
@@ -333,11 +329,11 @@ NullCheckInfo &NullCheckInfo::operator|=(NullCheckInfo &&RHS) {
   return *this;
 }
 
-void NullCheckInfo::extractAndInsert(const Expr *Cond) {
+void NullCheckInfo::extractAndInsert(const Expr *Cond, bool Negate) {
   bool NullNess = false;
   if (const Expr *PtrExpr =
           extractDistinguishedTrackablePtr(Cond, ctx, NullNess)) {
-    if (NullNess) {
+    if (NullNess != Negate) {
       nullCheckedExprs.insert(PtrExpr);
     } else {
       presentCheckedExprs.insert(PtrExpr);
@@ -368,13 +364,7 @@ NullCheckInfo::NullCheckInfo(const Expr *Cond, ASTContext &Ctx)
     : triviality(NonTrivial), ctx(Ctx) {
   if (!Cond)
     return;
-  // Attempt to evaluate in compile-time
-  bool EvaluationResult;
-  if (Cond->EvaluateAsBooleanCondition(EvaluationResult, Ctx)) {
-    triviality = EvaluationResult ? ConstTrue : ConstFalse;
-    return;
-  }
-  init(Cond);
+  init(Cond, /*Negate=*/false);
   obliviateInfeasible();
 }
 

@@ -41,16 +41,9 @@ class NullCheckInfo {
 
   ASTContext &ctx;
 
-  /// Helper of constructor
-  void init(const Expr *Cond);
-
-  /// Invert the null-ness and non-null-ness of the checked expressions,
-  /// this semantic keeps consistent with the logical not operator `!`
-  /// in source.
-  void invert();
-  // Because `~` operator is value-semantic and `!` operator should
-  // returns `bool` in C++, and `!=` indicates "not equal", there is no
-  // operator to express invert in-place, so a member function is provided.
+  /// Helper of constructor. `Negate` carries a logical-not into the recursion
+  /// via De Morgan's law.
+  void init(const Expr *Cond, bool Negate);
 
   /// Synthesize two sub-expressions of && operator
   NullCheckInfo &operator&=(NullCheckInfo &&RHS);
@@ -62,7 +55,7 @@ class NullCheckInfo {
   /// non-null-ness in a simple condition expression without top-level logical
   /// operators, such as `p`, `p = q`, `s.p != nullptr`, `++x, s->p == nullptr`
   /// Caller must ensure `Cond` is not nullptr.
-  void extractAndInsert(const Expr *Cond);
+  void extractAndInsert(const Expr *Cond, bool Negate);
 
   /// For infeasible conditions, obliviate those checked expressions to make
   /// sure that the analysis result is sound.
@@ -80,6 +73,11 @@ public:
 
   /// Analyze `Cond` under `Ctx`, and extract the checked pointer expressions
   NullCheckInfo(const Expr *Cond, ASTContext &Ctx);
+
+private:
+  NullCheckInfo(ASTContext &Ctx) : triviality(NonTrivial), ctx(Ctx) {}
+
+public:
 
   NullCheckInfo &operator=(NullCheckInfo &&RHS);
 };

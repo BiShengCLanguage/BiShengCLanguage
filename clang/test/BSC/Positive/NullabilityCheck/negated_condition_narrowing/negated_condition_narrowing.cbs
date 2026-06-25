@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+// expected-no-diagnostics
+
+int negated_eq(int *_Nullable p) {
+  if (!(p == nullptr))
+    return *p;
+  return 0;
+}
+
+int negated_or(int *_Nullable p, int *_Nullable q) {
+  if (!(p == nullptr || q == nullptr))
+    return *p + *q;
+  return 0;
+}
+
+int plain_ne(int *_Nullable p) {
+  if (p != nullptr)
+    return *p;
+  return 0;
+}
