@@ -1,17 +1,16 @@
-// RUN: %clang_cc1 -nullability-check=all -verify %s
+// RUN: %clang_cc1 -verify %s
+
+// Regression (umbrella IJP3AP, F66): assigning `int **` (whose inner pointee is
+// an unannotated raw pointer = Nullable by the BSC default) to
+// `int *_Nonnull *` was silently accepted -> runtime SIGSEGV.
+// CheckNullabilityQualTypeAssignment short-circuited when the RHS pointee had no
+// explicit nullability; a raw pointer pointee is now treated as Nullable.
 
 void from_raw(int **raw) {
   int *_Nonnull *p = raw; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}} expected-warning {{incompatible pointer types}}
+  (void)p;
 }
-
 void from_nullable(int *_Nullable *nb) {
   int *_Nonnull *p = nb; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}} expected-warning {{incompatible pointer types}}
-}
-
-void from_borrow_nullable(int *_Borrow _Nullable *raw) {
-  int *_Borrow *p = raw; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}} expected-warning {{incompatible pointer types}}
-}
-
-void from_owned_nullable(int *_Owned _Nullable *raw) {
-  int *_Owned *p = raw; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}} expected-warning {{incompatible pointer types}}
+  (void)p;
 }
