@@ -94,6 +94,8 @@ bool Type::hasBorrowFields() const {
     return RecTy->hasBorrowFields();
   } else if (const auto *PointerTy = dyn_cast<PointerType>(CanonicalType)) {
     return PointerTy->hasBorrowFields();
+  } else if (const auto *ArrTy = dyn_cast<ArrayType>(CanonicalType)) {
+    return ArrTy->getElementType().getTypePtr()->hasBorrowFields();
   }
   return false;
 }

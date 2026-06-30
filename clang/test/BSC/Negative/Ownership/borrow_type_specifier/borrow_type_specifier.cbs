@@ -68,6 +68,17 @@ _Borrow struct S1  g_6; // expected-error {{_Borrow type requires a pointer or r
                         // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
 S4<int>            g_7; // expected-note {{in instantiation of template class 'S4<int>' requested here}}
 S4<int *>          g_8;
+// An array of a struct that indirectly contains a _Borrow is a no-lifetime slot
+// too and must be rejected (single- and multi-dimensional).
+struct S1           g_9[1];    // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[1]' contains '_Borrow' type}}
+struct S1           g_10[2][3]; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[2][3]' contains '_Borrow' type}}
+// A file-scope array of a struct holding a _Borrow field is a no-lifetime slot
+// and must be rejected (a borrow parked there would dangle).
+struct B { int *_Borrow f; };
+struct B            garr[1];   // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct B[1]' contains '_Borrow' type}}
+// An array whose element is a bare _Borrow pointer is rejected as well.
+int *_Borrow        g_11[1];   // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
+int *_Borrow        g_12[2][3]; // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 
 // Test static variables.
 static int _Borrow        s_1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
@@ -80,6 +91,7 @@ static _Borrow struct S1  s_6; // expected-error {{_Borrow type requires a point
                                // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
 static S4<int>            s_7; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'S4<int>' contains '_Borrow' type}}
 static S4<int *>          s_8; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'S4<int *>' contains '_Borrow' type}}
+static struct S1          s_9[1]; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[1]' contains '_Borrow' type}}
 
 // Test function parameter types and return types.
 int *_Borrow f1(int *_Borrow p);
@@ -114,4 +126,14 @@ _Safe void f7(void) {
   const int *_Borrow a6 = nullptr;
   int *_Borrow *a7 = nullptr;
   S4<int *> a8 = { nullptr, nullptr };
+}
+
+// Test array forms in a function: a static-local array is a no-lifetime slot
+// and must be rejected, while a scope-bounded local array stays legal.
+_Safe void f8(void) {
+  struct S1 larr[1]; // legal: scope-bounded local array
+  static struct S1 sl[1]; // expected-error {{type of static local variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[1]' contains '_Borrow' type}}
+
+  int *_Borrow lparr[1]; // legal: scope-bounded local array of _Borrow pointers
+  static int *_Borrow slp[1]; // expected-error {{type of static local variable cannot be qualified by '_Borrow'}}
 }
