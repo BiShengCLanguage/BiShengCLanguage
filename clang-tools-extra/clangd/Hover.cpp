@@ -428,6 +428,14 @@ llvm::Optional<std::string> printExprValue(const Expr *E,
       Constant.Val.isStruct() || Constant.Val.isUnion())
     return llvm::None;
 
+#if ENABLE_BSC
+  // In BiSheng C a function/pointer value cast to an integral type folds to an
+  // LValue APValue even though the expression type is integral. Bail out so the
+  // getInt() accessors below are not called on a non-integer value (which would
+  // trip APValue::getInt()'s assertion and crash).
+  if (T->isIntegralOrEnumerationType() && !Constant.Val.isInt())
+    return Constant.Val.getAsString(Ctx, T);
+#endif
   // Show enums symbolically, not numerically like APValue::printPretty().
   if (T->isEnumeralType() && Constant.Val.getInt().getMinSignedBits() <= 64) {
     // Compare to int64_t to avoid bit-width match requirements.

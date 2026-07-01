@@ -1,0 +1,20 @@
+# RUN: clangd -lit-test < %s | FileCheck %s
+# Regression: hover on a variable initialized by an integral cast of an
+# LValue (e.g. (long)"hello") must not crash APValue::getInt().
+
+{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"processId":123,"rootPath":"clangd","capabilities":{"hoverProvider":true},"trace":"off"}}
+---
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"test:///main.cbs","languageId":"cbs","version":1,"text":"int cast_test(void) {\n    long x = (long)\"hello\";\n    return (int)x;\n}\n"}}}
+---
+{"jsonrpc":"2.0","id":1,"method":"textDocument/hover","params":{"textDocument":{"uri":"test:///main.cbs"},"position":{"line":1,"character":10}}}
+#      CHECK:  "id": 1,
+# CHECK-NEXT:  "jsonrpc": "2.0",
+# CHECK-NEXT:  "result": {
+# CHECK-NEXT:    "contents": {
+# CHECK-NEXT:      "kind": "plaintext",
+# CHECK-NEXT:      "value": "variable x\n\nType: long\nValue = &\"hello\"\n\n// In cast_test\nlong x = (long)\"hello\""
+# CHECK-NEXT:    }
+---
+{"jsonrpc":"2.0","id":2,"method":"shutdown"}
+---
+{"jsonrpc":"2.0","method":"exit"}

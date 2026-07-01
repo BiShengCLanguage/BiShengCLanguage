@@ -28,7 +28,7 @@ int main() {
     test_safe_stmt1();
 }
 
-// CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-14]]:1, line:[[@LINE-6]]:1> line:[[@LINE-14]]:12 used test_safe_stmt1 'void (void)'
+// CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-14]]:1, line:[[@LINE-6]]:1> line:[[@LINE-14]]:12 used test_safe_stmt1 'void (void)' _Safe
 // CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:34, line:[[@LINE-7]]:1>
 // CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <line:[[@LINE-15]]:5, col:14>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:13> col:9 used v 'int' cinit
@@ -60,5 +60,5 @@ int main() {
 // CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-33]]:1, line:[[@LINE-31]]:1> line:[[@LINE-33]]:5 main 'int (void)'
 // CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:12, line:[[@LINE-32]]:1>
 // CHECK-NEXT: CallExpr 0x{{[^ ]*}} <line:[[@LINE-34]]:5, col:21> 'void'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:5> 'void (*)(void)' <FunctionToPointerDecay>
-// CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:5> 'void (void)' Function 0x{{[^ ]*}} 'test_safe_stmt1' 'void (void)'
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:5> 'void (*)(void)' _Safe <FunctionToPointerDecay>
+// CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:5> 'void (void)' _Safe Function 0x{{[^ ]*}} 'test_safe_stmt1' 'void (void)' _Safe

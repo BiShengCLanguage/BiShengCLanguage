@@ -312,6 +312,11 @@ let Class = FunctionProtoType in {
   def : Property<"refQualifier", RefQualifierKind> {
     let Read = [{ node->getRefQualifier() }];
   }
+#ifdef BSC
+  def : Property<"safeZoneSpec", UInt32> {
+    let Read = [{ static_cast<uint32_t>(node->getFunSafeZoneSpecifier()) }];
+  }
+#endif
   def : Property<"exceptionSpecifier", ExceptionSpecInfo> {
     let Read = [{ node->getExceptionSpecInfo() }];
   }
@@ -335,6 +340,9 @@ let Class = FunctionProtoType in {
     epi.HasTrailingReturn = trailingReturn;
     epi.TypeQuals = methodQualifiers;
     epi.RefQualifier = refQualifier;
+#if ENABLE_BSC
+    epi.SafeZoneSpec = static_cast<SafeZoneSpecifier>(safeZoneSpec);
+#endif
     epi.ExceptionSpec = exceptionSpecifier;
     epi.ExtParameterInfos =
       extParameterInfo.empty() ? nullptr : extParameterInfo.data();

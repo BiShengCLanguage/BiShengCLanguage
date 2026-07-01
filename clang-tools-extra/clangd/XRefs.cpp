@@ -82,9 +82,22 @@ const NamedDecl *getDefinition(const NamedDecl *D) {
     return VD->getDefinition();
   if (const auto *FD = dyn_cast<FunctionDecl>(D))
     return FD->getDefinition();
-  if (const auto *CTD = dyn_cast<ClassTemplateDecl>(D))
+  if (const auto *CTD = dyn_cast<ClassTemplateDecl>(D)) {
+#if ENABLE_BSC
+    // In BiSheng C the templated decl of a ClassTemplateDecl may be a plain
+    // RecordDecl rather than a CXXRecordDecl, even though getTemplatedDecl() is
+    // typed to return CXXRecordDecl*. Recover the real type via the Decl base
+    // before calling the definition accessor; otherwise CXXRecordDecl methods
+    // read DefinitionData off the end of the smaller RecordDecl and crash.
+    if (const Decl *TmplD = CTD->getTemplatedDecl()) {
+      if (const auto *TagD = dyn_cast<TagDecl>(TmplD))
+        return TagD->getDefinition();
+    }
+#else
     if (const auto *RD = CTD->getTemplatedDecl())
       return RD->getDefinition();
+#endif
+  }
   if (const auto *MD = dyn_cast<ObjCMethodDecl>(D)) {
     if (MD->isThisDeclarationADefinition())
       return MD;

@@ -1,0 +1,18 @@
+// RUN: cp %s %t.cbs
+// RUN: clangd --check=%t.cbs 2>&1 | FileCheck %s
+
+// Regression: a BSC ClassTemplateDecl whose templated decl is a plain
+// RecordDecl (not a CXXRecordDecl) must not crash clangd --check.
+// Trunk crashed in XRefs::getDefinition via TagDecl recovery; the fix
+// routes through TagDecl::getDefinition().
+
+_Borrow struct S<T> {
+    T x;
+};
+
+_Safe void use(void) {
+    struct S<int> s;
+    s.x = 0;
+}
+
+// CHECK: All checks completed, 0 errors
