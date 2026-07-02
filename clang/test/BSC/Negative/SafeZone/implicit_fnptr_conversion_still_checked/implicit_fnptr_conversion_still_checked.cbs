@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Only an explicit cast bypasses the safe-function-pointer checks outside the
+// safe zone. An implicit conversion (assignment without a cast) is still checked
+// even in a plain SZ_None region, so an incompatible function pointer conversion
+// is rejected.
+
+typedef struct MASBLOCK { int x; } MASBLOCK;
+extern _Safe MASBLOCK *_Owned _Nullable VOS_AllocMsg(unsigned Pid, unsigned Len);
+typedef _Safe void *_Owned _Nullable (*HOOK)(unsigned, unsigned);
+
+void plain(void) {
+  HOOK p = VOS_AllocMsg; // expected-error {{conversion from type 'MASBLOCK *_Owned  _Nullable (*)(unsigned int, unsigned int)' (aka 'struct MASBLOCK *_Owned  _Nullable (*)(unsigned int, unsigned int)') to 'HOOK' (aka 'void *_Owned  _Nullable (*)(unsigned int, unsigned int)') is forbidden}}
+  (void)p;
+}

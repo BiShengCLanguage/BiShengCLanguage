@@ -1,0 +1,60 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+typedef struct MASBLOCK { int x; } MASBLOCK;
+
+// A single _Safe declaration; return type differs (MASBLOCK* vs void*).
+extern _Safe MASBLOCK *_Owned _Nullable VOS_AllocMsg(unsigned Pid, unsigned Len);
+
+// A heterogeneous function: a plain C-style declaration plus a _Safe annotated
+// declaration whose return type carries _Owned/_Nullable (the real C->BSC shape).
+float *VOS_AllocMsg2(unsigned Pid, unsigned Len);
+extern _Safe float *_Owned _Nullable VOS_AllocMsg2(unsigned Pid, unsigned Len);
+
+typedef _Safe void *_Owned _Nullable (*HOOK)(unsigned Pid, unsigned Len);
+typedef struct RefFuncList { HOOK hook; } RefFuncList;
+
+// (1) explicit _Unsafe cast inside a _Safe function (unsafe zone via _Unsafe()).
+_Safe void in_safe_fn(void) {
+  HOOK p = _Unsafe((HOOK)VOS_AllocMsg);
+  (void)p;
+}
+
+// (2) explicit cast in a plain (SZ_None) function.
+void in_plain_fn(void) {
+  HOOK p = (HOOK)VOS_AllocMsg;
+  (void)p;
+}
+
+// (3) explicit cast of a heterogeneous function: no "no matching declaration".
+void hetero(void) {
+  HOOK p = (HOOK)VOS_AllocMsg2;
+  (void)p;
+}
+
+// (4) array-of-struct aggregate initializer using explicit casts.
+RefFuncList g_hooks[2] = {
+    { _Unsafe((HOOK)VOS_AllocMsg) },
+    { (HOOK)VOS_AllocMsg2 },
+};
+
+// (5) User's exact case, variant 2 -- a single _Safe declaration, cast inside a
+//     _Safe function (RRE_MSG_ALLOC_HOOK_FUNC hook table pattern).
+extern _Safe float *_Owned _Nullable VOS_AllocMsg_A(int Pid, int ulLength);
+typedef _Safe void *_Owned _Nullable (*RRE_MSG_ALLOC_HOOK_FUNC_A)(int ulPid,
+                                                                  int ulLength);
+_Safe void foo_A(void) {
+  RRE_MSG_ALLOC_HOOK_FUNC_A p = _Unsafe((RRE_MSG_ALLOC_HOOK_FUNC_A)VOS_AllocMsg_A);
+  (void)p;
+}
+
+// (6) User's exact case, variant 1 -- heterogeneous: a plain C declaration plus
+//     a _Safe annotated declaration, cast inside a _Safe function.
+float *VOS_AllocMsg_B(int Pid, int ulLength);
+extern _Safe float *_Owned _Nullable VOS_AllocMsg_B(int Pid, int ulLength);
+typedef _Safe void *_Owned _Nullable (*RRE_MSG_ALLOC_HOOK_FUNC_B)(int ulPid,
+                                                                  int ulLength);
+_Safe void foo_B(void) {
+  RRE_MSG_ALLOC_HOOK_FUNC_B p = _Unsafe((RRE_MSG_ALLOC_HOOK_FUNC_B)VOS_AllocMsg_B);
+  (void)p;
+}
