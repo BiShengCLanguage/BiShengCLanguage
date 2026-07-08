@@ -6,8 +6,6 @@
 // RUN: %clang -rewrite-bsc -line %s -o %t-rwline.c
 // RUN: FileCheck --input-file=%t-rwline.c %s --check-prefix=CHECK-L
 
-// Flaw in Nested _Owned sturct reassign 
-// https://gitee.com/bisheng_c_language_dep/llvm-project/issues/ICD2TU
 int x = 0;
 int y = 0;
 _Owned struct Weak{
@@ -35,7 +33,7 @@ void test(){
 
 
 
-//CHECK-L: #line 27 "{{.*}}.cbs"
+//CHECK-L: #line 25 "{{.*}}.cbs"
 //CHECK-L-NEXT:void test(void) {
 //CHECK-L-NEXT:    struct Weak w1 = {};
 //CHECK-L-NEXT:   _Bool w1_is_moved = 0;

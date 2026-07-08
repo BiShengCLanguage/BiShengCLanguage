@@ -1,18 +1,18 @@
-name: DTS 反馈
-description: 如果你是一名测试人员，当你在代码中发现了一个 Bug，导致应用崩溃或抛出异常，或者有一个组件存在问题，或者某些地方看起来不对劲。
+name: Bug 反馈
+description: 如果你是一个开发人员，当你在代码中发现了一个 Bug，导致应用崩溃或抛出异常，或者有一个组件存在问题，或者某些地方看起来不对劲。
 title: "【】"
-labels: ["DTS"]
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
         感谢对项目的支持与关注。在提出问题之前，请确保你已查看相关开发或使用文档：
-        - https://gitee.com/bisheng_c_language_dep/llvm-project/blob/bishengc/15.0.4/clang/docs/BiShengCLanguageUserManual.md
+        - https://gitcode.com/bisheng_c_language_dep/llvm-project/blob/bishengc/15.0.4/clang/docs/BiShengCLanguageUserManual.md
   - type: checkboxes
     attributes:
       label: 这个问题是否已经存在？
       options:
-        - label: 我已经搜索过现有的问题 (https://gitee.com/bisheng_c_language_dep/llvm-project/issues)
+        - label: 我已经搜索过现有的问题 (https://gitcode.com/bisheng_c_language_dep/llvm-project/issues)
           required: true
   - type: textarea
     attributes:

@@ -26,7 +26,7 @@
 首先，克隆毕昇C编译器项目仓库：
 
 ```shell
-$ git clone https://gitee.com/bisheng_c_language_dep/llvm-project.git
+$ git clone https://gitcode.com/bisheng_c_language_dep/llvm-project.git
 $ cd llvm-project
 ```
 

@@ -35,7 +35,7 @@
 
 ### 高风险场景检查
 
-https://gitee.com/bisheng_c_language_dep/llvm-project/wikis/BiShengC%20PR%20Checklist
+https://gitcode.com/bisheng_c_language_dep/llvm-project/wiki/BiShengC%20PR%20Review%20Standard.md
 - [ ] 非法输入稳定报错，不会 crash
 - [ ] ownership /  borrow / nullability 复合场景已覆盖
 - [ ] 结构体 / 数组 / （预定义）字符串 复合类型已覆盖
