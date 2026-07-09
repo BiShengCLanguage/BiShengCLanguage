@@ -4932,8 +4932,6 @@ c 语言有很多规则过于灵活，不方便编译器做静态检查。因此
 
 - 没有 `_Safe`或`_Unsafe`关键字修饰的全局函数默认是非安全的。
 
-#### 3.6.2. 代码示例
-
 ```c
 #include <stdlib.h>
 
@@ -4962,7 +4960,7 @@ int main(void) {
 }
 ```
 
-#### 3.6.3. 语法规则
+#### 3.6.2. 语法与作用域规则
 
 1. 允许使用`_Safe/_Unsafe`修饰函数声明、函数签名、函数定义、函数指针、语句、括号表达式。
 
@@ -5003,7 +5001,26 @@ _Safe typedef int mm; // error: 不能修饰 typedef
 int main() { return 0; }
 ```
 
-3. `_Safe`修饰的函数，参数类型和返回类型允许是裸指针类型、成员中包含裸指针的`struct`类型、数组类型以及`union`类型。
+3. 安全区内允许再包含`_Unsafe`修饰的语句、函数指针、括号表达式，非安全区内也允许再包含`_Safe`修饰的语句、函数指针、括号表达式。
+
+```c
+int add(int a, int b) { return a + b; }
+_Safe int max(int a, int b) { return a > b ? a : b; }
+int main() {
+  _Safe {
+    int a = 0;
+    _Unsafe a++;
+    _Unsafe {
+      a = add(1, 3);
+      _Safe a = max(3, 5);
+    }
+  }
+}
+```
+
+#### 3.6.3. `_Safe` 函数的声明约束
+
+1. `_Safe`修饰的函数，参数类型和返回类型允许是裸指针类型、成员中包含裸指针的`struct`类型、数组类型以及`union`类型。
 
 ```c
 _Safe int *foo(int a); // ok: 返回值为裸指针类型
@@ -5019,7 +5036,7 @@ _Safe SF wrapped_foo(int a); // ok: 返回值为成员中包含裸指针类型�
 _Safe int wrapped_bar(SF b); // ok: 参数类型为成员中包含裸指针类型的 struct 类型
 ```
 
-4. `_Safe`修饰的函数，函数参数列表不可以省略。
+2. `_Safe`修饰的函数，函数参数列表不可以省略。
 
 ```c
 _Safe void test(); // error
@@ -5027,7 +5044,7 @@ _Safe void test(); // error
 _Safe void test(void); // ok
 ```
 
-5. `_Safe`修饰的函数，函数参数列表不可以包含变长参数，除非该函数使用了`__attribute__((format(...)))`属性。
+3. `_Safe`修饰的函数，函数参数列表不可以包含变长参数，除非该函数使用了`__attribute__((format(...)))`属性。
 
 ```c
 _Safe int foo(int a, ...); // error
@@ -5036,7 +5053,7 @@ __attribute__((format(printf, 1, 2))) _Safe int bar(const char *fmt, ...); // ok
 
 注意：即使允许声明带format属性的变长参数函数，在函数体内仍然不能使用`va_start`、`va_arg`、`va_end`等，这些操作在安全区域内是被禁止的。
 
-6. 如果`_Trait`中的函数被声明为`_Safe`，那么要求实现`_Trait`的类型的对应成员函数也必须是`_Safe`修饰的函数。若`_Trait`中的函数未声明为`_Safe`，也允许实现`_Trait`中的类型的成员函数为`_Safe`，但编译器会给出**warning**。
+4. 如果`_Trait`中的函数被声明为`_Safe`，那么要求实现`_Trait`的类型的对应成员函数也必须是`_Safe`修饰的函数。若`_Trait`中的函数未声明为`_Safe`，也允许实现`_Trait`中的类型的成员函数为`_Safe`，但编译器会给出**warning**。
 
 ```c
 _Trait G {
@@ -5052,11 +5069,449 @@ _Impl _Trait G for int;
 int main() { return 0; }
 ```
 
-7. 函数的多声明与混合模式
+
+5. `_Safe`修饰泛型函数时，会对泛型每个实例化版本也做`_Safe`检查。
+
+```c
+#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
+
+_Safe T identity<T>(T a) { return a; }
+
+void foo() {
+  int a = 1;
+  int b = identity<int>(a);
+  int *_Owned c = (int *_Owned)safe_malloc(1);
+  int *_Owned d = identity<int * _Owned>(c); // ok
+  int *e = identity<void *>((void *)0); // ok
+  safe_free((void *_Owned)d);
+}
+
+int main() {
+  foo();
+  return 0;
+}
+```
+
+6. 成员函数也可以被`_Safe/_Unsafe`修饰，其规则和全局函数一样。
+
+```c
+struct MyStruct<T> {
+  T res;
+};
+_Safe T struct MyStruct<T>::foo(T a) {
+  return a;
+}
+
+int main() { return 0; }
+```
+
+#### 3.6.4. 安全区内的操作限制
+
+##### 3.6.4.1. 内存安全基本规则
+
+1. 安全区内被调用的函数或函数指针必须是`_Safe`的函数签名，不允许调用非安全函数或函数指针。有关同名函数重声明的调用解析，详见 [3.6.5 节](#365-函数的重声明与混合模式)。
+
+```c
+_Safe void safe_foo(void) {}
+_Unsafe void unsafe_foo(void) {}
+_Safe void (*safe_func_ptr)(void);
+_Unsafe void (*unsafe_func_ptr)(void);
+int main() {
+  _Safe {
+    safe_foo();
+    unsafe_foo(); // error: 安全区内不允许调用非安全函数
+    safe_func_ptr();
+    unsafe_func_ptr(); // error: 安全区内不允许调用非安全函数指针
+  }
+  _Unsafe {
+    safe_foo();
+    unsafe_foo(); // ok
+    safe_func_ptr();
+    unsafe_func_ptr(); // ok
+  }
+}
+```
+
+2. 安全区内不允许使用取地址符`&`（允许对函数取地址），只允许`&_Const`，`&_Mut`取借用。
+
+    安全区内不允许解引用裸指针，但可以解引用`_Owned`指针、`_Borrow`指针和非空函数指针。安全区中允许对数组类型取下标、解引用，解读为直接对数组进行操作、不会将其视为对退化后的裸指针解引用。
+
+```c
+#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
+
+typedef _Safe int (*unary_f)(int);
+_Safe int inc(int a) { return a + 1; }
+
+void test(unary_f _Nonnull fn) {
+  _Safe {
+    int a = 10;
+    
+    int *b = &a; // error: 安全区不允许取地址符号
+    int c = *b; // error: 安全区不允许解引用裸指针
+
+    int *_Owned d = safe_malloc(2);
+    int e = *d; // ok: 允许解引用owned指针
+    safe_free((void *_Owned)d);
+
+    int *_Borrow f = &_Mut a;
+    int g = *f; // ok: 允许解引用borrow指针
+
+    int h = (*fn)(1);  // ok: 允许解引用函数指针
+  }
+}
+
+_Safe int test2(unary_f f) {
+  if (f != nullptr) {
+    return (*f)(1);  // ok: 判空后确认为非空
+  }
+  return 0;
+}
+```
+
+##### 3.6.4.2. 类型安全限制
+
+1. 安全区内不允许指向类型不同的指针类型之间转换，但有以下例外：
+    1. 允许指向其他类型的owned指针显式转换为指向void类型的owned指针，该转换需要符合 [3.1.4.3 owned指针强制类型转换](#3143-强制类型转换) 的规则。
+    2. 允许指向其他类型的borrow指针隐式转换为指向void类型的borrow指针，但原类型必须满足 is_trivial_data 的条件（不含指针和 _Owned struct），否则不允许转换。
+
+    安全区内不允许指针和非指针类型之间的转换。关于数组退化到指针的完整规则，详见 [3.3.2 数组退化规则拓展](#332-数组退化规则拓展)。除数组退化规则外，安全区内不允许`_Owned/_Borrow/raw`指针之间的转换；另外，允许 `T *_Borrow _ArrayElem` 转换为 `T *_Borrow`。
+
+```c
+void test() {
+  int *pa;
+  double *pb;
+  _Safe {
+    pb = pa; // error：不允许指向类型不同的指针类型之间转换
+    pa = pb; // error：不允许指向类型不同的指针类型之间转换
+    pb = (double *)pa; // error：不允许指向类型不同的指针类型之间转换
+  }
+  int i;
+  _Safe {
+    pa = i; // error：不允许指针和非指针类型之间的转换
+    i = pa; // error：不允许指针和非指针类型之间的转换
+  }
+  int *_Owned pd = (int *_Owned)pa;
+  _Safe {
+    pa = pd; // error：不允许 _Owned/raw 指针之间的转换
+    pd = pa; // error：不允许 _Owned/raw 指针之间的转换
+
+    void *_Owned pe = (void *_Owned)pd; // ok: 允许显式转换为void类型的owned指针
+  }
+  struct S {int *ptr;};
+  struct S s = {.ptr = nullptr};
+  int a = 0;
+  _Safe {
+    int *_Borrow p1 = &_Mut a;
+    void *_Borrow p2 = p1; // ok: int 满足 is_trivial_data 约束，允许 int *_Borrow 隐式转换到 void *_Borrow
+    struct S *_Borrow p3 = &_Mut s;
+    void *_Borrow p4 = (void *_Borrow)p3; // error: struct S 不满足 is_trivial_data，不允许 struct S *_Borrow 转换到 void *_Borrow
+  }
+}
+
+int main() {
+  test();
+  return 0;
+}
+```
+
+2. 安全区内允许定义和声明`union`类型变量，允许指向union的裸指针和安全指针，但不允许对`union`成员读写和取借用。
+
+```c
+#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
+
+union U {
+  int age;
+  char name[16];
+};
+
+_Safe void foo(union U *p) {       // ok: 安全区允许指向union的裸指针
+  int py = p->age;                 // error: 安全区不允许对 union 成员读写
+  p->age = 20;                     // error: 安全区不允许对 union 成员读写
+  int *_Borrow pz = &_Mut p->age;  // error: 安全区不允许对 union 成员取借用
+  union U u = {10};                // ok: 安全区允许声明和初始化 union 类型变量
+  int y = u.age;                   // error: 安全区不允许对 union 成员读写
+  u.age = 20;                      // error: 安全区不允许对 union 成员读写
+  int *_Borrow z = &_Mut u.age;    // error: 安全区不允许对 union 成员取借用
+  _Unsafe {
+    int y2 = u.age;                // ok: 非安全区允许对 union 成员读写
+    u.age = 30;                    // ok: 非安全区允许对 union 成员读写
+    int *_Borrow z2 = &_Mut u.age; // ok: 非安全区允许对 union 成员取借用
+  }
+  union U *_Owned p1 = safe_malloc(u);  // ok, 允许指向union的_Owned指针
+  int y3 = p1->age;                // error: 安全区不允许对 union 成员读写
+  p1->age = 40;                    // error: 安全区不允许对 union 成员读写
+  int *_Borrow z3 = &_Mut p1->age; // error: 安全区不允许对 union 成员取借用
+  safe_free((void * _Owned)p1);
+  union U *_Borrow p2 = &_Mut u;   // ok, 允许指向union的_Borrow指针
+  int y4 = p2->age;                // error: 安全区不允许对 union 成员读写
+  p2->age = 50;                    // error: 安全区不允许对 union 成员读写
+  int *_Borrow z4 = &_Mut p2->age; // error: 安全区不允许对 union 成员取借用
+}
+```
+
+##### 3.6.4.3. 数值类型转换规则
+
+安全区内不允许**隐式执行**表达范围从大向小的类型转换（比如从`long`转换为`int`，从`int`转换为`_Bool`，从`int`转换为`enum`），不允许**隐式执行**表达精度从高向低的类型转换（比如从`double`转换为`float`）。安全区内不允许将一个算术类型转换为一个枚举类型，除非是从一个枚举类型显式转换为一个表达范围更大或相等的枚举类型。安全区内不允许从浮点类型转换到整数类型。对于编译期能确定值的常量发生类型转换，或是编译期能确定取值范围的整数类型表达式转换为其他整数类型，如果目标类型可以描述这个值，那么在安全区内该类型转换可以隐式执行，否则此类转换必须显式执行且需符合上述规则。
+
+排除枚举类型时，安全区允许执行的数值类型转换如下图所示：（若同方向支持隐式转换则一定支持显式转换；只写需显式转换则说明不允许隐式转换。表示允许转换的边有一头连着子图时，等效于连接该子图的所有结点，比如 `_Bool` 有条边指向整数，表示允许 `_Bool` 以相同规则转换为任一整数类型。）
+
+``` mermaid
+graph TB
+  bool["_Bool"]
+  subgraph int["整数"]
+    direction LR
+    subgraph signedint["有符号整数"]
+      direction TB
+      signedint_s["小类型"]
+      signedint_l["大类型"]
+      signedint_s -- 正向隐式，反向显式 --> signedint_l
+    end
+    subgraph unsignedint["无符号整数"]
+      direction TB
+      unsignedint_s["小类型"]
+      unsignedint_l["大类型"]
+      unsignedint_s -- 正向隐式，反向显式 --> unsignedint_l
+    end
+    signedint <-- 需显式互转 --> unsignedint
+  end
+  bool -- 正向隐式，反向显式 --> int
+  subgraph fp["浮点数"]
+  direction TB
+    fp_s["小类型"]
+    fp_l["大类型"]
+    fp_s -- 正向隐式，反向显式 --> fp_l
+  end
+  int -- 正向显式，反向不允许 --> fp
+```
+
+###### 内置整数类型与 _Bool
+
+1. 当将一个算术类型转换为 `_Bool` 时，当原类型的值为零，则转换后值为 0；否则，转换后值为 1 （与C一致）。
+```c
+int b = 0;
+_Bool c = (_Bool)b; // ok: int -> _Bool; c = 0
+c = (_Bool)1;       // ok: int -> _Bool; c = 1
+c = (_Bool)2;       // ok: int -> _Bool; c = 1
+```
+
+2. 将一个有符号整数类型或一个表达范围更大的无符号整数类型转换为一个**无符号**整数类型时，如果原类型的值的大小在目标类型的范围内，则转换后值的大小不变；否则，转换后值的大小为"不断对原值加或减(1+目标类型的最大值)直到结果落在目标类型的范围内的值" （与C一致）。如果目标无符号整数类型的表达范围是从 0 到 $2^N-1$ 且原类型的值为 $X$，那么转换后值的大小为 $X$ 不断加或减 $2^N$ 直到结果 $Y$ 落入 0 到 $2^N-1$ 之间，转换后的值即为 $Y$。上述表示等效于将大的整数类型截断为小的无符号整数类型，或是将小的有符号整数类型通过符号位拓展转为无符号整数类型。
+```c
+unsigned long a = 2;
+unsigned b = (unsigned) a; // ok: unsigned long -> unsigned int
+int c = -1;
+unsigned d = (unsigned) c; // ok: int -> unsigned int; d = 2^32 - 1
+unsigned long e = (unsigned long) c; // ok: int -> unsigned long; e = 2^64 - 1
+```
+
+3. 将一个表达范围更大的整数类型转换为表达范围更小的**有符号**整数类型（不包括枚举类型）时，如果原类型的值的大小在目标类型的范围内，则转换后值的大小不变；否则，转换后值的大小由实现定义。在当前毕昇C编译器的实现中，原值超过目标类型的表示范围时，大的整数类型会截断为小的有符号整数类型。
+```c
+long a = 2;
+int b = (int) a; // ok: long -> int
+unsigned c = 4294967295; // c = 2^32 - 1
+int d = (int) c; // ok: unsigned int -> int; d = -1
+```
+
+###### 枚举类型
+
+1. 安全区只允许从一个枚举类型显式转换为另一个枚举类型（有限定条件）；安全区内不允许其他任何类型在转换为枚举类型。使用显式转换将枚举类型 `E1` 转换为另一个枚举类型 `E2` 时，当且仅当 `E2` 中包含 `E1` 所有枚举值时允许，转换后的值不变，否则编译报错。安全区内不能隐式执行枚举到枚举转换。
+
+2. 从枚举类型隐式转换为整数类型时，遵循与整数到整数转换相同的安全区规则（见内置整数类型规则2-3）：允许转换到该枚举的底层整数类型；对于带显式底层类型的枚举，转换到其他整数类型时，仅当目标类型与底层类型符号相同且表达范围不更小，或编译期能证明取值范围可由目标类型精确表示时，才允许隐式转换。不允许隐式执行同宽异符号的枚举到整数转换。这些转换都可以显式执行，规则与整数到整数显式转换一致。
+
+在非安全区则与 C 一致，不对枚举类型转换做额外检查。
+
+```c
+_Safe void foo(void) {
+  enum E {ZERO, ONE, TWO}; // represented by int
+  enum F {SUN, MON, TUES}; // represented by int
+  enum F day = SUN;
+  enum E num = (enum E)day; // ok: enum F -> enum E
+  num = (enum E)SUN;        // ok: enum F -> enum E
+  int a = num; // ok: enum E -> int
+  a = ZERO;    // ok: enum E -> int
+  num = 0; // error: cannot cast int to enum E in safe zone
+  enum G {G1, G2};
+  enum G g1 = (enum G) num; // error: cannot cast enum E to enum G in safe zone
+  g1 = (enum G) ZERO; // error: cannot cast enum E to enum G in safe zone
+}
+_Safe void bar(void) {
+  enum EU : unsigned int { EU_BIG = 0xFFFFFFFFu };
+  enum EU e = EU_BIG;
+  unsigned int u = e;     // ok: enum EU -> unsigned int (同符号，同底层类型)
+  unsigned long long w = e; // ok: 同符号加宽
+  long long s = e;        // ok: unsigned -> 更宽的有符号，保值
+  int n = e;              // error: 同宽异符号，隐式转换会改变数值，不允许
+  int m = (int)e;         // ok: 显式转换允许，与 (int)u 一致
+}
+// 不带显式底层类型的枚举与 C 保持兼容：不施加额外的符号检查。
+_Safe void baz(void) {
+  enum BU { BU_BIG = 0xFFFFFFFF }; // 无显式底层类型, 编译器选择同宽无符号底层类型
+  enum BU e = BU_BIG;
+  int n = e;              // ok: 非固定底层类型枚举保留 C 的宽松转换行为
+}
+```
+
+###### 浮点类型
+
+1. 在安全区使用显式转换将一个浮点类型转换为精度更低的另一个浮点类型时，如果原值能在目标类型中精确表示，则转换后的值不变。如果原值在目标类型的表示范围内但是无法精确表示，则转换后的结果是最近的向上或向下近似的值，取决于具体实现。如果原值在目标类型的表示范围外，则具体值取决于具体实现。当前毕昇C编译器的实现应符合 IEEE 754 规范。安全区内不能隐式执行这样的类型转换。在非安全区则行为与 C 一致，语义相同且支持隐式执行这样的类型转换。
+```c
+_Safe {
+  double a = 1.0;
+  float b = 0.0f;
+  b = (float)a; // ok: double -> float
+  b = a; // error: cannot implicitly cast double to float
+  a = b; // ok
+}
+```
+2. 在安全区使用显式转换将一个整数类型转换为浮点类型时，如果原值能在目标类型中精确表示，则转换后的值不变。如果原值在目标类型的表示范围内但无法精确表示，则转换后的结果是最近的向上或向下近似的值，取决于具体实现。当前毕昇C编译器的实现应符合 IEEE 754 规范、使用 IEEE 754 中的默认舍入规则。安全区内不能隐式执行这样的类型转换。安全区内不允许从浮点类型转换为整数类型。在非安全区则行为与 C 一致，语义相同且支持隐式执行这样的类型转换。
+```c
+_Safe {
+  int a = -1;
+  double b = a; // error: cannot implicitly cast int to double in safe zone
+  b = (double) a; // ok: int -> double
+  a = (int) b; // error: cannot cast double to int in safe zone
+}
+```
+
+###### 其他规则
+
+1. 比较运算符（`==`, `!=`, `>=`, `<=`, `>`, `<`）、逻辑运算符（`&&`, `||`, `!`）的运算结果为 `int` 类型的 0 或 1，这些值允许在安全区隐式转换到其他整数类型（因为任何基本整数类型都可以表示 0 和 1）。
+```c
+_Safe {
+  int a = 0, b = 1;
+  _Bool c = (a == 0) || (b == 0); // ok: int (0/1) -> _Bool
+  char x = a < 3 || a >= 6; // ok: int (0/1) -> char
+}
+```
+
+2. 对于编译期能确定值的常量发生类型转换，若目标类型可精确表示该值，则允许隐式转换。如果编译期能确定取值范围整数类型表达式转换为另一整数类型，如果原值的取值范围小于等于目标类型的表示范围，则也允许隐式转换。否则需显式转换并符合上述规则。
+毕昇C保证二元位运算 `&` `|` `^` 可以在编译期确定取值范围。其他运算的支持由实现决定。
+```c
+_Safe {
+  int a = 10l; // ok: long -> int
+  unsigned long b = 2*2; // ok: int -> unsigned long
+
+  // int -2147483648~2147483647
+  int c = 2147483648; // error: 2147483648 out of range for int
+  int d = (int)2147483648; // ok: long -> int; d = -2147483648
+  int e = 2147483647; // ok
+
+  // unsigned int 0~4294967295
+  unsigned int f = 0;
+  f = 4294967296; // error: 4294967296 out of range for unsigned int
+  f = (unsigned int) 4294967296; // ok: long -> unsigned int; f = 0
+
+  unsigned long g = (unsigned long)-1; // ok: int -> unsigned long; g = 2^64-1
+  int h = (int) 1.2; // error: cannot cast double to int in safe zone
+  float k = 1.0; // ok: double -> float
+  float l = 1; // ok: int -> float
+}
+```
+```c
+_Safe {
+  unsigned char flag = 0;
+  flag = flag | 0x10;          // ok
+  flag = (flag | 0x01) & 0xFF; // ok
+  flag = flag | 0x100; // error: [0,255] | 0x100 超过了 unsigned char 的表示范围
+  unsigned short flag2 = 0;
+  flag2 = flag | 0x100; // ok
+  flag2 = flag2 | 0x10000; // error: [0, 65535] | 0x10000 超过了 unsigned short 的表示范围
+  unsigned int flag3 = 0; // 编译器不会跟踪 flag3 的精确范围，只使用保守的类型信息的值域（整个 unsigned int 的范围）
+  flag2 = flag3 | 0x10; // error: flag3 | 0x10 超过了 unsigned short 的表示范围
+  flag2 = (unsigned int)flag2 | 0x100; // error: flag2 转为 unsigned int 后取值范围扩大到 unsigned int 的范围，超出 unsigned short 的表示范围
+}
+```
+
+3.  `if/while/do-while/for` 语句的条件对表达式类型的要求与C一致，任何算术类型和指针类型都可以作为条件。在条件中使用任何值不会视为额外发生类型转换。
+```c
+int a = 2;
+_Safe {
+  if (a) { // ok: if 条件可以接受 int，不认为先转成了 _Bool
+    a += 1;
+  } else {
+    a -= 1;
+  }
+}
+```
+
+##### 3.6.4.4. 其他语法规则
+
+1.  安全区内`switch`语句中的`case/default`只能存在于`switch`后面的第一层代码块中，且第一层代码块不允许有变量定义。
+
+```c
+_Safe void foo(int a) {
+  switch (a) {
+    int b = 10; // error: 第一层代码块不允许有变量定义
+    case 0: {
+        int c = 1;
+        break;
+    }
+    {
+        case 1 : { break; } // error: case 只能存在于 switch 后面的第一层代码块中
+    }
+    {
+        default: { break; } // error: default 只能存在于 switch 后面的第一层代码块中
+    }
+  }
+}
+
+int main() {
+  int a = 1;
+  foo(a);
+  return 0;
+}
+```
+
+2. 安全区内不允许内嵌汇编语句。
+
+```c
+void test() {
+  _Safe {
+    int ret = 0;
+    int src = 1;
+    asm("move %0, %1\n\t" : "=r"(ret) : "r"(src)); // error: 安全区不允许内嵌汇编
+  }
+}
+int main() { return 0; }
+```
+
+3. 安全区内，前缀/后缀自增（`++`）和自减（`--`）表达式的结果类型为 `void`，即仅允许使用其副作用（自增或自减1），不得使用 `++`/`--` 表达式的值。在返回类型为 `void` 的安全函数中，不得将 `++`/`--` 的结果直接作为 return 语句的返回值。
+
+```c
+safe void take_int(int x);
+safe void foo(void) {
+  int a = 0;
+  a++; // ok: 安全区允许自增自减（仅副作用，表达式结果为 void）
+  a--;
+  int x = a++; // error: 自增自减的结果为 void 类型，不能使用其值初始化 int 变量
+  int arr[5] = {1, 2, 3, 4, 5};
+  arr[a++] = 0; // error: 自增自减的结果为 void 类型，不能使用其值做为 arr[] 下标
+  take_int(a++); // error: 自增自减的结果为 void 类型，不能使用其值做为 take_int() 入参
+  unsafe {take_int(a++);} // ok: 非安全区不受影响
+  for (int i = 0; i < 10; i++) {} // ok: for 循环的迭代部分可以使用 ++/--
+  int y = 0;
+  y = (a++, a); // ok: a++ 先求值、完成自增，再对逗号右侧的 a 求值
+  return a++; // error: 不得将 ++/-- 的结果直接作为返回值
+  return (void)a++; // ok
+}
+```
+
+4. 安全区内，使用字符串字面量初始化字符数组时，不允许字符数组的长度小于字符串字面量的长度（包含结尾的`\0`）。
+
+```c
+_Safe void foo(void) {
+  char arr1[3] = "abc"; // error: 字符串长度为4(包含结尾的`\0`)，超出字符数组长度
+  char arr2[4] = "abc"; // ok
+}
+
+```
+
+#### 3.6.5. 函数的重声明与混合模式
 
 同一函数标识符可以有多个声明,支持`_Safe`和`_Unsafe`混合声明。
 
-- 7.1 兼容性要求
+##### 3.6.5.1. 函数声明检查
+
+1. 兼容性要求
 
    **相同修饰符**: 多个`_Safe`声明之间、或多个`_Unsafe`声明之间,函数类型必须兼容
 
@@ -5066,7 +5521,7 @@ int main() { return 0; }
    
    **成员函数**: 与普通函数规则相同
 
-- 7.2 函数类型兼容性
+2. 函数类型兼容性
 
    **两个函数类型兼容的条件**:
    - 返回类型兼容
@@ -5081,7 +5536,7 @@ int main() { return 0; }
 
    - `_Owned`/`_Borrow`指针（以及带`_ArrayElem`的版本）与裸指针不兼容(混合模式除外,见7.3)
 
-- 7.3 混合模式兼容性(`_Unsafe`与`_Safe`共存)
+3. 混合模式兼容性(`_Unsafe`与`_Safe`共存)
 
    **返回类型兼容**:
 
@@ -5146,7 +5601,7 @@ int main() { return 0; }
    _Safe int* _Owned f12(int* _Owned q);
    ```
 
-- 7.4 函数定义
+4. 函数定义
 
    混合模式函数只能定义**一次**
 
@@ -5162,9 +5617,9 @@ int main() { return 0; }
    _Unsafe int* foo(int* p) { return p; }
    ```
 
-8. 函数调用解析
+##### 3.6.5.2. 函数调用解析
 
-- 8.1 安全上下文调用
+1. 安全上下文调用
 
    安全上下文(`_Safe`块)内只能调用`_Safe`函数。如果函数只有`_Unsafe`声明,编译错误。
    
@@ -5178,7 +5633,7 @@ int main() { return 0; }
    }
    ```
 
-- 8.2 非安全上下文调用
+2. 非安全上下文调用
 
    非安全上下文(`_Unsafe`块或默认)内执行重载解析:
 
@@ -5199,7 +5654,7 @@ int main() { return 0; }
    }
    ```
 
-9. 函数指针赋值
+##### 3.6.5.3. 函数指针赋值
 
 函数指针赋值规则:
 
@@ -5253,443 +5708,6 @@ _Safe int main(void) {
     p11 = test10;  // ok: int *arr 与 int arr[3] 等价
     return 0;
 }
-```
-
-10. `_Safe`修饰泛型函数时，会对泛型每个实例化版本也做`_Safe`检查。
-
-```c
-#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
-
-_Safe T identity<T>(T a) { return a; }
-
-void foo() {
-  int a = 1;
-  int b = identity<int>(a);
-  int *_Owned c = (int *_Owned)safe_malloc(1);
-  int *_Owned d = identity<int * _Owned>(c); // ok
-  int *e = identity<void *>((void *)0); // ok
-  safe_free((void *_Owned)d);
-}
-
-int main() {
-  foo();
-  return 0;
-}
-```
-
-11. 成员函数也可以被`_Safe/_Unsafe`修饰，其规则和全局函数一样。
-
-```c
-struct MyStruct<T> {
-  T res;
-};
-_Safe T struct MyStruct<T>::foo(T a) {
-  return a;
-}
-
-int main() { return 0; }
-```
-
-12. 安全区内被调用的函数或函数指针必须是`_Safe`的函数签名，不允许调用非安全函数或函数指针。
-
-```c
-_Safe void safe_foo(void) {}
-_Unsafe void unsafe_foo(void) {}
-_Safe void (*safe_func_ptr)(void);
-_Unsafe void (*unsafe_func_ptr)(void);
-int main() {
-  _Safe {
-    safe_foo();
-    unsafe_foo(); // error: 安全区内不允许调用非安全函数
-    safe_func_ptr();
-    unsafe_func_ptr(); // error: 安全区内不允许调用非安全函数指针
-  }
-  _Unsafe {
-    safe_foo();
-    unsafe_foo(); // ok
-    safe_func_ptr();
-    unsafe_func_ptr(); // ok
-  }
-}
-```
-
-13. 安全区内允许再包含`_Unsafe`修饰的语句、函数指针、括号表达式，非安全区内也允许再包含`_Safe`修饰的语句、函数指针、括号表达式。
-
-```c
-int add(int a, int b) { return a + b; }
-_Safe int max(int a, int b) { return a > b ? a : b; }
-int main() {
-  _Safe {
-    int a = 0;
-    _Unsafe a++;
-    _Unsafe {
-      a = add(1, 3);
-      _Safe a = max(3, 5);
-    }
-  }
-}
-```
-
-14. 安全区内`switch`语句中的`case/default`只能存在于`switch`后面的第一层代码块中，且第一层代码块不允许有变量定义。
-
-```c
-_Safe void foo(int a) {
-  switch (a) {
-    int b = 10; // error: 第一层代码块不允许有变量定义
-    case 0: {
-        int c = 1;
-        break;
-    }
-    {
-        case 1 : { break; } // error: case 只能存在于 switch 后面的第一层代码块中
-    }
-    {
-        default: { break; } // error: default 只能存在于 switch 后面的第一层代码块中
-    }
-  }
-}
-
-int main() {
-  int a = 1;
-  foo(a);
-  return 0;
-}
-```
-
-15. 安全区内允许定义和声明`union`类型变量，允许指向union的裸指针和安全指针，但不允许对`union`成员读写和取借用。
-
-```c
-#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
-
-union U {
-  int age;
-  char name[16];
-};
-
-_Safe void foo(union U *p) {       // ok: 安全区允许指向union的裸指针
-  int py = p->age;                 // error: 安全区不允许对 union 成员读写
-  p->age = 20;                     // error: 安全区不允许对 union 成员读写
-  int *_Borrow pz = &_Mut p->age;  // error: 安全区不允许对 union 成员取借用
-  union U u = {10};                // ok: 安全区允许声明和初始化 union 类型变量
-  int y = u.age;                   // error: 安全区不允许对 union 成员读写
-  u.age = 20;                      // error: 安全区不允许对 union 成员读写
-  int *_Borrow z = &_Mut u.age;    // error: 安全区不允许对 union 成员取借用
-  _Unsafe {
-    int y2 = u.age;                // ok: 非安全区允许对 union 成员读写
-    u.age = 30;                    // ok: 非安全区允许对 union 成员读写
-    int *_Borrow z2 = &_Mut u.age; // ok: 非安全区允许对 union 成员取借用
-  }
-  union U *_Owned p1 = safe_malloc(u);  // ok, 允许指向union的_Owned指针
-  int y3 = p1->age;                // error: 安全区不允许对 union 成员读写
-  p1->age = 40;                    // error: 安全区不允许对 union 成员读写
-  int *_Borrow z3 = &_Mut p1->age; // error: 安全区不允许对 union 成员取借用
-  safe_free((void * _Owned)p1);
-  union U *_Borrow p2 = &_Mut u;   // ok, 允许指向union的_Borrow指针
-  int y4 = p2->age;                // error: 安全区不允许对 union 成员读写
-  p2->age = 50;                    // error: 安全区不允许对 union 成员读写
-  int *_Borrow z4 = &_Mut p2->age; // error: 安全区不允许对 union 成员取借用
-}
-```
-
-16. 安全区内不允许使用取地址符`&`（允许对函数取地址），只允许`&_Const`，`&_Mut`取借用。
-
-    安全区内不允许解引用裸指针，但可以解引用`_Owned`指针、`_Borrow`指针和非空函数指针。安全区中允许对数组类型取下标、解引用，解读为直接对数组进行操作、不会将其视为对退化后的裸指针解引用。
-```C
-
-_Safe int inc(int a) { return a + 1; }
-
-_Safe int test1(unary_f _Nonnull f) {
-  return (*f)(1);  // ok: _Nonnull 函数指针
-}
-
-_Safe int test2(unary_f f) {
-  if (f != nullptr) {
-    return (*f)(1);  // ok: 判空后确认为非空
-  }
-  return 0;
-}
-```
-
-
-```c
-#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
-
-typedef _Safe int (*unary_f)(int);
-_Safe int inc(int a) { return a + 1; }
-
-void test(unary_f _Nonnull fn) {
-  _Safe {
-    int a = 10;
-    
-    int *b = &a; // error: 安全区不允许取地址符号
-    int c = *b; // error: 安全区不允许解引用裸指针
-
-    int *_Owned d = safe_malloc(2);
-    int e = *d; // ok: 允许解引用owned指针
-    safe_free((void *_Owned)d);
-
-    int *_Borrow f = &_Mut a;
-    int g = *f; // ok: 允许解引用borrow指针
-
-    int h = (*fn)(1);  // ok: 允许解引用函数指针
-  }
-}
-
-int main() {
-  test(inc);
-  return 0;
-}
-```
-
-17. 安全区内不允许指向类型不同的指针类型之间转换，但有以下例外：
-    1. 允许指向其他类型的owned指针显式转换为指向void类型的owned指针，该转换需要符合 [3.1.4.3 owned指针强制类型转换](#3143-强制类型转换) 的规则。
-    2. 允许指向其他类型的borrow指针隐式转换为指向void类型的borrow指针，但原类型必须满足 is_trivial_data 的条件（不含指针和 _Owned struct），否则不允许转换。
-
-    安全区内不允许指针和非指针类型之间的转换。关于数组退化到指针的完整规则，详见 [3.3.2 数组退化规则拓展](#332-数组退化规则拓展)。除数组退化规则外，安全区内不允许`_Owned/_Borrow/raw`指针之间的转换；另外，允许 `T *_Borrow _ArrayElem` 转换为 `T *_Borrow`。
-
-```c
-void test() {
-  int *pa;
-  double *pb;
-  _Safe {
-    pb = pa; // error：不允许指向类型不同的指针类型之间转换
-    pa = pb; // error：不允许指向类型不同的指针类型之间转换
-    pb = (double *)pa; // error：不允许指向类型不同的指针类型之间转换
-  }
-  int i;
-  _Safe {
-    pa = i; // error：不允许指针和非指针类型之间的转换
-    i = pa; // error：不允许指针和非指针类型之间的转换
-  }
-  int *_Owned pd = (int *_Owned)pa;
-  _Safe {
-    pa = pd; // error：不允许 _Owned/raw 指针之间的转换
-    pd = pa; // error：不允许 _Owned/raw 指针之间的转换
-
-    void *_Owned pe = (void *_Owned)pd; // ok: 允许显式转换为void类型的owned指针
-  }
-  struct S {int *ptr;};
-  struct S s = {.ptr = nullptr};
-  int a = 0;
-  _Safe {
-    int *_Borrow p1 = &_Mut a;
-    void *_Borrow p2 = p1; // ok: int 满足 is_trivial_data 约束，允许 int *_Borrow 隐式转换到 void *_Borrow
-    struct S *_Borrow p3 = &_Mut s;
-    void *_Borrow p4 = (void *_Borrow)p3; // error: struct S 不满足 is_trivial_data，不允许 struct S *_Borrow 转换到 void *_Borrow
-  }
-}
-
-int main() {
-  test();
-  return 0;
-}
-```
-
-18. 安全区内不允许**隐式执行**表达范围从大向小的类型转换（比如从`long`转换为`int`，从`int`转换为`_Bool`，从`int`转换为`enum`），不允许**隐式执行**表达精度从高向低的类型转换（比如从`double`转换为`float`）。安全区内不允许将一个算术类型转换为一个枚举类型，除非是从一个枚举类型显式转换为一个表达范围更大或相等的枚举类型。安全区内不允许从浮点类型转换到整数类型。对于**编译期能确定值的常量**发生类型转换，或是编译期能确定取值范围的整数类型表达式转换为其他整数类型，如果目标类型可以描述这个值，那么在安全区内该类型转换可以隐式执行，否则此类转换必须显式执行且需符合上述规则。
-
-    **语义规则与具体说明：**
-    排除枚举类型时，安全区允许执行的类型转换如下图所示：（若同方向支持隐式转换则一定支持显式转换；只写需显式转换则说明不允许隐式转换。表示允许转换的边有一头连着子图时，等效于连接该子图的所有结点，比如 `_Bool` 有条边指向整数，表示允许 `_Bool` 以相同规则转换为任一整数类型。）
-
-    ``` mermaid
-    graph TB
-      bool["_Bool"]
-      subgraph int["整数"]
-        direction LR
-        subgraph signedint["有符号整数"]
-          direction TB
-          signedint_s["小类型"]
-          signedint_l["大类型"]
-          signedint_s -- 正向隐式，反向显式 --> signedint_l
-        end
-        subgraph unsignedint["无符号整数"]
-          direction TB
-          unsignedint_s["小类型"]
-          unsignedint_l["大类型"]
-          unsignedint_s -- 正向隐式，反向显式 --> unsignedint_l
-        end
-        signedint <-- 需显式互转 --> unsignedint
-      end
-      bool -- 正向隐式，反向显式 --> int
-      subgraph fp["浮点数"]
-      direction TB
-        fp_s["小类型"]
-        fp_l["大类型"]
-        fp_s -- 正向隐式，反向显式 --> fp_l
-      end
-      int -- 正向显式，反向不允许 --> fp
-    ```
-
-    18.1. 当将一个算术类型转换为 `_Bool` 时，当原类型的值为零，则转换后值为 0；否则，转换后值为 1 （与C一致）。
-    ```c
-    int b = 0;
-    _Bool c = (_Bool)b; // ok: int -> _Bool; c = 0
-    c = (_Bool)1;       // ok: int -> _Bool; c = 1
-    c = (_Bool)2;       // ok: int -> _Bool; c = 1
-    ```
-    18.2. 将一个有符号整数类型或一个表达范围更大的无符号整数类型转换为一个**无符号**整数类型时，如果原类型的值的大小在目标类型的范围内，则转换后值的大小不变；否则，转换后值的大小为"不断对原值加或减(1+目标类型的最大值)直到结果落在目标类型的范围内的值" （与C一致）。如果目标无符号整数类型的表达范围是从 0 到 $2^N-1$ 且原类型的值为 $X$，那么转换后值的大小为 $X$ 不断加或减 $2^N$ 直到结果 $Y$ 落入 0 到 $2^N-1$ 之间，转换后的值即为 $Y$。上述表示等效于将大的整数类型截断为小的无符号整数类型，或是将小的有符号整数类型通过符号位拓展转为无符号整数类型。
-    ```c
-    unsigned long a = 2;
-    unsigned b = (unsigned) a; // ok: unsigned long -> unsigned int
-    int c = -1;
-    unsigned d = (unsigned) c; // ok: int -> unsigned int; d = 2^32 - 1
-    unsigned long e = (unsigned long) c; // ok: int -> unsigned long; e = 2^64 - 1
-    ```
-    18.3. 将一个表达范围更大的整数类型转换为表达范围更小的**有符号**整数类型（不包括枚举类型）时，如果原类型的值的大小在目标类型的范围内，则转换后值的大小不变；否则，转换后值的大小由实现定义。在当前毕昇C编译器的实现中，原值超过目标类型的表示范围时，大的整数类型会截断为小的有符号整数类型。
-    ```c
-    long a = 2;
-    int b = (int) a; // ok: long -> int
-    unsigned c = 4294967295; // c = 2^32 - 1
-    int d = (int) c; // ok: unsigned int -> int; d = -1
-    ```
-    18.4. 关于枚举类型：安全区只允许从一个枚举类型显式转换为另一个枚举类型（有限定条件），其他任何类型都不能转换为枚举类型。从枚举类型隐式转换为整数类型时，遵循与整数到整数转换相同的安全区规则（见 18.2、18.3）：转换到该枚举的底层整数类型允许；对于带显式底层类型的枚举，转换到其他整数类型时，仅当目标类型与底层类型符号相同且表达范围不更小，或编译期能证明取值范围可由目标类型精确表示时，才允许隐式转换。同宽异符号的枚举到整数转换可能改变数值，因此不允许隐式执行；但可以通过显式转换执行，规则与整数到整数显式转换一致。使用显式转换将枚举类型 `E1` 转换为另一个枚举类型 `E2` 时，当且仅当 `E2` 中包含 `E1` 所有枚举值时允许，转换后的值不变，否则编译报错。安全区内不能隐式执行枚举到枚举转换。其他类型到枚举类型的转换在安全区内不允许。在非安全区则与 C 一致，不对枚举类型转换做额外检查。
-    ```c
-    _Safe void foo(void) {
-      enum E {ZERO, ONE, TWO}; // represented by int
-      enum F {SUN, MON, TUES}; // represented by int
-      enum F day = SUN;
-      enum E num = (enum E)day; // ok: enum F -> enum E
-      num = (enum E)SUN;        // ok: enum F -> enum E
-      int a = num; // ok: enum E -> int
-      a = ZERO;    // ok: enum E -> int
-      num = 0; // error: cannot cast int to enum E in safe zone
-      enum G {G1, G2};
-      enum G g1 = (enum G) num; // error: cannot cast enum E to enum G in safe zone
-      g1 = (enum G) ZERO; // error: cannot cast enum E to enum G in safe zone
-    }
-    _Safe void bar(void) {
-      enum EU : unsigned int { EU_BIG = 0xFFFFFFFFu };
-      enum EU e = EU_BIG;
-      unsigned int u = e;     // ok: enum EU -> unsigned int (同符号，同底层类型)
-      unsigned long long w = e; // ok: 同符号加宽
-      long long s = e;        // ok: unsigned -> 更宽的有符号，保值
-      int n = e;              // error: 同宽异符号，隐式转换会改变数值，不允许
-      int m = (int)e;         // ok: 显式转换允许，与 (int)u 一致
-    }
-    // 不带显式底层类型的枚举与 C 保持兼容：不施加额外的符号检查。
-    _Safe void baz(void) {
-      enum BU { BU_BIG = 0xFFFFFFFF }; // 无显式底层类型, 编译器选择同宽无符号底层类型
-      enum BU e = BU_BIG;
-      int n = e;              // ok: 非固定底层类型枚举保留 C 的宽松转换行为
-    }
-    ```
-    18.5. 在安全区使用显式转换将一个浮点类型转换为精度更低的另一个浮点类型时，如果原值能在目标类型中精确表示，则转换后的值不变。如果原值在目标类型的表示范围内但是无法精确表示，则转换后的结果是最近的向上或向下近似的值，取决于具体实现。如果原值在目标类型的表示范围外，则具体值取决于具体实现。当前毕昇C编译器的实现应符合 IEEE 754 规范。安全区内不能隐式执行这样的类型转换。在非安全区则行为与 C 一致，语义相同且支持隐式执行这样的类型转换。
-    ```c
-    _Safe {
-      double a = 1.0;
-      float b = 0.0f;
-      b = (float)a; // ok: double -> float
-      b = a; // error: cannot implicitly cast double to float
-      a = b; // ok
-    }
-    ```
-    18.6. 在安全区使用显式转换将一个整数类型转换为浮点类型时，如果原值能在目标类型中精确表示，则转换后的值不变。如果原值在目标类型的表示范围内但无法精确表示，则转换后的结果是最近的向上或向下近似的值，取决于具体实现。当前毕昇C编译器的实现应符合 IEEE 754 规范、使用 IEEE 754 中的默认舍入规则。安全区内不能隐式执行这样的类型转换。安全区内不允许从浮点类型转换为整数类型。在非安全区则行为与 C 一致，语义相同且支持隐式执行这样的类型转换。
-    ```c
-    _Safe {
-      int a = -1;
-      double b = a; // error: cannot implicitly cast int to double in safe zone
-      b = (double) a; // ok: int -> double
-      a = (int) b; // error: cannot cast double to int in safe zone
-    }
-    ```
-    18.7. 比较运算符（`==`, `!=`, `>=`, `<=`, `>`, `<`）、逻辑运算符（`&&`, `||`, `!`）的运算结果为 `int` 类型的 0 或 1，这些值允许在安全区隐式转换到其他整数类型（因为任何基本整数类型都可以表示 0 和 1）。
-    ```c
-    _Safe {
-      int a = 0, b = 1;
-      _Bool c = (a == 0) || (b == 0); // ok: int (0/1) -> _Bool
-      char x = a < 3 || a >= 6; // ok: int (0/1) -> char
-    }
-    ```
-    18.8. 对于**编译期能确定值的常量**发生类型转换，若目标类型可精确表示该值，则允许隐式转换。如果编译期能确定取值范围整数类型表达式转换为另一整数类型，如果原值的取值范围小于等于目标类型的表示范围，则也允许隐式转换。否则需显式转换并符合上述规则。
-    毕昇C保证二元位运算 `&` `|` `^` 可以在编译期确定取值范围。其他运算的支持由实现决定。
-    ```c
-    _Safe {
-      int a = 10l; // ok: long -> int
-      unsigned long b = 2*2; // ok: int -> unsigned long
-
-      // int -2147483648~2147483647
-      int c = 2147483648; // error: 2147483648 out of range for int
-      int d = (int)2147483648; // ok: long -> int; d = -2147483648
-      int e = 2147483647; // ok
-
-      // unsigned int 0~4294967295
-      unsigned int f = 0;
-      f = 4294967296; // error: 4294967296 out of range for unsigned int
-      f = (unsigned int) 4294967296; // ok: long -> unsigned int; f = 0
-
-      unsigned long g = (unsigned long)-1; // ok: int -> unsigned long; g = 2^64-1
-      int h = (int) 1.2; // error: cannot cast double to int in safe zone
-      float k = 1.0; // ok: double -> float
-      float l = 1; // ok: int -> float
-    }
-    ```
-    ```c
-    _Safe {
-      unsigned char flag = 0;
-      flag = flag | 0x10;          // ok
-      flag = (flag | 0x01) & 0xFF; // ok
-      flag = flag | 0x100; // error: [0,255] | 0x100 超过了 unsigned char 的表示范围
-      unsigned short flag2 = 0;
-      flag2 = flag | 0x100; // ok
-      flag2 = flag2 | 0x10000; // error: [0, 65535] | 0x10000 超过了 unsigned short 的表示范围
-      unsigned int flag3 = 0; // 编译器不会跟踪 flag3 的精确范围，只使用保守的类型信息的值域（整个 unsigned int 的范围）
-      flag2 = flag3 | 0x10; // error: flag3 | 0x10 超过了 unsigned short 的表示范围
-      flag2 = (unsigned int)flag2 | 0x100; // error: flag2 转为 unsigned int 后取值范围扩大到 unsigned int 的范围，超出 unsigned short 的表示范围
-    }
-    ```
-    18.9.  `if/while/do-while/for` 语句的条件对表达式类型的要求与C一致，任何算术类型和指针类型都可以作为条件。在条件中使用任何值不会视为额外发生类型转换。
-    ```c
-    int a = 2;
-    _Safe {
-      if (a) { // ok: if 条件可以接受 int，不认为先转成了 _Bool
-        a += 1;
-      } else {
-        a -= 1;
-      }
-    }
-    ```
-
-19. 安全区内不允许内嵌汇编语句。
-
-```c
-void test() {
-  _Safe {
-    int ret = 0;
-    int src = 1;
-    asm("move %0, %1\n\t" : "=r"(ret) : "r"(src)); // error: 安全区不允许内嵌汇编
-  }
-}
-int main() { return 0; }
-```
-
-20. 安全区内，前缀/后缀自增（`++`）和自减（`--`）表达式的结果类型为 `void`，即仅允许使用其副作用（自增或自减1），不得使用 `++`/`--` 表达式的值。在返回类型为 `void` 的安全函数中，不得将 `++`/`--` 的结果直接作为 return 语句的返回值。
-
-```c
-safe void take_int(int x);
-safe void foo(void) {
-  int a = 0;
-  a++; // ok: 安全区允许自增自减（仅副作用，表达式结果为 void）
-  a--;
-  int x = a++; // error: 自增自减的结果为 void 类型，不能使用其值初始化 int 变量
-  int arr[5] = {1, 2, 3, 4, 5};
-  arr[a++] = 0; // error: 自增自减的结果为 void 类型，不能使用其值做为 arr[] 下标
-  take_int(a++); // error: 自增自减的结果为 void 类型，不能使用其值做为 take_int() 入参
-  unsafe {take_int(a++);} // ok: 非安全区不受影响
-  for (int i = 0; i < 10; i++) {} // ok: for 循环的迭代部分可以使用 ++/--
-  int y = 0;
-  y = (a++, a); // ok: a++ 先求值、完成自增，再对逗号右侧的 a 求值
-  return a++; // error: 不得将 ++/-- 的结果直接作为返回值
-  return (void)a++; // ok
-}
-```
-
-21. 安全区内，使用字符串字面量初始化字符数组时，不允许字符数组的长度小于字符串字面量的长度（包含结尾的`\0`）。
-
-```c
-_Safe void foo(void) {
-  char arr1[3] = "abc"; // error: 字符串长度为4(包含结尾的`\0`)，超出字符数组长度
-  char arr2[4] = "abc"; // ok
-}
-
 ```
 
 ### 3.7. 初始化分析
