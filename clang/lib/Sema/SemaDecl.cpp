@@ -4116,8 +4116,9 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
 
 #if ENABLE_BSC
   // BSC: Same-safety redeclarations must match ensure_init exactly.
-  // Heterogeneous redeclarations (_Safe vs non-safe) are separate overloads
-  // and ensure_init differences are allowed.
+  // Cross-safety redeclarations (_Safe vs non-safe): _Safe side may add
+  // ensure_init that the _Unsafe side omits, but the _Unsafe side must not
+  // carry ensure_init that the _Safe side lacks.
   if (getLangOpts().BSC && Old->hasPrototype() && New->hasPrototype() &&
       Old->getNumParams() == New->getNumParams()) {
     bool SameSafety =
@@ -4127,8 +4128,26 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
       for (unsigned I = 0; I < Old->getNumParams(); ++I) {
         if (Old->getParamDecl(I)->hasAttr<EnsureInitAttr>() !=
             New->getParamDecl(I)->hasAttr<EnsureInitAttr>()) {
-          Diag(New->getLocation(), diag::err_conflicting_types) << New;
-          Diag(Old->getLocation(), diag::note_previous_declaration);
+          Diag(New->getParamDecl(I)->getLocation(),
+               diag::err_ensure_init_redecl_mismatch)
+              << New->getParamDecl(I) << New;
+          Diag(Old->getParamDecl(I)->getLocation(),
+               diag::note_previous_declaration);
+          return true;
+        }
+      }
+    } else {
+      // Cross-safety: _Unsafe side must not have ensure_init that _Safe lacks.
+      FunctionDecl *SafeDecl = (Old->getSafeZoneSpecifier() == SZ_Safe) ? Old : New;
+      FunctionDecl *UnsafeDecl = (Old->getSafeZoneSpecifier() == SZ_Safe) ? New : Old;
+      for (unsigned I = 0; I < Old->getNumParams(); ++I) {
+        if (!SafeDecl->getParamDecl(I)->hasAttr<EnsureInitAttr>() &&
+            UnsafeDecl->getParamDecl(I)->hasAttr<EnsureInitAttr>()) {
+          Diag(New->getParamDecl(I)->getLocation(),
+               diag::err_ensure_init_unsafe_without_safe)
+              << UnsafeDecl->getParamDecl(I);
+          Diag(Old->getParamDecl(I)->getLocation(),
+               diag::note_previous_declaration);
           return true;
         }
       }

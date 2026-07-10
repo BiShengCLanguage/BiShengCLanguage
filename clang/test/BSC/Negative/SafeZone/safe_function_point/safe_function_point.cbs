@@ -27,8 +27,10 @@ int main() {
   pp = dadd;                         // expected-error {{conversion from type '_Safe double (*)(double, double)' to '_Safe int (*)(double, double)' is forbidden}}
 
   _Unsafe int (*up)(double a, double b);
-  up = add;           
-  up = dadd;        
+  up = add;           // expected-error {{conversion from type '_Safe int (*)(int, int)' to 'int (*)(double, double)' is forbidden}}
+  // expected-note@-1 {{function 'add' has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer}}
+  up = dadd;          // expected-error {{conversion from type '_Safe double (*)(double, double)' to 'int (*)(double, double)' is forbidden}}
+  // expected-note@-1 {{function 'dadd' has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer}}
   _Safe {
     p = &add;       // ok
     TP tp = &add;   // ok

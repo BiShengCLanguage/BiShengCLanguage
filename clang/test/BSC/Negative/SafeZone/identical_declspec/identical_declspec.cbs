@@ -43,16 +43,19 @@ int main() {
   sapfun = fun;    // expected-error {{conversion from type 'int (*)(int, int)' to '_Safe int (*)(int, int)' is forbidden}}
   // expected-note@-1 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
 
-  unpfun = safun;  
+  unpfun = safun;  // expected-error {{conversion from type '_Safe int (*)(int, int)' to 'int (*)(int, int)' is forbidden}}
+  // expected-note@-1 {{function 'safun' has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer}}
   unpfun = unfun;
   unpfun = fun;
 
-  pfun = safun;    
+  pfun = safun;    // expected-error {{conversion from type '_Safe int (*)(int, int)' to 'int (*)(int, int)' is forbidden}}
+  // expected-note@-1 {{function 'safun' has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer}}
   pfun = unfun;
   pfun = fun;
 
 _Safe {
-  unpfun = safun;
+  unpfun = safun;  // expected-error {{conversion from type '_Safe int (*)(int, int)' to 'int (*)(int, int)' is forbidden}}
+  // expected-note@-1 {{function 'safun' has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer}}
   unpfun = unfun;
   unpfun = fun;
 }

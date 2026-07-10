@@ -13,6 +13,7 @@
 
 #if ENABLE_BSC
 
+#include "clang/AST/BSC/TypeBSC.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Sema/Sema.h"
@@ -528,6 +529,9 @@ Sema::CheckBSCFunctionPointerType(QualType LHSType, Expr *RHSExpr) {
     return IncompatibleOwnedPointer;
   if (!CheckBorrowFunctionPointerType(LHSType, RHSExpr))
     return IncompatibleBorrowPointer;
+  // Nullability compatibility.
+  if (!AreFunctionTypesNullabilityCompatible(LHSFuncType, RHSFuncType, Context))
+    return IncompatibleFunctionPointer;
   return Compatible;
 }
 

@@ -2,7 +2,7 @@
 
 // A heterogeneous (safe/unsafe)
 // redeclaration must not let the safe side drop a _Owned / _Borrow qualifier
-// the unsafe side carries. AreOwnedBorrowQualifiersCompatible inspected only the
+// the unsafe side carries. AreTypesCompatibleForUnsafeToSafeRefinement inspected only the
 // outer pointer level, so a qualifier buried inside a function-pointer parameter
 // (or its return type) was dropped silently. It now recurses through
 // FunctionProtoType parameters and return types. The outer-level form

@@ -84,4 +84,20 @@ _Unsafe void plain_then_unsafe(int *a, int *b);
 _Unsafe void unsafe_then_plain(int *a, int *b);
 void unsafe_then_plain(int *a, int *b);
 
+// Default nullability compatibility: raw pointer (default _Nullable) is
+// compatible with explicit _Nullable in same-safety redeclarations.
+void raw_default_nullable(int *p);
+void raw_default_nullable(int * _Nullable p);
+
+_Safe void safe_default_nullable(int *p);
+_Safe void safe_default_nullable(int * _Nullable p);
+
+// _Borrow pointer (default _Nonnull) is compatible with explicit _Nonnull.
+void borrow_default_nonnull(int *_Borrow p);
+void borrow_default_nonnull(int *_Borrow _Nonnull p);
+
+// _Owned pointer (default _Nonnull) is compatible with explicit _Nonnull.
+void owned_default_nonnull(int *_Owned p);
+void owned_default_nonnull(int *_Owned _Nonnull p);
+
 // expected-no-diagnostics

@@ -239,24 +239,6 @@ void InvalidateDeeperDerefStatusForPath(StatusDPVD &Status, DerefPathVD DP) {
 } // namespace
 
 namespace clang {
-// basic tool for CFG check and global Nullability check
-NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx) {
-  QualType CanQT = QT.getCanonicalType();
-  if (CanQT->isPointerType()) {
-    Optional<NullabilityKind> Kind = QT->getNullability(Ctx);
-    if (Kind && (*Kind == NullabilityKind::NonNull ||
-                 *Kind == NullabilityKind::Nullable)) {
-      return *Kind;
-    } else if (CanQT.isOwnedQualified() || CanQT.isBorrowQualified()) {
-      if (Kind && (*Kind == NullabilityKind::Nullable))
-        return NullabilityKind::Nullable;
-      return NullabilityKind::NonNull;
-    } else // Raw Pointer is nullable by default.
-      return NullabilityKind::Nullable;
-  }
-  return NullabilityKind::Unspecified;
-}
-
 bool FindNonnull(QualType QT, const ASTContext &Ctx) {
   QualType CanQT = QT.getCanonicalType();
   if (CanQT->isPointerType()) {

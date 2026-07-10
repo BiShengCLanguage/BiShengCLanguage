@@ -15,6 +15,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Type.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 using namespace clang;
@@ -148,13 +149,14 @@ bool Type::checkFunctionProtoType(SafeZoneSpecifier SZS) const {
 
 namespace clang {
 
-/// Check owned/borrow qualifier compatibility for heterogeneous redeclarations.
-/// UnsafeType is the unsafe decl, SafeType is the _Safe redeclaration.
-/// The _Safe redeclaration may only add qualifiers, not remove them.
-/// Exception: _ArrayElem must not appear on the safe side when the unsafe
-/// pointer is _Owned or _Borrow without _ArrayElem.
-static bool AreOwnedBorrowQualifiersCompatible(QualType UnsafeType,
-                                               QualType SafeType) {
+/// Check that SafeType is a valid _Safe-side refinement of UnsafeType
+/// for heterogeneous redeclarations.  The _Safe redeclaration may add
+/// qualifiers (_Owned, _Borrow, _ArrayElem) but must not drop them.
+/// Additionally: the _Unsafe side must not be _Nonnull when the _Safe
+/// side is _Nullable.
+static bool AreTypesCompatibleForUnsafeToSafeRefinement(QualType UnsafeType,
+                                                       QualType SafeType,
+                                                       ASTContext &Ctx) {
   bool UnsafeIsOwned =
       UnsafeType->isPointerType() && UnsafeType.isOwnedQualified();
   bool UnsafeIsBorrow =
@@ -176,9 +178,14 @@ static bool AreOwnedBorrowQualifiersCompatible(QualType UnsafeType,
   if ((UnsafeIsOwned || UnsafeIsBorrow) &&
       !UnsafeIsArrayElem && SafeIsArrayElem)
     return false;
-  // owned ⟷ borrow is always incompatible.
-  if ((SafeIsOwned && UnsafeIsBorrow) || (SafeIsBorrow && UnsafeIsOwned))
-    return false;
+
+  // Nullability check:
+  // A (_Unsafe) being _Nonnull while B (_Safe) is _Nullable is forbidden.
+  if (UnsafeType->isPointerType() && SafeType->isPointerType()) {
+    if (getDefNullability(UnsafeType, Ctx) == NullabilityKind::NonNull &&
+        getDefNullability(SafeType, Ctx) == NullabilityKind::Nullable)
+      return false;
+  }
 
   // Peel one pointer layer and recurse so a buried qualifier is not dropped:
   // into the pointee's function prototype if it has one, else into the pointee.
@@ -189,16 +196,16 @@ static bool AreOwnedBorrowQualifiersCompatible(QualType UnsafeType,
     const auto *SafeFn = SafePointee->getAs<FunctionProtoType>();
     if (UnsafeFn && SafeFn &&
         UnsafeFn->getNumParams() == SafeFn->getNumParams()) {
-      if (!AreOwnedBorrowQualifiersCompatible(UnsafeFn->getReturnType(),
-                                              SafeFn->getReturnType()))
+      if (!AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeFn->getReturnType(),
+                                              SafeFn->getReturnType(), Ctx))
         return false;
       for (unsigned I = 0, E = UnsafeFn->getNumParams(); I != E; ++I)
-        if (!AreOwnedBorrowQualifiersCompatible(UnsafeFn->getParamType(I),
-                                                SafeFn->getParamType(I)))
+        if (!AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeFn->getParamType(I),
+                                                SafeFn->getParamType(I), Ctx))
           return false;
       return true;
     }
-    return AreOwnedBorrowQualifiersCompatible(UnsafePointee, SafePointee);
+    return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafePointee, SafePointee, Ctx);
   }
   return true;
 }
@@ -273,7 +280,7 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
     // Fast path: identical canonical unqualified types.
     if (UnsafeT.getCanonicalType().getUnqualifiedType() ==
         SafeT.getCanonicalType().getUnqualifiedType()) {
-      return AreOwnedBorrowQualifiersCompatible(UnsafeTOrig, SafeTOrig);
+      return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeTOrig, SafeTOrig, Ctx);
     }
 
     // If both are function pointer types, check heterogeneous compatibility
@@ -305,7 +312,7 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
     if (!Ctx.typesAreCompatible(UnsafeT, SafeT))
       return false;
 
-    return AreOwnedBorrowQualifiersCompatible(UnsafeTOrig, SafeTOrig);
+    return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeTOrig, SafeTOrig, Ctx);
   };
 
   if (!AreParamTypesCompatible(UnsafeFPT->getReturnType(),
@@ -323,6 +330,48 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
     }
   }
 
+  return true;
+}
+
+NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx) {
+  QualType CanQT = QT.getCanonicalType();
+  if (CanQT->isPointerType()) {
+    Optional<NullabilityKind> Kind = QT->getNullability(Ctx);
+    if (Kind && (*Kind == NullabilityKind::NonNull ||
+                 *Kind == NullabilityKind::Nullable)) {
+      return *Kind;
+    } else if (CanQT.isOwnedQualified() || CanQT.isBorrowQualified()) {
+      return NullabilityKind::NonNull;
+    } else // Raw Pointer is nullable by default.
+      return NullabilityKind::Nullable;
+  }
+  return NullabilityKind::Unspecified;
+}
+
+/// Recursively check that LHS and RHS have the same effective nullability
+/// at every pointer level where both sides are pointer types.
+static bool areTypesNullabilityCompatibleRec(QualType LHS, QualType RHS,
+                                             ASTContext &Ctx) {
+  if (LHS->isPointerType() && RHS->isPointerType()) {
+    if (getDefNullability(LHS, Ctx) != getDefNullability(RHS, Ctx))
+      return false;
+    return areTypesNullabilityCompatibleRec(LHS->getPointeeType(),
+                                            RHS->getPointeeType(), Ctx);
+  }
+  return true;
+}
+
+bool AreFunctionTypesNullabilityCompatible(const FunctionProtoType *LHS,
+                                            const FunctionProtoType *RHS,
+                                            ASTContext &Ctx) {
+  if (!areTypesNullabilityCompatibleRec(LHS->getReturnType(),
+                                        RHS->getReturnType(), Ctx))
+    return false;
+  for (unsigned I = 0, N = LHS->getNumParams();
+       I < N && I < RHS->getNumParams(); ++I)
+    if (!areTypesNullabilityCompatibleRec(LHS->getParamType(I),
+                                          RHS->getParamType(I), Ctx))
+      return false;
   return true;
 }
 

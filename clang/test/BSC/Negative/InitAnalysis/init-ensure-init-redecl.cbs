@@ -65,9 +65,9 @@ _Safe int is_directory(const char *_Borrow path) {
     return 1;
 }
 
-// Unsafe with ensure_init, _Safe without — allowed (different safety).
-void hetero_ei(int *__attribute__((ensure_init)) out);
-_Safe void hetero_ei(int *_Borrow out) {
+// Unsafe with ensure_init, _Safe without — ERROR (_Unsafe must not carry ensure_init that _Safe lacks).
+void hetero_ei(int *__attribute__((ensure_init)) out); // expected-note {{previous declaration is here}}
+_Safe void hetero_ei(int *_Borrow out) { // expected-error {{__attribute__((ensure_init)) on parameter 'out' of _Unsafe declaration requires the matching _Safe declaration to carry the same attribute}}
     *out = 1;
 }
 
@@ -81,24 +81,56 @@ void hetero_ei2(int *out) {
 
 // _Safe/_Safe: first has, second doesn't.
 _Safe void mismatch_safe(int *__attribute__((ensure_init)) _Borrow out); // expected-note {{previous declaration is here}}
-_Safe void mismatch_safe(int *_Borrow out) { // expected-error {{conflicting types for 'mismatch_safe'}}
+_Safe void mismatch_safe(int *_Borrow out) { // expected-error {{conflicting __attribute__((ensure_init)) on parameter 'out' in redeclaration of 'mismatch_safe'}}
     *out = 1;
 }
 
 // _Safe/_Safe: first doesn't, second adds.
 _Safe void mismatch_safe_add(int *_Borrow out); // expected-note {{previous declaration is here}}
-_Safe void mismatch_safe_add(int *__attribute__((ensure_init)) _Borrow out) { // expected-error {{conflicting types for 'mismatch_safe_add'}}
+_Safe void mismatch_safe_add(int *__attribute__((ensure_init)) _Borrow out) { // expected-error {{conflicting __attribute__((ensure_init)) on parameter 'out' in redeclaration of 'mismatch_safe_add'}}
     *out = 1;
 }
 
 // default/default: first has, second doesn't.
 void mismatch_unsafe(int *__attribute__((ensure_init)) out); // expected-note {{previous declaration is here}}
-void mismatch_unsafe(int *out) { // expected-error {{conflicting types for 'mismatch_unsafe'}}
+void mismatch_unsafe(int *out) { // expected-error {{conflicting __attribute__((ensure_init)) on parameter 'out' in redeclaration of 'mismatch_unsafe'}}
     *out = 1;
 }
 
 // default/default: first doesn't, second adds.
 void mismatch_add(int *out); // expected-note {{previous declaration is here}}
-void mismatch_add(int *__attribute__((ensure_init)) out) { // expected-error {{conflicting types for 'mismatch_add'}}
+void mismatch_add(int *__attribute__((ensure_init)) out) { // expected-error {{conflicting __attribute__((ensure_init)) on parameter 'out' in redeclaration of 'mismatch_add'}}
     *out = 1;
+}
+
+// --- Heterogeneous ensure_init_if_ret: cross-safety ---
+
+// _Unsafe with ensure_init_if_ret, _Safe without — ERROR.
+int hetero_eiir(int *__attribute__((ensure_init_if_ret(0))) out); // expected-note {{previous declaration is here}}
+_Safe int hetero_eiir(int *_Borrow out) { // expected-error {{__attribute__((ensure_init_if_ret(0))) on parameter 'out' of _Unsafe declaration requires the matching _Safe declaration to carry the same attribute with the same argument}}
+    *out = 1;
+    return 0;
+}
+
+// _Safe with ensure_init_if_ret, _Unsafe without — allowed.
+_Safe int hetero_eiir2(int *__attribute__((ensure_init_if_ret(0))) _Borrow out);
+int hetero_eiir2(int *out) {
+    *out = 1;
+    return 0;
+}
+
+// --- Same-safety ensure_init_if_ret mismatch: ERROR ---
+
+// Both default: first has, second doesn't.
+int mismatch_eiir1(int *__attribute__((ensure_init_if_ret(0))) out); // expected-note {{previous declaration is here}}
+int mismatch_eiir1(int *out) { // expected-error {{conflicting __attribute__((ensure_init_if_ret)) on parameter 'out' in redeclaration of 'mismatch_eiir1'}}
+    *out = 1;
+    return 0;
+}
+
+// Both _Safe: first has, second doesn't.
+_Safe int mismatch_eiir2(int *__attribute__((ensure_init_if_ret(0))) _Borrow out); // expected-note {{previous declaration is here}}
+_Safe int mismatch_eiir2(int *_Borrow out) { // expected-error {{conflicting __attribute__((ensure_init_if_ret)) on parameter 'out' in redeclaration of 'mismatch_eiir2'}}
+    *out = 1;
+    return 0;
 }

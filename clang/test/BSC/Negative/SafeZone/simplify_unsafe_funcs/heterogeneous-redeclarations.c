@@ -82,3 +82,12 @@ _Safe int* _Borrow test_add_arrayelem_borrow_param(int* _Borrow _ArrayElem a); /
 
 int* _Borrow test_add_arrayelem_borrow_ret(int* _Borrow a); // expected-note {{previous declaration had return type 'int *_Borrow'}}
 _Safe int* _Borrow _ArrayElem test_add_arrayelem_borrow_ret(int* _Borrow a); // expected-error {{redeclaration of 'test_add_arrayelem_borrow_ret' has incompatible return type 'int *_Borrow _ArrayElem'}}
+
+// Nullability mismatch: _Unsafe side is _Nonnull, _Safe side is _Nullable (forbidden).
+_Unsafe void test_nullability(int * _Nonnull p); // expected-note {{previous declaration had parameter of type 'int * _Nonnull'}}
+_Safe void test_nullability(int * _Borrow _Nullable p); // expected-error {{redeclaration of 'test_nullability' has incompatible parameter type 'int *_Borrow _Nullable'}}
+
+// _Owned default _Nonnull vs explicit _Nullable — explicitly conflicting
+// nullability on same-safety _Owned pointers (forbidden).
+void test_owned_nullable_mismatch(int *_Owned p); // expected-note {{previous declaration is here}}
+void test_owned_nullable_mismatch(int *_Owned _Nullable p); // expected-error {{conflicting types for 'test_owned_nullable_mismatch'}}

@@ -147,6 +147,8 @@ def err_return_inc_dec_void_in_safe_zone : Error<
 def err_unsafe_fun_cast : Error<"conversion from type %0 to %1 is forbidden">;
 def note_unsafe_to_safe_function_pointer : Note<
   "assigning an unsafe function pointer to a safe function pointer type is not allowed">;
+def note_safe_to_unsafe_function_no_unsafe_decl : Note<
+  "function %0 has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer">;
 def err_safe_function : Error<"%0 is forbidden in the _Safe function">;
 def err_safe_global_var : Error<"defining mutable global variables is not allowed within the safe zone"> ;
 def err_bsc_generic_heterogeneous_redecl : Error<"generic function %0 cannot have both _Safe and _Unsafe declarations">;
@@ -265,6 +267,13 @@ def err_ensure_init_if_ret_unsafe_without_safe : Error<
   "__attribute__((ensure_init_if_ret(%0))) on parameter %1 of _Unsafe "
   "declaration requires the matching _Safe declaration to carry the same "
   "attribute with the same argument">;
+def err_ensure_init_redecl_mismatch : Error<
+  "conflicting __attribute__((ensure_init)) on parameter %0 "
+  "in redeclaration of %1">;
+def err_ensure_init_unsafe_without_safe : Error<
+  "__attribute__((ensure_init)) on parameter %0 of _Unsafe "
+  "declaration requires the matching _Safe declaration to carry the same "
+  "attribute">;
 def err_ensure_init_if_ret_cond_out_of_range : Error<
   "__attribute__((ensure_init_if_ret)) argument %0 is outside the range "
   "[%1, %2] supported in function pointer types">;

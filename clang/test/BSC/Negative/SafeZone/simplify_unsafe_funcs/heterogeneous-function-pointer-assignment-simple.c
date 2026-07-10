@@ -54,3 +54,25 @@ void test6(void) {
     _Safe void (*ptr_const)(const char* _Borrow) = 0;
     ptr_const = mut_char;  // expected-error {{cannot cast}}
 }
+
+// Test 7: Nullability mismatch — _Nonnull param cannot be assigned to
+// _Nullable (default raw) function pointer parameter (any zone).
+void nonnull_func(int * _Nonnull p);
+
+void test7(void) {
+    void (*fp)(int *) = nonnull_func;  // expected-error {{conversion from type 'void (*)(int * _Nonnull)' to 'void (*)(int *)' is forbidden}}
+}
+
+// Test 8: _Owned (default _Nonnull) with explicit _Nullable mismatch.
+void owned_nonnull_func(int *_Owned p);
+
+_Safe void test8(void) {
+    void (*fp)(int *_Owned _Nullable) = owned_nonnull_func;  // expected-error {{conversion from type 'void (*)(int *_Owned)' to 'void (*)(int *_Owned _Nullable)' is forbidden}}
+}
+
+// Test 9: Return type nullability mismatch.
+int * _Nonnull nonnull_ret(void);
+
+void test9(void) {
+    int * _Nullable (*fp)(void) = nonnull_ret;  // expected-error {{conversion from type 'int * _Nonnull (*)(void)' to 'int * _Nullable (*)(void)' is forbidden}}
+}

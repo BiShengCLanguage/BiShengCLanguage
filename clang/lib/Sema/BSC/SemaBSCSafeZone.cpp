@@ -12,6 +12,7 @@
 
 #if ENABLE_BSC
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Type.h"
 #include "clang/Sema/ScopeInfo.h"
@@ -637,15 +638,9 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
     }
   }
 
-  // conversion to an unsafe type is allowed in the unsafe zone
-  // only need to care about the safe zone or safe type
-  if (!IsInSafeZone() && LHSFuncType->getFunSafeZoneSpecifier() != SZ_Safe) {
-    return true;
-  }
-
-  // Function pointer assignment rules (Manual section 9):
-  // - safe -> unsafe: allowed (widening, safe functions can be used in
-  //                   unsafe contexts)
+  // Function pointer assignment rules: only allow same-kind assignment
+  // - safe -> unsafe: forbidden (widening, but can have multiple incompatible
+  //                   unsafe function decls for the same function)
   // - unsafe -> safe: forbidden (narrowing, loss of safety guarantee)
   if (LHSFuncType->getFunSafeZoneSpecifier() !=
       RHSFuncType->getFunSafeZoneSpecifier()) {
@@ -655,18 +650,60 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
     // Assigning unsafe function to safe function pointer is forbidden.
     if (DestSZS == SZ_Safe &&
         (SrcSZS == SZ_Unsafe || SrcSZS == SZ_None)) {
-      // Emit error with proper type strings that include safe/unsafe specifiers
       Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
           << Context.getPointerType(QualType(RHSFuncType, 0)) << DestType;
       Diag(SrcExpr->getBeginLoc(), diag::note_unsafe_to_safe_function_pointer);
       return false;
     }
 
-    // Assigning safe function to unsafe function pointer is allowed.
+    // Assigning safe function to unsafe function pointer is allowed
+    // only if the function also has an _Unsafe declaration.
     if ((DestSZS == SZ_Unsafe || DestSZS == SZ_None) &&
         SrcSZS == SZ_Safe) {
-      // Type compatibility is already checked below.
+      bool IsChecked = false;
+      // Look through & to find the underlying FunctionDecl.
+      Expr *Stripped = SrcExpr->IgnoreParenImpCasts();
+      if (auto *UO = dyn_cast<UnaryOperator>(Stripped))
+        if (UO->getOpcode() == UO_AddrOf)
+          Stripped = UO->getSubExpr()->IgnoreParenImpCasts();
+
+      if (auto *DRE = dyn_cast_or_null<DeclRefExpr>(Stripped)) {
+        if (FunctionDecl *SrcFD = dyn_cast<FunctionDecl>(DRE->getDecl())) {
+          if (!llvm::any_of(SrcFD->redecls(), [](const Decl *D) {
+              auto *FD = dyn_cast<FunctionDecl>(D);
+              return FD && FD->getSafeZoneSpecifier() != SZ_Safe;
+          })) {
+            // Function has no _Unsafe declaration — reject.
+            Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
+                << Context.getPointerType(QualType(RHSFuncType, 0)) << DestType;
+            Diag(SrcExpr->getBeginLoc(),
+                diag::note_safe_to_unsafe_function_no_unsafe_decl)
+                << SrcFD;
+            return false;
+          }
+          // Function has an _Unsafe declaration - continue checking.
+          IsChecked = true;
+        }
+      }
+      if (!IsChecked) {
+        Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
+            << Context.getPointerType(QualType(RHSFuncType, 0)) << DestType;
+        return false;
+      }
     }
+  }
+
+  // Nullability compatibility: applies regardless of zone.
+  if (!AreFunctionTypesNullabilityCompatible(LHSFuncType, RHSFuncType, Context)) {
+    Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
+        << Context.getPointerType(QualType(RHSFuncType, 0)) << DestType;
+    return false;
+  }
+
+  // conversion to an unsafe type is allowed in the unsafe zone
+  // only need to care about the safe zone or safe type
+  if (!IsInSafeZone() && LHSFuncType->getFunSafeZoneSpecifier() != SZ_Safe) {
+    return true;
   }
 
   // Check return type constraints using the constraint-aware helper.

@@ -41,3 +41,13 @@ _Safe int* _Owned _ArrayElem f_keep_owned_arrayelem(int* _Owned _ArrayElem a);
 // Multiple parameters: safe adds qualifiers to all raw params.
 void f_multi(int* a, int* b);
 _Safe void f_multi(int* _Borrow a, int* _Owned b);
+
+// Default nullability annotations: raw pointer (default _Nullable) on unsafe
+// side with _Borrow (default _Nonnull) on safe side — should be OK because
+// unsafe-safe refinement allows _Nullable → _Nonnull.
+void f_default_nullable(int *p);
+_Safe void f_default_nullable(int *_Borrow p);
+
+// Multiple levels: raw pointer default _Nullable → _Borrow default _Nonnull.
+void f_default_nullable2(int **p);
+_Safe void f_default_nullable2(int **_Borrow p);

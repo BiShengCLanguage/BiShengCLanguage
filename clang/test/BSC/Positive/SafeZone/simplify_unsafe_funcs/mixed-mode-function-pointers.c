@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify -x bsc %s
-// Positive tests for mixed mode function pointers (Manual section 9)
+// Positive tests for mixed mode function pointers
 // Tests the VALID cases that should compile without errors
 
 // Mixed mode declarations
@@ -11,25 +11,26 @@ _Safe int compute(int x);
 
 _Safe void safe_only_func(void);
 _Unsafe void unsafe_only_func(void);
-
 void test_valid_assignments(void) {
-  // Valid: unqualified pointers accept both _Safe and _Unsafe functions
-  void (*ptr1)(void) = safe_only_func;    // OK: _Safe -> unqualified (widening)
-  void (*ptr2)(void) = unsafe_only_func;  // OK: _Unsafe -> unqualified
-  ptr2 = safe_only_func;                  // OK: _Safe -> unqualified (widening)
+  // Valid: function with both _Safe and _Unsafe declarations can be assigned
+  // to either _Safe or _Unsafe (or unqualified) function pointers.
 
-  // Valid: _Unsafe pointers accept both _Safe and _Unsafe functions
+  // _Unsafe function pointer ← function that has _Unsafe declaration (via func1)
   _Unsafe void (*unsafe_ptr)(void) = nullptr;
   unsafe_ptr = unsafe_only_func;          // OK: _Unsafe -> _Unsafe
-  unsafe_ptr = safe_only_func;            // OK: _Safe -> _Unsafe (widening)
+  unsafe_ptr = func1;                     // OK: func1 has _Unsafe declaration
+
+  // Unqualified function pointer ← function that has _Unsafe declaration
+  void (*unqual_ptr)(void) = nullptr;
+  unqual_ptr = func1;                     // OK: func1 has _Unsafe declaration
 
   // Valid: _Safe pointers accept _Safe functions
   _Safe void (*safe_ptr)(void) = nullptr;
   safe_ptr = safe_only_func;              // OK: _Safe -> _Safe
+  safe_ptr = func1;                       // OK: func1 has _Safe declaration
 
-  (void)ptr1;
-  (void)ptr2;
   (void)unsafe_ptr;
+  (void)unqual_ptr;
   (void)safe_ptr;
 }
 

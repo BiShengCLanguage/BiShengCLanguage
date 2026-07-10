@@ -23,6 +23,7 @@ int int::goo(int* this) {   // OK
 _Safe int* _Owned int::hoo(int* _Owned this) {   // OK
   return this;
 }
+int* _Owned int::hoo(int* _Owned this);
 
 _Safe int* _Owned int::ioo(int* _Owned this) {  // OK
   return this;

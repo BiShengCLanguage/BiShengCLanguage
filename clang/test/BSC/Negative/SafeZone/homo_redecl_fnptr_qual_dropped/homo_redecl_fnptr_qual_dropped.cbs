@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -verify %s
 
 // Companion to the heterogeneous fnptr case. The commit that fixed
-// AreOwnedBorrowQualifiersCompatible only touched the heterogeneous
+// AreTypesCompatibleForUnsafeToSafeRefinement only touched the heterogeneous
 // (safe/unsafe) path. The HOMOGENEOUS paths — two _Safe decls, two _Unsafe
 // decls, or _Unsafe-vs-no-attribute — go through HasDiffBorrorOrOwnedQualifiers,
 // which had the same blind spot: it recursed through plain pointer levels but

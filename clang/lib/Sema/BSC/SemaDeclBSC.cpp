@@ -79,9 +79,7 @@ void Sema::CheckBSCConstexprVarType(VarDecl* VD) {
 
 bool HasDiffNullabilityQualifiers(QualType LHSType, QualType RHSType,
                                    ASTContext &Ctx) {
-  Optional<NullabilityKind> LHSNullability = LHSType->getNullability(Ctx);
-  Optional<NullabilityKind> RHSNullability = RHSType->getNullability(Ctx);
-  return LHSNullability != RHSNullability;
+  return getDefNullability(LHSType, Ctx) != getDefNullability(RHSType, Ctx);
 }
 
 bool HasDiffBorrorOrOwnedQualifiers(QualType LHSType, QualType RHSType) {
@@ -173,25 +171,17 @@ bool Sema::CheckNullabilityQualTypeAssignment(QualType LHSType, QualType RHSType
 
   // If both are pointers, check recursively
   if (LHSPtrType && RHSPtrType) {
-    // Get nullability of pointee types
     QualType LHSPointee = LHSPtrType->getPointeeType();
     QualType RHSPointee = RHSPtrType->getPointeeType();
 
-    Optional<NullabilityKind> LHSNullability = LHSPointee->getNullability(Context);
-    Optional<NullabilityKind> RHSNullability = RHSPointee->getNullability(Context);
+    // Get effective nullability (explicit or default) for both sides.
+    NullabilityKind LHS = getDefNullability(LHSPointee, Context);
+    NullabilityKind RHS = getDefNullability(RHSPointee, Context);
 
-    if (!RHSNullability && RHSPointee->isPointerType())
-      RHSNullability = NullabilityKind::Nullable;
-
-    // Check if nullability qualifiers are incompatible
-    // Nullable cannot be assigned to nonnull
-    if (LHSNullability && RHSNullability) {
-      if (*LHSNullability == NullabilityKind::NonNull &&
-          (*RHSNullability == NullabilityKind::Nullable ||
-           *RHSNullability == NullabilityKind::NullableResult)) {
-        return false;
-      }
-    }
+    // Nullable cannot be assigned to NonNull.
+    if (LHS == NullabilityKind::NonNull &&
+        RHS == NullabilityKind::Nullable)
+      return false;
 
     // Recursively check nested pointers
     if (LHSPointee->isPointerType() && RHSPointee->isPointerType()) {

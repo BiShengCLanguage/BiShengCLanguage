@@ -16,15 +16,12 @@
 #if ENABLE_BSC
 
 #include "clang/Analysis/AnalysisDeclContext.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Sema/Sema.h"
 
 namespace clang {
-/// Returns the default nullability semantics for BSC pointers:
-/// explicit _Nonnull/_Nullable if present, otherwise owned/borrow -> nonnull
-/// and raw pointer -> nullable.
-NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx);
 bool FindNonnull(QualType QT, const ASTContext &Ctx);
 Expr *NormalizeInitExpr(Expr *E);
 
