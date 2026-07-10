@@ -2162,6 +2162,8 @@ int main() {
 6. [安全区](#36-安全区)：引入 `_Safe` 与 `_Unsafe` 关键字，在 `_Safe` 的安全区中使用更严格的语法检查以阻止不安全操作。
 7. [初始化分析](#37-初始化分析)：通过更准确、更严格的初始化分析以更好地发现对未初始化内存的读取。
 
+除此之外，[类型兼容](#38-类型兼容)章节介绍了毕昇C在引入类型限定符与 attribute 之后对类型兼容性定义的扩展。
+
 毕昇C将 `_Owned` 或 `_Borrow` 修饰的指针称为安全指针，没有 `_Owned` 或 `_Borrow` 修饰的指针称为裸指针。C中所有时间类内存安全问题都是由裸指针的不慎使用导致的。比起裸指针，安全指针有更严格的类型检查和使用限制，可能导致悬垂引用、内层泄露等问题的代码均无法通过所有权和借用机制的检查，因此使用安全指针替代裸指针可以避免时间类内存安全问题。由于安全区中禁止解引用裸指针、只能解引用安全指针，且安全区有更严格的语法检查，因此毕昇C能够保证安全区内的代码不会导致时间类内存安全错误。其他机制在此基础上补充了额外的安全检查和保护覆盖。
 
 毕昇C的语言特性目前无法提供对空间内存安全的保护，空间安全将会通过运行时检查机制来保证。
@@ -5509,205 +5511,182 @@ _Safe void foo(void) {
 
 同一函数标识符可以有多个声明,支持`_Safe`和`_Unsafe`混合声明。
 
-##### 3.6.5.1. 函数声明检查
+##### 3.6.5.1. 函数声明、定义检查规则
 
-1. 兼容性要求
+1. 在一个编译单元内，允许对一个函数标识符进行重声明 (redeclaration)，且允许多个声明中一些是 `_Unsafe` 修饰的，一些是 `_Safe` 修饰的。同一函数名的多个声明没有顺序限制，可以先是 `_Unsafe` 声明，后是 `_Safe` 声明，也可以先是 `_Safe` 声明、再是 `_Unsafe` 声明。
 
-   **相同修饰符**: 多个`_Safe`声明之间、或多个`_Unsafe`声明之间,函数类型必须兼容
-
-   **混合模式**: `_Safe`和`_Unsafe`声明可以共存,但必须满足混合模式兼容性(见7.3)
-   
-   **泛型函数除外**: 泛型函数不支持混合模式,同一实例化不能同时有`_Safe`和`_Unsafe`声明
-   
-   **成员函数**: 与普通函数规则相同
-
-2. 函数类型兼容性
-
-   **两个函数类型兼容的条件**:
-   - 返回类型兼容
-   - 参数数量相同,省略号(`...`)使用一致
-   - 对应参数类型兼容(兼容性检查时移除除`_Owned`、`_Borrow`、`_ArrayElem`、`_Nonnull`、`_Nullable`外的所有限定符)
-
-  **指针兼容性**:
-
-   - 指针类型需要相同限定符(`_Owned`、`_Borrow`、`_ArrayElem`、`_Nonnull`、`_Nullable`)且目标类型兼容
-
-   - `_Owned`和`_Borrow`指针（以及带`_ArrayElem`的版本）之间两两互不兼容。
-
-   - `_Owned`/`_Borrow`指针（以及带`_ArrayElem`的版本）与裸指针不兼容(混合模式除外,见7.3)
-
-3. 混合模式兼容性(`_Unsafe`与`_Safe`共存)
-
-   **返回类型兼容**:
-
-   - `_Safe`声明与`_Unsafe`声明中的返回值类型在去掉毕昇C引入的类型限定符(`_Owned`,`_Borrow`,`_ArrayElem`等)、**保留**其他C的限定符(`const`,`volatile`等)之后是兼容的。
-
-   - `_Safe`声明只能为返回类型**添加**`_Owned`，`_Borrow`，`_Owned _ArrayElem`，或`_Borrow _ArrayElem`限定符，不能**移除**已有的限定符。`_Owned _ArrayElem`与`_Borrow _ArrayElem`应当视作整体进行添加。
-
-   **参数类型兼容**:
-
-   - 参数数量、省略号使用必须一致
-
-   - `_Safe`声明与`_Unsafe`声明中的参数类型在去掉毕昇C引入的类型限定符(`_Owned`,`_Borrow`,`_ArrayElem`等)以及**去除**其他C的限定符(`const`,`volatile`等)之后是兼容的。
-
-   - `_Safe`声明只能为参数**添加**`_Owned`，`_Borrow`，`_Owned _ArrayElem`，或`_Borrow _ArrayElem`限定符，不能**移除**已有的限定符。`_Owned _ArrayElem`与`_Borrow _ArrayElem`应当视作整体进行添加。
-
-   **示例**:
-   ```c
-   // ok: _Safe声明添加_Owned限定符
-   _Unsafe int* f1(int* p);
-   _Safe int* _Owned f1(int* _Owned p);
-
-   // ok: _Safe声明添加_Borrow限定符
-   _Unsafe int* f2(int* p);
-   _Safe int* _Borrow f2(int* _Borrow p);
-
-   // ok: _Safe声明添加_Owned _ArrayElem限定符
-   _Unsafe int* f3(int* p);
-   _Safe int* _Owned _ArrayElem f3(int* _Owned _ArrayElem p);
-
-   // ok: _Safe声明添加_Borrow _ArrayElem限定符
-   _Unsafe int* f4(int* p);
-   _Safe int* _Borrow _ArrayElem f4(int* _Borrow _ArrayElem p);
-
-   // error: _Safe声明移除了_Unsafe声明中的_Owned限定符
-   int* _Owned f5(int* _Owned p);
-   _Safe int* f5(int* p);
-
-   // error: _Safe声明移除了_Unsafe声明中的_Borrow限定符
-   int* _Borrow f6(int* _Borrow p);
-   _Safe int* f6(int* p);
-
-   // error: _Safe声明移除了_Unsafe声明中的_Owned _ArrayElem限定符
-   int* _Owned _ArrayElem f7(int* _Owned _ArrayElem p);
-   _Safe int* f7(int* p);
-
-   // error: _Safe声明移除了_Unsafe声明中的_Borrow _ArrayElem限定符
-   int* _Borrow _ArrayElem f8(int* _Borrow _ArrayElem p);
-   _Safe int* f8(int* p);
-
-   // error: _Unsafe声明中没有_ArrayElem限定符时_Safe声明不能加_ArrayElem
-   int* _Borrow  f9(int* _Borrow p);
-   _Safe int* _Borrow _ArrayElem f9(int* _Borrow _ArrayElem p);
-   int* _Owned f10(int* _Owned p);
-   _Safe int* _Owned _ArrayElem f10(int* _Owned _ArrayElem p);
-
-   // error: owned与borrow不兼容
-   _Unsafe int* _Owned f11(int* _Borrow p);
-   _Safe int* _Borrow f11(int* _Owned p);
-
-   // ok: 相同修饰符,类型完全相同
-   _Safe int* _Owned f12(int* _Owned p);
-   _Safe int* _Owned f12(int* _Owned q);
-   ```
-
-4. 函数定义
-
-   混合模式函数只能定义**一次**
-
-   定义可基于`_Unsafe`版本或`_Safe`版本,但必须与所有声明兼容
-
-   ```c
-   _Unsafe int* foo(int* p);
-   _Safe int* _Owned foo(int* _Owned p);
-   
-   // 定义(选择其一)
-   _Safe int* _Owned foo(int* _Owned p) { return p; }
-   // 或
-   _Unsafe int* foo(int* p) { return p; }
-   ```
-
-##### 3.6.5.2. 函数调用解析
-
-1. 安全上下文调用
-
-   安全上下文(`_Safe`块)内只能调用`_Safe`函数。如果函数只有`_Unsafe`声明,编译错误。
-   
-   ```c
-   _Unsafe void foo(void);
-   
-   int main() {
-     _Safe {
-       foo();  // error: 安全区内不允许调用非安全函数
-     }
-   }
-   ```
-
-2. 非安全上下文调用
-
-   非安全上下文(`_Unsafe`块或默认)内执行重载解析:
-
-   - 优先匹配`_Safe`声明
-   - `_Safe`不匹配时使用`_Unsafe`声明
-   
-   ```c
-   _Unsafe int* foo(int* p);
-   _Safe int* _Owned foo(int* _Owned p);
-   
-   int *_Owned bar() {
-     int* raw_p = nullptr;
-     int* _Owned owned_p = nullptr;
-   
-     // 根据参数类型选择对应版本
-     foo(raw_p);      // 调用unsafe版本
-     return foo(owned_p);    // 调用safe版本
-   }
-   ```
-
-##### 3.6.5.3. 函数指针赋值
-
-函数指针赋值规则:
-
-**给`_Safe`修饰的函数指针赋值时**:
-- 如果被用于赋值的函数标识符没有`_Safe`版本的声明,则报错,即不允许`_Unsafe`版本的声明赋值给`_Safe`修饰的函数指针
-- 如果被用于赋值的函数标识符有`_Safe`版本的声明,则要求`_Safe`版本的声明类型与函数指针类型是兼容的
-
-**给`_Unsafe`修饰的函数指针赋值时**:
-- 只要被用于赋值的函数标识符的`_Unsafe`版本声明类型与函数指针类型是兼容的,或`_Safe`版本声明类型与函数指针类型是`_Unsafe-_Safe`兼容的,即允许赋值
-- 都不满足则编译报错
-
-**示例**:
 ```c
-_Safe void safe_foo(void);
-_Unsafe void unsafe_foo(void);
+void f1(int *p, int a, int *q); // unsafe 版本在前
+_Safe void f1(int *_Owned p, int a, int *_Borrow q); // ok, 允许再声明 safe 版本
+```
+```c
+_Safe void f2(int *_Borrow p); // safe 版本在前
+void f2(int *p);               // ok, 允许再声明 unsafe 版本
+```
 
-// 混合模式声明
-_Unsafe int* bar(int* p);
-_Safe int* _Owned bar(int* _Owned p);
+2. 如果一个函数名存在多个 `_Unsafe` 修饰的声明，则这些 `_Unsafe` 修饰的声明的类型之间必须是兼容的。如果一个函数名存在多个 `_Safe` 修饰的声明，则这些 `_Safe` 修饰的声明的类型之间必须是兼容的。（类型兼容的定义见 [3.8 节](#38-类型兼容)）
 
-int main() {
-  _Safe void (*safe_ptr)(void) = nullptr;
-  _Unsafe void (*unsafe_ptr)(void) = nullptr;
+```c
+void f1(int a, int *p); // void (int, int *)
+_Unsafe void f1(int a, int *p); // ok, void (int, int *)
+_Unsafe void f1(int a); // error: 声明的函数类型  void (int) 与 void (int, int *) 不兼容
 
-  safe_ptr = safe_foo;      // ok: safe函数赋值给safe指针
-  safe_ptr = unsafe_foo;    // error: 没有safe版本的声明
+_Safe void f2(int a, int *_Borrow p); // _Safe void (int, int * _Borrow)
+_Safe void f2(int a, int *_Borrow p); // ok, 兼容
+_Safe void f2(int a, int *_Owned p);  // error: int * _Owned 与 int * _Borrow 不兼容
+```
 
-  unsafe_ptr = unsafe_foo;  // ok: unsafe函数赋值给unsafe指针
-  unsafe_ptr = safe_foo;    // ok: safe版本与unsafe-safe兼容
+3. 如果一个函数名既存在 `_Unsafe` 修饰的声明，又存在 `_Safe` 修饰的声明，则 `_Unsafe` 修饰的声明的类型与 `_Safe` 修饰的声明的类型必须满足 unsafe-safe 精化关系。unsafe-safe 精化关系的定义见 [3.6.5.4 节](#3654-unsafe-safe-精化关系)。
 
-  // 混合模式函数指针赋值
-  _Safe int* _Owned (*safe_bar_ptr)(int* _Owned) = nullptr;
-  _Unsafe int* (*unsafe_bar_ptr)(int*) = nullptr;
+```c
+void f1(int a, int *p); // void (int, int *)
+_Safe void f1(int a, int *_Borrow p); // ok, void (int, int *) 对 _Safe void (int, int * _Borrow) 满足 unsafe-safe 精化关系
+```
+```c
+void f2(int *_Owned p);             // _Unsafe void (int * _Owned)
+_Safe void f2(int *_Borrow p);      // error: void (int * _Owned) 对 _Safe void (int * _Borrow) 不满足 unsafe-safe 精化关系
+```
 
-  safe_bar_ptr = bar;   // ok: 使用safe版本
-  unsafe_bar_ptr = bar; // ok: 使用unsafe版本或safe版本(_Unsafe-safe兼容)
+4. 函数定义可以是 `_Unsafe` 修饰的，也可以是 `_Safe` 修饰的。函数名是否有 `_Unsafe` 或 `_Safe` 修饰的声明不会限制函数定义是 `_Unsafe` 或 `_Safe`。
+
+```c
+void f1(int a, int *p);
+_Safe void f1(int a, int *_Borrow p) {...} // ok, _Unsafe 声明 + _Safe 定义
+
+_Safe void f2(int a, int * _Borrow p);
+void f2(int a, int *p) {...} // ok, _Safe 声明 + _Unsafe 定义
+```
+
+5. 泛型函数不允许同时存在 `_Unsafe` 和 `_Safe` 修饰的声明或定义。
+
+```c
+_Safe void foo<T>(T a);
+_Unsafe void foo<T>(T a); // error
+```
+
+##### 3.6.5.2. 函数调用解析规则
+
+1. 在 safe 上下文使用函数名进行函数调用时，只能使用 `_Safe` 声明（如果有多个 `_Safe` 声明则会检查合并后的 `_Safe` 声明）。如果被调用的函数没有 `_Safe` 修饰的声明、只有 `_Unsafe` 修饰的声明，则编译报错。
+2. 在 unsafe 上下文使用函数名进行函数调用时，优先匹配 `_Safe` 声明，如果实参无法匹配则尝试匹配 `_Unsafe` 声明（如果有多个 `_Safe` 或者多个 `_Unsafe` 声明的话会检查合并后的 `_Safe` 或 `_Unsafe` 声明）。如果都无法匹配成功，则编译报错。
+
+```c
+      void f1(int * p); // _Unsafe 声明
+_Safe void f1(int *_Borrow p); // _Safe 声明
+
+void f2(int *p); // 仅有 _Unsafe 声明，无 _Safe 声明
+
+_Safe void foo(void) {
+  int a = 0;
+  int * _Borrow p = &_Mut a;
+  f1(p); // ok, safe 上下文中，实参 int * _Borrow 匹配 _Safe 声明
+  f2(&a); // error: f2 没有 _Safe 声明，不能在 safe 上下文中调用
+}
+
+void bar(void) {
+  int a = 0;
+  int * p1 = &a;
+  int * _Borrow p2 = &_Mut a;
+  f1(p1); // ok, unsafe 上下文中，实参 int * 不匹配 _Safe 声明，回退匹配 _Unsafe 声明
+  f1(p2); // ok, unsafe 上下文中，优先匹配 _Safe 声明成功
+}
+
+void baz(int * _Owned p) {
+  f1(p); // error: unsafe 上下文中，实参 int * _Owned 既不匹配 _Safe 声明，也不匹配 _Unsafe 声明
 }
 ```
 
-函数参数中声明为数组类型的形参与对应的指针类型形参等价，函数指针赋值时两者可以互换：
+##### 3.6.5.3. 函数指针赋值规则
+
+对于函数指针变量 `p` 和表达式 `e` ，如果有初始化或赋值 `p = e`，且 `e` 为函数名(如 `foo`)或是对函数名的取地址表达式(如 `&foo`),则有如下规则：
+1. 如果 `p` 指向的函数类型是 `_Safe` 的，则要求被用于赋值的函数 `foo` 有 `_Safe` 的声明，且该声明的类型与 `p` 指向的函数类型兼容（定义见 [3.8 节](#38-类型兼容)），否则报错。
+2. 如果 `p` 指向的函数类型是 `_Unsafe` 的，则要求被用于赋值的函数 `foo` 有 `_Unsafe` 的声明，且该声明的类型与 `p` 指向的函数类型兼容，否则报错。
+
+如果 `e` 不是函数名(如 `foo`)或是对函数名的取地址表达式(如 `&foo`),则使用兼容性介绍中赋值场景的规则。
 
 ```c
-_Safe void test10(int arr[3]) {}
-_Safe void test11(int *arr) {}
+void f1(int *p); // _Unsafe 声明
+_Safe void f1(int *_Borrow p); // _Safe 声明
 
-_Safe void (*p10)(int arr[3]) = nullptr;
-_Safe void (*p11)(int *arr) = nullptr;
+void test(void) {
+  // _Safe 函数指针赋值
+  typedef _Safe void (*SafeFP)(int *_Borrow);
+  SafeFP sp1 = f1;  // ok, f1 有 _Safe 声明，且类型 void (int * _Borrow) 兼容
+  SafeFP sp2 = &f1; // ok, 同上
 
-_Safe int main(void) {
-    p10 = test11;  // ok: int arr[3] 与 int *arr 等价
-    p11 = test10;  // ok: int *arr 与 int arr[3] 等价
-    return 0;
+  // _Unsafe 函数指针赋值
+  typedef void (*UnsafeFP)(int *);
+  UnsafeFP up1 = f1;  // ok, f1 有 _Unsafe 声明，且类型 void (int *) 兼容
+  UnsafeFP up2 = &f1; // ok, 同上
+
+  // 错误：_Safe 函数指针类型与函数的 _Safe 声明类型不兼容
+  typedef _Safe void (*SafeFP2)(int *_Owned);
+  SafeFP2 sp3 = f1; // error: f1 的 _Safe 声明类型 void (int * _Borrow) 与 SafeFP2 的 void (int * _Owned) 不兼容
 }
+```
+
+##### 3.6.5.4. unsafe-safe 精化关系
+
+类型 A 对类型 B 满足 unsafe-safe 精化关系意味着类型B在去除毕昇C语言层面的安全特性（包括类型限定符、attribute）后，与类型 A 兼容。
+
+当函数同时具有 `_Unsafe` 声明和 `_Safe` 声明时，毕昇C要求 `_Unsafe` 声明的函数类型对 `_Safe` 声明的类型满足 unsafe-safe 精化关系。毕昇C会将 `_Unsafe` 声明与 `_Safe` 声明都保留、不会合并。
+
+unsafe-safe 精化关系的设计基于以下指导思想：`_Safe` 声明的类型应当包含最准确的类型限定符、attribute 修饰。对于每种毕昇C引入的粘性限定符、attribute（定义见 [3.8.5 节](#385-粘性非粘性的限定符与-attribute)），`_Unsafe` 声明的类型可以无修饰，若有修饰则必须与 `_Safe` 声明的修饰一致。
+
+**定义：**
+当两个类型兼容时，它们一定互相满足 unsafe-safe 精化关系。如果类型 A 与类型 B 不兼容，则当且仅当满足以下情况之一时，也视为类型 A 对类型 B 满足 unsafe-safe 精化关系：
+
+1. （对于函数类型）两函数类型如果不兼容，则需要满足以下全部条件才满足 unsafe-safe 精化关系：
+    1. A 是 `_Unsafe` 的， B 是 `_Safe` 的。
+    2. A的返回值类型必须对B的返回值类型满足 unsafe-safe 精化关系。
+    3. A与B都有非空的参数列表，且参数列表满足以下所有条件：
+        1. 参数数量必须相同。
+        2. 省略号(`...`,表示可变参数)的使用必须一致。
+        3. A的每个参数类型在经过调整后对B的对应参数类型满足 unsafe-safe 精化关系。
+2. （对于指针类型）两指针类型如果不兼容，则需要满足以下所有条件：
+    1. A的非粘性限定符、attribute（定义见 [3.8.5 节](#385-粘性非粘性的限定符与-attribute)）与 B 相同。
+    2. A指向的类型对B指向的类型满足 unsafe-safe 精化关系
+    3. 如果 B 有以下两类限定符、attribute 中的一个或多个：
+       1. 安全指针类型限定符：`_Owned`、`_Borrow`、`_Owned _ArrayElem`、`_Borrow _ArrayElem`。(`_ArrayElem`与相连的`_Owned`/`_Borrow` 作为整体进行判断)
+       2. 初始化分析 attribute：`__attribute__((ensure_init))`, `__attribute__((ensure_init_if_ret(...)))`
+       那么 A 中可以没有这些修饰，但是反之不允许。
+    4. 不允许 A 是 `_Nonnull` 的但 B 是 `_Nullable` 的。
+
+```c
+// 1. _Unsafe 对 _Safe：不兼容但满足精化关系
+      void f1(int *p);
+_Safe void f1(int *_Borrow p); // ok
+
+// 1.2 返回值类型满足精化
+      int *        f2(void);
+_Safe int *_Borrow f2(void); // ok
+
+// 1.3 参数数量一致
+      void f3(int *        p);
+_Safe void f3(int *_Borrow p, int *q); // error, 参数数量不同
+
+// 2.3 _Unsafe 可无粘性限定符，若有则须一致
+      void f4(int *       p);
+_Safe void f4(int *_Owned p);  // ok
+      void f5(int *_Owned p);
+_Safe void f5(int *_Owned p);  // ok, 一致
+      void f6(int *_Owned  p);
+_Safe void f6(int *_Borrow p); // error, _Owned 与 _Borrow 不一致
+
+// _ArrayElem 与相连的 _Owned/_Borrow 作为整体判断
+      void f7(struct S *                   p);
+_Safe void f7(struct S *_Borrow _ArrayElem p); // ok
+      void f8(struct S *_Borrow            p);
+_Safe void f8(struct S *_Borrow _ArrayElem p); // error
+
+// 如果 _Unsafe 的是 _Nonnull 的，_Safe 的不能是 _Nullable 的
+      void f9(int *                   p);
+_Safe void f9(int *_Borrow            p); // ok
+      void f10(int *        _Nullable p);
+_Safe void f10(int *_Borrow           p); // ok
+      void f11(int *        _Nonnull  p);
+_Safe void f11(int *_Borrow           p); // ok
+      void f12(int *        _Nonnull  p);
+_Safe void f12(int *_Borrow _Nullable p); // error
 ```
 
 ### 3.7. 初始化分析
@@ -6404,6 +6383,236 @@ _Safe void array_subscript_example(void) {
 | `all` | 在所有代码区域内检查（包括非安全区） |
 
 注：只要启用了初始化分析（即模式不为 `none`）, 则`ensure_init` 契约验证生效（包括非安全区）。
+
+### 3.8. 类型兼容
+
+由于毕昇C引入了多种类型限定符、attribute，因此需要对 C 语言中原生的类型兼容概念进行扩展。
+
+#### 3.8.1. 概述
+
+两个类型"兼容"（compatible）意味着这两个类型可以指向同一个函数、对象等实体，且它们可以合并为一个类型（称为这两个类型的组合类型 composite type），组合类型与原来的两类型都兼容。该概念在合并声明、赋值检查等规则中被使用。
+
+类型兼容与 unsafe-safe 精化关系（见 [3.6.5.4 节](#3654-unsafe-safe-精化关系)）中都涉及粘性、非粘性限定符与 attribute 的概念。简单来说，非粘性的限定符、attribute 在进行值传递时可以被去除或增加，因此在部分场景不影响兼容性判定；其余限定符、attribute 则都是粘性的。详细定义见 [3.8.5 节](#385-粘性非粘性的限定符与-attribute)。
+
+#### 3.8.2. 涉及场景
+
+毕昇C中以下场景要求两个类型兼容：
+
+1. 相同 `_Safe`/`_Unsafe` 的函数声明与函数定义、多个函数声明之间，要求函数类型兼容；编译器会将这些兼容的函数类型合并。不同 `_Safe`/`_Unsafe` 时的规则见 [3.6.5.4 节](#3654-unsafe-safe-精化关系)。
+```c
+void f(int);
+void f(int a) { ... }      // ok
+```
+
+2. 同一个全局对象有多个声明时，所有声明的类型必须兼容；同一编译单元内，编译器会将多个声明的类型合并。
+```c
+extern int arr[];
+int arr[10];      // ok
+```
+```c
+// a.cbs
+extern int x;
+// b.cbs
+double x; // int 与 double 不兼容，运行时会有未定义行为
+```
+
+3. 在不同编译单元中声明了相同标签（tag）的 struct/union/enum 类型时（包括 `_Owned struct`），这些类型必须兼容。相同标签的 struct/union/enum 在不同编译单元中引用的是同一个类型。这些类型在不同编译单元的定义不兼容会导致未定义行为；除非类型在某一编译单元只有前向声明 (incomplete type) ，该编译单元内不允许需要完整类型定义的操作，也不需要类型兼容来避免未定义行为。
+```c
+// a.cbs
+struct S { int x; };
+// b.cbs
+struct S { int x; }; // ok
+```
+
+4. 对于简单赋值场景（只包括`=`, 不包括复合赋值如`+=`,`-=`）。（初始化、函数返回、函数调用传参时对下列情况也有相同要求）
+    1. 等号左右两侧类型是 `struct` 或 `union` 时，要求两侧在去除非粘性限定符、attribute后兼容。
+    2. 等号左右两侧类型是指针时，若左侧是 `T * p`, 右侧是 `U * q`, 则(1)要求 `T` 和 `U` 在去除非粘性限定符、attribute后兼容，或者 `T` 或 `U` 某一方在去除非粘性限定符、attribute后是`void`；(2)每个 `U` 有的非粘性限定符、attribute 需要在 `T` 上也有修饰。
+    3. 等号左侧是函数指针、右侧是函数名`foo` 或对函数名取地址的表达式`&foo`时：见 [3.6.5.3 节](#3653-函数指针赋值规则)“函数指针赋值规则”。
+
+```c
+struct S {...};
+struct S s1 = ...;
+const struct S s2 = s1; // ok
+```
+```c
+const int *p = ...;
+int *q = ...;
+p = q; // ok
+```
+```c
+void foo(int*);
+void (*fp)(int *) = foo; // ok
+```
+
+5. 对于表达式 `e1 ? e2 : e3`，如果 `e2` 与 `e3` 都是指针，则它们的粘性限定符、attribute必须一致，且指向的类型在去除非粘性限定符、attribute后必须兼容。
+```c
+int *r = ...;
+const int *s = ...;
+const int *t = cond ? r : s; // ok
+```
+
+6. 两指针做减法时，两指针指向的类型必须是 complete type（不能指向 `void` 或是其他 incomplete type），且去除非粘性限定符、attribute后必须兼容。
+```c
+int a[10];
+ptrdiff_t d = &a[5] - &a[0]; // ok
+```
+
+7. 两指针类型做比较 `==`, `!=`, `<`, `<=`, `>`, `>=` 时，必须满足以下情况之一：
+    1. 两指针的指向类型去除非粘性限定符、attribute后兼容
+    2. 两指针中有一个指向 `void` 类型
+    3. 两指针中有一个是空指针常量(`nullptr`)
+```c
+int *p1 = ...;
+const int *p2 = ...;
+void *p3 = ...;
+_Bool b1 = (p1 == p2); // ok
+_Bool b2 = (p1 == p3); // ok
+_Bool b3 = (p1 == nullptr); // ok
+```
+
+8. 强制转换后的函数指针如果被用来进行函数调用，则函数类型必须与转换后的类型兼容，否则该行为未定义。
+```c
+void f(int x) {...}
+void (*p1)(void) = (void (*)(void))f; // p1 指向类型与 f 不兼容，调用会有未定义行为
+void (*p2)(int) = (void (*)(int))p1; // p2 指向类型与 f 兼容，可以调用
+p2(42); // ok
+```
+
+#### 3.8.3. 兼容性定义
+
+当两个类型完全相同时，它们是兼容的。组合类型即源类型。
+
+如果两个类型不完全相同，则当且仅当满足以下情况之一时，也视为这两个类型兼容：（组合类型也按以下规则递归取得）（毕昇C新增或修改的规则以 **粗体** 标注；若某规则无特殊标注，则该规则与 C11 一致）
+
+1. （对于函数类型）两函数类型需要满足以下全部条件才兼容：（组合类型同为函数类型）
+    1. **（毕昇C新增）必须有相同的 `_Safe`/`_Unsafe` 修饰。组合类型也有相同的 `_Safe`/`_Unsafe` 修饰。**
+    2. 返回值类型必须兼容。组合类型的返回值是两返回值类型的组合类型。
+    3. 如果两函数类型都有非空的参数列表，则需满足以下所有条件。组合类型的参数列表按下面各个条件判断中的规则进行生成。
+        1. 参数数量必须相同。组合类型的参数列表也有相同数量的参数。
+        2. 省略号(`...`,表示可变参数)的使用必须一致。组合类型对省略号的使用也一致。
+        3. 每个参数类型在经过调整后是兼容的。组合类型对应参数是这两个参数类型的组合类型。
+    4. 如果两函数类型中至少有一个参数列表为空：
+        1. 如果两函数类型都有空的参数列表，则两类型兼容。组合类型的参数列表也为空。
+        2. 如果一方有非空的参数列表 `p`、另一方参数列表为空：
+            1. `p` 的参数列表中不能有省略号（`...`）；
+            2. `p` 的每个参数类型不能是比 `int` / `unsigned int` 窄的整数类型（包括 `char`、`signed char`、`unsigned char`、`short`、`unsigned short`、`_Bool` 等）、`float`，以及这些类型带限定符的版本。
+           组合类型的参数列表与 `p` 相同。
+2. （对于带限定符、**attribute**的类型）所有限定符、**attribute**相同，且去除所有限定符、**attribute**后类型兼容。组合类型即为去除限定符后两类型的组合类型加上限定符、**attribute**。**（毕昇C把类型上的 attribute 也纳入兼容性判定）**
+3. （对于指针类型）两指针类型带有相同的限定符与attribute **（如果没有显式的 `_Nullable`、`_Nonnull` 修饰则先补足默认修饰再进行比较）**，且指向兼容的类型。组合类型同为指针类型，其限定符、attribute 与源类型一致，指向类型是两指针指向的类型的组合类型。**（毕昇C新增 `_Nullable`、`_Nonnull` 默认修饰补充规则）**
+4. （对于数组类型）两数组类型的元素类型必须兼容。组合类型同为数组类型，其元素类型是数组元素类型的组合类型。在此基础上：
+    1. 如果任意一个数组类型没有长度（即 array with unknown length），则两数组类型兼容，组合类型的数组长度为另一个数组类型的长度。如果另一个数组类型也没有长度，则组合类型没有长度。
+    2. 如果两数组都有长度，则具有固定长度的数组 (fixed-length array) 只与另一具有相同固定长度的数组兼容、组合类型的数组长度为该长度；具有可变长度的数组 (variable-length array, VLA) 只与另一具有相同长度的 VLA 兼容，组合类型的数组长度也是该长度。
+5. （对于 struct/union/enum）相同标签的 struct/union/enum 在整个程序范围应指代同一个类型；标签不同或无标签（匿名）的 struct/union/enum 各自为独立类型，互不兼容（即使定义完全相同）。跨编译单元时，各编译单元各自持有的定义必须两两满足以下条件才兼容：
+    1. 标签必须相同。
+    2. 如果两个类型在其各自的编译单元内均已完成定义（不是 incomplete type），则还需满足：
+        1. 成员必须一一对应：两个类型有相同数量的成员，且每个成员在对方类型中都有唯一的对应成员，每对对应成员的名称必须相同（除了 struct 中未命名的位域成员）、类型必须兼容。struct 中所有成员的声明顺序必须相同。
+        2. 如果其中一个成员声明了对齐说明符（如 `_Alignas(long long)` 或 `_Alignas(8)`），则对应的另一成员也必须声明等价的对齐说明符；
+        3. 对于 struct 或 union 类型，对应的位域（bit-field）必须具有相同的宽度；
+        4. 对于 enum 类型，对应的枚举成员必须具有相同的值。
+    3. 如果其中一方仅声明了标签而未完成定义（incomplete type），则无需满足以上第2条中的各项条件。
+
+```c
+// 1.1 必须同为 _Safe 或同为 _Unsafe
+typedef void (*UnsafeFP)(int);
+typedef _Safe void (*SafeFP)(int);
+void f1(UnsafeFP p);
+void f1(SafeFP p);      // error, _Safe 函数类型和 _Unsafe 函数类型不兼容
+
+// 1.2 返回值类型必须兼容
+int *f2(void);
+const int *f2(void);    // error, int * 与 const int * 不兼容
+
+// 1.3 参数数量、省略号必须一致
+void f3(int a);
+void f3(int a, int *p); // error, 参数数量不同
+void f4(int a, ...);
+void f4(int a);         // error, 省略号不一致
+
+// 1.3 参数调整后兼容（顶层非粘性限定符被去除）
+void f5(const int a);
+void f5(int a);         // ok, 调整后都是 int
+
+// 1.4 空参数列表兼容规则
+void f6();
+void f6(int a);         // ok
+void f7();
+void f7(char a);        // error, char 比 int 窄
+
+// 3. 指针指向类型必须兼容
+void f8(int *p);
+void f8(const int *p);  // error, int 与 const int 不兼容
+
+// 4. 数组参数调整后兼容
+void f9(int a[10]);
+void f9(int a[]);       // ok, 调整后都是 int *
+
+// 5. 不同标签不兼容
+struct S { int x; };
+struct T { int x; };
+void f10(struct S s);
+void f10(struct T s);   // error, 标签不同 → 不兼容
+
+// _Nullable/_Nonnull
+void f11(int *); // 裸指针默认 _Nullable
+void f11(int * _Nullable); // ok, int * 与 int * _Nullable 兼容
+void f12(int * _Borrow); // _Borrow 指针默认 _Nonnull
+void f12(int * _Borrow _Nonnull); // ok, int * _Borrow 与 int * _Borrow _Nonnull 兼容
+void f13(int * _Owned); // _Owned 指针默认 _Nonnull
+void f13(int * _Owned _Nullable); // error, int * _Owned 与 int * _Owned _Nullable 不兼容
+```
+
+#### 3.8.4. 函数参数的类型调整
+
+所有函数声明、定义的函数参数类型都会先经过以下调整，再作为函数类型的一部分参与兼容性判断：
+
+1. 如果函数参数类型是数组，则调整为指针。
+```c
+void foo(int a[10]); // 调整前
+void foo(int * a); // 调整后
+```
+2. 如果函数参数类型是函数，则调整为函数指针。
+```c
+void foo(void cb(int*)); // 调整前：函数类型 void (int*)
+void foo(void (*cb)(int*)); // 调整后：函数指针类型 void (*)(int*)
+```
+3. 函数参数类型本身的非粘性限定符、attribute会被去除。指针指向的类型上所有的限定符、attribute都不会被去除。
+```c
+void foo(const volatile int a); // 调整前
+void foo(int a); // 调整后
+void bar(const volatile int * const volatile p); // 调整前
+void bar(const volatile int * p); // 调整后
+```
+4. 如果函数参数是指针类型且有默认的限定符、attribute（如 `_Nullable`,`_Nonnull`），但是参数未显式修饰，则为其补充默认修饰。
+5. 当类型本身不是函数类型或数组类型时，类型本身不作调整，只按照规则3、4调整限定符、attribute。
+
+#### 3.8.5. 粘性、非粘性的限定符与 attribute
+
+毕昇C将限定符、attribute 划分为粘性、非粘性两种，在进行值传递时不影响兼容性检查的为非粘性，否则为粘性。
+
+**定义**：在毕昇C中：
+* 粘性的类型限定符包括：`_Owned`, `_Borrow`, `_ArrayElem`, `_Nullable`, `_Nonnull`
+* 粘性的 attribute 包括：`__attribute__((ensure_init))`, `__attribute__((ensure_init_if_ret(...)))`
+* 非粘性的类型限定符包括：`const`, `volatile`, `restrict`, `_Atomic`
+* 目前毕昇C还没有在语言层面定义非粘性的 attribute。
+
+**以上定义拓展的指导原则**：在引入新的类型限定符、attribute 时，应遵循以下指导原则决定新的限定符、attribute 的分类：
+
+在变量定义 `T x = e` 中，如果在 `T` 的顶层增加或删除限定符或 attribute `Q` 之后变量定义的类型检查仍然通过，那么这样的 `Q` 是非粘性的 (non-sticky)，否则 `Q` 是粘性的 (sticky)。这里的"顶层"是针对指针类型而言，是指指针本身的修饰符而不是指针指向的数据类型的修饰符。对于指针之外的类型，所有的修饰符都视为顶层修饰符。
+
+```c
+// const 是非粘性限定符，因为新变量可以加也可以去除 const
+const int v1 = ...;
+int v2 = v1; // ok
+int v3 = ...;
+const int v4 = v3; // ok
+```
+```c
+// _Borrow 是粘性限定符，因为新变量既不能加也不能去除 _Borrow
+int * _Borrow p1 = ...;
+int * p2 = p1; // error
+int * p3 = ...;
+int * _Borrow p4 = p3; // error
+```
 
 ## 4. 并行并发
 
