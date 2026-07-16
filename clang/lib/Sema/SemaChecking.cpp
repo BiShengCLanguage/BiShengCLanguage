@@ -252,10 +252,12 @@ static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
   // qualifier removal reaches the inner pointer instead of the outer
   // AttributedType shell.
   AttributedType::stripOuterNullability(ResultTy);
-  ResultTy.removeLocalOwned();
-  ResultTy.removeLocalBorrow();
-  ResultTy.removeLocalArrayElem(S.Context);
-  Qualifiers Qs = ResultTy.getQualifiers();
+  // Decompose the type to strip all qualifiers, including _Owned/_Borrow
+  // that may be baked into the canonical type pointer and _ArrayElem that
+  // may live in an ExtQuals node (where removeLocalArrayElem cannot reach).
+  SplitQualType Split = ResultTy.getSplitUnqualifiedType();
+  Qualifiers Qs = Split.Quals;
+  Qs.removeFastQualifiers(Qualifiers::Owned | Qualifiers::Borrow);
   Qs.removeArrayElem();
   switch (BuiltinID) {
     default: break;
@@ -267,6 +269,14 @@ static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
       Qs.addArrayElem();
       break;
     }
+  }
+  // Rebuild the result type.  If the underlying type pointer still carries
+  // canonical fast qualifiers (e.g. _Owned), rebuild it from the pointee
+  // type so that the result is truly unqualified.
+  if (const auto *PT = Split.Ty->getAs<PointerType>()) {
+    ResultTy = S.Context.getPointerType(PT->getPointeeType());
+  } else {
+    ResultTy = S.Context.getQualifiedType(Split.Ty, {});
   }
   ResultTy = S.Context.getQualifiedType(ResultTy.getTypePtr(), Qs);
   NullabilityKind SrcNullability = getBSCDefNullability(ArgTy, S.Context);

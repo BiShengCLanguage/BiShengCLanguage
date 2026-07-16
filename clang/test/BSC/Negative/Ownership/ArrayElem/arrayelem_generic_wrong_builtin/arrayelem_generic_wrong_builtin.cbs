@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+
+// Test that using the wrong raw-transfer builtin inside a generic function
+// produces the expected diagnostic.  The error is emitted at instantiation
+// time when the concrete argument type is known.
+
+// --- __move_to_raw used on _ArrayElem pointer inside generic ---
+
+void bad_move_to_raw<T>(T f) {
+  // expected-error@+2 {{argument must be an _Owned pointer type (have 'int *_Owned _ArrayElem')}}
+  // expected-note@+1 {{use '__move_array_to_raw' for an _Owned _ArrayElem pointer}}
+  __move_to_raw(f);
+}
+
+void test_move_to_raw_on_array(void) {
+  int *_Owned _ArrayElem p = 0;
+  // expected-note@+1 {{in instantiation of function template specialization 'bad_move_to_raw<int *_Owned _ArrayElem>' requested here}}
+  bad_move_to_raw(p);
+}
+
+// --- __move_array_to_raw used on non-_ArrayElem pointer inside generic ---
+
+void bad_move_array_to_raw<T>(T f) {
+  // expected-error@+2 {{argument must be an _Owned _ArrayElem pointer type (have 'int *_Owned')}}
+  // expected-note@+1 {{use '__move_to_raw' for an _Owned pointer that is not _ArrayElem}}
+  __move_array_to_raw(f);
+}
+
+void test_move_array_to_raw_on_plain(void) {
+  int *_Owned p = 0;
+  // expected-note@+1 {{in instantiation of function template specialization 'bad_move_array_to_raw<int *_Owned>' requested here}}
+  bad_move_array_to_raw(p);
+}

@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Test that __move_array_to_raw works correctly inside generic functions
+// when the argument type is _Owned _ArrayElem.
+
+// Generic function with implicit deduction
+char *cast_implicit<T>(T f) {
+  return __move_array_to_raw(f);
+}
+
+// Generic function with explicit deduction (redundant, for clarity)
+char *cast_explicit<T>(T f) {
+  return __move_array_to_raw(f);
+}
+
+void* malloc(unsigned long);
+void free(void *);
+
+_Safe int test_generic_move_array_to_raw(void) {
+  // Implicit template argument deduction
+  _Unsafe {
+    char *_Owned _ArrayElem p1 =
+        __take_array_from_raw((char *)malloc(10));
+    char *q1 = cast_implicit(p1);
+    free(q1);
+  }
+  // Explicit template argument
+  _Unsafe {
+    char *_Owned _ArrayElem p2 =
+        __take_array_from_raw((char *)malloc(10));
+    char *q2 = cast_explicit<char * _Owned _ArrayElem>(p2);
+    free(q2);
+  }
+  return 0;
+}

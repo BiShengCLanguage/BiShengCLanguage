@@ -1,0 +1,48 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Test that _ArrayElem and _Owned/_Borrow can be specified separately
+// through generic template parameters.  In these examples the ownership
+// qualifier (_Owned or _Borrow) is provided explicitly as the template
+// argument, while _ArrayElem is written on the function parameter.
+// The two qualifiers are composed at instantiation time into a single
+// pointer type (e.g. T = int *_Owned, param = T _ArrayElem → int *_Owned _ArrayElem).
+
+void* malloc(unsigned long);
+void free(void *);
+
+// --- _Owned separated from _ArrayElem ---
+
+// T is explicitly 'int *_Owned', parameter is T _ArrayElem = 'int *_Owned _ArrayElem'
+int *move_array_owned<T>(T _ArrayElem f) {
+  return __move_array_to_raw(f);
+}
+
+_Safe int test_owned_separated(void) {
+  _Unsafe {
+    int *_Owned _ArrayElem p =
+        __take_array_from_raw((int *)malloc(4 * sizeof(int)));
+    p[0] = 10;
+    // Explicit template argument separates _Owned (in T) from _ArrayElem (on param)
+    int *raw = move_array_owned<int *_Owned>(p);
+    free(raw);
+  }
+  return 0;
+}
+
+// --- _Borrow separated from _ArrayElem ---
+
+int borrow_array_read<T>(T _ArrayElem f) {
+  return f[0];
+}
+
+_Safe int test_borrow_separated(void) {
+  int arr[4] = {1, 2, 3, 4};
+  int *_Borrow _ArrayElem p = &_Mut arr[0];
+  _Unsafe {
+    // Explicit template argument separates _Borrow (in T) from _ArrayElem (on param)
+    int val = borrow_array_read<int *_Borrow>(p);
+    (void)val;
+  }
+  return 0;
+}
