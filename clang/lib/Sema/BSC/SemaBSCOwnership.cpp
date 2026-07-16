@@ -370,11 +370,12 @@ bool Sema::CheckOwnedQualTypeAssignment(QualType LHSType, QualType RHSType, Sour
   // owned int* const *  <->  owned int**  // legal
   if (LHSCanType.isOwnedQualified() == RHSCanType.isOwnedQualified() ||
       (LHSCanType->isTraitType() && RHSCanType->isOwnedStructureType())) {
+    if (LHSType.isArrayElemQualified() != RHSType.isArrayElemQualified()) {
+      return false;
+    }
     if (IsSameType) {
       return true;
     }
-    if (LHSType.isArrayElemQualified() != RHSType.isArrayElemQualified())
-      return false;
     if (IsTraitImplType) {
       return true;
     }

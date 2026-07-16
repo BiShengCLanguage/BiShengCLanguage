@@ -1,0 +1,41 @@
+// RUN: %clang_cc1 -verify %s
+
+// Test that implicit assignment mismatches of _ArrayElem on _Owned and
+// _Borrow pointers are correctly diagnosed.  Plain → _ArrayElem is always
+// forbidden.  _ArrayElem → plain (decay) is forbidden for _Owned (move
+// semantics); it is allowed for _Borrow (tested in the positive suite).
+
+// --- _Owned: plain → _ArrayElem (should be rejected) ---
+
+void test_owned_plain_to_array(int *_Owned plain) {
+  // expected-error@+1 {{incompatible _Owned types, cannot cast 'int *_Owned' to 'int *_Owned _ArrayElem'}}
+  int *_Owned _ArrayElem arr = plain;
+}
+
+// --- _Owned: _ArrayElem → plain (should be rejected, unlike _Borrow) ---
+
+void test_owned_array_to_plain(int *_Owned _ArrayElem arr) {
+  // expected-error@+1 {{incompatible _Owned types, cannot cast 'int *_Owned _ArrayElem' to 'int *_Owned'}}
+  int *_Owned plain = arr;
+}
+
+// --- _Borrow: plain → _ArrayElem (should be rejected) ---
+
+void test_borrow_plain_to_array(int *_Borrow plain) {
+  // expected-error@+1 {{incompatible _Borrow types, cannot cast 'int *_Borrow' to 'int *_Borrow _ArrayElem'}}
+  int *_Borrow _ArrayElem arr = plain;
+}
+
+// --- Cross-ownership: _Owned → _Borrow _ArrayElem (should be rejected) ---
+
+void test_owned_to_borrow_array(int *_Owned owned) {
+  // expected-error@+1 {{incompatible _Borrow types, cannot cast 'int *_Owned' to 'int *_Borrow _ArrayElem'}}
+  int *_Borrow _ArrayElem arr = owned;
+}
+
+// --- Cross-ownership: _Borrow → _Owned _ArrayElem (should be rejected) ---
+
+void test_borrow_to_owned_array(int *_Borrow borrow) {
+  // expected-error@+1 {{incompatible _Owned types, cannot cast 'int *_Borrow' to 'int *_Owned _ArrayElem'}}
+  int *_Owned _ArrayElem arr = borrow;
+}
