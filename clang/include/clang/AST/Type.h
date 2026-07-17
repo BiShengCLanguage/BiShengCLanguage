@@ -1197,6 +1197,13 @@ public:
   /// getAtomicUnqualifiedType() to strip qualifiers including _Atomic.
   inline QualType getUnqualifiedType() const;
 
+  #if ENABLE_BSC
+  /// Retrieve the only-AOB-qualified variant of the given type.
+  /// Its behavior is similar to getUnqualifiedType,
+  /// except that it restores the ArrayElem, Owned, and Borrow qualifiers.
+  QualType getOnlyAOBQualifiedType(const ASTContext &Context) const;
+  #endif
+
   /// Retrieve the unqualified variant of the given type, removing as little
   /// sugar as possible.
   ///

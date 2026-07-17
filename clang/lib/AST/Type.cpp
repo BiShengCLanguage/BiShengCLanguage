@@ -3252,6 +3252,22 @@ QualType QualType::getNonLValueExprType(const ASTContext &Context) const {
   return *this;
 }
 
+#if ENABLE_BSC
+QualType QualType::getOnlyAOBQualifiedType(const ASTContext &Context) const {
+  Qualifiers Quals;
+  if (isArrayElemQualified())
+    Quals.addArrayElem();
+  if (getCanonicalType().isOwnedQualified())
+    Quals.addOwned();
+  if (getCanonicalType().isBorrowQualified())
+    Quals.addBorrow();
+  bool hasLocalQualifiers = getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers();
+  QualType T = hasLocalQualifiers ? QualType(getSplitUnqualifiedTypeImpl(*this).Ty, 0)
+                                  : QualType(getTypePtr(), 0);
+  return Context.getQualifiedType(T, Quals);
+}
+#endif
+
 StringRef FunctionType::getNameForCallConv(CallingConv CC) {
   switch (CC) {
   case CC_C: return "cdecl";

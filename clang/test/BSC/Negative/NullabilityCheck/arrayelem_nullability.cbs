@@ -1,0 +1,119 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+_Safe int g_nonnull(int *_Borrow _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_nullable(int *_Borrow _ArrayElem _Nullable p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_const_nonnull(const int *_Borrow _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_const_nullable(const int *_Borrow _ArrayElem _Nullable p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_void(void *_Borrow _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_ptrptr(int **_Borrow _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_second(int a, int *_Borrow _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int g_two(int *_Borrow _ArrayElem _Nonnull p, // expected-note {{passing argument to parameter 'p' here}}
+                int *_Borrow _ArrayElem _Nullable q) { // expected-note {{passing argument to parameter 'q' here}}
+  return 0;
+}
+
+_Unsafe int f_caller(int x) {
+  int arr = x;
+  g_nonnull(&arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow _ArrayElem _Nonnull'}}
+  g_nullable(&arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow _ArrayElem _Nullable'}}
+  g_const_nonnull(&arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'const int *_Borrow _ArrayElem _Nonnull'}}
+  g_const_nullable(&arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'const int *_Borrow _ArrayElem _Nullable'}}
+  g_void(&arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'void *_Borrow _ArrayElem _Nonnull'}}
+  g_ptrptr(&arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int **_Borrow _ArrayElem _Nonnull'}}
+  g_second(x, &arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow _ArrayElem _Nonnull'}}
+  g_two(&arr, &arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow _ArrayElem _Nonnull'}} expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow _ArrayElem _Nullable'}}
+}
+
+_Safe int h_nonnull(int *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_nullable(int *_Owned _ArrayElem _Nullable p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_const_nonnull(const int *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_const_nullable(const int *_Owned _ArrayElem _Nullable p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_void(void *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_ptrptr(int **_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_second(int a, int *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
+  return 0;
+}
+
+_Safe int h_two(int *_Owned _ArrayElem _Nonnull p, // expected-note {{passing argument to parameter 'p' here}}
+                int *_Owned _ArrayElem _Nullable q) { // expected-note {{passing argument to parameter 'q' here}}
+  return 0;
+}
+
+_Unsafe int h_caller(int x) {
+  int arr = x;
+  h_nonnull(&arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int *_Owned _ArrayElem _Nonnull'}}
+  h_nullable(&arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int *_Owned _ArrayElem _Nullable'}}
+  h_const_nonnull(&arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'const int *_Owned _ArrayElem _Nonnull'}}
+  h_const_nullable(&arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'const int *_Owned _ArrayElem _Nullable'}}
+  h_void(&arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'void *_Owned _ArrayElem _Nonnull'}}
+  h_ptrptr(&arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int **_Owned _ArrayElem _Nonnull'}}
+  h_second(x, &arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int *_Owned _ArrayElem _Nonnull'}}
+  h_two(&arr, &arr); // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int *_Owned _ArrayElem _Nonnull'}} expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int *_Owned _ArrayElem _Nullable'}}
+}
+
+_Safe int g_comp_nullable(int *_Borrow _ArrayElem _Nullable p) {
+  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'int *_Borrow _ArrayElem _Nullable' cannot be compared}}
+    return p[0];
+  }
+  return -1;
+}
+
+_Safe int g_comp_nonnull(int *_Borrow _ArrayElem _Nonnull p) {
+  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'int *_Borrow _ArrayElem _Nonnull' cannot be compared}}
+    return p[0];
+  }
+  return -1;
+}
+
+_Safe int g_const_comp_nullable(const int *_Borrow _ArrayElem _Nullable p) {
+  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'const int *_Borrow _ArrayElem _Nullable' cannot be compared}}
+    return p[0];
+  }
+  return -1;
+}
+
+_Safe int g_const_comp_nonnull(const int *_Borrow _ArrayElem _Nonnull p) {
+  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'const int *_Borrow _ArrayElem _Nonnull' cannot be compared}}
+    return p[0];
+  }
+  return -1;
+}

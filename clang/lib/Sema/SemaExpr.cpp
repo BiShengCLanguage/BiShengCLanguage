@@ -788,6 +788,11 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   //   version of the type of the lvalue; otherwise, the value has the
   //   type of the lvalue.
   if (T.hasQualifiers())
+#if ENABLE_BSC
+    if (Context.getLangOpts().BSC)
+      T = T.getOnlyAOBQualifiedType(Context);
+    else
+#endif
     T = T.getUnqualifiedType();
 
   // Under the MS ABI, lock down the inheritance model now.

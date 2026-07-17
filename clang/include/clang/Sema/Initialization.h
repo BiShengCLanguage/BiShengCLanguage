@@ -264,14 +264,17 @@ public:
 
     InitializedEntity Entity;
     Entity.Kind = EK_Parameter;
-    Entity.Type =
-      Context.getVariableArrayDecayedType(Type.getUnqualifiedType());
 #if ENABLE_BSC
-    if (Context.getLangOpts().BSC)
+    if (Context.getLangOpts().BSC) {
+      Entity.Type =
+        Context.getVariableArrayDecayedType(Type.getOnlyAOBQualifiedType(Context));
       if (const AttributedType *AT = Type->getAs<AttributedType>())
         Entity.Type = Context.getAttributedType(AT->getAttrKind(), Entity.Type,
                                                 Entity.Type);
+    } else
 #endif
+    Entity.Type =
+      Context.getVariableArrayDecayedType(Type.getUnqualifiedType());
     Entity.Parent = nullptr;
     Entity.Parameter = {Parm, Consumed};
     return Entity;
