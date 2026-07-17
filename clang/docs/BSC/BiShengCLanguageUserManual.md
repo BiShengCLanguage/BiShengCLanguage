@@ -930,6 +930,8 @@ constexpr bool is_borrow<T>();
 constexpr bool is_immut_borrow<T>();
 constexpr bool is_mut_borrow<T>();
 constexpr bool is_trivial_data<T>();
+constexpr bool is_nullable<T>();
+constexpr bool is_arrayelem<T>();
 constexpr size_t rank<T>();
 constexpr size_t extent<T, size_t N>();
 //判断类型的关系
@@ -996,6 +998,39 @@ is_convertible<int, void>() == false;
 is_convertible<int, int*>() == false;
 is_convertible<int, void*>() == false;
 is_convertible<struct S, struct G>() == false;
+
+constexpr bool is_nullable<T>(); // 判断类型 T 是否是 _Nullable 的指针类型
+// 如果 T 不是指针类型，返回 false
+// 如果 T 是指针类型，判断其空安全修饰是否为 _Nullable（包含默认修饰）：
+//   - 裸指针默认 _Nullable → 返回 true
+//   - _Owned/_Borrow 指针默认 _Nonnull → 返回 false
+is_nullable<void>() == false;
+is_nullable<int>() == false;
+is_nullable<int *>() == true;
+is_nullable<int *_Nullable>() == true;
+is_nullable<int *_Nonnull>() == false;
+is_nullable<int *_Owned>() == false;
+is_nullable<int *_Owned _Nullable>() == true;
+is_nullable<int *_Owned _Nonnull>() == false;
+is_nullable<int *_Borrow>() == false;
+is_nullable<int *_Borrow _Nullable>() == true;
+is_nullable<int *_Borrow _Nonnull>() == false;
+
+constexpr bool is_arrayelem<T>(); // 判断类型 T 是否是 _ArrayElem 修饰的指针类型
+// 当且仅当 T 是 _Owned _ArrayElem 指针或 _Borrow _ArrayElem 指针时返回 true
+is_arrayelem<void>() == false;
+is_arrayelem<int>() == false;
+is_arrayelem<int *>() == false;
+is_arrayelem<int *_Nullable>() == false;
+is_arrayelem<int *_Nonnull>() == false;
+is_arrayelem<int *_Owned>() == false;
+is_arrayelem<int *_Owned _ArrayElem>() == true;
+is_arrayelem<int *_Owned _ArrayElem _Nullable>() == true;
+is_arrayelem<int *_Owned _ArrayElem _Nonnull>() == true;
+is_arrayelem<int *_Borrow>() == false;
+is_arrayelem<int *_Borrow _ArrayElem>() == true;
+is_arrayelem<int *_Borrow _ArrayElem _Nullable>() == true;
+is_arrayelem<int *_Borrow _ArrayElem _Nonnull>() == true;
 ```
 
 使用时就像普通泛型函数一样

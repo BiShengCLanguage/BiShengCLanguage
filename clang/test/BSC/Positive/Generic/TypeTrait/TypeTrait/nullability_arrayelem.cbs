@@ -1,0 +1,200 @@
+// RUN: %clang -fbsc-experimental %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+// expected-no-diagnostics
+#include "bsc_type_traits.hbs"
+
+// ============================================================
+// Complex type aliases (same pattern as check_borrow.cbs).
+// ============================================================
+typedef int MyInt;
+typedef int arr1[];
+typedef int arr2[3];
+typedef struct G { int a; } G;
+_Owned struct S { int a; };
+typedef enum E { Mon = 1, Tue, Wed } E;
+typedef union U { int a; } U;
+typedef int *_Owned OwnedInt;
+typedef int *_Borrow MutBorrowInt;
+typedef const int *_Borrow ImmutBorrowInt;
+typedef MutBorrowInt MutBorrowAlias;
+typedef ImmutBorrowInt ImmutBorrowAlias;
+typedef int *_Borrow IntBorrowArray3[3];
+typedef struct SB { int *_Borrow a; } SB;
+typedef int *_Owned _ArrayElem OwnedArrayElemInt;
+typedef int *_Borrow _ArrayElem BorrowArrayElemInt;
+typedef const int *_Owned _ArrayElem ConstOwnedArrayElemInt;
+typedef const int *_Borrow _ArrayElem ConstBorrowArrayElemInt;
+typedef int *_Owned _Nullable NullableOwnedInt;
+typedef int *_Borrow _Nullable NullableBorrowInt;
+typedef int *_Owned _Nonnull NonnullOwnedInt;
+typedef int *_Borrow _Nonnull NonnullBorrowInt;
+
+// ============================================================
+// is_nullable — nullability detection via generic function.
+// _Nullable/_Nonnull are qualifier bits, preserved through
+// template instantiation like _ArrayElem.
+// ============================================================
+int test_is_nullable() {
+    // --- Non-pointer types → false ---
+    _Static_assert(is_nullable<void>() == false, "fail");
+    _Static_assert(is_nullable<int>() == false, "fail");
+    _Static_assert(is_nullable<MyInt>() == false, "fail");
+    _Static_assert(is_nullable<arr1>() == false, "fail");
+    _Static_assert(is_nullable<arr2>() == false, "fail");
+    _Static_assert(is_nullable<S>() == false, "fail");
+    _Static_assert(is_nullable<G>() == false, "fail");
+    _Static_assert(is_nullable<E>() == false, "fail");
+    _Static_assert(is_nullable<U>() == false, "fail");
+    _Static_assert(is_nullable<SB>() == false, "fail");
+
+    // --- Raw pointers → default _Nullable → true ---
+    _Static_assert(is_nullable<int *>() == true, "fail");
+    _Static_assert(is_nullable<void *>() == true, "fail");
+    _Static_assert(is_nullable<SB *>() == true, "fail");
+
+    // --- Explicit _Nullable → true ---
+    _Static_assert(is_nullable<int *_Nullable>() == true, "fail");
+    // --- Explicit _Nonnull → false ---
+    _Static_assert(is_nullable<int *_Nonnull>() == false, "fail");
+
+    // --- Safe pointers → default _Nonnull → false ---
+    _Static_assert(is_nullable<int *_Owned>() == false, "fail");
+    _Static_assert(is_nullable<OwnedInt>() == false, "fail");
+    _Static_assert(is_nullable<int *_Borrow>() == false, "fail");
+    _Static_assert(is_nullable<void *_Borrow>() == false, "fail");
+    _Static_assert(is_nullable<const void *_Borrow>() == false, "fail");
+    _Static_assert(is_nullable<MutBorrowInt>() == false, "fail");
+    _Static_assert(is_nullable<MutBorrowAlias>() == false, "fail");
+    _Static_assert(is_nullable<ImmutBorrowInt>() == false, "fail");
+    _Static_assert(is_nullable<ImmutBorrowAlias>() == false, "fail");
+
+    // --- Explicit nullability overrides default ---
+    _Static_assert(is_nullable<int *_Owned _Nullable>() == true, "fail");
+    _Static_assert(is_nullable<int *_Owned _Nonnull>() == false, "fail");
+    _Static_assert(is_nullable<NullableOwnedInt>() == true, "fail");
+    _Static_assert(is_nullable<NonnullOwnedInt>() == false, "fail");
+    _Static_assert(is_nullable<int *_Borrow _Nullable>() == true, "fail");
+    _Static_assert(is_nullable<int *_Borrow _Nonnull>() == false, "fail");
+    _Static_assert(is_nullable<NullableBorrowInt>() == true, "fail");
+    _Static_assert(is_nullable<NonnullBorrowInt>() == false, "fail");
+
+    // --- Multi-level pointer: outer raw ptr → default _Nullable → true ---
+    _Static_assert(is_nullable<int *_Borrow *>() == true, "fail");
+
+    // --- Array of pointers → array, not pointer → false ---
+    _Static_assert(is_nullable<IntBorrowArray3>() == false, "fail");
+
+    return 0;
+}
+
+// ============================================================
+// is_arrayelem — _ArrayElem qualifier detection via generic function.
+// true only for _Owned _ArrayElem or _Borrow _ArrayElem pointers.
+// ============================================================
+int test_is_arrayelem() {
+    // --- Non-pointer types → false ---
+    _Static_assert(is_arrayelem<void>() == false, "fail");
+    _Static_assert(is_arrayelem<int>() == false, "fail");
+    _Static_assert(is_arrayelem<MyInt>() == false, "fail");
+    _Static_assert(is_arrayelem<arr1>() == false, "fail");
+    _Static_assert(is_arrayelem<arr2>() == false, "fail");
+    _Static_assert(is_arrayelem<S>() == false, "fail");
+    _Static_assert(is_arrayelem<G>() == false, "fail");
+    _Static_assert(is_arrayelem<E>() == false, "fail");
+    _Static_assert(is_arrayelem<U>() == false, "fail");
+    _Static_assert(is_arrayelem<SB>() == false, "fail");
+
+    // --- Pointers without _ArrayElem → false ---
+    _Static_assert(is_arrayelem<int *>() == false, "fail");
+    _Static_assert(is_arrayelem<void *>() == false, "fail");
+    _Static_assert(is_arrayelem<SB *>() == false, "fail");
+    _Static_assert(is_arrayelem<int *_Nullable>() == false, "fail");
+    _Static_assert(is_arrayelem<int *_Nonnull>() == false, "fail");
+    _Static_assert(is_arrayelem<int *_Owned>() == false, "fail");
+    _Static_assert(is_arrayelem<OwnedInt>() == false, "fail");
+    _Static_assert(is_arrayelem<int *_Borrow>() == false, "fail");
+    _Static_assert(is_arrayelem<MutBorrowInt>() == false, "fail");
+    _Static_assert(is_arrayelem<ImmutBorrowInt>() == false, "fail");
+
+    // --- _Owned/Borrow _ArrayElem → true ---
+    _Static_assert(is_arrayelem<int *_Owned _ArrayElem>() == true, "fail");
+    _Static_assert(is_arrayelem<int *_Borrow _ArrayElem>() == true, "fail");
+    _Static_assert(is_arrayelem<OwnedArrayElemInt>() == true, "fail");
+    _Static_assert(is_arrayelem<BorrowArrayElemInt>() == true, "fail");
+
+    // --- const + _ArrayElem: const doesn't affect _ArrayElem → true ---
+    _Static_assert(is_arrayelem<const int *_Owned _ArrayElem>() == true, "fail");
+    _Static_assert(is_arrayelem<const int *_Borrow _ArrayElem>() == true, "fail");
+    _Static_assert(is_arrayelem<ConstOwnedArrayElemInt>() == true, "fail");
+    _Static_assert(is_arrayelem<ConstBorrowArrayElemInt>() == true, "fail");
+
+    // --- _ArrayElem with explicit nullability → true ---
+    _Static_assert(is_arrayelem<int *_Owned _ArrayElem _Nullable>() == true, "fail");
+    _Static_assert(is_arrayelem<int *_Owned _ArrayElem _Nonnull>() == true, "fail");
+    _Static_assert(is_arrayelem<int *_Borrow _ArrayElem _Nullable>() == true, "fail");
+    _Static_assert(is_arrayelem<int *_Borrow _ArrayElem _Nonnull>() == true, "fail");
+
+    return 0;
+}
+
+int main() {
+    test_is_nullable();
+    test_is_arrayelem();
+    return 0;
+}
+
+// CHECK: _Bool is_nullable_void(void);
+// CHECK: _Bool is_nullable_int(void);
+// CHECK: _Bool is_nullable_intLBRB(void);
+// CHECK: _Bool is_nullable_intLB3RB(void);
+// CHECK: _Bool is_nullable_struct_S(void);
+// CHECK: _Bool is_nullable_struct_G(void);
+// CHECK: _Bool is_nullable_enum_E(void);
+// CHECK: _Bool is_nullable_union_U(void);
+// CHECK: _Bool is_nullable_struct_SB(void);
+// CHECK: _Bool is_nullable_int_P(void);
+// CHECK: _Bool is_nullable_void_P(void);
+// CHECK: _Bool is_nullable_struct_SB_P(void);
+// CHECK: _Bool is_nullable_int_P_Nullable(void);
+// CHECK: _Bool is_nullable_int_P_Nonnull(void);
+// CHECK: _Bool is_nullable_int_P_Owned(void);
+// CHECK: _Bool is_nullable_int_P_Borrow(void);
+// CHECK: _Bool is_nullable_void_P_Borrow(void);
+// CHECK: _Bool is_nullable_const_void_P_Borrow(void);
+// CHECK: _Bool is_nullable_const_int_P_Borrow(void);
+// CHECK: _Bool is_nullable_int_P_Owned__Nullable(void);
+// CHECK: _Bool is_nullable_int_P_Owned__Nonnull(void);
+// CHECK: _Bool is_nullable_int_P_Borrow__Nullable(void);
+// CHECK: _Bool is_nullable_int_P_Borrow__Nonnull(void);
+// CHECK: _Bool is_nullable_int_P_Borrow_P(void);
+// CHECK: _Bool is_nullable_int_P_BorrowLB3RB(void);
+
+// CHECK: _Bool is_arrayelem_void(void);
+// CHECK: _Bool is_arrayelem_int(void);
+// CHECK: _Bool is_arrayelem_intLBRB(void);
+// CHECK: _Bool is_arrayelem_intLB3RB(void);
+// CHECK: _Bool is_arrayelem_struct_S(void);
+// CHECK: _Bool is_arrayelem_struct_G(void);
+// CHECK: _Bool is_arrayelem_enum_E(void);
+// CHECK: _Bool is_arrayelem_union_U(void);
+// CHECK: _Bool is_arrayelem_struct_SB(void);
+// CHECK: _Bool is_arrayelem_int_P(void);
+// CHECK: _Bool is_arrayelem_void_P(void);
+// CHECK: _Bool is_arrayelem_struct_SB_P(void);
+// CHECK: _Bool is_arrayelem_int_P_Nullable(void);
+// CHECK: _Bool is_arrayelem_int_P_Nonnull(void);
+// CHECK: _Bool is_arrayelem_int_P_Owned(void);
+// CHECK: _Bool is_arrayelem_int_P_Borrow(void);
+// CHECK: _Bool is_arrayelem_const_int_P_Borrow(void);
+// CHECK: _Bool is_arrayelem_int_P_Owned__ArrayElem(void);
+// CHECK: _Bool is_arrayelem_int_P_Borrow__ArrayElem(void);
+// CHECK: _Bool is_arrayelem_const_int_P_Owned__ArrayElem(void);
+// CHECK: _Bool is_arrayelem_const_int_P_Borrow__ArrayElem(void);
+// CHECK: _Bool is_arrayelem_int_P_Owned__ArrayElem__Nullable(void);
+// CHECK: _Bool is_arrayelem_int_P_Owned__ArrayElem__Nonnull(void);
+// CHECK: _Bool is_arrayelem_int_P_Borrow__ArrayElem__Nullable(void);
+// CHECK: _Bool is_arrayelem_int_P_Borrow__ArrayElem__Nonnull(void);

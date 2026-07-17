@@ -603,6 +603,8 @@ TYPE_TRAIT_1(__is_owned_pointer, IsOwnedPointer, KEYBSC)
 TYPE_TRAIT_1(__is_borrow, IsBorrow, KEYBSC)
 TYPE_TRAIT_1(__is_owned_struct, IsOwnedStruct, KEYBSC)
 TYPE_TRAIT_1(__is_trivial_data, IsTrivialData, KEYBSC)
+TYPE_TRAIT_1(__is_nullable, IsNullable, KEYBSC)
+TYPE_TRAIT_1(__is_arrayelem, IsArrayElem, KEYBSC)
 #else
 TYPE_TRAIT_1(__is_const, IsConst, KEYCXX)
 TYPE_TRAIT_1(__is_volatile, IsVolatile, KEYCXX)

@@ -104,6 +104,16 @@ _Safe constexpr bool is_trivial_data<T>(void) {
     return __is_trivial_data(T);
 }
 
+// Nullability Type Traits
+_Safe constexpr bool is_nullable<T>(void) {
+    return __is_nullable(T);
+}
+
+// ArrayElem Type Trait
+_Safe constexpr bool is_arrayelem<T>(void) {
+    return __is_arrayelem(T);
+}
+
 // Binary Type Traits
 _Safe constexpr bool is_same<T1, T2>(void) {
     return __is_same(T1, T2);

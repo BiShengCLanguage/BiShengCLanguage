@@ -30,6 +30,9 @@
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TypeTraits.h"
+#if ENABLE_BSC
+#include "clang/AST/BSC/TypeBSC.h"
+#endif
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Initialization.h"
@@ -4771,6 +4774,8 @@ static bool CheckUnaryTypeTraitTypeCompleteness(Sema &S, TypeTrait UTT,
   case UTT_IsOwnedPointer:
   case UTT_IsBorrow:
   case UTT_IsOwnedStruct:
+  case UTT_IsNullable:
+  case UTT_IsArrayElem:
 #endif
     // Fall-through
 
@@ -4932,6 +4937,13 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
     return T->isOwnedStructureType();
   case UTT_IsTrivialData:
     return T->isTrivialDataType();
+  case UTT_IsNullable:
+    return T->isPointerType() &&
+           T.getDefNullability() == NullabilityKind::Nullable;
+  case UTT_IsArrayElem:
+    return T->isPointerType() && T.isArrayElemQualified() &&
+           (T.getCanonicalType().isOwnedQualified() ||
+            T.getCanonicalType().isBorrowQualified());
 #endif
   case UTT_IsClass:
     return T->isClassType() || T->isStructureType() || T->isInterfaceType();
