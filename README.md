@@ -1,122 +1,170 @@
-# The LLVM Compiler Infrastructure
+<div align="center">
 
-This directory and its sub-directories contain the source code for LLVM,
-a toolkit for the construction of highly optimized compilers,
-optimizers, and run-time environments.
+# 毕昇 C · BiSheng C
 
-The README briefly describes how to get started with building LLVM.
-For more information on how to contribute to the LLVM project, please
-take a look at the
-[Contributing to LLVM](https://llvm.org/docs/Contributing.html) guide.
+**A memory-safe superset of C — ownership, borrowing, and concurrency, added incrementally to the code you already have.**
 
-## Getting Started with the LLVM System
+[![User Manual (中文)](https://img.shields.io/badge/User_Manual-中文-a72145)](https://bishengclanguage.github.io/BiShgengCLanguage/)
+[![User Manual (English)](https://img.shields.io/badge/User_Manual-English-1f6feb)](https://bishengclanguage.github.io/BiShgengCLanguage/en/)
+[![Based on LLVM](https://img.shields.io/badge/based_on-LLVM_15-262d3a?logo=llvm)](https://llvm.org/)
+[![Language](https://img.shields.io/badge/language-C-555?logo=c)](#)
 
-Taken from [here](https://llvm.org/docs/GettingStarted.html).
+[User Manual](https://bishengclanguage.github.io/BiShgengCLanguage/) ·
+[English Manual](https://bishengclanguage.github.io/BiShgengCLanguage/en/) ·
+[Getting Started](#getting-started) ·
+[Features](#why-bisheng-c)
 
-### Overview
+</div>
 
-Welcome to the LLVM project!
+---
 
-The LLVM project has multiple components. The core of the project is
-itself called "LLVM". This contains all of the tools, libraries, and header
-files needed to process intermediate representations and convert them into
-object files. Tools include an assembler, disassembler, bitcode analyzer, and
-bitcode optimizer. It also contains basic regression tests.
+## The sweet spot for AI-generated systems code
 
-C-like languages use the [Clang](http://clang.llvm.org/) frontend. This
-component compiles C, C++, Objective-C, and Objective-C++ code into LLVM bitcode
--- and from there into object files, using LLVM.
+AI coding assistants are now writing a large share of systems code — and that has surfaced a
+sharp trade-off:
 
-Other components include:
-the [libc++ C++ standard library](https://libcxx.llvm.org),
-the [LLD linker](https://lld.llvm.org), and more.
+- **AI-generated C compiles and runs, but is riddled with memory bugs.** Models happily emit
+  C, yet the output is prone to leaks, use-after-free, double-free, and out-of-bounds access —
+  the same unsafe-pointer pitfalls that have plagued C for decades, now produced at scale.
+- **AI-generated Rust is safe, but models struggle to produce it.** Rust's safety comes from
+  ownership, lifetimes, and the borrow checker — and those same rules give models a low
+  first-try success rate. Generations frequently fail to compile and need many correction
+  rounds.
 
-### Getting the Source Code and Building LLVM
+**BiSheng C aims for the sweet spot.** It is a *superset of C*, so models generate it as
+fluently as ordinary C — but it adds opt-in ownership, borrowing, and non-null guarantees that
+let the compiler catch the memory bugs AI-generated C would otherwise ship. You keep C's high
+generation success rate while gaining Rust-style memory safety, and you can adopt the safety
+features **incrementally** instead of rewriting existing code.
 
-The LLVM Getting Started documentation may be out of date. The [Clang
-Getting Started](http://clang.llvm.org/get_started.html) page might have more
-accurate information.
+## What is BiSheng C?
 
-This is an example work-flow and configuration to get and build the LLVM source:
+In systems programming, C remains the most widely used language — especially in
+resource-constrained embedded scenarios. But writing C comes with well-known pain points:
+memory-safety bugs from raw pointer use, no native concurrency, and missing high-level
+abstractions such as generics.
 
-1. Checkout LLVM (including related sub-projects like Clang):
+Languages like Rust tackle these with ownership, lifetimes, a borrow checker, and stackless
+coroutines — but as an entirely new language with a steep learning curve, and no story for
+the **existing** C code you already maintain.
 
-     * ``git clone https://github.com/llvm/llvm-project.git``
+**BiSheng C takes a different path.** It enhances C in place: stronger memory-safety
+guarantees, language-level concurrency, and modern abstractions — all adoptable
+**incrementally**, without rewriting your existing codebase. BiSheng C is, in effect, a
+**superset of C**.
 
-     * Or, on windows, ``git clone --config core.autocrlf=false
-    https://github.com/llvm/llvm-project.git``
+## Why BiSheng C?
 
-2. Configure and build LLVM and Clang:
+| Feature | What it gives you |
+|---|---|
+| **Ownership** | Compile-time tracking of `_Owned` pointers prevents memory leaks, use-after-free, and double-free. |
+| **Borrowing** | `_Borrow` references with a borrow checker — safe aliasing without giving up ownership. |
+| **Non-null pointers** | `_Nonnull` / `_Nullable` make null-safety explicit and checked. |
+| **Safe zones** | `_Safe` regions where the compiler enforces the memory-safety rules. |
+| **Generics & Traits** | `_Trait`-based polymorphism, generics, and operator overloading. |
+| **Concurrency** | Language-level stackless coroutines (`_Async` / `_Await`). |
+| **Toolchain** | Source-to-source translation back to plain C, debugging support, and an IDE plugin. |
+| **Standard library** | `libcbs`: safe APIs, containers, smart pointers, and a coroutine scheduler. |
 
-     * ``cd llvm-project``
+> The full story — with examples and rules for every feature — lives in the
+> **[User Manual](https://bishengclanguage.github.io/BiShgengCLanguage/)**
+> ([English](https://bishengclanguage.github.io/BiShgengCLanguage/en/)).
 
-     * ``cmake -S llvm -B build -G <generator> [options]``
+## Getting Started
 
-        Some common build system generators are:
+### Build the compiler
 
-        * ``Ninja`` --- for generating [Ninja](https://ninja-build.org)
-          build files. Most llvm developers use Ninja.
-        * ``Unix Makefiles`` --- for generating make-compatible parallel makefiles.
-        * ``Visual Studio`` --- for generating Visual Studio projects and
-          solutions.
-        * ``Xcode`` --- for generating Xcode projects.
+BiSheng C's compiler is built on LLVM, so the build follows the standard LLVM flow.
 
-        Some common options:
+```shell
+git clone https://gitee.com/bisheng_c_language_dep/llvm-project.git
+cd llvm-project
+mkdir build && cd build
+cmake -G "Ninja" \
+  -DLLVM_ENABLE_PROJECTS="clang" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_USE_LINKER=lld \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DLLVM_TARGETS_TO_BUILD="X86" \
+  -DCMAKE_INSTALL_PREFIX=<install_dir> \
+  ../llvm
+ninja
+ninja install
+```
 
-        * ``-DLLVM_ENABLE_PROJECTS='...'`` and ``-DLLVM_ENABLE_RUNTIMES='...'`` ---
-          semicolon-separated list of the LLVM sub-projects and runtimes you'd like to
-          additionally build. ``LLVM_ENABLE_PROJECTS`` can include any of: clang,
-          clang-tools-extra, cross-project-tests, flang, libc, libclc, lld, lldb,
-          mlir, openmp, polly, or pstl. ``LLVM_ENABLE_RUNTIMES`` can include any of
-          libcxx, libcxxabi, libunwind, compiler-rt, libc or openmp. Some runtime
-          projects can be specified either in ``LLVM_ENABLE_PROJECTS`` or in
-          ``LLVM_ENABLE_RUNTIMES``.
+Add `<install_dir>/bin` to your `PATH`. Optionally build the standard library `libcbs`:
 
-          For example, to build LLVM, Clang, libcxx, and libcxxabi, use
-          ``-DLLVM_ENABLE_PROJECTS="clang" -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi"``.
+```shell
+cd llvm-project
+mkdir build_libcbs && cd build_libcbs
+cmake -G "Ninja" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=<install_dir>/bin/clang \
+  -DCMAKE_INSTALL_PREFIX=<install_dir> \
+  ../libcbs
+ninja stdcbs
+ninja install
+```
 
-        * ``-DCMAKE_INSTALL_PREFIX=directory`` --- Specify for *directory* the full
-          path name of where you want the LLVM tools and libraries to be installed
-          (default ``/usr/local``). Be careful if you install runtime libraries: if
-          your system uses those provided by LLVM (like libc++ or libc++abi), you
-          must not overwrite your system's copy of those libraries, since that
-          could render your system unusable. In general, using something like
-          ``/usr`` is not advised, but ``/usr/local`` is fine.
+### Your first program
 
-        * ``-DCMAKE_BUILD_TYPE=type`` --- Valid options for *type* are Debug,
-          Release, RelWithDebInfo, and MinSizeRel. Default is Debug.
+BiSheng C source files use the `.cbs` extension. Member functions are one of the simplest
+features to start with:
 
-        * ``-DLLVM_ENABLE_ASSERTIONS=On`` --- Compile with assertion checks enabled
-          (default is Yes for Debug builds, No for all other build types).
+```c
+#include <stdio.h>
 
-      * ``cmake --build build [-- [options] <target>]`` or your build system specified above
-        directly.
+struct Foo {
+    int a;
+};
 
-        * The default target (i.e. ``ninja`` or ``make``) will build all of LLVM.
+// A member function attached to struct Foo.
+int struct Foo::getA(struct Foo* this) {
+    return this->a;
+}
 
-        * The ``check-all`` target (i.e. ``ninja check-all``) will run the
-          regression tests to ensure everything is in working order.
+int main() {
+    struct Foo foo = {.a = 1};
+    printf("foo.getA() = %d\n", foo.getA());
+    return 0;
+}
+```
 
-        * CMake will generate targets for each tool and library, and most
-          LLVM sub-projects generate their own ``check-<project>`` target.
+Compile and run it with the BiSheng C compiler:
 
-        * Running a serial build will be **slow**. To improve speed, try running a
-          parallel build. That's done by default in Ninja; for ``make``, use the option
-          ``-j NNN``, where ``NNN`` is the number of parallel jobs to run.
-          In most cases, you get the best performance if you specify the number of CPU threads you have.
-          On some Unix systems, you can specify this with ``-j$(nproc)``.
+```shell
+clang demo.cbs -o demo
+./demo
+# foo.getA() = 1
+```
 
-      * For more information see [CMake](https://llvm.org/docs/CMake.html).
+See **[Getting Started -> Your First BiSheng C Program](https://bishengclanguage.github.io/BiShgengCLanguage/en/chapter-1-getting-started/2-hello-bsc.html)**
+for a full walkthrough.
 
-Consult the
-[Getting Started with LLVM](https://llvm.org/docs/GettingStarted.html#getting-started-with-llvm)
-page for detailed information on configuring and compiling LLVM. You can visit
-[Directory Layout](https://llvm.org/docs/GettingStarted.html#directory-layout)
-to learn about the layout of the source code tree.
+## Documentation
 
-## Getting in touch
+| Resource | Link |
+|---|---|
+| User Manual (中文) | https://bishengclanguage.github.io/BiShgengCLanguage/ |
+| User Manual (English) | https://bishengclanguage.github.io/BiShgengCLanguage/en/ |
+| Preview edition | [中文](https://bishengclanguage.github.io/BiShgengCLanguage/preview/) · [English](https://bishengclanguage.github.io/BiShgengCLanguage/en/preview/) |
 
-Join [LLVM Discourse forums](https://discourse.llvm.org/), [discord chat](https://discord.gg/xS7Z362) or #llvm IRC channel on [OFTC](https://oftc.net/).
+The preview edition documents upcoming, not-yet-released features.
 
-The LLVM project has adopted a [code of conduct](https://llvm.org/docs/CodeOfConduct.html) for
-participants to all modes of communication within the project.
+## Repository layout
+
+This repository is a fork of the [LLVM project](https://llvm.org/); the BiSheng C compiler is
+implemented within `clang`. Everything else mirrors upstream LLVM.
+
+- `clang/` — the Clang/BiSheng C front end (where the language features live)
+- `libcbs/` — the BiSheng C standard library
+- `llvm/`, `lld/`, ... — upstream LLVM components
+
+The original upstream LLVM README is preserved as
+[`README-LLVM.md`](README-LLVM.md).
+
+## License
+
+BiSheng C is distributed under the same terms as the LLVM Project —
+the Apache License v2.0 with LLVM Exceptions. See the per-component `LICENSE.TXT` files
+(e.g. [`llvm/LICENSE.TXT`](llvm/LICENSE.TXT)).
