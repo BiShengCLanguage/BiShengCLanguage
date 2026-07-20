@@ -4,13 +4,13 @@
 
 **A memory-safe superset of C — ownership, borrowing, and concurrency, added incrementally to the code you already have.**
 
-[![User Manual (中文)](https://img.shields.io/badge/User_Manual-中文-a72145)](https://bishengclanguage.github.io/BiShgengCLanguage/)
-[![User Manual (English)](https://img.shields.io/badge/User_Manual-English-1f6feb)](https://bishengclanguage.github.io/BiShgengCLanguage/en/)
+[![User Manual (中文)](https://img.shields.io/badge/User_Manual-中文-a72145)](https://bishengclanguage.github.io/BiShengCLanguage/)
+[![User Manual (English)](https://img.shields.io/badge/User_Manual-English-1f6feb)](https://bishengclanguage.github.io/BiShengCLanguage/en/)
 [![Based on LLVM](https://img.shields.io/badge/based_on-LLVM_15-262d3a?logo=llvm)](https://llvm.org/)
 [![Language](https://img.shields.io/badge/language-C-555?logo=c)](#)
 
-[User Manual](https://bishengclanguage.github.io/BiShgengCLanguage/) ·
-[English Manual](https://bishengclanguage.github.io/BiShgengCLanguage/en/) ·
+[User Manual](https://bishengclanguage.github.io/BiShengCLanguage/) ·
+[English Manual](https://bishengclanguage.github.io/BiShengCLanguage/en/) ·
 [Getting Started](#getting-started) ·
 [Features](#why-bisheng-c)
 
@@ -67,8 +67,8 @@ guarantees, language-level concurrency, and modern abstractions — all adoptabl
 | **Standard library** | `libcbs`: safe APIs, containers, smart pointers, and a coroutine scheduler. |
 
 > The full story — with examples and rules for every feature — lives in the
-> **[User Manual](https://bishengclanguage.github.io/BiShgengCLanguage/)**
-> ([English](https://bishengclanguage.github.io/BiShgengCLanguage/en/)).
+> **[User Manual](https://bishengclanguage.github.io/BiShengCLanguage/)**
+> ([English](https://bishengclanguage.github.io/BiShengCLanguage/en/)).
 
 ## Getting Started
 
@@ -138,16 +138,16 @@ clang demo.cbs -o demo
 # foo.getA() = 1
 ```
 
-See **[Getting Started -> Your First BiSheng C Program](https://bishengclanguage.github.io/BiShgengCLanguage/en/chapter-1-getting-started/2-hello-bsc.html)**
+See **[Getting Started -> Your First BiSheng C Program](https://bishengclanguage.github.io/BiShengCLanguage/en/chapter-1-getting-started/2-hello-bsc.html)**
 for a full walkthrough.
 
 ## Documentation
 
 | Resource | Link |
 |---|---|
-| User Manual (中文) | https://bishengclanguage.github.io/BiShgengCLanguage/ |
-| User Manual (English) | https://bishengclanguage.github.io/BiShgengCLanguage/en/ |
-| Preview edition | [中文](https://bishengclanguage.github.io/BiShgengCLanguage/preview/) · [English](https://bishengclanguage.github.io/BiShgengCLanguage/en/preview/) |
+| User Manual (中文) | https://bishengclanguage.github.io/BiShengCLanguage/ |
+| User Manual (English) | https://bishengclanguage.github.io/BiShengCLanguage/en/ |
+| Preview edition | [中文](https://bishengclanguage.github.io/BiShengCLanguage/preview/) · [English](https://bishengclanguage.github.io/BiShengCLanguage/en/preview/) |
 
 The preview edition documents upcoming, not-yet-released features.
 
