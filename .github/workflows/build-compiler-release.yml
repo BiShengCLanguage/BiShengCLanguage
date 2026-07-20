@@ -1,0 +1,146 @@
+name: build-compiler-release
+
+# Builds the BiSheng C compiler (manual §1.1: cmake + ninja) on GitHub-hosted
+# runners and publishes the toolchain as a GitHub Release, so downstream CI
+# (e.g. BiShengCSkills eval-regression) can download a prebuilt clang instead
+# of spending 2h+ building LLVM per run.
+#
+# - Daily schedule + manual dispatch.
+# - A guard job skips the (expensive) build when HEAD was already released,
+#   so quiet days cost ~1 minute of runner time.
+# - The rolling prerelease `bsc-nightly` always carries the newest tarball
+#   under a stable asset name; consumers just
+#   `gh release download bsc-nightly -p 'bsc-clang-linux-x64.tar.gz'`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Build even if HEAD is already released"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "30 18 * * *"   # daily 18:30 UTC (02:30 Beijing)
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: bsc-nightly
+  ASSET: bsc-clang-linux-x64.tar.gz
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: .github
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          released=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                       --json body -q .body 2>/dev/null | grep -o 'commit: [0-9a-f]*' | awk '{print $2}' || true)
+          if [ "${{ inputs.force }}" = "true" ] || [ "$released" != "$GITHUB_SHA" ]; then
+            echo "build=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "HEAD $GITHUB_SHA already released — skipping build" >&2
+            echo "build=no" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-linux-x64:
+    needs: guard
+    if: needs.guard.outputs.build == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      # LLVM Release build trees are large; reclaim ~30GB of preinstalled
+      # toolchains we don't use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build lld
+
+      # Flags are manual §1.1 verbatim, plus INCLUDE_{TESTS,EXAMPLES,BENCHMARKS}=OFF
+      # to trim build time/disk — they don't change the shipped compiler.
+      - name: Configure
+        run: |
+          mkdir build && cd build
+          cmake -G Ninja \
+            -DLLVM_ENABLE_PROJECTS="clang" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_USE_LINKER=lld \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLVM_TARGETS_TO_BUILD="X86" \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/bsc-install" \
+            ../llvm
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Install
+        run: ninja -C build install
+
+      - name: Build and install libcbs (manual §1.1 optional step)
+        run: |
+          mkdir build_libcbs && cd build_libcbs
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$GITHUB_WORKSPACE/bsc-install/bin/clang" \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/bsc-install" \
+            ../libcbs
+          ninja stdcbs
+          ninja install
+
+      # Ship libcbs sources too: eval judges compile against the .hbs headers
+      # (bishengc_safety.hbs, vec, string, ...) via -I flags.
+      - name: Package
+        run: |
+          cp -r libcbs/src bsc-install/libcbs-src
+          tar -C "$GITHUB_WORKSPACE" -czf "$ASSET" bsc-install
+          ls -lh "$ASSET"
+
+      # The §1.2 hello-BSC program: member function syntax must compile & run.
+      - name: Smoke test
+        run: |
+          cat > /tmp/smoke.cbs <<'EOF'
+          #include <stdio.h>
+          struct Foo { int a; };
+          int struct Foo::getA(struct Foo* this) { return this->a; }
+          int main() {
+              struct Foo foo = {.a = 1};
+              printf("foo.getA() = %d\n", foo.getA());
+              return 0;
+          }
+          EOF
+          bsc-install/bin/clang /tmp/smoke.cbs -o /tmp/smoke
+          /tmp/smoke
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Automated toolchain build. commit: $GITHUB_SHA ($(date -u +%F))"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ASSET" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --notes "$notes" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "$ASSET" --prerelease \
+              --title "BSC toolchain (rolling nightly, linux x86-64)" \
+              --notes "$notes" --repo "$GITHUB_REPOSITORY"
+          fi
