@@ -1,0 +1,69 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+//
+// Passing &_Mut / &_Const of a Nullable pointer to a Borrow parameter whose
+// inner pointee expects NonNull is OK when:
+//   (a) the borrowed variable is proven NonNull (flow-sensitive), or
+//   (b) the call is in a non-safe zone.
+
+_Safe void borrow_nonnull(int * _Nonnull * _Borrow);
+_Safe void borrow_nullable(int * _Nullable * _Borrow);
+void unsafe_borrow(int * _Nonnull * _Borrow);
+
+// ---- &_Mut, if(p) proves NonNull ----
+_Safe void test_mut_if(int * _Nullable p) {
+  if (p) { borrow_nonnull(&_Mut p); }
+}
+
+// ---- explicit Nullable param matches Nullable arg ---
+_Safe void test_nullable_mut(int * _Nullable p) {
+  borrow_nullable(&_Mut p);
+}
+
+// ---- non-safe zone: &_Mut passes without null check ----
+void test_unsafe_mut(int * _Nullable p) {
+  unsafe_borrow(&_Mut p);
+}
+
+// ---- _Nonnull variable: always OK ----
+_Safe void test_nonnull_var(int * _Nonnull p) {
+  borrow_nonnull(&_Mut p);
+}
+
+// ---- Non-zero integer cast is NonNull ----
+_Safe void test_nonzero_cast(void) {
+  int *_Nullable p;
+  _Unsafe { p = (int*)0x1000; }
+  borrow_nonnull(&_Mut p);
+}
+
+// ---- Constant integer expression (not just literal) is NonNull ----
+_Safe void test_const_expr_cast(void) {
+  int *_Nullable p;
+  _Unsafe { p = (int*)(123 - 2); }
+  borrow_nonnull(&_Mut p);
+}
+
+// ---- &_Mut *pp (double indirection) where *pp is NonNull ----
+_Safe void borrow_double(int * _Nonnull ** _Borrow);
+_Safe void test_double_borrow(int * _Nonnull * _Nullable pp) {
+  _Unsafe {
+    if (*pp) { borrow_double(&_Mut pp); }
+  }
+}
+
+// ---- Outer _Nullable wrapper does not affect inner NonNull match ----
+_Safe void test_outer_nullable(int *_Nonnull * _Nullable src) {
+  int *_Nonnull *dst = src;
+}
+
+// ---- &_Mut with if(p) in struct init and assignment ----
+struct S8 { int * _Owned * _Borrow ptr; };
+_Safe void consume_owned(int * _Owned _Nullable p);
+_Safe void test_init_assign_flow(int * _Owned _Nullable p) {
+  if (p) {
+    struct S8 s = { .ptr = &_Mut p };
+    int * _Owned * _Borrow ptr = &_Mut p;
+  }
+  consume_owned(p);
+}

@@ -10325,14 +10325,6 @@ Sema::CheckAssignmentConstraints(QualType LHSType, ExprResult &RHS,
       return Result;
     }
 
-    if (OrigLHSType->getAs<PointerType>() &&
-        OrigRHSType->getAs<PointerType>()) {
-      if (!CheckNullabilityQualTypeAssignment(OrigLHSType, RHS.get())) {
-        Kind = CK_NoOp;
-        return IncompatiblePointer;
-      }
-    }
-
     if (OrigLHSType->isFunctionPointerType() &&
         (OrigRHSType->isFunctionPointerType() ||
          OrigRHSType->isFunctionType())) {

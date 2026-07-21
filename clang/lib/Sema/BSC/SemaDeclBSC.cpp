@@ -183,46 +183,6 @@ bool Sema::HasDiffNullabilityParamsTypeAtBothFunction(QualType LHS,
   return false;
 }
 
-// Check nullability qualifier compatibility recursively for nested pointers
-bool Sema::CheckNullabilityQualTypeAssignment(QualType LHSType, QualType RHSType) {
-  const auto *LHSPtrType = LHSType->getAs<PointerType>();
-  const auto *RHSPtrType = RHSType->getAs<PointerType>();
-
-  // If both are pointers, check recursively
-  if (LHSPtrType && RHSPtrType) {
-    QualType LHSPointee = LHSPtrType->getPointeeType();
-    QualType RHSPointee = RHSPtrType->getPointeeType();
-
-    // Get effective nullability (explicit or default) for both sides.
-    NullabilityKind LHS = getDefNullability(LHSPointee, Context);
-    NullabilityKind RHS = getDefNullability(RHSPointee, Context);
-
-    // Nullable cannot be assigned to NonNull.
-    if (LHS == NullabilityKind::NonNull &&
-        RHS == NullabilityKind::Nullable)
-      return false;
-
-    // Recursively check nested pointers
-    if (LHSPointee->isPointerType() && RHSPointee->isPointerType()) {
-      return CheckNullabilityQualTypeAssignment(LHSPointee, RHSPointee);
-    }
-  }
-
-  return true;
-}
-
-bool Sema::CheckNullabilityQualTypeAssignment(QualType LHSType, Expr* RHSExpr) {
-  QualType RHSType = RHSExpr->getType();
-  bool Result = CheckNullabilityQualTypeAssignment(LHSType, RHSType);
-
-  if (!Result) {
-    Diag(RHSExpr->getBeginLoc(), diag::err_nonnull_assigned_by_nullable)
-        << RHSType << LHSType;
-  }
-
-  return Result;
-}
-
 // Return true if any memory safe features are found in a FunctionDecl.
 // Qualifiers: owned, borrow, fat
 // AddrOp: &mut, &const

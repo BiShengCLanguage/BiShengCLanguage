@@ -379,6 +379,8 @@ def err_nullable_pointer_access_member : Error<
   "cannot access member through nullable pointer">;
 def err_nonnull_assigned_by_nullable : Error<
   "nonnull pointer cannot be assigned by nullable pointer">;
+def err_nested_nullability_mismatch : Error<
+  "nested pointer nullability mismatch from %0 to %1, inner %2 mismatch with %3">;
 def err_nonnull_init_by_default : Error<
   "type contains nonnull pointer must be properly initialized">;
 

@@ -33,6 +33,7 @@ enum NullabilityCheckDiagKind {
   NullablePointerDereference,
   NullablePointerAccessMember,
   NonnullInitByDefault,
+  NestedNullabilityMismatch,
   NullabilityMaxDiagKind
 };
 
@@ -43,17 +44,26 @@ const unsigned NullabilityDiagIdList[] = {
     diag::err_nullable_cast_nonnull,
     diag::err_nullable_pointer_dereference,
     diag::err_nullable_pointer_access_member,
-    diag::err_nonnull_init_by_default};
+    diag::err_nonnull_init_by_default,
+    diag::err_nested_nullability_mismatch};
 
 struct NullabilityCheckDiagInfo {
   SourceLocation Loc;
   NullabilityCheckDiagKind Kind;
   std::string Name;
+  QualType Types[4]; // for NestedNullabilityMismatch: OrigRHS, OrigLHS, InnerRHS, InnerLHS
   NullabilityCheckDiagInfo(SourceLocation Loc, NullabilityCheckDiagKind Kind)
       : Loc(Loc), Kind(Kind) {}
   NullabilityCheckDiagInfo(SourceLocation Loc, NullabilityCheckDiagKind Kind,
                            std::string Name)
       : Loc(Loc), Kind(Kind), Name(Name) {}
+  NullabilityCheckDiagInfo(SourceLocation Loc, NullabilityCheckDiagKind Kind,
+                           QualType OrigRHS, QualType OrigLHS,
+                           QualType InnerRHS, QualType InnerLHS)
+      : Loc(Loc), Kind(Kind) {
+    Types[0] = OrigRHS; Types[1] = OrigLHS;
+    Types[2] = InnerRHS; Types[3] = InnerLHS;
+  }
 
   bool operator==(const NullabilityCheckDiagInfo &other) const {
     return Loc == other.Loc && Kind == other.Kind && Name == other.Name;
@@ -114,6 +124,10 @@ public:
       case NullablePointerDereference:
       case NullablePointerAccessMember:
         S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind));
+        break;
+      case NestedNullabilityMismatch:
+        S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind))
+            << DI.Types[0] << DI.Types[1] << DI.Types[2] << DI.Types[3];
         break;
       case NonnullInitByDefault:
         S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind)) << DI.Name;

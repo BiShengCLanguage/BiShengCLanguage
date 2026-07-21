@@ -131,6 +131,10 @@ public:
   void VisitDeclStmt(DeclStmt *S);
   void CheckInit(DeclStmt *DS, VarDecl *VD,
                  QualType QT, Expr *Init, std::string Path);
+  bool checkPathSensitiveFirstLevel(Expr *FirstLevel, QualType &CurLHS,
+                                     QualType &CurRHS,
+                                     NullabilityCheckDiagKind DiagKind,
+                                     SourceLocation DiagLoc);
   void VisitBinaryOperator(BinaryOperator *BO);
   void VisitUnaryOperator(UnaryOperator *UO);
   void VisitArraySubscriptExpr(ArraySubscriptExpr *ASE);
@@ -336,9 +340,18 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         return NullabilityKind::NonNull;
       break;
     }
-    case Expr::CStyleCastExprClass:
+    case Expr::CStyleCastExprClass: {
+      // A pointer cast from a non-zero integer constant expression
+      // (e.g. (int*)0x1234, (int*)(123 - 2)) produces a well-known
+      // valid address — treat it as NonNull.
+      Expr *Sub = cast<CStyleCastExpr>(E)->getSubExpr()->IgnoreParenImpCasts();
+      Expr::EvalResult Eval;
+      if (Sub->EvaluateAsInt(Eval, Ctx) && Eval.Val.isInt() &&
+          !Eval.Val.getInt().isZero())
+        return NullabilityKind::NonNull;
       return getDefNullability(cast<CStyleCastExpr>(E)->getTypeAsWritten(),
                                Ctx);
+    }
     case Expr::UnaryOperatorClass: {
       UnaryOperator::Opcode Op = cast<UnaryOperator>(E)->getOpcode();
       if (Op == UO_AddrOf || Op == UO_AddrMut || Op == UO_AddrConst)
@@ -466,6 +479,113 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
   }
 }
 
+//===----------------------------------------------------------------------===//
+// checkNestedPointerNullability — shared by CheckInit, VisitBinaryOperator,
+// and VisitCallExpr
+//===----------------------------------------------------------------------===//
+
+/// Walk nested pointer levels of \p LHS and \p RHS in parallel.  At each
+/// inner level where either side is itself a pointer type, require one of the
+/// following two cases:
+/// 1. The type-based (def) nullability of the two pointers is identical
+/// 2. Two pointers are const and is assigning _Nonnull pointers to _Nullable
+/// Reports via \p Reporter on the first mismatch and stops.
+/// \p OrigLHS / \p OrigRHS are the full (pre-stripped) types, used only for
+/// the diagnostic message.
+static void checkNestedPointerNullability(QualType LHS, QualType RHS,
+    QualType OrigLHS, QualType OrigRHS,
+    ASTContext &Ctx, NullabilityCheckDiagReporter &Reporter,
+    SourceLocation DiagLoc) {
+  QualType CurLHS = LHS;
+  QualType CurRHS = RHS;
+  while (CurLHS->isPointerType() && CurRHS->isPointerType()) {
+    NullabilityKind LHSKind = getDefNullability(CurLHS, Ctx);
+    NullabilityKind RHSKind = getDefNullability(CurRHS, Ctx);
+    if (LHSKind != RHSKind &&
+        !(LHSKind == NullabilityKind::Nullable &&
+          RHSKind == NullabilityKind::NonNull &&
+          CurLHS.isConstQualified() && CurRHS.isConstQualified())) {
+      // Work around a Clang diagnostic-engine bug: when printing a
+      // QualType that carries two levels of AttributedType nullability
+      // (e.g. int * _Nullable * _Nonnull), the innermost _Nonnull is
+      // printed twice.  Stripping the outermost AttributedType before
+      // printing avoids the duplication without losing information
+      // (the inner types are shown separately below).
+      auto DropOuterAttr = [](QualType T) -> QualType {
+        if (const auto *AT = T->getAs<AttributedType>())
+          return AT->getModifiedType();
+        return T;
+      };
+      NullabilityCheckDiagInfo DI(DiagLoc, NestedNullabilityMismatch,
+          DropOuterAttr(OrigRHS), DropOuterAttr(OrigLHS), CurRHS, CurLHS);
+      Reporter.addDiagInfo(DI);
+      return;
+    }
+    const auto *LHSPT = CurLHS->getAs<PointerType>();
+    const auto *RHSPT = CurRHS->getAs<PointerType>();
+    if (!LHSPT || !RHSPT)
+      return;
+    CurLHS = LHSPT->getPointeeType();
+    CurRHS = RHSPT->getPointeeType();
+  }
+}
+
+/// If \p E is &_Mut var / &_Const var, return var (the borrowed
+/// variable expression); otherwise return nullptr
+static Expr *stripBorrow(Expr *E) {
+  if (auto *UO = dyn_cast<UnaryOperator>(E->IgnoreParenImpCasts()))
+    if (UO->getOpcode() == UO_AddrMut ||
+        UO->getOpcode() == UO_AddrConst)
+      return UO->getSubExpr()->IgnoreParenImpCasts();
+  return nullptr;
+}
+
+/// Path-sensitive first-level check for &_Mut var / &_Const var.
+/// When \p FirstLevel is non-null and the LHS first-inner expects NonNull,
+/// checks getExprPathNullability(FirstLevel).  On violation reports and
+/// returns false.  Always advances \p CurLHS / \p CurRHS past the first
+/// level on success so the type walker only checks deeper levels.
+bool TransferFunctions::checkPathSensitiveFirstLevel(
+    Expr *FirstLevel, QualType &CurLHS, QualType &CurRHS,
+    NullabilityCheckDiagKind DiagKind,
+    SourceLocation DiagLoc) {
+  const auto *PT = CurLHS->getAs<PointerType>();
+  const auto *RHSPT = CurRHS->getAs<PointerType>();
+  if (!PT || !RHSPT)
+    return false;
+
+  // One-level advance (strip outer, e.g. _Borrow / first pointer).
+  auto AdvanceOne = [&]() {
+    CurLHS = PT->getPointeeType();
+    CurRHS = RHSPT->getPointeeType();
+  };
+
+  if (FirstLevel) {
+    QualType Inner = PT->getPointeeType();
+    if (Inner->isPointerType() &&
+        getDefNullability(Inner, Ctx) == NullabilityKind::NonNull) {
+      if (getExprPathNullability(FirstLevel) == NullabilityKind::Nullable) {
+        NullabilityCheckDiagInfo DI(DiagLoc, DiagKind);
+        Reporter.addDiagInfo(DI);
+        return false;
+      }
+      // Path check passed — advance two levels: the outer (e.g. _Borrow)
+      // and the level that was just proven NonNull by path-sensitivity.
+      AdvanceOne(); // now CurLHS/CurRHS = the path-checked level
+      const auto *NextPT = CurLHS->getAs<PointerType>();
+      if (!NextPT) return true;
+      CurLHS = NextPT->getPointeeType();
+      const auto *NextRHSPT = CurRHS->getAs<PointerType>();
+      if (!NextRHSPT) return true;
+      CurRHS = NextRHSPT->getPointeeType();
+      return true;
+    }
+  }
+
+  AdvanceOne();
+  return true;
+}
+
 void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
                                   QualType QT, Expr *Init,
                                   std::string path) {
@@ -507,6 +627,19 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       //   int **p = q; // root pointer changes, old (*p) fact must be dropped.
       InvalidateDerefStatusForVar(VD);
     }
+
+    // --- Inner-pointer check for init expressions ---
+    if (ShouldReportNullPtrError(DS)) {
+      QualType CurLHS = QT;
+      QualType CurRHS = Init->getType();
+      QualType OrigLHS = CurLHS;
+      QualType OrigRHS = CurRHS;
+      if (checkPathSensitiveFirstLevel(stripBorrow(Init), CurLHS, CurRHS,
+              NonnullAssignedByNullable, VD->getLocation()))
+        checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
+                                      Ctx, Reporter, VD->getLocation());
+    }
+
     return;
   }
   // check record/array initialization recursively
@@ -632,6 +765,18 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
           }
         }
       }
+
+      // --- Inner-pointer check for assignments ---
+      if (ShouldReportNullPtrError(BO)) {
+        QualType CurLHS = LHSQT;
+        QualType CurRHS = BO->getRHS()->getType();
+        QualType OrigLHS = CurLHS;
+        QualType OrigRHS = CurRHS;
+        if (checkPathSensitiveFirstLevel(stripBorrow(BO->getRHS()), CurLHS,
+                CurRHS, NonnullAssignedByNullable, BO->getBeginLoc()))
+          checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
+                                        Ctx, Reporter, BO->getBeginLoc());
+      }
     }
   }
 }
@@ -649,6 +794,18 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
           Reporter.addDiagInfo(DI);
         }
       }
+
+      Expr *ArgBase = CE->getArg(i)->IgnoreParenImpCasts();
+      QualType CurParam = PVD->getType();
+      QualType CurArg = ArgBase->getType();
+      QualType OrigParam = CurParam;
+      QualType OrigArg = CurArg;
+      if (ShouldReportNullPtrError(CE) &&
+          checkPathSensitiveFirstLevel(stripBorrow(ArgBase), CurParam, CurArg,
+              PassNullableArgument, CE->getArg(i)->getBeginLoc()))
+        checkNestedPointerNullability(CurParam, CurArg, OrigParam, OrigArg,
+                                      Ctx, Reporter,
+                                      CE->getArg(i)->getBeginLoc());
     }
   }
 }
@@ -713,6 +870,17 @@ void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
       NullabilityCheckDiagInfo DI(RV->getBeginLoc(), ReturnNullable);
       Reporter.addDiagInfo(DI);
     }
+  }
+
+  // --- Inner-pointer check for return expressions ---
+  if (ShouldReportNullPtrError(RS)) {
+    QualType CurLHS = Fd.getReturnType();
+    QualType CurRHS = RV->getType();
+    QualType OrigLHS = CurLHS, OrigRHS = CurRHS;
+    if (checkPathSensitiveFirstLevel(stripBorrow(RV), CurLHS, CurRHS,
+                                     ReturnNullable, RV->getBeginLoc()))
+      checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
+                                    Ctx, Reporter, RV->getBeginLoc());
   }
 }
 
@@ -793,6 +961,30 @@ void TransferFunctions::PassConditionStatusToSuccBlocks(Expr *CondExpr) {
   }
 }
 
+/// Recursively walk \\p S and collect every DeclRefExpr / MemberExpr whose
+/// declared nullability is Nullable.  Seeded entries are later updated by
+/// CheckInit / VisitBinaryOperator with the actual runtime value.
+static void collectNullableDecls(Stmt *S, ASTContext &Ctx,
+                                 StatusVD &VDMap, StatusFP &FPMap) {
+  if (!S)
+    return;
+  if (auto DRE = dyn_cast<DeclRefExpr>(S)) {
+    if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      if (getDefNullability(VD->getType(), Ctx) == NullabilityKind::Nullable)
+        VDMap[VD] = NullabilityKind::Nullable;
+  } else if (auto ME = dyn_cast<MemberExpr>(S)) {
+    if (FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+      if (getDefNullability(FD->getType(), Ctx) == NullabilityKind::Nullable) {
+        FieldPath FP;
+        VisitMEForFieldPath(ME, FP);
+        FPMap[FP] = NullabilityKind::Nullable;
+      }
+    }
+  }
+  for (Stmt *Child : S->children())
+    collectNullableDecls(Child, Ctx, VDMap, FPMap);
+}
+
 // Traverse all blocks of cfg to collect all nullable pointers used,
 // including local and global variable and parameters.
 // Init PathNullability of these pointers by Nullable.
@@ -806,21 +998,8 @@ void NullabilityCheckImpl::initStatus(const CFG &cfg, ASTContext &ctx) {
         const CFGElement &elem = *it;
         if (elem.getAs<CFGStmt>()) {
           Stmt *S = const_cast<Stmt *>(elem.castAs<CFGStmt>().getStmt());
-          if (auto DRE = dyn_cast<DeclRefExpr>(S)) {
-            if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-              if (getDefNullability(VD->getType(), ctx) ==
-                  NullabilityKind::Nullable)
-                BlocksEndStatusVD[entry][VD] = NullabilityKind::Nullable;
-          } else if (auto ME = dyn_cast<MemberExpr>(S)) {
-            if (FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-              if (getDefNullability(FD->getType(), ctx) ==
-                  NullabilityKind::Nullable) {
-                FieldPath FP;
-                VisitMEForFieldPath(ME, FP);
-                BlocksEndStatusFP[entry][FP] = NullabilityKind::Nullable;
-              }
-            }
-          }
+          collectNullableDecls(S, ctx, BlocksEndStatusVD[entry],
+                               BlocksEndStatusFP[entry]);
         }
       }
     }

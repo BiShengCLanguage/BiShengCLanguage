@@ -91,7 +91,7 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 
 ---
 
-## INIT — initialization (29 errors, 1 warning)
+## INIT — initialization (31 errors, 1 warning)
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
@@ -124,6 +124,8 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | INIT-027 | err_ensure_init_reassigned | `__attribute__((ensure_init))` not satisfied: `%0` is reassigned before `*%0` is initialized, so `*%0` is not initialized at return | `note_ensure_init_ptr_reassigned_here`; used in place of INIT-007/008 when the failing path's cause is a re-point |
 | INIT-028 | err_ensure_init_if_ret_reassigned | `__attribute__((ensure_init_if_ret(%1)))` not satisfied: `%0` is reassigned before `*%0` is initialized, so `*%0` is not guaranteed initialized when returning %1 | `note_ensure_init_ptr_reassigned_here`; used in place of INIT-016/017 when the cause is a re-point |
 | INIT-029 | err_ensure_init_if_ret_duplicate | `__attribute__((ensure_init_if_ret))` specified more than once with conflicting arguments on the same parameter | An exact repeat instead warns via the generic `attribute … is already applied` |
+| INIT-030 | err_ensure_init_redecl_mismatch | conflicting `__attribute__((ensure_init))` on parameter %0 in redeclaration of %1 | `note_previous_declaration` — previous declaration is here |
+| INIT-031 | err_ensure_init_unsafe_without_safe | `__attribute__((ensure_init))` on parameter %0 of `_Unsafe` declaration requires the matching `_Safe` declaration to carry the same attribute | `note_previous_declaration` — previous declaration is here |
 | **INIT-W001** | warn_ensure_init_not_addressof | `%select{ensure_init\|ensure_init_if_ret}0` effect cannot be verified when argument is not an address-of expression | Message names the attribute the parameter actually carries; also fires for `ensure_init_if_ret` parameters, including indirect calls through a function-pointer typedef |
 
 ---
@@ -154,7 +156,7 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | SZONE-004 | err_safe_zone_case_in_nested_braces | `case` label inside a nested `{ }` in the safe zone | `note_safe_zone_case_in_nested_braces` — remove the nested `{ }`, or wrap the switch in `_Unsafe { ... }` |
 | SZONE-005 | err_unsafe_cast | conversion from type %0 to %1 is forbidden in the safe zone | `note_inc_dec_void_in_safe_zone` — prefix/postfix `++`/`--` in safe zone produce void; use only for side effect (emitted when src is `void`); `note_unsafe_cast_non_trivial_pointee_type` — source pointee %0 is not a trivial data type (emitted for non-trivial `T* borrow → void* borrow`); `note_unsafe_cast_implicit_conversion` — source type %0 is implicit converted from type %1 |
 | SZONE-006 | err_unsafe_implicit_cast | implicit conversion from type %0 to %1 is forbidden in the safe zone; use explicit cast or other means instead | `note_unsafe_cast_implicit_conversion` |
-| SZONE-007 | err_unsafe_fun_cast | conversion from type %0 to %1 is forbidden | `note_unsafe_to_safe_function_pointer` — assigning an unsafe function pointer to a safe function pointer type is not allowed |
+| SZONE-007 | err_unsafe_fun_cast | conversion from type %0 to %1 is forbidden | `note_unsafe_to_safe_function_pointer` — assigning an unsafe function pointer to a safe function pointer type is not allowed; `note_safe_to_unsafe_function_no_unsafe_decl` — assigning a safe function pointer to an unsafe function pointer type is not allowed |
 | SZONE-008 | err_safe_function | %0 is forbidden in the `_Safe` function | — |
 | SZONE-009 | err_safe_global_var | defining mutable global variables is not allowed within the safe zone | — |
 | SZONE-010 | err_return_inc_dec_void_in_safe_zone | result of `++` or `--` cannot be used as return value in safe zone; move the increment/decrement out of the return statement (or add an explicit cast to `void` to suppress) | — |
@@ -165,12 +167,13 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 
 ---
 
-## NONNULL — nonnull pointer (2 errors)
+## NONNULL — nonnull pointer (3 errors)
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
 | NONNULL-001 | err_nullable_cast_nonnull | cannot cast nullable pointer to nonnull type | — |
 | NONNULL-002 | err_nonnull_assigned_by_nullable | nonnull pointer cannot be assigned by nullable pointer | — |
+| NONNULL-003 | err_nested_nullability_mismatch | nested pointer nullability mismatch from <source> to <dest>, inner <inner_source> mismatch with <inner_dest> | — |
 
 (`err_nonnull_init_by_default` is filed under **INIT** as `INIT-015`.)
 
@@ -194,13 +197,13 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 |------------|-------------------------------|-------:|---------:|
 | OWN-       | owned                         | 46     | 1        |
 | BOR-       | borrow                        | 20     | 0        |
-| INIT-      | initialization                | 29     | 1        |
+| INIT-      | initialization                | 31     | 1        |
 | MISC-      | declaration / dispatch        | 7      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
-| NONNULL-   | nonnull pointer               | 2      | 0        |
+| NONNULL-   | nonnull pointer               | 3      | 0        |
 | NULLABLE-  | nullable pointer              | 5      | 0        |
-| **Total**  |                               | **121** | **2**   |
+| **Total**  |                               | **124** | **2**   |
 
-Plus **22 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
+Plus **23 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 
 Out-of-scope BSC features (not coded here): traits, async/await, generic, constexpr, operator overload, instance member functions. These contribute several more errors, one warning (`warn_type_has_not_impl_trait`), and one note (`note_no_this_parameter`).

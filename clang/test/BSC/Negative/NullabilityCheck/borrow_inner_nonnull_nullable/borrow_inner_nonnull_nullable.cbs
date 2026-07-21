@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify %s
+//
+// Passing a Nullable pointer via &_Mut to a Borrow parameter whose inner
+// pointee expects NonNull is an error when the borrowed variable is
+// Nullable at the call site in a safe zone.
+//
+// (&_Const is tested separately via the positive test in non-safe zones;
+//  in safe zones &_Const triggers a const-conversion error that fires
+//  before the nullability check can run.)
+
+_Safe void borrow_nonnull(int * _Nonnull * _Borrow);
+
+// ---- &_Mut, no null check ----
+_Safe void test_mut_no_check(int * _Nullable p) {
+  borrow_nonnull(&_Mut p);
+  // expected-error@-1 {{cannot pass nullable pointer argument}}
+}
+
+// ---- after control-flow merge ----
+_Safe void test_after_merge(int * _Nullable p) {
+  if (p) { borrow_nonnull(&_Mut p); }
+  borrow_nonnull(&_Mut p);
+  // expected-error@-1 {{cannot pass nullable pointer argument}}
+}
+
+// ---- double indirection ----
+_Safe void borrow_double(int * _Nonnull ** _Borrow);
+_Safe void test_double(int * _Nullable *pp) {
+  borrow_double(&_Mut pp);
+  // expected-error@-1 {{nested pointer nullability mismatch from 'int * _Nullable **_Borrow' to 'int * _Nonnull **_Borrow', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+}
+
+// ---- struct field, Nullable ----
+struct S { int *_Nullable fp; };
+_Safe void test_struct_field(void) {
+  struct S s = { 0 };
+  borrow_nonnull(&_Mut s.fp);
+  // expected-error@-1 {{cannot pass nullable pointer argument}}
+}
