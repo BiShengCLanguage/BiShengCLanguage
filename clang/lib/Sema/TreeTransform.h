@@ -11050,9 +11050,23 @@ TreeTransform<Derived>::TransformUnaryExprOrTypeTraitExpr(
   // C++0x [expr.sizeof]p1:
   //   The operand is either an expression, which is an unevaluated operand
   //   [...]
+#if ENABLE_BSC
+  // BSC disallows implicit function declarations. Typo correction may
+  // re-traverse sizeof's operand. sizeof(VLA) is runtime-evaluated, so keep
+  // the operand potentially evaluated to avoid rebuilding DeclRefExpr under
+  // an incorrect unevaluated context.
+  bool OperandIsVLA = !E->isArgumentType() &&
+                      E->getArgumentExpr()->getType()->isVariableArrayType();
+  EnterExpressionEvaluationContext OperandContext(
+      SemaRef,
+      OperandIsVLA ? Sema::ExpressionEvaluationContext::PotentiallyEvaluated
+                   : Sema::ExpressionEvaluationContext::Unevaluated,
+      Sema::ReuseLambdaContextDecl);
+#else
   EnterExpressionEvaluationContext Unevaluated(
       SemaRef, Sema::ExpressionEvaluationContext::Unevaluated,
       Sema::ReuseLambdaContextDecl);
+#endif
 
   // Try to recover if we have something like sizeof(T::X) where X is a type.
   // Notably, there must be *exactly* one set of parens if X is a type.
