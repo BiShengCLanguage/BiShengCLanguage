@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+int test1(void* dev) {
+  if (dev->state < 1) { // expected-error {{no member named 'state' in type 'void'}}
+    return 0;
+  }
+  return 1;
+}
+
+int test2() {
+  void* dev = 0;
+  if (dev->state < 1) { // expected-error {{no member named 'state' in type 'void'}}
+    return 0;
+  }
+  return 1;
+}
+
+void f();
+const int f2();
+
+void g() {
+  f().junk<int>(); // expected-error {{no member named 'junk' in type 'void'}}
+                    // expected-error@-1 {{expected expression}}
+  f2().junk<int>(); // expected-error {{no member named 'junk' in type 'int'}}
+                    // expected-error@-1 {{expected expression}}
+}
