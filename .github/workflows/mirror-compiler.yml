@@ -5,30 +5,34 @@ name: Mirror BiSheng C compiler
 # sync-bishengc-github.sh). Fully remote — no local machine involved.
 #
 #   source : https://gitcode.com/bisheng_c_language_dep/llvm-project.git  (source of truth)
-#   target : this repo, branch bishengc/15.0.4 (force-pushed: gitcode tip + 1 README commit)
+#   target : this repo, branch bishengc/15.0.4 (force-pushed: gitcode tip + 1 overlay commit)
 #
-# The repo history is ~6.6M objects / ~3.7 GB, so we keep a bare pack in the Actions
-# cache (rolling key): the first run pays for the full clone, later runs fetch only
-# the daily delta. The README overlay commit is built with git plumbing (temp index,
-# no checkout), same technique as the old local script. Fetch order matters: gitcode
-# first, so the follow-up fetch of our own branch only negotiates the tiny overlay
-# delta instead of re-downloading history.
-
-# SCHEDULING: GitHub only fires `schedule:` for workflows on the DEFAULT branch,
-# and this repo's default branch is the mirror itself (force-pushed daily, and org
-# policy disables the deploy keys we'd need to carry workflow files onto it). The
-# daily tick therefore comes from BiShengCLanguage/ops, which dispatches this
-# workflow at 03:00 Beijing via workflow_dispatch. The push trigger below exists
-# to (re)register the workflow so workflow_dispatch can find it.
+# SCHEDULING: GitHub only fires `schedule:` for workflow files on the DEFAULT branch,
+# and the default branch is this mirror itself. So the overlay commit carries
+# .github/workflows/{mirror-compiler,publish-manual}.yml (copied from book-ci) onto
+# the default branch — that registers both schedules natively. Scheduled runs execute
+# the default-branch copy, which is why the checkout below pins ref: book-ci.
+#
+# PUSH AUTH: the overlay touches workflow files, which GITHUB_TOKEN is forbidden to
+# push and org policy disables deploy keys — so the push goes over SSH with the
+# MIRROR_SSH_KEY secret (a dedicated user key, revocable at github.com/settings/keys).
+#
+# The repo history is ~6.6M objects, so we keep a bare pack in the Actions cache
+# (rolling key): the first run pays the full ~5 min clone, later runs fetch only the
+# daily delta (~1 min total). The overlay commit is built with git plumbing (temp
+# index, no checkout). Fetch order matters: gitcode first, so the follow-up fetch of
+# our own branch only negotiates the tiny overlay delta.
 
 on:
+  schedule:
+    - cron: "0 19 * * *"   # 03:00 Beijing, same slot as the old local cron
   push:
     branches: [book-ci]
     paths: ['.github/workflows/mirror-compiler.yml']
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read           # pushes go over SSH, not the token
 
 concurrency:
   group: mirror-compiler
@@ -43,8 +47,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - name: Checkout book-ci (for the README overlay files)
+      - name: Checkout book-ci (overlay files + workflow copies)
         uses: actions/checkout@v4
+        with:
+          ref: book-ci
 
       - name: Restore mirror pack cache
         uses: actions/cache/restore@v4
@@ -69,7 +75,16 @@ jobs:
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
             "+refs/heads/$BRANCH:refs/heads/dst" || echo "[WARN] no existing target branch"
 
-      - name: Build README overlay commit and push
+      - name: Set up SSH push key
+        env:
+          KEY: ${{ secrets.MIRROR_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/mirror_key
+          chmod 600 ~/.ssh/mirror_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Build overlay commit (README + workflows) and push
         env:
           GIT_AUTHOR_NAME: BiSheng C Team
           GIT_AUTHOR_EMAIL: qq1105258717@gmail.com
@@ -81,23 +96,29 @@ jobs:
           BASE=$(git rev-parse refs/heads/src)
           export GIT_INDEX_FILE=$(mktemp -u)   # name only; git creates a fresh index
           git read-tree "$BASE"
-          R_MAIN=$(git hash-object -w overlay/compiler-readme/README.md)
-          R_LLVM=$(git hash-object -w overlay/compiler-readme/README-LLVM.md)
-          git update-index --add --cacheinfo 100644,"$R_MAIN",README.md
-          git update-index --add --cacheinfo 100644,"$R_LLVM",README-LLVM.md
+          add_file() {  # $1 = workspace path, $2 = path in the mirrored tree
+            local blob; blob=$(git hash-object -w "$1")
+            git update-index --add --cacheinfo 100644,"$blob","$2"
+          }
+          add_file overlay/compiler-readme/README.md       README.md
+          add_file overlay/compiler-readme/README-LLVM.md  README-LLVM.md
+          add_file .github/workflows/mirror-compiler.yml   .github/workflows/mirror-compiler.yml
+          add_file .github/workflows/publish-manual.yml    .github/workflows/publish-manual.yml
           TREE=$(git write-tree)
           rm -f "$GIT_INDEX_FILE"; unset GIT_INDEX_FILE
           DST=$(git rev-parse --verify --quiet refs/heads/dst || true)
           if [ -n "$DST" ] && [ "$(git rev-parse "$DST^{tree}")" = "$TREE" ]; then
             echo "[INFO] target already up to date (same tree) — nothing to push"
           else
-            OUT=$(git commit-tree "$TREE" -p "$BASE" -m "docs: BiSheng C project README
+            OUT=$(git commit-tree "$TREE" -p "$BASE" -m "docs: BiSheng C project README + pipeline workflows
 
-          Homepage overlay applied by the GitHub mirror on top of the gitcode tip;
-          the upstream LLVM README is preserved as README-LLVM.md.")
+          Overlay applied by the GitHub mirror on top of the gitcode tip: homepage
+          README (upstream LLVM README preserved as README-LLVM.md) and the manual
+          pipeline workflows, which must live on the default branch for GitHub to
+          run their schedules. Source of both: the book-ci branch.")
             echo "[INFO] pushing: $OUT"
-            git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
-              "$OUT:refs/heads/$BRANCH"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/mirror_key -o IdentitiesOnly=yes" \
+              git push -f "git@github.com:${{ github.repository }}.git" "$OUT:refs/heads/$BRANCH"
           fi
 
       - name: Compact loose objects

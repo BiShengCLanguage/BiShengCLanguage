@@ -24,8 +24,10 @@ generated site branch (`gh-pages`).
 - `.github/workflows/publish-manual.yml` — daily schedule + manual trigger; builds and
   deploys to Pages.
 - `.github/workflows/mirror-compiler.yml` — daily mirror of the gitcode compiler branch
-  into this repo's `bishengc/15.0.4` with the README overlay
-  (`overlay/compiler-readme/`) on top.
+  into this repo's `bishengc/15.0.4` with an overlay commit on top: the homepage README
+  (`overlay/compiler-readme/`) plus copies of the two pipeline workflow files. Carrying
+  the workflows onto the default branch is what makes their `schedule:` crons fire —
+  GitHub only schedules workflows from the default branch.
 
 ## Source of truth
 
