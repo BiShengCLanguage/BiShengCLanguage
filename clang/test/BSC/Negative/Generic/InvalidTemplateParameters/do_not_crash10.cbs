@@ -1,0 +1,12 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// An undeclared identifier followed by '<' is tentatively parsed as a
+// generic instantiation. The template argument list here starts with '('
+// followed by an identifier, which must not be consumed as a constant
+// generic parameter type prefix.
+int f(int a, int b) {
+    if (delta < (a + b) || delta > 2) { // expected-error {{use of undeclared identifier 'delta'}}
+        return 1;
+    }
+    return 0;
+}

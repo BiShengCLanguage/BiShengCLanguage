@@ -1659,7 +1659,8 @@ bool Parser::ParseTemplateArgumentList(TemplateArgList &TemplateArgs,
                                           tok::kw_union,
                                           tok::kw_const,
                                           tok::kw_volatile,
-                                          tok::eof)) {
+                                          tok::eof) &&
+        !isTokenSpecial()) {
       // if template argument list like <T, int N> or <T, MyInt N>
       // we should only parse <T, N>, ignore the type of constant template
       // so we will consume builtin type 'int' or typedef type 'MyInt'

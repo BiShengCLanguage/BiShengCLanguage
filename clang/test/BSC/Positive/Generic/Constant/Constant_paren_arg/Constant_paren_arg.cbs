@@ -1,0 +1,22 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+// expected-no-diagnostics
+
+// A constant generic argument may be a parenthesized expression starting
+// with an identifier; the '(' must not be consumed as a parameter type
+// prefix.
+
+enum { A = 1 };
+
+int bar<int N>(void) {
+    return N;
+}
+
+int main(void) {
+    if (bar<(A + 1)>() != 2) return 1;
+    if (bar<(A)>() != 1) return 1;
+    return 0;
+}
