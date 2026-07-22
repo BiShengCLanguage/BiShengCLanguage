@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// --- while, with sizeof + shift + subtraction in the condition ---
+_Safe int func_while(unsigned int *_Borrow _ArrayElem b, int b_used) {
+    unsigned int d = b[b_used - 1];
+    int k = 0;
+    while (d < (1u << (sizeof(unsigned int) * 8 - 1))) {
+        d <<= 1;
+        ++k;
+    }
+    return k;
+}
+
+// --- do/while: the condition is also rewritten to a statement expression ---
+_Safe int func_dowhile(unsigned int *_Borrow _ArrayElem b, int b_used) {
+    unsigned int d = b[b_used - 1];
+    int k = 0;
+    do {
+        d <<= 1;
+        ++k;
+    } while (d < (1u << (sizeof(unsigned int) * 8 - 1)));
+    return k;
+}
+
+// --- for: same shape in a for-condition ---
+_Safe int func_for(unsigned int *_Borrow _ArrayElem b, int b_used) {
+    unsigned int d = b[b_used - 1];
+    int k = 0;
+    for (; d < (1u << (sizeof(unsigned int) * 8 - 1)); d <<= 1, ++k) {
+    }
+    return k;
+}
+
+// --- while with a sizeof-based subtraction in the bound ---
+_Safe int func_while_sub_bound(unsigned int *_Borrow _ArrayElem b, int b_used) {
+    unsigned int d = b[b_used - 1];
+    int k = 0;
+    while (d < (sizeof(unsigned int) * 8 - 1)) {
+        d += 1;
+        ++k;
+    }
+    return k;
+}

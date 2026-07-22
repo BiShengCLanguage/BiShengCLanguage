@@ -1,0 +1,45 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// --- if + for, with (unsigned char) casts on subscripted borrows ---
+_Safe int func_bitmap(int str_len, char *_Borrow _ArrayElem str, int pat_len,
+                      char *_Borrow _ArrayElem pat) {
+    int count = 0;
+    unsigned char bitmap[256] = {0};
+    for (int i = 0; i < pat_len; i++) {
+        bitmap[(unsigned char)pat[i]] = 1;
+    }
+    for (int i = 0; i < str_len; i++) {
+        if (bitmap[(unsigned char)str[i]])
+            count++;
+    }
+    return count;
+}
+
+// --- while with a cast-on-subscript in the condition ---
+_Safe int func_while(int str_len, char *_Borrow _ArrayElem str,
+                     char *_Borrow _ArrayElem pat) {
+    int i = 0;
+    int hit = 0;
+    unsigned char bitmap[256] = {0};
+    bitmap[(unsigned char)pat[0]] = 1;
+    while (bitmap[(unsigned char)str[i]] && i < str_len) {
+        ++hit;
+        ++i;
+    }
+    return hit;
+}
+
+// --- if-else with nested cast-on-subscript comparisons ---
+_Safe int func_nested(int len, char *_Borrow _ArrayElem a,
+                      char *_Borrow _ArrayElem b) {
+    int n = 0;
+    for (int i = 0; i < len; ++i) {
+        if ((unsigned char)a[i] == (unsigned char)b[i]) {
+            ++n;
+        } else {
+            n -= 0;
+        }
+    }
+    return n;
+}

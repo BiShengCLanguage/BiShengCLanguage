@@ -529,9 +529,15 @@ struct ReplaceNodesMap {
     return replacedStmtsMap.find(S) != replacedStmtsMap.end();
   }
 
-  void Insert(Expr *Key, Expr *Value) { replacedExprsMap[Key] = Value; }
+  void Insert(Expr *Key, Expr *Value) {
+    if (Key != Value)
+      replacedExprsMap[Key] = Value;
+  }
 
-  void Insert(Stmt *Key, Stmt *Value) { replacedStmtsMap[Key] = Value; }
+  void Insert(Stmt *Key, Stmt *Value) {
+    if (Key != Value)
+      replacedStmtsMap[Key] = Value;
+  }
 
   Expr *Get(Expr *Key) { return replacedExprsMap[Key]; }
 
@@ -572,14 +578,17 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
 
   // Replace the given expression with a new temporary variable, and return the
   // corresponding DeclRefExpr.
-  DeclRefExpr *ReplaceWithRefToNewTempVar(Expr *E, QualType T = QualType{}) {
+  Expr *ReplaceWithRefToNewTempVar(Expr *E, QualType T = QualType{}) {
     if (T.isNull()) {
       T = E->getType();
     }
     VarDecl *VD = NewTempVar(T, E);
-    return DeclRefExpr::Create(getSema().Context, NestedNameSpecifierLoc(),
-                               SourceLocation(), VD, false, E->getBeginLoc(),
-                               T, VK_LValue);
+    DeclRefExpr *DRE = DeclRefExpr::Create(
+        getSema().Context, NestedNameSpecifierLoc(), SourceLocation(), VD,
+        false, E->getBeginLoc(), T, VK_LValue);
+    if (E->isPRValue())
+        return getSema().DefaultLvalueConversion(DRE).get();
+    return DRE;
   }
 
   // Ensure the given statement is wrapped with a CompoundStmt. If not, create
@@ -593,7 +602,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
 
   ExprResult TransformStringLiteralLike(Expr *E) {
     QualType PtrTy = getSema().Context.getArrayDecayedType(E->getType());
-    DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(E, PtrTy);
+    Expr *DRE = ReplaceWithRefToNewTempVar(E, PtrTy);
     replacedNodesMap.Insert(DRE, E);
     return DRE;
   }
@@ -894,7 +903,7 @@ public:
     Expr *ERHS = ResRHS.get();
     BO->setRHS(ERHS);
 
-    DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(BO);
+    Expr *DRE = ReplaceWithRefToNewTempVar(BO);
     replacedNodesMap.Insert(DRE, BO);
     return DRE;
   }
@@ -904,7 +913,7 @@ public:
       ExprResult Res = getDerived().TransformExpr(CE->getArg(i));
       Expr *E = Res.get();
 
-      DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(E);
+      Expr *DRE = ReplaceWithRefToNewTempVar(E);
       CE->setArg(i, DRE);
       replacedNodesMap.Insert(DRE, E);
     }
@@ -912,7 +921,7 @@ public:
     // If the call expression has a non-void return type, replace it with a
     // temporary variable. Otherwise, return the original call expression.
     if (!CE->getCallReturnType(SemaRef.Context)->isVoidType()) {
-      DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(CE);
+      Expr *DRE = ReplaceWithRefToNewTempVar(CE);
       replacedNodesMap.Insert(DRE, CE);
       return DRE;
     }
@@ -975,7 +984,7 @@ public:
     ExprResult Res = getDerived().TransformExpr(CSCE->getSubExpr());
     CSCE->setSubExpr(Res.get());
 
-    DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(CSCE);
+    Expr *DRE = ReplaceWithRefToNewTempVar(CSCE);
     replacedNodesMap.Insert(DRE, CSCE);
     return DRE;
   }
@@ -994,12 +1003,12 @@ public:
       ExprResult Res = getDerived().TransformExpr(ILE->getInit(i));
       Expr *E = Res.get();
 
-      DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(E);
+      Expr *DRE = ReplaceWithRefToNewTempVar(E);
       ILE->setInit(i, DRE);
       replacedNodesMap.Insert(DRE, E);
     }
 
-    DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(ILE);
+    Expr *DRE = ReplaceWithRefToNewTempVar(ILE);
     replacedNodesMap.Insert(DRE, ILE);
     return ILE;
   }
@@ -1043,7 +1052,7 @@ public:
     // they are l-values.
     if (!UO->isLValue() ||
         (UO->getOpcode() >= UO_PostInc && UO->getOpcode() <= UO_PreDec)) {
-      DeclRefExpr *DRE = ReplaceWithRefToNewTempVar(UO);
+      Expr *DRE = ReplaceWithRefToNewTempVar(UO);
       replacedNodesMap.Insert(DRE, UO);
       return DRE;
     }
@@ -1402,6 +1411,11 @@ public:
     }
     ExprResult Res = getDerived().TransformExpr(Sub);
     ICE->setSubExpr(Res.get());
+    if (replacedNodesMap.Contains(ICE)) {
+      Expr *E = replacedNodesMap.Get(ICE);
+      ExprResult ResE = getDerived().TransformExpr(E);
+      return ResE.get();
+    }
 
     return ICE;
   }
