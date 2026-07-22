@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# RETIRED (2026-07-22): the English manual is now updated MANUALLY by editing
+# overlay/en/src and overlay/en-preview/src. Kept for reference only — the
+# translate-en.yml workflow that drove this script has been deleted.
+#
 # Keep the English manual in sync with the Chinese source using AI translation,
 # driven by the GLM gateway (Claude Code headless against an Anthropic-compatible
 # endpoint). Diff-driven: only re-translates the Chinese pages that actually changed.

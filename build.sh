@@ -2,25 +2,26 @@
 #
 # Build the BiSheng C user manual site (4 editions) into ./site.
 #
-# Content source = the compiler repo's single-file manual, mirrored on THIS GitHub
-# repo's compiler branches. We fetch the manual over the GitHub API (fast, reliable,
-# no gitcode dependency, no giant clone) and split it into the mdBook chapter tree with
-# split_manual.py. The site therefore always tracks the published compiler manual.
+# Content source = the compiler repo's single-file manual, fetched DIRECTLY from
+# gitcode (the upstream source of truth) via its gitee-compatible v5 REST API — no
+# giant clone, and no dependency on the GitHub compiler mirror being fresh. The
+# manual is split into the mdBook chapter tree with split_manual.py, so the site
+# always tracks the published compiler manual.
 #
 #   zh release  (manual on bishengc/15.0.4)         -> site/
-#   zh preview  (manual on manual-preview branch) -> site/preview/
+#   zh preview  (manual on bishengc_manual_preview) -> site/preview/
 #   en release  (overlay/en/src)                    -> site/en/
 #   en preview  (overlay/en-preview/src)            -> site/en/preview/
 #
 # Layout assumed: this script + overlay/ + split_manual.py live together on `book-ci`.
-# Needs: mdbook, python3 (>=3.10), and either `gh` (with GITHUB_TOKEN) or curl to read
-# the manual from this repo. Runs in GitHub Actions and locally.
+# Needs: mdbook, python3 (>=3.10), curl. Runs in GitHub Actions and locally.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 OVERLAY="$HERE/overlay"
-REPO="${GITHUB_REPOSITORY:-BiShengCLanguage/BiShgengCLanguage}"
-REPO_WEB="https://github.com/$REPO"
+SRC_REPO="bisheng_c_language_dep/llvm-project"        # gitcode upstream (source of truth)
+SRC_API="https://gitcode.com/api/v5/repos/$SRC_REPO"
+REPO_WEB="https://gitcode.com/$SRC_REPO"
 MANUAL_PATH="clang/docs/BSC/BiShengCLanguageUserManual.md"
 SITE="$HERE/site"
 WORKROOT=$(mktemp -d)
@@ -28,21 +29,17 @@ TODAY=$(date +%Y/%m/%d)
 
 # Which compiler branch feeds each Chinese edition.
 ZH_MAIN_REF="bishengc/15.0.4"
-ZH_PREV_REF="manual-preview"
+ZH_PREV_REF="bishengc_manual_preview"
 
 rm -rf "$SITE"; mkdir -p "$SITE"
 
-# Fetch a file from this repo at $1=ref $2=path -> stdout. Prefer gh; fall back to API URL.
+urlenc() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
+
+# Fetch a file from gitcode at $1=ref $2=path -> stdout (decoded from the API's base64).
 fetch_file() {
   local ref="$1" path="$2"
-  if command -v gh >/dev/null && [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
-    GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" gh api \
-      "repos/$REPO/contents/$path?ref=$ref" -H "Accept: application/vnd.github.raw"
-  else
-    curl -fsSL -H "Accept: application/vnd.github.raw" \
-      ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
-      "https://api.github.com/repos/$REPO/contents/$path?ref=$ref"
-  fi
+  curl -fsSL --retry 3 --retry-delay 5 "$SRC_API/contents/$path?ref=$(urlenc "$ref")" \
+    | python3 -c 'import sys,json,base64;sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["content"]))'
 }
 
 # Produce a split src/ tree for a compiler ref. $1=ref -> echoes the src dir path.
@@ -59,13 +56,8 @@ make_zh_src() {
 # Echo "shortsha<TAB>YYYY/MM/DD" for the tip of $1 (latest commit touching the manual).
 fetch_commit_meta() {
   local ref="$1" json
-  if command -v gh >/dev/null && [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
-    json=$(GH_TOKEN="${GH_TOKEN:-$GITHUB_TOKEN}" gh api \
-      "repos/$REPO/commits?sha=$ref&path=$MANUAL_PATH&per_page=1" 2>/dev/null)
-  else
-    json=$(curl -fsSL ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
-      "https://api.github.com/repos/$REPO/commits?sha=$ref&path=$MANUAL_PATH&per_page=1" 2>/dev/null)
-  fi
+  json=$(curl -fsSL --retry 3 --retry-delay 5 \
+    "$SRC_API/commits?sha=$(urlenc "$ref")&path=$MANUAL_PATH&per_page=1" 2>/dev/null)
   local sha date
   sha=$(printf '%s' "$json" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[0]["sha"][:7] if d else "")' 2>/dev/null)
   date=$(printf '%s' "$json" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d[0]["commit"]["committer"]["date"][:10].replace("-","/") if d else "")' 2>/dev/null)
