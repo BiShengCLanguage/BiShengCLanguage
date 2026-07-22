@@ -4,7 +4,14 @@
 
 用法:
     python split_manual.py <source_file> <output_dir>
+
+SUMMARY.md 和各章 README 的目录来自文档中实际出现的章节（按文档顺序），
+所以 release / preview 两个版本可以有不同的章节集合。SECTION_MAP 只负责
+给章节一个稳定的 URL slug；文档里出现了 map 之外的新章节时会打印警告并
+使用 "<章>-<节>" 形式的回退文件名 —— 看到警告就该给 SECTION_MAP 补一行。
 """
+
+from __future__ import annotations
 
 import re
 import os
@@ -21,7 +28,8 @@ CHAPTER_DIR_MAP = {
     "附录": "appendix",
 }
 
-# Maps section identifiers (from ### X.Y. Title) to output files
+# Maps section identifiers (from ### X.Y. Title) to output files.
+# Naming only — presence/order in the nav comes from the document itself.
 SECTION_MAP = OrderedDict({
     "1.1": (CHAPTER_DIR_MAP["1"], "1-build"),
     "1.2": (CHAPTER_DIR_MAP["1"], "2-hello-bsc"),
@@ -32,10 +40,12 @@ SECTION_MAP = OrderedDict({
     "2.5": (CHAPTER_DIR_MAP["2"], "5-operator-overloading"),
     "3.1": (CHAPTER_DIR_MAP["3"], "1-ownership"),
     "3.2": (CHAPTER_DIR_MAP["3"], "2-borrowing"),
-    "3.3": (CHAPTER_DIR_MAP["3"], "3-nonnull-pointer"),
-    "3.4": (CHAPTER_DIR_MAP["3"], "4-owned-struct"),
-    "3.5": (CHAPTER_DIR_MAP["3"], "5-safe-zone"),
-    "3.6": (CHAPTER_DIR_MAP["3"], "6-initial-analysis"),
+    "3.3": (CHAPTER_DIR_MAP["3"], "3-arrays-safe-pointers"),
+    "3.4": (CHAPTER_DIR_MAP["3"], "4-nonnull-pointer"),
+    "3.5": (CHAPTER_DIR_MAP["3"], "5-owned-struct"),
+    "3.6": (CHAPTER_DIR_MAP["3"], "6-safe-zone"),
+    "3.7": (CHAPTER_DIR_MAP["3"], "7-initial-analysis"),
+    "3.8": (CHAPTER_DIR_MAP["3"], "8-type-compat"),
     "4.1": (CHAPTER_DIR_MAP["4"], "1-stackless-coroutine"),
     "5.1": (CHAPTER_DIR_MAP["5"], "1-bsc2c"),
     "5.2": (CHAPTER_DIR_MAP["5"], "2-debugging"),
@@ -116,15 +126,26 @@ def process_subheadings(lines: list[str]) -> list[str]:
     return result
 
 
-def build_chapter_sections_map():
-    """Return {chapter_num: [(display_title, relative_file_path), ...]}."""
-    mapping = {}
-    for sec_id, (dir_name, file_name) in SECTION_MAP.items():
-        chapter_num = sec_id.split('.')[0]
-        mapping.setdefault(chapter_num, []).append((sec_id, file_name))
-    for sec_id, (dir_name, file_name) in APPENDIX_MAP.items():
-        mapping.setdefault('附录', []).append((sec_id, file_name))
-    return mapping
+def chapter_dir(chapter_id: str) -> str:
+    return CHAPTER_DIR_MAP.get(chapter_id, f'chapter-{chapter_id}')
+
+
+def section_chapter(sec_id: str) -> str:
+    return '附录' if sec_id.startswith('附录') else sec_id.split('.')[0]
+
+
+def resolve_target(sec_id: str) -> tuple[str, str]:
+    """(dir, file-slug) for a section id, with a loud fallback for unmapped ids."""
+    if sec_id in SECTION_MAP:
+        return SECTION_MAP[sec_id]
+    if sec_id in APPENDIX_MAP:
+        return APPENDIX_MAP[sec_id]
+    d = chapter_dir(section_chapter(sec_id))
+    f = ('x-' + sec_id[2:].lower()) if sec_id.startswith('附录') \
+        else sec_id.replace('.', '-')
+    print(f"Warning: section '{sec_id}' missing from SECTION_MAP — "
+          f"using fallback '{d}/{f}.md' (please add it to split_manual.py)")
+    return (d, f)
 
 
 def main(source_file: str, output_dir: str):
@@ -146,8 +167,6 @@ def main(source_file: str, output_dir: str):
             title = extract_section_title(stripped)
             if sec_id and title:
                 section_titles[sec_id] = title
-
-    chapter_sections = build_chapter_sections_map()
 
     # Second pass: split into sections
     sections = []
@@ -179,14 +198,34 @@ def main(source_file: str, output_dir: str):
     if current_start is not None and current_id is not None:
         sections.append((current_start, len(lines), current_id))
 
+    # Index what the DOCUMENT actually contains, in document order. The nav is
+    # built from this — not from the static maps — so editions with different
+    # section sets (e.g. a release-only section) each get a correct TOC.
+    doc_chapters: list[str] = []
+    doc_sections: dict[str, list[str]] = {}
+    targets: dict[str, tuple[str, str]] = {}
+    for _start, _end, sid in sections:
+        if sid == 'intro':
+            continue
+        if sid.startswith('ch:'):
+            ch = sid[3:]
+        else:
+            ch = section_chapter(sid)
+            doc_sections.setdefault(ch, []).append(sid)
+            targets[sid] = resolve_target(sid)
+        if ch not in doc_chapters:
+            doc_chapters.append(ch)
+            doc_sections.setdefault(ch, [])
+
     # Third pass: Generate SUMMARY.md
     summary_lines = ['# Summary\n', '\n', '[简介](README.md)\n\n']
-    for chapter_num in CHAPTER_DIR_MAP:
-        dir_name = CHAPTER_DIR_MAP[chapter_num]
-        ch_title = chapter_titles.get(chapter_num, dir_name)
+    for ch in doc_chapters:
+        dir_name = chapter_dir(ch)
+        ch_title = chapter_titles.get(ch, dir_name)
         summary_lines.append(f'- [{ch_title}](./{dir_name}/README.md)\n')
-        for sec_id, file_name in chapter_sections.get(chapter_num, []):
-            sec_title = section_titles.get(sec_id, file_name)
+        for sec_id in doc_sections[ch]:
+            sec_title = section_titles.get(sec_id, sec_id)
+            _d, file_name = targets[sec_id]
             summary_lines.append(f'  - [{sec_title}](./{dir_name}/{file_name}.md)\n')
 
     summary_path = os.path.join(output_dir, 'SUMMARY.md')
@@ -205,17 +244,14 @@ def main(source_file: str, output_dir: str):
             output_path = os.path.join(output_dir, 'README.md')
 
         elif section_id.startswith('ch:'):
-            chapter_num = section_id[3:]
-            dir_name = CHAPTER_DIR_MAP.get(chapter_num)
-            if not dir_name:
-                print(f"Warning: unknown chapter '{chapter_num}', skipping")
-                continue
+            chapter_id = section_id[3:]
+            dir_name = chapter_dir(chapter_id)
 
-            # Build link list from chapter's sub-sections
+            # Build link list from the chapter's sub-sections present in THIS document
             link_lines = []
-            section_entries = chapter_sections.get(chapter_num, [])
-            for sec_id, file_name in section_entries:
-                title = section_titles.get(sec_id, file_name)
+            for sec_id in doc_sections.get(chapter_id, []):
+                title = section_titles.get(sec_id, sec_id)
+                _d, file_name = targets[sec_id]
                 link_lines.append(f'- [{title}](./{file_name}.md)\n')
 
             # Insert link list after heading, before body
@@ -227,19 +263,10 @@ def main(source_file: str, output_dir: str):
             combined.extend(body_lines)
             output_path = os.path.join(output_dir, dir_name, 'README.md')
 
-        elif section_id in SECTION_MAP:
-            dir_name, file_name = SECTION_MAP[section_id]
-            combined = [convert_section_heading(heading) + '\n'] + body_lines
-            output_path = os.path.join(output_dir, dir_name, file_name + '.md')
-
-        elif section_id in APPENDIX_MAP:
-            dir_name, file_name = APPENDIX_MAP[section_id]
-            combined = [convert_section_heading(heading) + '\n'] + body_lines
-            output_path = os.path.join(output_dir, dir_name, file_name + '.md')
-
         else:
-            print(f"Warning: unknown section '{section_id}', skipping")
-            continue
+            dir_name, file_name = targets[section_id]
+            combined = [convert_section_heading(heading) + '\n'] + body_lines
+            output_path = os.path.join(output_dir, dir_name, file_name + '.md')
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w', encoding='utf-8') as f:
