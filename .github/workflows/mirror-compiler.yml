@@ -14,9 +14,17 @@ name: Mirror BiSheng C compiler
 # first, so the follow-up fetch of our own branch only negotiates the tiny overlay
 # delta instead of re-downloading history.
 
+# SCHEDULING: GitHub only fires `schedule:` for workflows on the DEFAULT branch,
+# and this repo's default branch is the mirror itself (force-pushed daily, and org
+# policy disables the deploy keys we'd need to carry workflow files onto it). The
+# daily tick therefore comes from BiShengCLanguage/ops, which dispatches this
+# workflow at 03:00 Beijing via workflow_dispatch. The push trigger below exists
+# to (re)register the workflow so workflow_dispatch can find it.
+
 on:
-  schedule:
-    - cron: "0 19 * * *"   # 03:00 Beijing, same slot as the old local cron
+  push:
+    branches: [book-ci]
+    paths: ['.github/workflows/mirror-compiler.yml']
   workflow_dispatch: {}
 
 permissions:

@@ -5,12 +5,17 @@ name: Publish BiSheng C Manual
 # (v5 REST API, then split with split_manual.py); English is the overlay on this
 # branch, updated manually. Fully remote — no local machine involved.
 
+# NOTE: the `schedule:` below has never fired and never will while this file lives
+# only on book-ci — GitHub only schedules workflows on the DEFAULT branch. The real
+# daily tick is BiShengCLanguage/ops, which dispatches this workflow every morning.
+# The cron entry is kept as documentation of the intended cadence.
+
 on:
   schedule:
-    - cron: "30 4 * * *"   # daily, mirrors the old local cron time (UTC)
+    - cron: "30 4 * * *"   # documentation only — see NOTE above
   push:
     branches: [book-ci]    # rebuild when the overlay/script/workflow changes
-  workflow_dispatch: {}    # manual "Run workflow" button
+  workflow_dispatch: {}    # manual "Run workflow" button + daily dispatch from ops
 
 permissions:
   contents: read           # checkout of this branch; the manual itself comes from gitcode
