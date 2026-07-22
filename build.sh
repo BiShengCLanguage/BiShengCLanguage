@@ -78,10 +78,10 @@ attach_version_info() {  # $1 work, $2 ref, $3 lang, $4 meta-file
   {
     echo ""
     if [ "$lang" = en ]; then
-      echo "> Version: [$ref]($REPO_WEB/tree/$ref/) - [$sha]($REPO_WEB/commit/$sha)"
+      echo "> Version: [$ref]($REPO_WEB/tree/$ref/) - [$sha]($REPO_WEB/commits/detail/$sha)"
       echo ">"; echo "> Updated: $date"; echo ">"; echo "> Released: $TODAY"
     else
-      echo "> 版本说明：[$ref]($REPO_WEB/tree/$ref/) - [$sha]($REPO_WEB/commit/$sha)"
+      echo "> 版本说明：[$ref]($REPO_WEB/tree/$ref/) - [$sha]($REPO_WEB/commits/detail/$sha)"
       echo ">"; echo "> 更新日期：$date"; echo ">"; echo "> 发布日期：$TODAY"
     fi
   } >> "$readme"
