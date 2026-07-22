@@ -789,11 +789,15 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   //   type of the lvalue.
   if (T.hasQualifiers())
 #if ENABLE_BSC
+  {
     if (Context.getLangOpts().BSC)
       T = T.getOnlyAOBQualifiedType(Context);
     else
 #endif
     T = T.getUnqualifiedType();
+#if ENABLE_BSC
+  }
+#endif
 
   // Under the MS ABI, lock down the inheritance model now.
   if (T->isMemberPointerType() &&
