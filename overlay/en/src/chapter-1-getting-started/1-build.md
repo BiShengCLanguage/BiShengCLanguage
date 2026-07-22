@@ -5,7 +5,7 @@ Before developing programs with BiSheng C, you first need to build and install t
 First, clone the BiSheng C compiler project repository:
 
 ```shell
-$ git clone https://gitee.com/bisheng_c_language_dep/llvm-project.git
+$ git clone https://gitcode.com/bisheng_c_language_dep/llvm-project.git
 $ cd llvm-project
 ```
 

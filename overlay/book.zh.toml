@@ -1,5 +1,5 @@
 # GitHub-publish overlay config for the Chinese book.
-# Replaces the upstream bare book.toml at build time only (gitee stays pristine).
+# Replaces the upstream bare book.toml at build time only (gitcode stays pristine).
 [book]
 title = "毕昇 C 语言用户手册"
 authors = ["The BiSheng C Team"]

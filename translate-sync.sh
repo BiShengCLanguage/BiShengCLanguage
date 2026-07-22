@@ -6,7 +6,7 @@
 #
 # For each edition (release / preview):
 #   1. read the baseline SHA the English was last translated from (overlay/<ed>/.translated-from)
-#   2. clone the current gitee Chinese branch
+#   2. clone the current gitcode Chinese branch
 #   3. git diff baseline..current -- src/  -> changed/added/deleted .md files
 #   4. translate each changed file zh->en via the GLM gateway (key rotation + retry on
 #      transient gateway errors), following overlay/TRANSLATION_GUIDE.md
@@ -21,12 +21,12 @@ set -uo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 OVERLAY="$HERE/overlay"
 GUIDE="$OVERLAY/TRANSLATION_GUIDE.md"
-GITEE="https://gitee.com/bisheng_c_language_dep/book.git"
+BOOK_REPO="https://gitcode.com/bisheng_c_language_dep/book.git"
 GATEWAY="${GLM_GATEWAY:-http://113.46.219.251:8080}"
 MODEL="${GLM_MODEL:-GLM-5}"
 GLM_ENV="${GLM_ENV:-/home/ziruichen/bsd/llmperfeval/.env}"
 
-# edition -> gitee branch
+# edition -> gitcode branch
 declare -A BRANCH=(
   [en]="bishengc/15.0.4"
   [en-preview]="bishengc/15.0.4-preview"
@@ -101,7 +101,7 @@ for ED in en en-preview; do
   BASE_FILE="$OVERLAY/$ED/.translated-from"
   BASE=$(tr -d '[:space:]' < "$BASE_FILE" 2>/dev/null || true)
   SRC="$TMP/$ED-src"
-  git clone --quiet --depth 50 --branch "$BR" --single-branch "$GITEE" "$SRC"
+  git clone --quiet --depth 50 --branch "$BR" --single-branch "$BOOK_REPO" "$SRC"
   CUR=$(git -C "$SRC" rev-parse HEAD)
 
   if [ "$BASE" = "$CUR" ]; then

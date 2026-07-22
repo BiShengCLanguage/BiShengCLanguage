@@ -1,6 +1,6 @@
 name: Sync English Translation
 
-# Daily: detect Chinese manual changes on gitee since the last translated baseline,
+# Daily: detect Chinese manual changes on gitcode since the last translated baseline,
 # AI-translate the changed pages to English, and commit them to book-ci. The commit
 # triggers "Publish BiSheng C Manual", which rebuilds and deploys the site.
 #

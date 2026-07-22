@@ -6,15 +6,17 @@ generated site branch (`gh-pages`).
 
 ## Contents
 
-- `build.sh` — clones the book source from the public gitee repo, applies the overlay,
-  and builds 4 mdBook editions into `./site`:
+- `build.sh` — fetches the compiler repo's single-file manual
+  (`clang/docs/BSC/BiShengCLanguageUserManual.md`) from THIS repo's mirror branches over
+  the GitHub API, splits it with `split_manual.py`, applies the overlay, and builds
+  4 mdBook editions into `./site`:
   | Edition | Source | URL path |
   |---|---|---|
-  | 中文 release | gitee `bishengc/15.0.4` | `/` |
-  | 中文 preview | gitee `bishengc/15.0.4-preview` | `/preview/` |
+  | 中文 release | branch `bishengc/15.0.4` (mirror of gitcode) | `/` |
+  | 中文 preview | branch `manual-preview` (mirror of gitcode `bishengc_manual_preview`) | `/preview/` |
   | English release | `overlay/en/src` | `/en/` |
   | English preview | `overlay/en-preview/src` | `/en/preview/` |
-- `overlay/` — GitHub-only additions kept out of the pristine gitee repo:
+- `overlay/` — GitHub-only additions kept out of the pristine gitcode repo:
   - `book.zh.toml` / `book.en.toml` — themed mdBook config (Rust theme, dark ayu, MathJax, search)
   - `custom.css`, `lang-switch.js` — visual polish + 中文/EN toggle
   - `en/`, `en-preview/` — the English translation
@@ -24,9 +26,12 @@ generated site branch (`gh-pages`).
 
 ## Source of truth
 
-The Chinese manual lives in gitee `bisheng_c_language_dep/book.git`. This branch never
-pushes there; it only consumes it. To update the Chinese text, commit to gitee. To update
-the English text or styling, edit `overlay/` here.
+The Chinese manual lives in the compiler repo on gitcode
+(`bisheng_c_language_dep/llvm-project`, file `clang/docs/BSC/BiShengCLanguageUserManual.md`),
+mirrored to this repo's branches by the daily local cron (`sync-bishengc-github.sh`).
+To update the Chinese text, commit to the gitcode compiler repo. To update the English
+text or styling, edit `overlay/` here. (`translate-sync.sh` still diffs the legacy
+gitcode `book.git` split-tree repo to drive AI translation of English pages.)
 
 ## Run locally
 

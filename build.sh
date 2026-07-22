@@ -4,7 +4,7 @@
 #
 # Content source = the compiler repo's single-file manual, mirrored on THIS GitHub
 # repo's compiler branches. We fetch the manual over the GitHub API (fast, reliable,
-# no gitee dependency, no giant clone) and split it into the mdBook chapter tree with
+# no gitcode dependency, no giant clone) and split it into the mdBook chapter tree with
 # split_manual.py. The site therefore always tracks the published compiler manual.
 #
 #   zh release  (manual on bishengc/15.0.4)         -> site/
