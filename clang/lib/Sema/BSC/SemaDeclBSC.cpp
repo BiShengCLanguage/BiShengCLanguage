@@ -903,6 +903,13 @@ public:
     Expr *ERHS = ResRHS.get();
     BO->setRHS(ERHS);
 
+    // For logical operators (&&, ||), don't wrap in a temporary variable.
+    // The CFG builder handles them via VisitLogicalOperator which creates
+    // short-circuit blocks. Wrapping them would destroy the short-circuit
+    // semantics and cause incorrect borrow-checker lifetimes.
+    if (BO->isLogicalOp())
+      return BO;
+
     Expr *DRE = ReplaceWithRefToNewTempVar(BO);
     replacedNodesMap.Insert(DRE, BO);
     return DRE;

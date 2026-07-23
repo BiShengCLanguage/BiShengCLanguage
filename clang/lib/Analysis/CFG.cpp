@@ -2467,7 +2467,12 @@ CFGBlock *CFGBuilder::VisitUnaryOperator(UnaryOperator *U, AddStmtChoice asc) {
 
 CFGBlock *CFGBuilder::VisitLogicalOperator(BinaryOperator *B) {
   CFGBlock *ConfluenceBlock = Block ? Block : createBlock();
+#if ENABLE_BSC
+  if (!BuildOpts.BSCBorrowCk)
+    appendStmt(ConfluenceBlock, B);
+#else
   appendStmt(ConfluenceBlock, B);
+#endif
 
   if (badCFG)
     return nullptr;

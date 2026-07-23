@@ -1,0 +1,85 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// After a reborrow `p = q` in the LHS of `||`, `p`'s NLL ends at the
+// last use (null-check), so `q` should be usable on the RHS of `||`.
+void logical_or_reborrow_in_comma(void) {
+  int a = 0;
+  int * _Borrow _Nullable p = 0;
+  int * _Borrow _Nullable q = 0;
+  q = &_Mut a;
+  if ((p = q, p) || q) {
+    if (q) {
+      *q = 1;
+    }
+  }
+}
+
+// Same for `&&`: `q` should be usable on the RHS after `p` is consumed.
+void logical_and_reborrow_in_comma(void) {
+  int a = 0;
+  int * _Borrow _Nullable p = 0;
+  int * _Borrow _Nullable q = 0;
+  q = &_Mut a;
+  if ((p = q, p) && q) {
+    if (q) {
+      *q = 1;
+    }
+  }
+}
+
+// Simple `||` with separate `p = q;` statement.
+void logical_or_simple(void) {
+  int a = 0;
+  int * _Borrow _Nullable p = 0;
+  int * _Borrow _Nullable q = 0;
+  q = &_Mut a;
+  p = q;
+  if (p || q) {
+    if (q) {
+      *q = 1;
+    }
+  }
+}
+
+// Simple `&&` with separate `p = q;` statement.
+void logical_and_simple(void) {
+  int a = 0;
+  int * _Borrow _Nullable p = 0;
+  int * _Borrow _Nullable q = 0;
+  q = &_Mut a;
+  p = q;
+  if (p && q) {
+    if (q) {
+      *q = 1;
+    }
+  }
+}
+
+// `||` with explicit `!= nullptr` on the LHS.
+void logical_or_explicit_null_check(void) {
+  int a = 0;
+  int * _Borrow _Nullable p = 0;
+  int * _Borrow _Nullable q = 0;
+  q = &_Mut a;
+  p = q;
+  if (p != nullptr || q) {
+    if (q) {
+      *q = 1;
+    }
+  }
+}
+
+// `||` with `!p` on the LHS (negation uses p, then q on RHS is free).
+void logical_or_negated(void) {
+  int a = 0;
+  int * _Borrow _Nullable p = 0;
+  int * _Borrow _Nullable q = 0;
+  q = &_Mut a;
+  p = q;
+  if (!p || q) {
+    if (q) {
+      *q = 1;
+    }
+  }
+}
