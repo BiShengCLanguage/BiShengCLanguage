@@ -3938,6 +3938,12 @@ Expr::isNullPointerConstant(ASTContext &Ctx,
     if (!Ctx.getLangOpts().MSVCCompat || !isCXX98IntegralConstantExpr(Ctx))
       return NPCK_NotNull;
   } else {
+#if ENABLE_BSC
+    // BSC constant evaluation folds const/constexpr variable reads, but a
+    // variable reference (glvalue) is never a null pointer constant.
+    if (Ctx.getLangOpts().BSC && !isPRValue())
+      return NPCK_NotNull;
+#endif
     // If we have an integer constant expression, we need to *evaluate* it and
     // test for the value 0.
     if (!isIntegerConstantExpr(Ctx))

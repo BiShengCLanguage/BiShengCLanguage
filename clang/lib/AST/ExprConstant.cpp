@@ -4081,6 +4081,14 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
         return CompleteObject();
       } else if (VD->isConstexpr()) {
         // OK, we can read this variable.
+#if ENABLE_BSC
+      } else if (Info.getLangOpts().BSC &&
+                 BaseType->isIntegralOrEnumerationType() && IsConstant) {
+        // BSC: a const (non-constexpr) variable is foldable but not a constant
+        // expression.
+        Info.CCEDiag(E, diag::note_constexpr_ltor_non_constexpr, 1) << VD;
+        Info.Note(VD->getLocation(), diag::note_declared_at);
+#endif
       } else if (BaseType->isIntegralOrEnumerationType()) {
         if (!IsConstant) {
           if (!IsAccess)

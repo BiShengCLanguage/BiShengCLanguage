@@ -1,0 +1,137 @@
+// RUN: %clang_cc1 -verify %s
+
+// A const/constexpr variable that evaluates to zero is not a null pointer
+// constant: only prvalue constant expressions (literal 0, enum constants,
+// arithmetic) and nullptr are. Treating a variable reference as one used to
+// crash the compiler (glvalue fed into a NullToPointer cast).
+
+void take_pointer(int *p); // expected-note {{passing argument to parameter 'p' here}}
+
+enum E { ZERO, ONE_E };
+constexpr int zero_fn(void) { return 0; }
+
+//===----------------------------------------------------------------===//
+// Variables are never null pointer constants (unsafe zone).
+//===----------------------------------------------------------------===//
+
+static const int GT = 0;
+int *gp = GT; // expected-error {{incompatible integer to pointer conversion initializing 'int *' with an expression of type 'const int'}}
+
+void test_const_variable_assign(int *p) {
+    const int T = 0;
+    p = T; // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'const int'}}
+}
+
+void test_const_variable_init(void) {
+    const int T = 0;
+    int *q = T; // expected-error {{incompatible integer to pointer conversion initializing 'int *' with an expression of type 'const int'}}
+}
+
+void test_const_variable_arg(void) {
+    const int T = 0;
+    take_pointer(T); // expected-error {{incompatible integer to pointer conversion passing 'const int' to parameter of type 'int *'}}
+}
+
+int *test_const_variable_return(void) {
+    const int T = 0;
+    return T; // expected-error {{incompatible integer to pointer conversion returning 'const int' from a function with result type 'int *'}}
+}
+
+void test_const_other_int_types(int *p) {
+    const short TS = 0;
+    const char TC = 0;
+    const long TL = 0;
+    const volatile int TV = 0;
+    p = TS; // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'const short'}}
+    p = TC; // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'const char'}}
+    p = TL; // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'const long'}}
+    p = TV; // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'const volatile int'}}
+}
+
+void test_const_nonzero_control(int *p) {
+    const int ONE = 1;
+    p = ONE; // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'const int'}}
+}
+
+void test_constexpr_variable(void) {
+    constexpr int Z = 0;
+    int *p = Z; // expected-error {{incompatible integer to pointer conversion initializing 'int *' with an expression of type 'const int'}}
+}
+
+void test_other_pointer_types(int **pp, void (*fp)(void)) {
+    const int T = 0;
+    pp = T; // expected-error {{incompatible integer to pointer conversion assigning to 'int **' from 'const int'}}
+    fp = T; // expected-error {{incompatible integer to pointer conversion assigning to 'void (*)(void)' from 'const int'}}
+    pp = 0; // ok
+    fp = 0; // ok
+}
+
+int test_const_variable_compare(int *p) {
+    const int T = 0;
+    return p == T; // expected-warning {{comparison between pointer and integer ('int *' and 'int')}}
+}
+
+//===----------------------------------------------------------------===//
+// Prvalue null pointer constants keep their C semantics (unsafe zone).
+//===----------------------------------------------------------------===//
+
+int *gp0 = 0;       // ok
+int *gpn = nullptr; // ok
+
+int test_still_null_pointer_constants(int *p) {
+    p = 0;                 // ok
+    p = 0L;                // ok
+    p = 0x0;               // ok
+    p = (void*)0;          // ok
+    p = (void*)(1 - 1);    // ok
+    p = nullptr;           // ok
+    p = ZERO;          // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
+    p = 1 - 1;         // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
+    p = 100 - 10 - 90; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
+    p = '\0';          // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
+    p = (1 ? 0 : 0);   // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
+    return p == ZERO;  // ok: comparison with a zero integer constant expression
+}
+
+// Reading a non-constexpr const variable is not constant evaluation, so
+// expressions folding one are not null pointer constants either; a constexpr
+// call is a BSC constant expression and stays one.
+void test_folded_prvalues(int *p) {
+    const int T = 0;
+    p = T + 0;     // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'int'}}
+    p = (int)T;    // expected-error {{incompatible integer to pointer conversion assigning to 'int *' from 'int'}}
+    p = zero_fn(); // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *'}}
+}
+
+//===----------------------------------------------------------------===//
+// Safe zone.
+//===----------------------------------------------------------------===//
+
+_Safe int test_safe_zone_variables(int *p) {
+    const int T = 0;
+    constexpr int Z = 0;
+    p = T; // expected-error {{conversion from type 'const int' to 'int *' is forbidden in the safe zone}}
+    int *_Nullable q = Z; // expected-error {{conversion from type 'const int' to 'int * _Nullable' is forbidden in the safe zone}}
+    return 0;
+}
+
+_Safe void test_safe_zone_null_pointer_constants(void) {
+    int *_Nullable p0 = 0;              // ok
+    int *_Nullable p1 = nullptr;        // ok
+    int *_Owned _Nullable po = nullptr; // ok
+    int *_Owned _Nullable po0 = 0;      // ok
+    int *_Nullable pe = ZERO;  // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int * _Nullable'}}
+    int *_Nullable pa = 1 - 1; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int * _Nullable'}}
+}
+
+//===----------------------------------------------------------------===//
+// _Owned/_Borrow pointers reject the (void *)0 form.
+//===----------------------------------------------------------------===//
+
+void test_owned_borrow_reject_void_star_zero(void) {
+    int *_Owned _Nullable po = (void*)0; // expected-error {{incompatible _Owned types, cannot cast 'void *' to 'int *_Owned _Nullable'}}
+    int local = 1;
+    int *_Borrow _Nullable pb = &_Mut local;
+    pb = (void*)0; // expected-error {{incompatible _Borrow types, cannot cast 'void *' to 'int *_Borrow _Nullable'}}
+    pb = nullptr;  // ok
+}

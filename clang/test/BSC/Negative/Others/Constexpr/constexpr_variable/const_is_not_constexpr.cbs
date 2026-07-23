@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -verify %s
+
+// Per BSC user manual 2.3.1 only constexpr variables are compile-time
+// constants; a plain const variable is read-only, not constant, and cannot
+// be used where a constant expression is required.
+
+void test_const_is_not_constant(void) {
+    const int a = 10; // expected-note 2 {{declared here}}
+    constexpr int b = a; // expected-error {{constexpr variable 'b' must be initialized by a constant expression}} \
+                         // expected-note {{read of non-constexpr variable 'a' is not allowed in a constant expression}}
+    _Static_assert(a == 10, ""); // expected-error {{static assertion expression is not an integral constant expression}} \
+                                 // expected-note {{read of non-constexpr variable 'a' is not allowed in a constant expression}}
+}
+
+void test_constexpr_is_constant(void) {
+    constexpr int c = 10;
+    constexpr int d = c;         // ok
+    _Static_assert(c == 10, ""); // ok
+    _Static_assert(d == 10, ""); // ok
+    int arr[c];                  // ok: fixed-size array
+    arr[0] = 1;
+}
+
+void test_const_array_bound_is_vla(void) {
+    const int N = 5;
+    int arr[N]; // ok: a variable length array, as in C
+    arr[0] = 1;
+}
+
+// Folding a const variable outside constant-expression contexts still works
+// (value-range checks, switch analysis), matching C's behavior.
+void test_folding_still_works(void) {
+    const int a = 10;
+    switch (a) { // expected-warning {{no case matching constant switch condition '10'}}
+    case 0:
+        break;
+    }
+}
