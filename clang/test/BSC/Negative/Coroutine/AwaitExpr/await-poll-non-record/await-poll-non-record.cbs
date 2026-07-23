@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -internal-isystem %S/../../../../../../lib/Headers/bsc_include -verify %s
+
+// This test verifies the compiler does not crash when a struct has poll() and
+// free() methods (passing the implementedFutureType check) but poll() returns
+// a non-record type (e.g., int). Previously, the unchecked dyn_cast<RecordType>
+// in BuildAwaitExpr would dereference a nullptr, causing a segfault.
+
+#include "future.hbs"
+
+struct BadFuture {
+    int data;
+};
+
+// poll() returns a non-record type (int) - this triggers the crash path
+int struct BadFuture::poll(struct BadFuture *this) {
+    return 0;
+}
+
+void struct BadFuture::free(struct BadFuture *this) {
+}
+
+// Function returning the bad future type
+struct BadFuture make_bad() {
+    struct BadFuture f;
+    return f;
+}
+
+// Using _Await on a call whose return type passes implementedFutureType
+// but poll() returns non-record type should not crash.
+void test() { // expected-error {{_Await expression is not allowed to appear in non-_Async function}}
+    _Await make_bad();
+}

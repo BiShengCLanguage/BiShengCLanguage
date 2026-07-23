@@ -1,0 +1,7 @@
+// RUN: not %clang_cc1 -fsyntax-only %s
+
+#define BUFFER_SIZE 0
+typedef truct a{}riter;iter ir(b){}c<>iter::poll()riter::free(){}d(){har er[BUFFER_SIZE;for(){e(f++){}_Await ir(file,er)
+
+// CHECK-NOT: Stack dump:
+

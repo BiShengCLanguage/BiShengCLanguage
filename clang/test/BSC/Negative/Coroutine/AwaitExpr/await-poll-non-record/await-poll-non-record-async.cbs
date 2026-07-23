@@ -1,0 +1,35 @@
+// RUN: %clang -fsyntax-only -xbsc %s
+
+// This test verifies the compiler does not crash during async desugaring
+// (TransformAwaitExpr) when a struct has poll() and free() methods (passing
+// the implementedFutureType check) but poll() returns a non-record type
+// (e.g., int). Previously, the unchecked dyn_cast<RecordType> in
+// TransformAwaitExpr would dereference a nullptr, causing a segfault.
+
+#include "future.hbs"
+#include <stdlib.h>
+
+struct BadFuture {
+    int data;
+};
+
+// poll() returns a non-record type (int) - this triggers the crash path
+int struct BadFuture::poll(struct BadFuture *this) {
+    return 0;
+}
+
+void struct BadFuture::free(struct BadFuture *this) {
+}
+
+// Function returning the bad future type
+struct BadFuture make_bad() {
+    struct BadFuture f;
+    return f;
+}
+
+// _Async: verifies TransformAwaitExpr does not crash when poll() returns
+// a non-record type. This exercises the async desugaring code path.
+_Async int test_async() {
+    _Await make_bad();
+    return 0;
+}

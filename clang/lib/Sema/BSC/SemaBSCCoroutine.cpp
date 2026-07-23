@@ -2108,10 +2108,11 @@ public:
       BSCMethodDecl *PollFD =
           lookupBSCMethodInRecord(SemaRef, "poll", FutureStructRD);
       assert(PollFD != nullptr && "poll function of async function is null");
-      PollResultRD = dyn_cast<RecordDecl>(
-          dyn_cast<RecordType>(
-              SemaRef.getASTContext().getCanonicalType(PollFD->getReturnType()))
-              ->getDecl());
+      const RecordType *PollResultRT = dyn_cast<RecordType>(
+          SemaRef.getASTContext().getCanonicalType(PollFD->getReturnType()));
+      if (!PollResultRT)
+        return ExprError();
+      PollResultRD = cast<RecordDecl>(PollResultRT->getDecl());
       assert(PollResultRD != nullptr &&
              "the return type of poll function is null");
       QualType ParamType = SemaRef.getASTContext().getCanonicalType(
@@ -2241,10 +2242,11 @@ public:
       const FunctionType *FT = dyn_cast<FunctionType>(
           PollFuncField->getType()->getPointeeType().getDesugaredType(
               SemaRef.Context));
-      PollResultRD = dyn_cast<RecordDecl>(
-          dyn_cast<RecordType>(
-              SemaRef.Context.getCanonicalType(FT->getReturnType()))
-              ->getDecl());
+      const RecordType *PollResultRT = dyn_cast<RecordType>(
+          SemaRef.Context.getCanonicalType(FT->getReturnType()));
+      if (!PollResultRT)
+        return ExprError();
+      PollResultRD = cast<RecordDecl>(PollResultRT->getDecl());
 
       PollFuncExpr = SemaRef.BuildMemberExpr(
           VtableExpr, true, SourceLocation(), NestedNameSpecifierLoc(),
@@ -2908,6 +2910,8 @@ ExprResult Sema::BuildAwaitExpr(SourceLocation AwaitLoc, Expr *E) {
   if (AwaitReturnTy.getTypePtr()->isBSCFutureType()) {
     const RecordType *FatPointerType =
         dyn_cast<RecordType>(AwaitReturnTy.getDesugaredType(Context));
+    if (!FatPointerType)
+      return ExprError();
     RecordDecl *FatPointer = FatPointerType->getDecl();
     assert(isa<ClassTemplateSpecializationDecl>(FatPointer));
     ClassTemplateSpecializationDecl *CTSD =
@@ -2918,18 +2922,22 @@ ExprResult Sema::BuildAwaitExpr(SourceLocation AwaitLoc, Expr *E) {
   } else if (implementedFutureType(*this, AwaitReturnTy)) {
     const RecordType *FutureType =
         dyn_cast<RecordType>(AwaitReturnTy.getDesugaredType(Context));
+    if (!FutureType)
+      return ExprError();
     RecordDecl *FutureRD = FutureType->getDecl();
 
     BSCMethodDecl *PollFD = lookupBSCMethodInRecord(*this, "poll", FutureRD);
     if (PollFD != nullptr) {
       const RecordType *PollResultType = dyn_cast<RecordType>(
           PollFD->getReturnType().getDesugaredType(Context));
-      RecordDecl *PollResult = PollResultType->getDecl();
-      for (RecordDecl::field_iterator FieldIt = PollResult->field_begin(),
-                                      Field_end = PollResult->field_end();
-           FieldIt != Field_end; ++FieldIt) {
-        if (FieldIt->getDeclName().getAsString() == "res") {
-          AwaitReturnTy = FieldIt->getType();
+      if (PollResultType) {
+        RecordDecl *PollResult = PollResultType->getDecl();
+        for (RecordDecl::field_iterator FieldIt = PollResult->field_begin(),
+                                        Field_end = PollResult->field_end();
+             FieldIt != Field_end; ++FieldIt) {
+          if (FieldIt->getDeclName().getAsString() == "res") {
+            AwaitReturnTy = FieldIt->getType();
+          }
         }
       }
     }
@@ -2941,18 +2949,22 @@ ExprResult Sema::BuildAwaitExpr(SourceLocation AwaitLoc, Expr *E) {
         cast<PointerType>(AwaitReturnTy.getTypePtr())->getPointeeType();
     const RecordType *FutureType =
         dyn_cast<RecordType>(AwaitReturnTy2.getDesugaredType(Context));
+    if (!FutureType)
+      return ExprError();
     RecordDecl *FutureRD = FutureType->getDecl();
 
     BSCMethodDecl *PollFD = lookupBSCMethodInRecord(*this, "poll", FutureRD);
     if (PollFD != nullptr) {
       const RecordType *PollResultType = dyn_cast<RecordType>(
           PollFD->getReturnType().getDesugaredType(Context));
-      RecordDecl *PollResult = PollResultType->getDecl();
-      for (RecordDecl::field_iterator FieldIt = PollResult->field_begin(),
-                                      Field_end = PollResult->field_end();
-           FieldIt != Field_end; ++FieldIt) {
-        if (FieldIt->getDeclName().getAsString() == "res") {
-          AwaitReturnTy = FieldIt->getType();
+      if (PollResultType) {
+        RecordDecl *PollResult = PollResultType->getDecl();
+        for (RecordDecl::field_iterator FieldIt = PollResult->field_begin(),
+                                        Field_end = PollResult->field_end();
+             FieldIt != Field_end; ++FieldIt) {
+          if (FieldIt->getDeclName().getAsString() == "res") {
+            AwaitReturnTy = FieldIt->getType();
+          }
         }
       }
     }
