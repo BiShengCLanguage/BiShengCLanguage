@@ -79,7 +79,7 @@ void Sema::CheckBSCConstexprVarType(VarDecl* VD) {
 
 bool HasDiffNullabilityQualifiers(QualType LHSType, QualType RHSType,
                                    ASTContext &Ctx) {
-  if (getDefNullability(LHSType, Ctx) != getDefNullability(RHSType, Ctx))
+  if (LHSType.getDefNullability() != RHSType.getDefNullability())
     return true;
   if (LHSType->isPointerType() && RHSType->isPointerType()) {
     QualType LHSPType = LHSType->getPointeeType();
@@ -148,8 +148,10 @@ bool Sema::HasDiffBorrowOrOwnedParamsTypeAtBothFunction(QualType LHS,
     return true;
   }
   for (unsigned i = 0; i < LSHFuncType->getNumParams(); i++) {
-    QualType LHSParType = LSHFuncType->getParamType(i).getUnqualifiedType();
-    QualType RHSParType = RSHFuncType->getParamType(i).getUnqualifiedType();
+    QualType LHSParType =
+        LSHFuncType->getParamType(i).getOnlyBSCQualifiedType(Context);
+    QualType RHSParType =
+        RSHFuncType->getParamType(i).getOnlyBSCQualifiedType(Context);
     if (HasDiffBorrorOrOwnedQualifiers(LHSParType, RHSParType)) {
       return true;
     }

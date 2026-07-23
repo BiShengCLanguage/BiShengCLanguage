@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+// Verifies that nullability qualifiers (_Nullable / _Nonnull) appear in
+// type-related error messages, including for generic instantiations.
+
+// === Non-generic case: _Nullable shown in error ===
+_Safe void bad_cast_non_generic(int * _Borrow _Nullable p) {
+    double * _Borrow _Nullable q = (double * _Borrow _Nullable)p;
+    // expected-error@-1 {{conversion from type 'int *_Borrow _Nullable' to 'double *_Borrow _Nullable' is forbidden in the safe zone}}
+}
+
+// === Generic case: _Nullable preserved through instantiation ===
+_Safe void bad_cast_generic<T>(T p) {
+    double * _Borrow _Nullable q = (double * _Borrow _Nullable)p;
+    // expected-error@-1 {{conversion from type 'int *_Borrow _Nullable' to 'double *_Borrow _Nullable' is forbidden in the safe zone}}
+}
+
+_Safe void test(void) {
+    int * _Borrow _Nullable p = 0;
+
+    bad_cast_non_generic(p);
+    bad_cast_generic(p);
+    // expected-note@-1 {{in instantiation of function template specialization 'bad_cast_generic<int *_Borrow _Nullable>' requested here}}
+}

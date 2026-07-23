@@ -91,5 +91,5 @@ _Safe int *_Owned test_return6(void) {
 }
 
 _Safe int *_Owned _Nullable test_return7(void) {
-    return (int *_Owned _Nullable)0; // expected-error {{incompatible _Owned types, cannot cast 'int' to 'int *_Owned'}}
+    return (int *_Owned _Nullable)0; // expected-error {{incompatible _Owned types, cannot cast 'int' to 'int *_Owned _Nullable'}}
 }

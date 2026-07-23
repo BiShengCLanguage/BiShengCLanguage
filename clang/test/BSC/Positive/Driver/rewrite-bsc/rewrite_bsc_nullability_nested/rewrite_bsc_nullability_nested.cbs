@@ -34,12 +34,12 @@ int main(void) {
   return n ? 0 : 0;
 }
 
-// CHECK:      typedef int *NP;
+// CHECK:      typedef int * NP;
 // CHECK:      struct W {
-// CHECK-NEXT:     int **pp;
+// CHECK-NEXT:     int * *pp;
 // CHECK-NEXT: };
 // CHECK:      struct FP {
-// CHECK-NEXT:     int *(*fp)(int *);
+// CHECK-NEXT:     int * (*fp)(int *);
 // CHECK-NEXT: };
 // CHECK:      void plain(void) {
-// CHECK-NEXT:     int *q = 0;
+// CHECK-NEXT:     int * q = 0;

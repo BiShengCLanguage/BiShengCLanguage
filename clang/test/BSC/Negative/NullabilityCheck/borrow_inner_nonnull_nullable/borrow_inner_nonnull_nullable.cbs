@@ -27,7 +27,7 @@ _Safe void test_after_merge(int * _Nullable p) {
 _Safe void borrow_double(int * _Nonnull ** _Borrow);
 _Safe void test_double(int * _Nullable *pp) {
   borrow_double(&_Mut pp);
-  // expected-error@-1 {{nested pointer nullability mismatch from 'int * _Nullable **_Borrow' to 'int * _Nonnull **_Borrow', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+  // expected-error@-1 {{nested pointer nullability mismatch from 'int *_Nullable **_Borrow' to 'int *_Nonnull **_Borrow', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
 }
 
 // ---- struct field, Nullable ----

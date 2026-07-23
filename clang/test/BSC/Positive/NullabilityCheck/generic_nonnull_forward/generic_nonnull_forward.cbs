@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -verify %s
+
+// Positive test: non-null pointers pass through generic type deduction and
+// can be forwarded to non-generic non-null functions without diagnostic.
+
+_Safe void consume_nonnull(int *_Borrow p) {}
+
+_Safe void forward<T>(T p) {
+    consume_nonnull(p);
+}
+
+_Safe void test(int * _Borrow arg) {
+    // _Borrow defaults to _Nonnull; deduction preserves this.
+    int * _Borrow p = arg;
+    forward(p);
+
+    // Explicit _Nonnull on _Borrow also works.
+    int * _Borrow _Nonnull q = arg;
+    forward(q);
+}
+
+// expected-no-diagnostics

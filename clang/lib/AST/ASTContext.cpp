@@ -21,6 +21,7 @@
 #include "clang/AST/AttrIterator.h"
 #if ENABLE_BSC
 #include "clang/AST/BSC/DeclBSC.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #endif
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/Comment.h"
@@ -6993,6 +6994,18 @@ QualType ASTContext::getArrayDecayedType(QualType Ty) const {
                                      PrettyArrayType->getIndexTypeQualifiers());
 
   // int x[_Nullable] -> int * _Nullable
+#if ENABLE_BSC
+  // Only in BSC language mode: preserve nullability as qualifier bits.
+  // In C/ObjC/C++, keep AttributedType sugar so Type::getNullability() and
+  // -Wnonnull diagnostics continue to work.
+  if (LangOpts.BSC) {
+    if (Optional<NullabilityKind> NK = Ty.getExplicitNullability()) {
+      Result = applyNullabilityToType(Result, *NK,
+                                      *const_cast<ASTContext *>(this));
+      return Result;
+    }
+  }
+#endif
   if (auto Nullability = Ty->getNullability(*this)) {
     Result = const_cast<ASTContext *>(this)->getAttributedType(
         AttributedType::getNullabilityAttrKind(*Nullability), Result, Result);
@@ -10453,6 +10466,11 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
   RHS.removeLocalBorrow();
   LHS.removeLocalArrayElem(*this);
   RHS.removeLocalArrayElem(*this);
+  // Nullability compatibility is enforced by the nullability checker, not
+  // by C type compatibility — strip like ArrayElem so types that differ only
+  // in _Nullable/_Nonnull still merge (e.g. conditional expressions).
+  LHS.removeLocalNullability(*this);
+  RHS.removeLocalNullability(*this);
 #endif
 
   QualType LHSCan = getCanonicalType(LHS),

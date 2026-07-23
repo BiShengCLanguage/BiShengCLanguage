@@ -17,6 +17,7 @@
 #include "clang/AST/ASTStructuralEquivalence.h"
 #if ENABLE_BSC
 #include "clang/AST/BSC/DeclBSC.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #endif
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclObjC.h"
@@ -4467,6 +4468,14 @@ bool Sema::isCFError(RecordDecl *RD) {
 
 static FileID getNullabilityCompletenessCheckFileID(Sema &S,
                                                     SourceLocation loc) {
+#if ENABLE_BSC
+  // BSC has its own nullability defaults (raw→nullable, owned/borrow→nonnull)
+  // and does not require every pointer to carry an explicit specifier. The
+  // ObjC-style -Wnullability-completeness check is therefore disabled.
+  if (S.getLangOpts().BSC)
+    return FileID();
+#endif
+
   // If we're anywhere in a function, method, or closure context, don't perform
   // completeness checks.
   for (DeclContext *ctx = S.CurContext; ctx; ctx = ctx->getParent()) {
@@ -7602,6 +7611,31 @@ static bool checkNullabilityTypeSpecifier(TypeProcessingState &state,
   recordNullabilitySeen(S, nullabilityLoc);
 
   // Check for existing nullability attributes on the type.
+#if ENABLE_BSC
+  // BSC stores nullability as qualifier bits; check those before the
+  // AttributedType loop (which only handles ObjC nullability).
+  if (S.getLangOpts().BSC) {
+    Qualifiers Qs = type.getQualifiers();
+    bool hasNullableBit = Qs.hasNullable();
+    bool hasNonnullBit = Qs.hasNonnull();
+    if ((nullability == NullabilityKind::Nullable && hasNullableBit) ||
+        (nullability == NullabilityKind::NonNull && hasNonnullBit)) {
+      S.Diag(nullabilityLoc, diag::warn_nullability_duplicate)
+        << DiagNullabilityKind(nullability, isContextSensitive)
+        << FixItHint::CreateRemoval(nullabilityLoc);
+      return true;
+    }
+    if ((hasNullableBit && nullability == NullabilityKind::NonNull) ||
+        (hasNonnullBit && nullability == NullabilityKind::Nullable)) {
+      S.Diag(nullabilityLoc, diag::err_nullability_conflicting)
+        << DiagNullabilityKind(nullability, isContextSensitive)
+        << DiagNullabilityKind(hasNullableBit ? NullabilityKind::Nullable
+                                              : NullabilityKind::NonNull,
+                               false);
+      return true;
+    }
+  }
+#endif
   QualType desugared = type;
   while (auto attributed = dyn_cast<AttributedType>(desugared.getTypePtr())) {
     // Check whether there is already a null
@@ -7686,6 +7720,19 @@ static bool checkNullabilityTypeSpecifier(TypeProcessingState &state,
   }
 
   // Form the attributed type.
+#if ENABLE_BSC
+  // In BSC mode, represent _Nullable / _Nonnull as non-fast qualifier bits
+  // (like _ArrayElem) so they survive canonicalization and template argument
+  // deduction.  Do NOT wrap in an AttributedType for BSC — the qualifier bits
+  // are the sole source of truth; ObjC nullability continues to use
+  // AttributedType below.
+  if (S.getLangOpts().BSC &&
+      (nullability == NullabilityKind::Nullable ||
+       nullability == NullabilityKind::NonNull)) {
+    type = applyNullabilityToType(type, nullability, S.Context);
+    return false;
+  }
+#endif
   type = state.getAttributedType(
       createNullabilityAttr(S.Context, attr, nullability), type, type);
   return false;

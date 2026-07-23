@@ -37,6 +37,7 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/UnresolvedSet.h"
 #if ENABLE_BSC
+#include "clang/AST/BSC/TypeBSC.h"
 #include "clang/Analysis/Analyses/BSC/BSCNullabilityCheck.h"
 #endif
 #include "clang/Basic/AddressSpaces.h"
@@ -152,13 +153,6 @@ static bool checkArgCount(Sema &S, CallExpr *Call, unsigned DesiredArgCount) {
 }
 
 #if ENABLE_BSC
-static NullabilityKind getBSCDefNullability(QualType QT, ASTContext &Ctx) {
-  Optional<NullabilityKind> Explicit = QT->getNullability(Ctx);
-  if (Explicit && *Explicit == NullabilityKind::NullableResult)
-    return NullabilityKind::Nullable;
-  return getDefNullability(QT, Ctx);
-}
-
 /// common checks for __move[_array]_to_raw / __take[_array]_from_raw
 static bool checkBSCRawTransferBuiltinCommon(Sema &S, CallExpr *TheCall,
                                              StringRef Name) {
@@ -225,12 +219,14 @@ static bool checkTakeFromRawArgumentShape(Sema &S, CallExpr *TheCall,
 static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
                                        unsigned BuiltinID) {
   QualType ArgTy = TheCall->getArg(0)->getType();
-  QualType ResultTy = ArgTy.getUnqualifiedType();
+  // Capture source nullability before desugaring/stripping.
+  NullabilityKind SrcNullability = ArgTy.getDefNullability();
+  QualType ResultTy = ArgTy.getOnlyBSCQualifiedType(S.Context);
   while (const auto *Typedef = ResultTy->getAs<TypedefType>())
     ResultTy = Typedef->desugar();
-  // Peel explicit nullability before stripping _Owned/_Borrow/_ArrayElem so
-  // qualifier removal reaches the inner pointer instead of the outer
-  // AttributedType shell.
+  // Peel BSC nullability bits (and any legacy AttributedType sugar) so
+  // subsequent Owned/Borrow/ArrayElem stripping reaches the pointer.
+  ResultTy.removeLocalNullability(S.Context);
   AttributedType::stripOuterNullability(ResultTy);
   // Decompose the type to strip all qualifiers, including _Owned/_Borrow
   // that may be baked into the canonical type pointer and _ArrayElem that
@@ -239,6 +235,8 @@ static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
   Qualifiers Qs = Split.Quals;
   Qs.removeFastQualifiers(Qualifiers::Owned | Qualifiers::Borrow);
   Qs.removeArrayElem();
+  Qs.removeNullable();
+  Qs.removeNonnull();
   switch (BuiltinID) {
     default: break;
     case Builtin::BI__take_from_raw:
@@ -259,10 +257,9 @@ static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
     ResultTy = S.Context.getQualifiedType(Split.Ty, {});
   }
   ResultTy = S.Context.getQualifiedType(ResultTy.getTypePtr(), Qs);
-  NullabilityKind SrcNullability = getBSCDefNullability(ArgTy, S.Context);
-  NullabilityKind DstNullability = getBSCDefNullability(ResultTy, S.Context);
-  if (SrcNullability != DstNullability)
+  if (ResultTy.getDefNullability() != SrcNullability) {
     ResultTy = applyNullabilityToType(ResultTy, SrcNullability, S.Context);
+  }
   TheCall->setType(ResultTy);
 }
 #endif

@@ -14795,7 +14795,7 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
           return GetExprNK(CE->getArg(0));
         }
       }
-      return getDefNullability(CE->getType(), Context);
+      return CE->getType().getDefNullability();
     }
     case Expr::ConditionalOperatorClass: {
       NullabilityKind LHSNK =
@@ -14811,13 +14811,13 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
       break;
     }
     case Expr::CStyleCastExprClass:
-      return getDefNullability(cast<CStyleCastExpr>(E)->getTypeAsWritten(), Context);
+      return cast<CStyleCastExpr>(E)->getTypeAsWritten().getDefNullability();
     case Expr::UnaryOperatorClass: {
       UnaryOperator::Opcode Op = cast<UnaryOperator>(E)->getOpcode();
       if (Op == UO_AddrOf || Op == UO_AddrMut || Op == UO_AddrConst)
         return NullabilityKind::NonNull;
       if (Op == UO_Deref) {
-        return getDefNullability(cast<UnaryOperator>(E)->getType(), Context);
+        return cast<UnaryOperator>(E)->getType().getDefNullability();
       }
       if (Op == UO_AddrMutDeref || Op == UO_AddrConstDeref) {
         return GetExprNK(cast<UnaryOperator>(E)->getSubExpr());
@@ -14840,7 +14840,7 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
     }
     case Expr::DeclRefExprClass: {
       if (VarDecl *VD = dyn_cast<VarDecl>(cast<DeclRefExpr>(E)->getDecl())) {
-        NullabilityKind NK = getDefNullability(VD->getType(), Context);
+        NullabilityKind NK = VD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
       }
@@ -14849,14 +14849,14 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
     case Expr::ArraySubscriptExprClass: {
       // Builtin array elements cannot have independent path-sensitive state.
       NullabilityKind NK =
-          getDefNullability(cast<ArraySubscriptExpr>(E)->getType(), Context);
+          cast<ArraySubscriptExpr>(E)->getType().getDefNullability();
       if (NK == NullabilityKind::NonNull || NK == NullabilityKind::Nullable)
         return NK;
       break;
     }
     case Expr::MemberExprClass: {
       if (auto FD = dyn_cast<FieldDecl>(cast<MemberExpr>(E)->getMemberDecl())) {
-        NullabilityKind NK = getDefNullability(FD->getType(), Context);
+        NullabilityKind NK = FD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
       }
@@ -14886,7 +14886,7 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
   }
   // check pointer initialization
   if (CanQT->isPointerType()) {
-    NullabilityKind LHSKind = getDefNullability(QT, Context);
+    NullabilityKind LHSKind = QT.getDefNullability();
     NullabilityKind RHSKind = GetExprNK(Init);
     if (LHSKind == NullabilityKind::NonNull) {
       if (RHSKind == NullabilityKind::Nullable) {

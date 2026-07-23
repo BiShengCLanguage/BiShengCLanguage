@@ -5,8 +5,9 @@ void consume(const int *_Owned);
 void test_move_to_raw_strips_pointer_cv_restrict(
     int *_Owned const volatile restrict p,
     const int *_Owned const volatile restrict cp) {
-  _Static_assert(__is_same(typeof(__move_to_raw(p)), int *), "fail");
-  _Static_assert(__is_same(typeof(__move_to_raw(cp)), const int *), "fail");
+  _Static_assert(__is_same(typeof(__move_to_raw(p)), int *_Nonnull), "fail");
+  _Static_assert(__is_same(typeof(__move_to_raw(cp)), const int *_Nonnull),
+                 "fail");
   consume(p);
   consume(cp);
 }
@@ -14,7 +15,9 @@ void test_move_to_raw_strips_pointer_cv_restrict(
 void test_take_from_raw_strips_pointer_cv_restrict(
     int *const volatile restrict p,
     const int *const volatile restrict cp) {
-  _Static_assert(__is_same(typeof(__take_from_raw(p)), int *_Owned), "fail");
-  _Static_assert(__is_same(typeof(__take_from_raw(cp)), const int *_Owned),
+  _Static_assert(__is_same(typeof(__take_from_raw(p)), int *_Owned _Nullable),
                  "fail");
+  _Static_assert(
+      __is_same(typeof(__take_from_raw(cp)), const int *_Owned _Nullable),
+      "fail");
 }

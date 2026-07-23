@@ -944,14 +944,20 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
     return true;
   }
   if (SrcType->isPointerType() && DestType->isPointerType()) {
-    QualType SrcCanType = SrcType.getCanonicalType();
-    QualType DestCanType = DestType.getCanonicalType();
+    // Keep Owned/Borrow/ArrayElem, drop CVR, ignore nullability: the
+    // nullability checker handles _Nullable/_Nonnull separately.
+    QualType SrcCanType = getOnlyBSCQualifiedTypeWithoutNullability(
+        SrcType.getCanonicalType(), Context);
+    QualType DestCanType = getOnlyBSCQualifiedTypeWithoutNullability(
+        DestType.getCanonicalType(), Context);
     IsSafeBehavior = IsSafePointerConversion(SrcCanType, DestCanType);
   } else if (SrcType->isArrayType() && DestType->isPointerType()) {
     // Array-to-pointer decay: check compatibility after canonical decay.
-    QualType SrcDecayedCanType =
-        GetSafeArrayDecayType(*this, SrcType, DestType).getCanonicalType();
-    QualType DestCanType = DestType.getCanonicalType();
+    QualType SrcDecayedCanType = getOnlyBSCQualifiedTypeWithoutNullability(
+        GetSafeArrayDecayType(*this, SrcType, DestType).getCanonicalType(),
+        Context);
+    QualType DestCanType = getOnlyBSCQualifiedTypeWithoutNullability(
+        DestType.getCanonicalType(), Context);
     IsSafeBehavior = IsSafePointerConversion(SrcDecayedCanType, DestCanType);
   } else if ((SrcType->isPointerType() || DestType->isPointerType()) &&
              !E->isNullPointerConstant(Context,

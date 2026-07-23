@@ -10,6 +10,6 @@ extern _Safe MASBLOCK *_Owned _Nullable VOS_AllocMsg(unsigned Pid, unsigned Len)
 typedef _Safe void *_Owned _Nullable (*HOOK)(unsigned, unsigned);
 
 void plain(void) {
-  HOOK p = VOS_AllocMsg; // expected-error {{conversion from type 'MASBLOCK *_Owned  _Nullable (*)(unsigned int, unsigned int)' (aka 'struct MASBLOCK *_Owned  _Nullable (*)(unsigned int, unsigned int)') to 'HOOK' (aka 'void *_Owned  _Nullable (*)(unsigned int, unsigned int)') is forbidden}}
+  HOOK p = VOS_AllocMsg; // expected-error {{conversion from type 'MASBLOCK *_Owned _Nullable (*)(unsigned int, unsigned int)' (aka 'struct MASBLOCK *_Owned _Nullable (*)(unsigned int, unsigned int)') to 'HOOK' (aka 'void *_Owned _Nullable (*)(unsigned int, unsigned int)') is forbidden}}
   (void)p;
 }

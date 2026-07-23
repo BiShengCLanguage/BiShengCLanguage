@@ -48,7 +48,8 @@ void test1() {
 
 void test2() {
   int x = 1;
-  _Trait T* _Owned t = __take_from_raw(&x); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'int *_Owned _Nullable'}}
+  // int implements T; take_from_raw no longer stamps a default _Nullable bit.
+  _Trait T* _Owned t = __take_from_raw(&x);
   t->do_it();
   t->do_that(); // expected-error {{incompatible _Owned types, cannot cast 'void *_Owned' to 'void *'}}
   t->do_this(); // expected-error {{incompatible _Borrow types, cannot cast 'void *_Owned' to 'void *_Borrow'}}

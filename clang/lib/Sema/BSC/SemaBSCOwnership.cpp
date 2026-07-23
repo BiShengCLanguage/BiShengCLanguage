@@ -645,6 +645,11 @@ BorrowIndirectTypeCheckKind isNestedBorrow(QualType T) {
 } // namespace
 
 bool Sema::CheckBorrowQualTypeCStyleCast(QualType LHSType, QualType RHSType) {
+  // Keep Owned/Borrow/ArrayElem, drop CVR, ignore nullability (checked
+  // separately by the nullability checker).
+  LHSType = getOnlyBSCQualifiedTypeWithoutNullability(LHSType, Context);
+  RHSType = getOnlyBSCQualifiedTypeWithoutNullability(RHSType, Context);
+
   QualType RHSCanType = RHSType.getCanonicalType();
   QualType LHSCanType = LHSType.getCanonicalType();
 
@@ -717,6 +722,11 @@ bool Sema::CheckBorrowQualTypeCStyleCast(QualType LHSType, QualType RHSType, Sou
 }
 
 bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, QualType RHSType, SourceLocation RLoc) {
+  // Keep Owned/Borrow/ArrayElem, drop CVR, ignore nullability (checked
+  // separately by the nullability checker).
+  LHSType = getOnlyBSCQualifiedTypeWithoutNullability(LHSType, Context);
+  RHSType = getOnlyBSCQualifiedTypeWithoutNullability(RHSType, Context);
+
   QualType RHSCanType = RHSType.getCanonicalType();
   QualType LHSCanType = LHSType.getCanonicalType();
   const auto *LHSPtrType = LHSType->getAs<PointerType>();
@@ -754,9 +764,11 @@ bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, QualType RHSType, Sou
 
 bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS) {
   Expr *RHSExpr = RHS.get();
-  QualType RHSCanType =
-      RHSExpr->getType().getCanonicalType().getUnqualifiedType();
-  QualType LHSCanType = LHSType.getCanonicalType().getUnqualifiedType();
+  QualType RHSCanType = getOnlyBSCQualifiedTypeWithoutNullability(
+      RHSExpr->getType().getCanonicalType(), Context);
+  QualType LHSCanType =
+      getOnlyBSCQualifiedTypeWithoutNullability(LHSType.getCanonicalType(), Context);
+
   SourceLocation ExprLoc = RHSExpr->getBeginLoc();
   bool Res = true;
 
@@ -928,8 +940,8 @@ bool Sema::CheckBorrowFunctionPointerType(QualType LHSType, Expr *RHSExpr) {
   }
   
   auto BorrowParamTypesMatch = [&](QualType Dest, QualType Src) -> bool {
-    Dest = Dest.getUnqualifiedType();
-    Src = Src.getUnqualifiedType();
+    Dest = getOnlyBSCQualifiedTypeWithoutNullability(Dest, Context);
+    Src = getOnlyBSCQualifiedTypeWithoutNullability(Src, Context);
     if (!DoPointerTypesSatisfyAssignmentConstraintsStrict(Dest, Src))
       return false;
     // For pointer params, additionally require that the pointee types match

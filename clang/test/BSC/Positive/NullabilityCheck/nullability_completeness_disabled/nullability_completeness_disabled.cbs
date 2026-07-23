@@ -1,0 +1,13 @@
+// RUN: %clang_cc1 -verify -Wnullability-completeness -I %S %s
+// expected-no-diagnostics
+//
+// BSC disables ObjC-style -Wnullability-completeness: unannotated pointers
+// are intentional (raw→nullable / owned→nonnull defaults). Including a
+// header that mixes annotated and unannotated pointers must not warn.
+
+#include "nullability_completeness_disabled.hbs"
+
+void use(int *_Nullable a, int *b) {
+  (void)a;
+  (void)b;
+}

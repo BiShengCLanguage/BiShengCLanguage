@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -verify %s
+
+// Verifies two things:
+// 1. Generic type deduction preserves _Nullable: f1(p_nullable) works.
+// 2. Non-template nullability errors are still correctly reported:
+//    non_template_func(p_nullable) should error because the parameter
+//    is explicitly non-null.
+
+_Safe void f1<T>(T p) {}
+
+_Safe void non_template_func(int *_Borrow p) {}
+
+_Safe void test(void) {
+    int * _Borrow _Nullable p = 0;
+
+    // OK: T = int *_Borrow _Nullable, the instantiated parameter is nullable
+    f1(p);
+
+    // Error: non-template function with non-null parameter gets nullable arg
+    non_template_func(p); // expected-error {{cannot pass nullable pointer argument}}
+}

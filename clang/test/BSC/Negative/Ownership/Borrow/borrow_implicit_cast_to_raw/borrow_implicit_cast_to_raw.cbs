@@ -14,7 +14,7 @@ _Safe T* _Owned _Nullable bsc_malloc<T>(int  size) {
 int main() {
   void * _Owned _Nullable pMsg = nullptr;
   pMsg = bsc_malloc<void>(100);
-  bsc_log_print(&_Mut *pMsg, "Info: no memory!"); // expected-error {{incompatible _Borrow types, cannot cast 'void *_Borrow' to 'void *'}}
+  bsc_log_print(&_Mut *pMsg, "Info: no memory!"); // expected-error {{incompatible _Borrow types, cannot cast 'void *_Borrow _Nullable' to 'void *'}}
   void * a = __move_to_raw(pMsg);
   return 0;
 }

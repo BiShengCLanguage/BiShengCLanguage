@@ -111,7 +111,7 @@ _Safe int test_safe_zone_variables(int *p) {
     const int T = 0;
     constexpr int Z = 0;
     p = T; // expected-error {{conversion from type 'const int' to 'int *' is forbidden in the safe zone}}
-    int *_Nullable q = Z; // expected-error {{conversion from type 'const int' to 'int * _Nullable' is forbidden in the safe zone}}
+    int *_Nullable q = Z; // expected-error {{conversion from type 'const int' to 'int *_Nullable' is forbidden in the safe zone}}
     return 0;
 }
 
@@ -120,8 +120,8 @@ _Safe void test_safe_zone_null_pointer_constants(void) {
     int *_Nullable p1 = nullptr;        // ok
     int *_Owned _Nullable po = nullptr; // ok
     int *_Owned _Nullable po0 = 0;      // ok
-    int *_Nullable pe = ZERO;  // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int * _Nullable'}}
-    int *_Nullable pa = 1 - 1; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int * _Nullable'}}
+    int *_Nullable pe = ZERO;  // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *_Nullable'}}
+    int *_Nullable pa = 1 - 1; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *_Nullable'}}
 }
 
 //===----------------------------------------------------------------===//

@@ -58,10 +58,10 @@ int main(void) {
 
   int *_Owned _ArrayElem owned =
       __take_array_from_raw((int *)malloc(4 * sizeof(int)));
-  _Static_assert(__is_same(typeof(__take_array_from_raw((int *)0)),
+  _Static_assert(__is_same(typeof(__take_array_from_raw((int *_Nonnull)0)),
                            int *_Owned _ArrayElem),
                  "fail");
-  _Static_assert(__is_same(typeof(__move_array_to_raw(owned)), int *), "fail");
+  _Static_assert(__is_same(typeof(__move_array_to_raw(owned)), int *_Nonnull), "fail");
   int *raw = __move_array_to_raw(owned);
   free(raw);
   return 0;

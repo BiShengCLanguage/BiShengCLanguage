@@ -92,7 +92,7 @@ public:
         QT->hasBorrowFields() || QT->hasOwnedFields()) {
       return true;
     }
-    if (QT->getNullability(Context)) {
+    if (QT.isNullableQualified() || QT.isNonnullQualified()) {
       return true;
     }
     if (IsDesugaredFromTraitType(QT)) {

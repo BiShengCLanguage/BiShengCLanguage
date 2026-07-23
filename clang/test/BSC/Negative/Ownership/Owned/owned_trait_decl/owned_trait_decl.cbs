@@ -16,17 +16,23 @@ _Impl _Trait T for int;
 _Impl _Trait U for int;
 
 void test1(int x, float y, double d) {
-  _Trait T* _Owned t1 = __take_from_raw(&x); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'int *_Owned _Nullable'}}
-  _Trait T* _Owned t2 = __take_from_raw(&y); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'float *_Owned _Nullable'}}
+  // int implements T, so take_from_raw(&x) converts cleanly to _Trait T*_Owned.
+  _Trait T* _Owned t1 = __take_from_raw(&x);
+  _Trait T* _Owned t2 = __take_from_raw(&y); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'float'}}
                                         // expected-warning@-1 {{incompatible pointer types initializing '_Trait T *_Owned' with an expression of type 'float *_Owned _Nullable'}}
-  _Trait T* _Owned t3 = __take_from_raw(&d); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'double *_Owned _Nullable'}}
+  _Trait T* _Owned t3 = __take_from_raw(&d); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'double'}}
                                          // expected-warning@-1 {{incompatible pointer types initializing '_Trait T *_Owned' with an expression of type 'double *_Owned _Nullable'}}
+  (void)t1;
 }
 
 void test2(int x, float y, double d) {
-  _Trait T* _Owned t1 = __take_from_raw(&x); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'int *_Owned _Nullable'}}
+  _Trait T* _Owned t1 = __take_from_raw(&x);
   _Trait T* _Owned t2 = t1;
-  _Trait U* _Owned u1 = __take_from_raw(&x); // expected-error {{expected a pointer type which has implemented '_Trait U', found 'int *_Owned _Nullable'}}
+  _Trait U* _Owned u1 = __take_from_raw(&x);
   _Trait T* _Owned t3 = u1; // expected-error {{incompatible _Owned types, cannot cast 'struct __Trait_U_Owned' to '_Trait T *_Owned'}}
                           // expected-error@-1 {{expected a pointer type which has implemented '_Trait T', found '_Trait U *'}}
+  (void)t2;
+  (void)t3;
+  (void)y;
+  (void)d;
 }

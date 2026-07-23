@@ -36,13 +36,13 @@ _Static_assert(__is_same(OwnedArrPtr, int *_Owned _ArrayElem),
 _Static_assert(__is_same(OwnedArrayElemIntPtr, int *_Owned _ArrayElem),
                "OwnedArrayElemIntPtr matches spelled owned _ArrayElem form");
 _Static_assert(__is_same(typeof(__take_array_from_raw((int *)0)),
-                         OwnedArrPtr),
+                         OwnedArrPtr _Nullable),
                "take_array_from_raw matches typedef result type");
 
 void builtin_move_result(void) {
   int buf[1];
   int *_Owned _ArrayElem owned = __take_array_from_raw((int *)buf);
-  _Static_assert(__is_same(typeof(__move_array_to_raw(owned)), int *),
+  _Static_assert(__is_same(typeof(__move_array_to_raw(owned)), int *_Nonnull),
                  "__move_array_to_raw spelled operand");
   (void)__move_array_to_raw(owned);
 

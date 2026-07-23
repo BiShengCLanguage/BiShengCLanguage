@@ -246,14 +246,7 @@ namespace clang {
 bool FindNonnull(QualType QT, const ASTContext &Ctx) {
   QualType CanQT = QT.getCanonicalType();
   if (CanQT->isPointerType()) {
-    Optional<NullabilityKind> Kind = QT->getNullability(Ctx);
-    if (Kind && (*Kind == NullabilityKind::NonNull)) {
-      return true;
-    } else if (CanQT.isBorrowQualified() || CanQT.isOwnedQualified()) {
-      if (Kind && (*Kind == NullabilityKind::Nullable))
-        return false;
-      return true;
-    }
+    return QT.getDefNullability() == NullabilityKind::NonNull;
   } else if (CanQT->isArrayType()) {
     auto ArrayTy = QT->getAsArrayTypeUnsafe();
     QualType ElemTy = ArrayTy->getElementType();
@@ -325,7 +318,7 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
           return getExprPathNullability(CE->getArg(0));
         }
       }
-      return getDefNullability(CE->getType(), Ctx);
+      return CE->getType().getDefNullability();
     }
     case Expr::ConditionalOperatorClass: {
       NullabilityKind LHSNK =
@@ -349,8 +342,7 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       if (Sub->EvaluateAsInt(Eval, Ctx) && Eval.Val.isInt() &&
           !Eval.Val.getInt().isZero())
         return NullabilityKind::NonNull;
-      return getDefNullability(cast<CStyleCastExpr>(E)->getTypeAsWritten(),
-                               Ctx);
+      return cast<CStyleCastExpr>(E)->getTypeAsWritten().getDefNullability();
     }
     case Expr::UnaryOperatorClass: {
       UnaryOperator::Opcode Op = cast<UnaryOperator>(E)->getOpcode();
@@ -365,7 +357,7 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
           if (It != CurrStatusDPVD.end())
             return It->second;
         }
-        return getDefNullability(cast<UnaryOperator>(E)->getType(), Ctx);
+        return cast<UnaryOperator>(E)->getType().getDefNullability();
       }
       if (Op == UO_AddrMutDeref || Op == UO_AddrConstDeref) {
         return getExprPathNullability(cast<UnaryOperator>(E)->getSubExpr());
@@ -388,7 +380,7 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     }
     case Expr::DeclRefExprClass: {
       if (VarDecl *VD = dyn_cast<VarDecl>(cast<DeclRefExpr>(E)->getDecl())) {
-        NullabilityKind NK = getDefNullability(VD->getType(), Ctx);
+        NullabilityKind NK = VD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
         else if (NK == NullabilityKind::Nullable && CurrStatusVD.count(VD))
@@ -399,14 +391,14 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     case Expr::ArraySubscriptExprClass: {
       // Builtin array elements cannot have independent path-sensitive state.
       NullabilityKind NK =
-          getDefNullability(cast<ArraySubscriptExpr>(E)->getType(), Ctx);
+          cast<ArraySubscriptExpr>(E)->getType().getDefNullability();
       if (NK == NullabilityKind::NonNull || NK == NullabilityKind::Nullable)
         return NK;
       break;
     }
     case Expr::MemberExprClass: {
       if (auto FD = dyn_cast<FieldDecl>(cast<MemberExpr>(E)->getMemberDecl())) {
-        NullabilityKind NK = getDefNullability(FD->getType(), Ctx);
+        NullabilityKind NK = FD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
         else if (NK == NullabilityKind::Nullable) {
@@ -499,8 +491,8 @@ static void checkNestedPointerNullability(QualType LHS, QualType RHS,
   QualType CurLHS = LHS;
   QualType CurRHS = RHS;
   while (CurLHS->isPointerType() && CurRHS->isPointerType()) {
-    NullabilityKind LHSKind = getDefNullability(CurLHS, Ctx);
-    NullabilityKind RHSKind = getDefNullability(CurRHS, Ctx);
+    NullabilityKind LHSKind = CurLHS.getDefNullability();
+    NullabilityKind RHSKind = CurRHS.getDefNullability();
     if (LHSKind != RHSKind &&
         !(LHSKind == NullabilityKind::Nullable &&
           RHSKind == NullabilityKind::NonNull &&
@@ -552,7 +544,7 @@ bool TransferFunctions::checkPathSensitiveFirstLevel(
   if (FirstLevel) {
     QualType Inner = PT->getPointeeType();
     if (Inner->isPointerType() &&
-        getDefNullability(Inner, Ctx) == NullabilityKind::NonNull) {
+        Inner.getDefNullability() == NullabilityKind::NonNull) {
       if (getExprPathNullability(FirstLevel) == NullabilityKind::Nullable) {
         NullabilityCheckDiagInfo DI(DiagLoc, DiagKind);
         Reporter.addDiagInfo(DI);
@@ -589,7 +581,7 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
   }
   if (CanQT->isPointerType()) {
     // check pointer initialization
-    NullabilityKind LHSKind = getDefNullability(QT, Ctx);
+    NullabilityKind LHSKind = QT.getDefNullability();
     NullabilityKind RHSKind = getExprPathNullability(Init);
     if (LHSKind == NullabilityKind::NonNull) {
       if (RHSKind == NullabilityKind::Nullable && ShouldReportNullPtrError(DS)) {
@@ -618,12 +610,16 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
     }
 
     // --- Inner-pointer check for init expressions ---
+    // IgnoreParenImpCasts: Sema may BitCast the initializer to the declared
+    // type when nested nullability lives in qualifier bits; use the pre-cast
+    // type so nested mismatches remain visible.
     if (ShouldReportNullPtrError(DS)) {
+      Expr *InitBase = Init->IgnoreParenImpCasts();
       QualType CurLHS = QT;
-      QualType CurRHS = Init->getType();
+      QualType CurRHS = InitBase->getType();
       QualType OrigLHS = CurLHS;
       QualType OrigRHS = CurRHS;
-      if (checkPathSensitiveFirstLevel(stripBorrow(Init), CurLHS, CurRHS,
+      if (checkPathSensitiveFirstLevel(stripBorrow(InitBase), CurLHS, CurRHS,
               NonnullAssignedByNullable, VD->getLocation()))
         checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
                                       Ctx, Reporter, VD->getLocation());
@@ -699,7 +695,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     QualType LHSQT = LHS->getType();
     if (LHSQT.getCanonicalType()->isPointerType()) {
       NullabilityKind RHSKind = getExprPathNullability(BO->getRHS());
-      NullabilityKind LHSKind = getDefNullability(LHSQT, Ctx);
+      NullabilityKind LHSKind = LHSQT.getDefNullability();
 
       DerefPathVD LHSDP;
       bool HasLHSDP = getDerefPathVDFromExpr(LHS, LHSDP) && LHSDP.second > 0;
@@ -739,7 +735,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
         InvalidateDerefStatusForVar(VD);
       } else if (MemberExpr *ME = getMemberExprFromExpr(LHS)) {
         if (FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-          NullabilityKind MemberLHSKind = getDefNullability(FD->getType(), Ctx);
+          NullabilityKind MemberLHSKind = FD->getType().getDefNullability();
           if (MemberLHSKind == NullabilityKind::NonNull) {
             if (RHSKind == NullabilityKind::Nullable && ShouldReportNullPtrError(BO)) {
               NullabilityCheckDiagInfo DI(ME->getBeginLoc(),
@@ -756,13 +752,18 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
       }
 
       // --- Inner-pointer check for assignments ---
+      // Use IgnoreParenImpCasts so nested nullability is read from the
+      // pre-cast RHS type. With qualifier-bit nullability, Sema inserts a
+      // BitCast to the LHS type; BO->getRHS()->getType() would already look
+      // like the LHS and hide the nested mismatch.
       if (ShouldReportNullPtrError(BO)) {
+        Expr *RHSBase = BO->getRHS()->IgnoreParenImpCasts();
         QualType CurLHS = LHSQT;
-        QualType CurRHS = BO->getRHS()->getType();
+        QualType CurRHS = RHSBase->getType();
         QualType OrigLHS = CurLHS;
         QualType OrigRHS = CurRHS;
-        if (checkPathSensitiveFirstLevel(stripBorrow(BO->getRHS()), CurLHS,
-                CurRHS, NonnullAssignedByNullable, BO->getBeginLoc()))
+        if (checkPathSensitiveFirstLevel(stripBorrow(RHSBase), CurLHS, CurRHS,
+                NonnullAssignedByNullable, BO->getBeginLoc()))
           checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
                                         Ctx, Reporter, BO->getBeginLoc());
       }
@@ -775,7 +776,7 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
   if (FunctionDecl *FD = CE->getDirectCallee()) {
     for (unsigned i = 0; i < FD->getNumParams(); i++) {
       ParmVarDecl *PVD = FD->getParamDecl(i);
-      if (getDefNullability(PVD->getType(), Ctx) == NullabilityKind::NonNull) {
+      if (PVD->getType().getDefNullability() == NullabilityKind::NonNull) {
         Expr *ArgE = CE->getArg(i);
         if (getExprPathNullability(ArgE) == NullabilityKind::Nullable && ShouldReportNullPtrError(CE)) {
           NullabilityCheckDiagInfo DI(ArgE->getBeginLoc(),
@@ -838,7 +839,7 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
 // (int *_Nonnull)p, (int *borrow)p, (int *owned)p is not allowed
 // when p has nullable PathNullability.
 void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
-  if (getDefNullability(CSCE->getTypeAsWritten(), Ctx) == NullabilityKind::NonNull) {
+  if (CSCE->getTypeAsWritten().getDefNullability() == NullabilityKind::NonNull) {
     if (getExprPathNullability(CSCE->getSubExpr()->IgnoreParenImpCasts()) ==
             NullabilityKind::Nullable &&
         ShouldReportNullPtrError(CSCE)) {
@@ -854,7 +855,7 @@ void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
   Expr *RV = RS->getRetValue();
   if (!RV)
     return;
-  if (getDefNullability(Fd.getReturnType(), Ctx) == NullabilityKind::NonNull) {
+  if (Fd.getReturnType().getDefNullability() == NullabilityKind::NonNull) {
     if (getExprPathNullability(RV) == NullabilityKind::Nullable && ShouldReportNullPtrError(RS)) {
       NullabilityCheckDiagInfo DI(RV->getBeginLoc(), ReturnNullable);
       Reporter.addDiagInfo(DI);
@@ -862,11 +863,13 @@ void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
   }
 
   // --- Inner-pointer check for return expressions ---
+  // IgnoreParenImpCasts so nested nullability is from the pre-cast return value.
   if (ShouldReportNullPtrError(RS)) {
+    Expr *RVBase = RV->IgnoreParenImpCasts();
     QualType CurLHS = Fd.getReturnType();
-    QualType CurRHS = RV->getType();
+    QualType CurRHS = RVBase->getType();
     QualType OrigLHS = CurLHS, OrigRHS = CurRHS;
-    if (checkPathSensitiveFirstLevel(stripBorrow(RV), CurLHS, CurRHS,
+    if (checkPathSensitiveFirstLevel(stripBorrow(RVBase), CurLHS, CurRHS,
                                      ReturnNullable, RV->getBeginLoc()))
       checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
                                     Ctx, Reporter, RV->getBeginLoc());
@@ -879,7 +882,7 @@ void TransferFunctions::SetCFGBlocksByExpr(Expr *PtrE,
                                            const CFGBlock *NullableBlock) {
   DerefPathVD DP;
   if (getDerefPathVDFromExpr(PtrE, DP) && DP.second > 0 &&
-      getDefNullability(PtrE->getType(), Ctx) == NullabilityKind::Nullable &&
+      PtrE->getType().getDefNullability() == NullabilityKind::Nullable &&
       (!CurrStatusDPVD.count(DP) ||
        CurrStatusDPVD[DP] != NullabilityKind::NonNull)) {
     // Condition directly refines dereference-chain state for successors.
@@ -890,7 +893,7 @@ void TransferFunctions::SetCFGBlocksByExpr(Expr *PtrE,
   }
 
   if (VarDecl *VD = getVarDeclFromExpr(PtrE)) {
-    if (getDefNullability(VD->getType(), Ctx) == NullabilityKind::Nullable &&
+    if (VD->getType().getDefNullability() == NullabilityKind::Nullable &&
         CurrStatusVD.count(VD) &&
         CurrStatusVD[VD] != NullabilityKind::NonNull) {
       NCI.BlocksConditionStatusVD[NonNullBlock][Block][VD] =
@@ -902,7 +905,7 @@ void TransferFunctions::SetCFGBlocksByExpr(Expr *PtrE,
     if (auto FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       FieldPath FP;
       VisitMEForFieldPath(ME, FP);
-      if (getDefNullability(FD->getType(), Ctx) == NullabilityKind::Nullable &&
+      if (FD->getType().getDefNullability() == NullabilityKind::Nullable &&
           CurrStatusFP.count(FP) &&
           CurrStatusFP[FP] != NullabilityKind::NonNull) {
         FieldPath FP;
@@ -959,11 +962,11 @@ static void collectNullableDecls(Stmt *S, ASTContext &Ctx,
     return;
   if (auto DRE = dyn_cast<DeclRefExpr>(S)) {
     if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      if (getDefNullability(VD->getType(), Ctx) == NullabilityKind::Nullable)
+      if (VD->getType().getDefNullability() == NullabilityKind::Nullable)
         VDMap[VD] = NullabilityKind::Nullable;
   } else if (auto ME = dyn_cast<MemberExpr>(S)) {
     if (FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-      if (getDefNullability(FD->getType(), Ctx) == NullabilityKind::Nullable) {
+      if (FD->getType().getDefNullability() == NullabilityKind::Nullable) {
         FieldPath FP;
         VisitMEForFieldPath(ME, FP);
         FPMap[FP] = NullabilityKind::Nullable;

@@ -185,8 +185,12 @@ public:
   };
 
 #if ENABLE_BSC
-  // this qualifier does not fit in the fast qualifier mask
-  static const uint32_t ArrayElem = 0x40;
+  // These qualifiers do not fit in the fast qualifier mask.
+  // Layout (see Mask diagram below): ArrayElem, then Nullable/Nonnull,
+  // then ObjC GCAttr/Lifetime, then AddressSpace.
+  static const uint32_t ArrayElem = 0x40;  // bit 6
+  static const uint32_t Nullable = 0x80;   // bit 7
+  static const uint32_t Nonnull = 0x100;   // bit 8
 #endif
 
   enum ObjCLifetime {
@@ -272,6 +276,16 @@ public:
       L.removeArrayElem();
       R.removeArrayElem();
     }
+    if (L.hasNullable() == R.hasNullable() && L.hasNullable()) {
+      Q.addNullable();
+      L.removeNullable();
+      R.removeNullable();
+    }
+    if (L.hasNonnull() == R.hasNonnull() && L.hasNonnull()) {
+      Q.addNonnull();
+      L.removeNonnull();
+      R.removeNonnull();
+    }
 #endif
     return Q;
   }
@@ -343,6 +357,22 @@ public:
   Qualifiers withArrayElem() const {
     Qualifiers Qs = *this;
     Qs.addArrayElem();
+    return Qs;
+  }
+  bool hasNullable() const { return Mask & Nullable; }
+  void removeNullable() { Mask &= ~Nullable; }
+  void addNullable() { Mask |= Nullable; }
+  Qualifiers withNullable() const {
+    Qualifiers Qs = *this;
+    Qs.addNullable();
+    return Qs;
+  }
+  bool hasNonnull() const { return Mask & Nonnull; }
+  void removeNonnull() { Mask &= ~Nonnull; }
+  void addNonnull() { Mask |= Nonnull; }
+  Qualifiers withNonnull() const {
+    Qualifiers Qs = *this;
+    Qs.addNonnull();
     return Qs;
   }
   #endif
@@ -526,6 +556,10 @@ public:
 #if ENABLE_BSC
       if (Q.hasArrayElem())
         addArrayElem();
+      if (Q.hasNullable())
+        addNullable();
+      if (Q.hasNonnull())
+        addNonnull();
 #endif
       if (Q.hasAddressSpace())
         addAddressSpace(Q.getAddressSpace());
@@ -547,6 +581,10 @@ public:
 #if ENABLE_BSC
       if (Q.hasArrayElem())
         removeArrayElem();
+      if (Q.hasNullable())
+        removeNullable();
+      if (Q.hasNonnull())
+        removeNonnull();
 #endif
       if (getObjCGCAttr() == Q.getObjCGCAttr())
         removeObjCGCAttr();
@@ -694,8 +732,8 @@ public:
 
 private:
   #if ENABLE_BSC
-  // bits:     |0 1 2 3 4|5|6|7 .. 8|9 .. 11|12 ...   31|
-  //           |C R V O B|U|A|GCAttr|Lifetime|AddressSpace|
+  // bits:     |0 1 2 3 4|5|6|7 .. 8|9 .. 10|11 .. 13|14 ...   31|
+  //           |C R V O B|U|A|Nl  Nn|GCAttr|Lifetime|AddressSpace|
   #else
   // bits:     |0 1 2|3|4 .. 5|6  ..  8|9   ...   31|
   //           |C R V|U|GCAttr|Lifetime|AddressSpace|
@@ -707,10 +745,14 @@ private:
   static const uint32_t UShift = 5;
   static const uint32_t ArrayElemMask = ArrayElem; // 0x40
   static const uint32_t ArrayElemShift = 6;
-  static const uint32_t GCAttrMask = 0x180;
-  static const uint32_t GCAttrShift = 7;
-  static const uint32_t LifetimeMask = 0xE00;
-  static const uint32_t LifetimeShift = 9;
+  static const uint32_t NullableMask = Nullable;   // 0x80
+  static const uint32_t NullableShift = 7;
+  static const uint32_t NonnullMask = Nonnull;     // 0x100
+  static const uint32_t NonnullShift = 8;
+  static const uint32_t GCAttrMask = 0x600;
+  static const uint32_t GCAttrShift = 9;
+  static const uint32_t LifetimeMask = 0x3800;
+  static const uint32_t LifetimeShift = 11;
   #else
   static const uint32_t UMask = 0x8;
   static const uint32_t UShift = 3;
@@ -721,12 +763,13 @@ private:
   #endif
   static const uint32_t AddressSpaceMask =
   #if ENABLE_BSC
-      ~(CVRMask | UMask | ArrayElemMask | GCAttrMask | LifetimeMask);
+      ~(CVRMask | UMask | ArrayElemMask | NullableMask | NonnullMask |
+        GCAttrMask | LifetimeMask);
   #else
       ~(CVRMask | UMask | GCAttrMask | LifetimeMask);
   #endif
   #if ENABLE_BSC
-  static const uint32_t AddressSpaceShift = 12;
+  static const uint32_t AddressSpaceShift = 14;
   #else
   static const uint32_t AddressSpaceShift = 9;
   #endif
@@ -749,6 +792,8 @@ public:
   bool hasOwned() const { return Quals.hasOwned(); }
   bool hasBorrow() const { return Quals.hasBorrow(); }
   bool hasArrayElem() const { return Quals.hasArrayElem(); }
+  bool hasNullable() const { return Quals.hasNullable(); }
+  bool hasNonnull() const { return Quals.hasNonnull(); }
   #endif
   bool hasRestrict() const { return Quals.hasRestrict(); }
   bool hasAtomic() const { return HasAtomic; }
@@ -759,6 +804,8 @@ public:
   void addOwned() { Quals.addOwned(); }
   void addBorrow() { Quals.addBorrow(); }
   void addArrayElem() { Quals.addArrayElem(); }
+  void addNullable() { Quals.addNullable(); }
+  void addNonnull() { Quals.addNonnull(); }
   #endif
   void addRestrict() { Quals.addRestrict(); }
   void addAtomic() { HasAtomic = true; }
@@ -769,6 +816,8 @@ public:
   void removeOwned() { Quals.removeOwned(); }
   void removeBorrow() { Quals.removeBorrow(); }
   void removeArrayElem() { Quals.removeArrayElem(); }
+  void removeNullable() { Quals.removeNullable(); }
+  void removeNonnull() { Quals.removeNonnull(); }
   #endif
   void removeRestrict() { Quals.removeRestrict(); }
   void removeAtomic() { HasAtomic = false; }
@@ -978,6 +1027,32 @@ public:
 
   /// Determine whether this type is arrayelem-qualified.
   bool isArrayElemQualified() const;
+
+  /// Determine whether this particular QualType instance has the
+  /// "nullable" BSC qualifier set, without looking through typedefs.
+  bool isLocalNullableQualified() const;
+
+  /// Determine whether this type is nullable-qualified.
+  bool isNullableQualified() const;
+
+  /// Determine whether this particular QualType instance has the
+  /// "nonnull" BSC qualifier set, without looking through typedefs.
+  bool isLocalNonnullQualified() const;
+
+  /// Determine whether this type is nonnull-qualified.
+  bool isNonnullQualified() const;
+
+  /// Explicit nullability only (qualifier bits).
+  /// Does not apply owned→nonnull / raw→nullable defaults. Returns None when
+  /// unspecified.
+  Optional<NullabilityKind> getExplicitNullability() const;
+
+  /// Effective nullability of a BSC pointer type.
+  /// If the type carries an explicit _Nonnull or _Nullable annotation, returns
+  /// it. Otherwise fills in the BSC default: _Owned/_Borrow pointers default
+  /// to _Nonnull; raw pointers default to _Nullable. Non-pointer types return
+  /// NullabilityKind::Unspecified.
+  NullabilityKind getDefNullability() const;
   #endif
 
   /// Determine whether this particular QualType instance has the
@@ -1134,6 +1209,13 @@ public:
   void removeLocalOwned();
   void removeLocalBorrow();
   void removeLocalArrayElem(ASTContext &Ctx);
+  void removeLocalNullable(ASTContext &Ctx);
+  void removeLocalNonnull(ASTContext &Ctx);
+  /// Remove both local _Nullable and _Nonnull qualifier bits.
+  void removeLocalNullability(ASTContext &Ctx) {
+    removeLocalNullable(Ctx);
+    removeLocalNonnull(Ctx);
+  }
   #endif
   void removeLocalVolatile();
   void removeLocalRestrict();
@@ -1198,10 +1280,35 @@ public:
   inline QualType getUnqualifiedType() const;
 
   #if ENABLE_BSC
-  /// Retrieve the only-AOB-qualified variant of the given type.
-  /// Its behavior is similar to getUnqualifiedType,
-  /// except that it restores the ArrayElem, Owned, and Borrow qualifiers.
-  QualType getOnlyAOBQualifiedType(const ASTContext &Context) const;
+  /// Drop CVR (and other non-BSC) qualifiers, keeping BSC semantic qualifiers:
+  /// _Owned, _Borrow, _ArrayElem, _Nullable, and _Nonnull.
+  ///
+  /// ## getOnlyBSCQualifiedType vs getUnqualifiedType in BSC
+  ///
+  /// \c getUnqualifiedType() in BSC also tries to preserve _Owned/_Borrow, and
+  /// — when the type already carries _ArrayElem/_Nullable/_Nonnull — takes an
+  /// early path that only strips local CVR so those ExtQuals are not lost.
+  /// That early path is path-dependent (behavior changes depending on whether
+  /// any of those ExtQuals are present) and may also retain unrelated ExtQuals
+  /// such as address spaces. It exists to avoid changing \c getUnqualifiedType's
+  /// signature (no \c ASTContext) at every call site for LLVM merge friendliness.
+  ///
+  /// \c getOnlyBSCQualifiedType() is the intentional BSC API: it always rebuilds
+  /// a whitelist of BSC semantic qualifiers via \p Context, so Owned/Borrow/
+  /// ArrayElem/nullability are kept consistently and CVR is dropped.
+  ///
+  /// ## When to use which
+  /// - Use \c getOnlyBSCQualifiedType when the result should remain a BSC
+  ///   value/parameter type (lvalue conversion, parameter entities, or any
+  ///   path that must keep ownership / array-elem / nullability).
+  /// - Use \c getOnlyBSCQualifiedTypeWithoutNullability (TypeBSC.h) when
+  ///   comparing pointer kinds (SafeZone / Ownership): keep
+  ///   Owned/Borrow/ArrayElem but drop nullability (checked separately by the
+  ///   nullability analysis).
+  /// - Prefer \c getUnqualifiedType for ordinary C “ignore CVR / sugar” uses
+  ///   (arithmetic, diagnostics, trait map keys, etc.), especially in shared
+  ///   non-BSC code paths, to minimize upstream merge conflicts.
+  QualType getOnlyBSCQualifiedType(const ASTContext &Context) const;
   #endif
 
   /// Retrieve the unqualified variant of the given type, removing as little
@@ -7136,9 +7243,27 @@ inline bool QualType::isLocalArrayElemQualified() const {
   return getLocalQualifiers().hasArrayElem();
 }
 
+inline bool QualType::isLocalNullableQualified() const {
+  return getLocalQualifiers().hasNullable();
+}
+
+inline bool QualType::isLocalNonnullQualified() const {
+  return getLocalQualifiers().hasNonnull();
+}
+
 inline bool QualType::isArrayElemQualified() const {
   return isLocalArrayElemQualified() ||
          getCommonPtr()->CanonicalType.isLocalArrayElemQualified();
+}
+
+inline bool QualType::isNullableQualified() const {
+  return isLocalNullableQualified() ||
+         getCommonPtr()->CanonicalType.isLocalNullableQualified();
+}
+
+inline bool QualType::isNonnullQualified() const {
+  return isLocalNonnullQualified() ||
+         getCommonPtr()->CanonicalType.isLocalNonnullQualified();
 }
 #endif
 
@@ -7163,7 +7288,9 @@ inline QualType QualType::getUnqualifiedType() const {
   int addOwned = getCanonicalType().isOwnedQualified() ? Qualifiers::Owned : 0;
   int addBorrow =
       getCanonicalType().isBorrowQualified() ? Qualifiers::Borrow : 0;
-  if (isArrayElemQualified()) {
+  // Preserve non-fast qualifiers (ArrayElem, Nullable, Nonnull) by
+  // bypassing getSplitUnqualifiedTypeImpl, which strips ExtQuals sugar.
+  if (isArrayElemQualified() || isNullableQualified() || isNonnullQualified()) {
     QualType T = *this;
     T.removeLocalFastQualifiers(Qualifiers::Const | Qualifiers::Restrict |
                                 Qualifiers::Volatile);

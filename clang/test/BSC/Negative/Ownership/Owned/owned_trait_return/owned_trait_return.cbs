@@ -53,7 +53,7 @@ _Trait T* cond1(int flag) {
     return sp;
   } else if (flag == 3) {
     int x = 2;
-    return __take_from_raw(&x); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'int *_Owned _Nullable'}}
+    return __take_from_raw(&x); // int implements T
   } else {
     double y = 2.0;
     return &y; // expected-error {{expected a pointer type which has implemented '_Trait T', found 'double'}}
@@ -63,7 +63,7 @@ _Trait T* cond1(int flag) {
 _Trait T* _Owned cond2(int flag) {
   if (flag == 1) {
     int x = 1;
-    return __take_from_raw(&x); // expected-error {{expected a pointer type which has implemented '_Trait T', found 'int *_Owned _Nullable'}}
+    return __take_from_raw(&x); // int implements T
   } else if (flag == 2) {
     struct S s = initS();
     struct S* _Owned sp = convertToOwned(s);

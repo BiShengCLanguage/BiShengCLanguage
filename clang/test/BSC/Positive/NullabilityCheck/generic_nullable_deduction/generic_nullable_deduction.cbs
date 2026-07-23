@@ -1,0 +1,14 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Verifies that generic type deduction preserves _Nullable qualifiers.
+// When f1<T> is called with a nullable argument, T should be deduced as
+// the complete type including _Nullable, so the instantiated function
+// parameter accepts nullable pointers without error.
+
+_Safe void f1<T>(T p) {}
+
+_Safe void test(void) {
+    int * _Borrow _Nullable p = 0;
+    f1(p); // T = int *_Borrow _Nullable, no error
+}

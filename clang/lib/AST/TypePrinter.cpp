@@ -209,6 +209,20 @@ static void AppendTypeQualList(raw_ostream &OS, unsigned TypeQuals,
     OS << "_ArrayElem";
     appendSpace = true;
   }
+  if ((TypeQuals & Qualifiers::Nullable) &&
+      (!IsRewriteBSC || MangleWithSafeQualifier)) {
+    if (appendSpace)
+      OS << ' ';
+    OS << "_Nullable";
+    appendSpace = true;
+  }
+  if ((TypeQuals & Qualifiers::Nonnull) &&
+      (!IsRewriteBSC || MangleWithSafeQualifier)) {
+    if (appendSpace)
+      OS << ' ';
+    OS << "_Nonnull";
+    appendSpace = true;
+  }
 #endif
   if (TypeQuals & Qualifiers::Volatile) {
     if (appendSpace) OS << ' ';
@@ -2399,7 +2413,7 @@ bool Qualifiers::isEmptyWhenPrinted(const PrintingPolicy &Policy) const {
     return false;
 
 #if ENABLE_BSC
-  if (hasArrayElem())
+  if (hasArrayElem() || hasNullable() || hasNonnull())
     return false;
 #endif
 
@@ -2467,6 +2481,10 @@ void Qualifiers::print(raw_ostream &OS, const PrintingPolicy& Policy,
 #if ENABLE_BSC
   if (hasArrayElem())
     quals |= Qualifiers::ArrayElem;
+  if (hasNullable())
+    quals |= Qualifiers::Nullable;
+  if (hasNonnull())
+    quals |= Qualifiers::Nonnull;
 #endif
   if (quals) {
     AppendTypeQualList(OS, quals, Policy.Restrict

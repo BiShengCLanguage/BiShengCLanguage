@@ -33,7 +33,7 @@ int int::joo(const int* const this) {
 }
 
 int int::koo(_Owned int* _Owned this) { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-  int *p = __move_to_raw(this); // expected-error {{incompatible _Owned types, cannot cast '_Owned int * _Nonnull' to 'int *'}}
+  int *p = __move_to_raw(this); // expected-error {{incompatible _Owned types, cannot cast '_Owned int *_Nonnull' to 'int *'}}
   return 1;
 }
 
@@ -42,7 +42,7 @@ int int::loo(_Owned int* const this) { // expected-error {{type of 'int' cannot 
 }
 
 int int::moo(const int* _Owned this) {
-  int *p = __move_to_raw(this); // expected-warning {{initializing 'int *' with an expression of type 'const int * _Nonnull' discards qualifiers}}
+  int *p = __move_to_raw(this); // expected-warning {{initializing 'int *' with an expression of type 'const int *_Nonnull' discards qualifiers}}
   return 1;
 }
 

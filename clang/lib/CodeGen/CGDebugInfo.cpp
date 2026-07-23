@@ -922,6 +922,8 @@ static void stripUnusedQualifiers(Qualifiers &Q) {
   Q.removeOwned();
   Q.removeBorrow();
   Q.removeArrayElem();
+  Q.removeNullable();
+  Q.removeNonnull();
 #endif
 }
 

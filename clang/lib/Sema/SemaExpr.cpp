@@ -794,7 +794,7 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
 #if ENABLE_BSC
   {
     if (Context.getLangOpts().BSC)
-      T = T.getOnlyAOBQualifiedType(Context);
+      T = T.getOnlyBSCQualifiedType(Context);
     else
 #endif
     T = T.getUnqualifiedType();
@@ -826,12 +826,8 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   #if ENABLE_BSC
   if (getLangOpts().BSC && !T->isNullPtrType() && T->getAsCXXRecordDecl())
     CK = CK_NoOp;
-  if (getLangOpts().BSC) {
-    if (Optional<NullabilityKind> Kind = E->getType()->getNullability(Context))
-      if (*Kind == NullabilityKind::NonNull ||
-          *Kind == NullabilityKind::Nullable)
-        T = applyNullabilityToType(T, *Kind, Context);
-  }
+  if (getLangOpts().BSC)
+    T = transferExplicitNullability(E->getType(), T, Context);
   /// For type 'const T * borrow' dereference, the result is type 'T'.
   /// If T is a pointer type, special handling is required.
   /// We need to remove the const qualifier that modifies type 'T'.
@@ -9003,6 +8999,20 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
     return LHSTy;
   }
 
+#if ENABLE_BSC
+  // BSC nullability bits make otherwise-identical pointer types (e.g.
+  // T*_Owned vs T*_Owned _Nullable) fail hasSameType.  Strip nullability and
+  // retry so we preserve _Owned/_Borrow/_ArrayElem.
+  if (S.getLangOpts().BSC) {
+    QualType LHSNoNull = LHSTy;
+    QualType RHSNoNull = RHSTy;
+    LHSNoNull.removeLocalNullability(S.Context);
+    RHSNoNull.removeLocalNullability(S.Context);
+    if (S.Context.hasSameType(LHSNoNull, RHSNoNull))
+      return LHSNoNull;
+  }
+#endif
+
   QualType lhptee, rhptee;
 
   // Get the pointee types.
@@ -9910,6 +9920,39 @@ static QualType computeConditionalNullability(QualType ResTy, bool IsBin,
   return Ctx.getAttributedType(NewAttr, ResTy, ResTy);
 }
 
+#if ENABLE_BSC
+static QualType computeConditionalNullabilityBSC(QualType ResTy, bool IsBin,
+                                                 QualType LHSTy, QualType RHSTy,
+                                                 ASTContext &Ctx) {
+  if (!ResTy->isAnyPointerType())
+    return ResTy;
+
+  auto LHSKind = LHSTy.getDefNullability();
+  auto RHSKind = RHSTy.getDefNullability();
+  NullabilityKind MergedKind = NullabilityKind::Nullable;
+
+  if (IsBin) {
+    if (LHSKind == NullabilityKind::NonNull)
+      MergedKind = NullabilityKind::NonNull;
+    else
+      MergedKind = RHSKind;
+  } else {
+    if (LHSKind == NullabilityKind::Nullable ||
+        RHSKind == NullabilityKind::Nullable)
+      MergedKind = NullabilityKind::Nullable;
+    else if (LHSKind == NullabilityKind::NonNull)
+      MergedKind = RHSKind;
+    else if (RHSKind == NullabilityKind::NonNull)
+      MergedKind = LHSKind;
+  }
+
+  if (ResTy.getDefNullability() == MergedKind)
+    return ResTy;
+
+  return applyNullabilityToType(ResTy, MergedKind, Ctx);
+}
+#endif
+
 /// ActOnConditionalOp - Parse a ?: operation.  Note that 'LHS' may be null
 /// in the case of a the GNU conditional expr extension.
 ExprResult Sema::ActOnConditionalOp(SourceLocation QuestionLoc,
@@ -10002,8 +10045,17 @@ ExprResult Sema::ActOnConditionalOp(SourceLocation QuestionLoc,
 
   CheckBoolLikeConversion(Cond.get(), QuestionLoc);
 
+#if ENABLE_BSC
+  if (getLangOpts().BSC)
+    result = computeConditionalNullabilityBSC(result, commonExpr, LHSTy, RHSTy,
+                                              Context);
+  else
+    result = computeConditionalNullability(result, commonExpr, LHSTy, RHSTy,
+                                           Context);
+#else
   result = computeConditionalNullability(result, commonExpr, LHSTy, RHSTy,
                                          Context);
+#endif
 
   if (!commonExpr)
     return new (Context)

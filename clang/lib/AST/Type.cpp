@@ -1523,6 +1523,26 @@ void QualType::removeLocalArrayElem(ASTContext &Ctx) {
   Qs.removeArrayElem();
   *this = Ctx.getQualifiedType(S.Ty, Qs);
 }
+
+void QualType::removeLocalNullable(ASTContext &Ctx) {
+  if (!isLocalNullableQualified())
+    return;
+  SplitQualType S = split();
+  Qualifiers Qs = S.Quals;
+  assert(Qs.hasNullable() && "local _Nullable should live in split qualifiers");
+  Qs.removeNullable();
+  *this = Ctx.getQualifiedType(S.Ty, Qs);
+}
+
+void QualType::removeLocalNonnull(ASTContext &Ctx) {
+  if (!isLocalNonnullQualified())
+    return;
+  SplitQualType S = split();
+  Qualifiers Qs = S.Quals;
+  assert(Qs.hasNonnull() && "local _Nonnull should live in split qualifiers");
+  Qs.removeNonnull();
+  *this = Ctx.getQualifiedType(S.Ty, Qs);
+}
 #endif
 
 Optional<ArrayRef<QualType>> Type::getObjCSubstitutions(
@@ -3253,10 +3273,35 @@ QualType QualType::getNonLValueExprType(const ASTContext &Context) const {
 }
 
 #if ENABLE_BSC
-QualType QualType::getOnlyAOBQualifiedType(const ASTContext &Context) const {
+Optional<NullabilityKind> QualType::getExplicitNullability() const {
+  if (isNullableQualified())
+    return NullabilityKind::Nullable;
+  if (isNonnullQualified())
+    return NullabilityKind::NonNull;
+  return None;
+}
+
+NullabilityKind QualType::getDefNullability() const {
+  QualType CanQT = getCanonicalType();
+  if (CanQT->isPointerType()) {
+    if (Optional<NullabilityKind> Kind = getExplicitNullability())
+      return *Kind;
+    if (CanQT.isOwnedQualified() || CanQT.isBorrowQualified())
+      return NullabilityKind::NonNull;
+    // Raw pointer is nullable by default.
+    return NullabilityKind::Nullable;
+  }
+  return NullabilityKind::Unspecified;
+}
+
+QualType QualType::getOnlyBSCQualifiedType(const ASTContext &Context) const {
   Qualifiers Quals;
   if (isArrayElemQualified())
     Quals.addArrayElem();
+  if (isNullableQualified())
+    Quals.addNullable();
+  if (isNonnullQualified())
+    Quals.addNonnull();
   if (getCanonicalType().isOwnedQualified())
     Quals.addOwned();
   if (getCanonicalType().isBorrowQualified())

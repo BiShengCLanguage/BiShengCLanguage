@@ -183,8 +183,8 @@ static bool AreTypesCompatibleForUnsafeToSafeRefinement(QualType UnsafeType,
   // Nullability check:
   // A (_Unsafe) being _Nonnull while B (_Safe) is _Nullable is forbidden.
   if (UnsafeType->isPointerType() && SafeType->isPointerType()) {
-    if (getDefNullability(UnsafeType, Ctx) == NullabilityKind::NonNull &&
-        getDefNullability(SafeType, Ctx) == NullabilityKind::Nullable)
+    if (UnsafeType.getDefNullability() == NullabilityKind::NonNull &&
+        SafeType.getDefNullability() == NullabilityKind::Nullable)
       return false;
   }
 
@@ -271,6 +271,8 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
     // Strip nullability and owned/borrow for base type compatibility checking.
     AttributedType::stripOuterNullability(UnsafeT);
     AttributedType::stripOuterNullability(SafeT);
+    UnsafeT.removeLocalNullability(Ctx);
+    SafeT.removeLocalNullability(Ctx);
     UnsafeT.removeLocalOwned();
     UnsafeT.removeLocalBorrow();
     UnsafeT.removeLocalArrayElem(Ctx);
@@ -334,39 +336,66 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
   return true;
 }
 
-NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx) {
-  QualType CanQT = QT.getCanonicalType();
-  if (CanQT->isPointerType()) {
-    Optional<NullabilityKind> Kind = QT->getNullability(Ctx);
-    if (Kind && (*Kind == NullabilityKind::NonNull ||
-                 *Kind == NullabilityKind::Nullable)) {
-      return *Kind;
-    } else if (CanQT.isOwnedQualified() || CanQT.isBorrowQualified()) {
-      return NullabilityKind::NonNull;
-    } else // Raw Pointer is nullable by default.
-      return NullabilityKind::Nullable;
-  }
-  return NullabilityKind::Unspecified;
-}
-
 QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
                                 ASTContext &Ctx) {
   if (NK != NullabilityKind::Nullable && NK != NullabilityKind::NonNull)
     return QT;
 
-  Optional<NullabilityKind> Current = QT->getNullability(Ctx);
-  if (Current &&
-      (*Current == NK ||
-       (*Current == NullabilityKind::NullableResult &&
-        NK == NullabilityKind::Nullable)))
+  // Prefer QualType ExtQuals bits (BSC's representation) over AttributedType.
+  if ((NK == NullabilityKind::Nullable && QT.isNullableQualified()) ||
+      (NK == NullabilityKind::NonNull && QT.isNonnullQualified()))
     return QT;
 
+  // Also accept legacy AttributedType sugar with the same kind.
+  if (Optional<NullabilityKind> Current = QT->getNullability(Ctx)) {
+    if (*Current == NK ||
+        (*Current == NullabilityKind::NullableResult &&
+         NK == NullabilityKind::Nullable))
+      return QT;
+  }
+
   QualType BaseTy = QT;
+  BaseTy.removeLocalNullability(Ctx);
   while (BaseTy->getNullability(Ctx))
     BaseTy = BaseTy.getSingleStepDesugaredType(Ctx);
 
-  auto AttrKind = AttributedType::getNullabilityAttrKind(NK);
-  return Ctx.getAttributedType(AttrKind, BaseTy, BaseTy);
+  Qualifiers Qs = BaseTy.getQualifiers();
+  Qs.removeNullable();
+  Qs.removeNonnull();
+  if (NK == NullabilityKind::Nullable)
+    Qs.addNullable();
+  else
+    Qs.addNonnull();
+  return Ctx.getQualifiedType(BaseTy.getTypePtr(), Qs);
+}
+
+QualType transferExplicitNullability(QualType Src, QualType Dest,
+                                     ASTContext &Ctx) {
+  if (Optional<NullabilityKind> NK = Src.getExplicitNullability())
+    return applyNullabilityToType(Dest, *NK, Ctx);
+  return Dest;
+}
+
+QualType stripAllNullabilityQualifiers(QualType T, ASTContext &Ctx) {
+  T.removeLocalNullability(Ctx);
+
+  if (const auto *PT = T->getAs<PointerType>()) {
+    QualType OldPointee = PT->getPointeeType();
+    QualType NewPointee = stripAllNullabilityQualifiers(OldPointee, Ctx);
+    if (NewPointee.getAsOpaquePtr() == OldPointee.getAsOpaquePtr())
+      return T;
+    Qualifiers Qs = T.getQualifiers();
+    Qs.removeNullable();
+    Qs.removeNonnull();
+    return Ctx.getQualifiedType(Ctx.getPointerType(NewPointee).getTypePtr(),
+                                Qs);
+  }
+  return T;
+}
+
+QualType getOnlyBSCQualifiedTypeWithoutNullability(QualType T,
+                                                    ASTContext &Ctx) {
+  return stripAllNullabilityQualifiers(T.getOnlyBSCQualifiedType(Ctx), Ctx);
 }
 
 /// Recursively check that LHS and RHS have the same effective nullability
@@ -374,7 +403,7 @@ QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
 static bool areTypesNullabilityCompatibleRec(QualType LHS, QualType RHS,
                                              ASTContext &Ctx) {
   if (LHS->isPointerType() && RHS->isPointerType()) {
-    if (getDefNullability(LHS, Ctx) != getDefNullability(RHS, Ctx))
+    if (LHS.getDefNullability() != RHS.getDefNullability())
       return false;
     return areTypesNullabilityCompatibleRec(LHS->getPointeeType(),
                                             RHS->getPointeeType(), Ctx);

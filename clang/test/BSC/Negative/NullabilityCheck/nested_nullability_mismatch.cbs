@@ -10,7 +10,7 @@ void foo1(int *_Nonnull *);
 
 void test1(void) {
   int *_Nullable p = 0;
-  foo1(&p);  // expected-error {{nested pointer nullability mismatch from 'int * _Nullable *' to 'int * _Nonnull *', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+  foo1(&p);  // expected-error {{nested pointer nullability mismatch from 'int *_Nullable *' to 'int *_Nonnull *', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
 }
 
 // Test 2: Triple nested pointer - Nullable to Nonnull (should fail)
@@ -18,7 +18,7 @@ void foo2(int *_Nonnull **);
 
 void test2() {
   int *_Nullable *p = 0;
-  foo2(&p);  // expected-error {{nested pointer nullability mismatch from 'int * _Nullable **' to 'int * _Nonnull **', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+  foo2(&p);  // expected-error {{nested pointer nullability mismatch from 'int *_Nullable **' to 'int *_Nonnull **', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
 }
 
 // Test 3: Nested pointer - both Nullable (should pass)
@@ -44,7 +44,7 @@ void test4b(void) {
 void test5(void) {
   int *_Nullable p1 = 0;
   int *_Nonnull *p2;
-  p2 = &p1;  // expected-error {{nested pointer nullability mismatch from 'int * _Nullable *' to 'int * _Nonnull *', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+  p2 = &p1;  // expected-error {{nested pointer nullability mismatch from 'int *_Nullable *' to 'int *_Nonnull *', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
 }
 
 // Test 6: Assignment case - both Nullable (should pass)
@@ -57,14 +57,14 @@ void test6(void) {
 // Test 7: Outer Nonnull does not mask inner Nullable mismatch.
 _Safe void test7(int *_Nullable * _Nonnull src) {
   int *_Nonnull *dst = src;
-  // expected-error@-1 {{nested pointer nullability mismatch from 'int * _Nullable * _Nonnull' to 'int * _Nonnull *', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+  // expected-error@-1 {{nested pointer nullability mismatch from 'int *_Nullable *_Nonnull' to 'int *_Nonnull *', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
 }
 
 // Test 8: Inner NonNull must not assign to inner Nullable — prevents
 // write-back attacks that would violate the source's NonNull invariant.
 _Safe void test8(int *_Nonnull *src) {
   int *_Nullable *dst = src;
-  // expected-error@-1 {{nested pointer nullability mismatch from 'int * _Nonnull *' to 'int * _Nullable *', inner 'int * _Nonnull' mismatch with 'int * _Nullable'}}
+  // expected-error@-1 {{nested pointer nullability mismatch from 'int *_Nonnull *' to 'int *_Nullable *', inner 'int *_Nonnull' mismatch with 'int *_Nullable'}}
 }
 
 // Test 9: Both inner pointers const → NonNull→Nullable relaxed.
@@ -78,12 +78,12 @@ void test9(int *const _Nonnull *p1) {
 // *dst = nullptr would violate the source's _Nonnull invariant.
 _Safe void test10(int *_Nonnull p) {
   int *_Nullable *_Borrow dst = &_Mut p;
-  // expected-error@-1 {{nested pointer nullability mismatch from 'int * _Nonnull *_Borrow' to 'int * _Nullable *_Borrow', inner 'int * _Nonnull' mismatch with 'int * _Nullable'}}
+  // expected-error@-1 {{nested pointer nullability mismatch from 'int *_Nonnull *_Borrow' to 'int *_Nullable *_Borrow', inner 'int *_Nonnull' mismatch with 'int *_Nullable'}}
   (void)dst;
 }
 
 // Test 11: Return value has inner Nullable mismatch.
 _Safe int *_Nonnull *test11(int *_Nullable *p) {
   return p;
-  // expected-error@-1 {{nested pointer nullability mismatch from 'int * _Nullable *' to 'int * _Nonnull *', inner 'int * _Nullable' mismatch with 'int * _Nonnull'}}
+  // expected-error@-1 {{nested pointer nullability mismatch from 'int *_Nullable *' to 'int *_Nonnull *', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
 }

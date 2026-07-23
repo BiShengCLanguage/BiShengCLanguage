@@ -1,0 +1,4 @@
+// Header that would trigger -Wnullability-completeness in ObjC/C once any
+// nullability specifier is seen in the file.
+void takes_nullable(int *_Nullable p);
+void takes_raw(int *p);

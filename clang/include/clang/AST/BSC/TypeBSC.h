@@ -20,19 +20,30 @@
 
 namespace clang {
 
-/// Returns the effective nullability of a BSC pointer type.
-/// If the type carries an explicit _Nonnull or _Nullable annotation, returns it.
-/// Otherwise fills in the BSC default: _Owned/_Borrow pointers default to
-/// _Nonnull; raw pointers default to _Nullable. Non-pointer types return
-/// NullabilityKind::Unspecified.
-NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx);
-
-/// Apply \p NK as outer nullability sugar on \p QT, idempotently.
-/// If \p QT already has the same nullability (treating NullableResult as
-/// Nullable), returns \p QT unchanged. Otherwise strips existing outer
-/// nullability sugar and wraps with a fresh AttributedType.
+/// Apply \p NK as outer BSC nullability on \p QT, idempotently.
+/// BSC stores _Nullable/_Nonnull as non-fast qualifier bits (like
+/// _ArrayElem). If \p QT already has the same nullability (treating
+/// NullableResult as Nullable), returns \p QT unchanged. Otherwise strips
+/// existing outer nullability and re-applies \p NK as qualifier bits.
 QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
                                 ASTContext &Ctx);
+
+/// Copy explicit nullability from \p Src onto \p Dest, if any.
+QualType transferExplicitNullability(QualType Src, QualType Dest,
+                                     ASTContext &Ctx);
+
+/// Strip _Nullable/_Nonnull at every pointer level of \p T.
+/// Used when comparing pointer kinds (SafeZone / Ownership) so that
+/// nullability differences — handled by the nullability checker — do not
+/// make otherwise-compatible pointer types look distinct.
+QualType stripAllNullabilityQualifiers(QualType T, ASTContext &Ctx);
+
+/// \c getOnlyBSCQualifiedType followed by \c stripAllNullabilityQualifiers.
+/// Prefer this over ad-hoc \c getUnqualifiedType + nullability stripping when
+/// comparing BSC pointer kinds: Owned/Borrow/ArrayElem are kept consistently,
+/// CVR is dropped, and nullability is removed at every pointer level.
+QualType getOnlyBSCQualifiedTypeWithoutNullability(QualType T,
+                                                    ASTContext &Ctx);
 
 /// Returns true when LHS and RHS function types have the same effective
 /// nullability on every corresponding pair of parameters and return types.

@@ -31,14 +31,14 @@ int main(void) {
 }
 
 // CHECK:      struct S {
-// CHECK-NEXT:     int *p;
+// CHECK-NEXT:     int * p;
 // CHECK-NEXT: };
 // CHECK:      struct N {
-// CHECK-NEXT:     int *q;
+// CHECK-NEXT:     int * q;
 // CHECK-NEXT: };
 // CHECK:      struct M {
-// CHECK-NEXT:     int *a;
-// CHECK-NEXT:     int *b;
+// CHECK-NEXT:     int * a;
+// CHECK-NEXT:     int * b;
 // CHECK-NEXT: };
-// CHECK:      int *mkNull(int *in) {
-// CHECK:          int *lp = mkNull(n.q);
+// CHECK:      int * mkNull(int * in) {
+// CHECK:          int * lp = mkNull(n.q);

@@ -60,7 +60,7 @@ void test6(void) {
 void nonnull_func(int * _Nonnull p);
 
 void test7(void) {
-    void (*fp)(int *) = nonnull_func;  // expected-error {{conversion from type 'void (*)(int * _Nonnull)' to 'void (*)(int *)' is forbidden}}
+    void (*fp)(int *) = nonnull_func;  // expected-error {{conversion from type 'void (*)(int *_Nonnull)' to 'void (*)(int *)' is forbidden}}
 }
 
 // Test 8: _Owned (default _Nonnull) with explicit _Nullable mismatch.
@@ -74,5 +74,5 @@ _Safe void test8(void) {
 int * _Nonnull nonnull_ret(void);
 
 void test9(void) {
-    int * _Nullable (*fp)(void) = nonnull_ret;  // expected-error {{conversion from type 'int * _Nonnull (*)(void)' to 'int * _Nullable (*)(void)' is forbidden}}
+    int *_Nullable (*fp)(void) = nonnull_ret;  // expected-error {{conversion from type 'int *_Nonnull (*)(void)' to 'int *_Nullable (*)(void)' is forbidden}}
 }

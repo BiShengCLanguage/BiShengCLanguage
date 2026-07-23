@@ -15,6 +15,9 @@
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
+#if ENABLE_BSC
+#include "clang/AST/BSC/TypeBSC.h"
+#endif
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclObjC.h"
@@ -5566,6 +5569,35 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT, QualType LhsT,
       ->isDerivedFrom(cast<CXXRecordDecl>(lhsRecord->getDecl()));
   }
   case BTT_IsSame:
+#if ENABLE_BSC
+    // In BSC, nullability may be explicit (_Nullable/_Nonnull bits) or only
+    // implied by defaults (raw→nullable, owned/borrow→nonnull). Treat types as
+    // the same when they match after stripping nullability spelling and their
+    // effective (def) nullability agrees at every pointer level — e.g. `int *`
+    // and `int *_Nullable`, or `int *_Owned` and `int *_Owned _Nonnull`.
+    // Canonicalize first so typeof()/typedef sugar cannot hide ExtQuals from
+    // stripAllNullabilityQualifiers (which only clears local bits on the
+    // outermost QualType).
+    if (Self.getLangOpts().BSC) {
+      QualType L = LhsT.getCanonicalType();
+      QualType R = RhsT.getCanonicalType();
+      auto SameDefNullability = [&](auto &&SelfRec, QualType A,
+                                    QualType B) -> bool {
+        if (A->isPointerType() && B->isPointerType()) {
+          if (A.getDefNullability() != B.getDefNullability())
+            return false;
+          return SelfRec(SelfRec, A->getPointeeType().getCanonicalType(),
+                         B->getPointeeType().getCanonicalType());
+        }
+        return true;
+      };
+      if (!SameDefNullability(SameDefNullability, L, R))
+        return false;
+      return Self.Context.hasSameType(
+          stripAllNullabilityQualifiers(L, Self.Context),
+          stripAllNullabilityQualifiers(R, Self.Context));
+    }
+#endif
     return Self.Context.hasSameType(LhsT, RhsT);
   case BTT_TypeCompatible: {
     // GCC ignores cv-qualifiers on arrays for this builtin.
