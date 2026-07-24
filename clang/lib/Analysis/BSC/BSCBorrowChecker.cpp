@@ -124,6 +124,9 @@ void DefUse::VisitBinAssign(BinaryOperator *BO) {
 
 void DefUse::VisitCallExpr(CallExpr *CE) {
   Action = Use;
+  if (!CE->getDirectCallee()) {
+    Visit(CE->getCallee());
+  }
   for (Expr *E : CE->arguments()) {
     Visit(E);
   }
@@ -515,6 +518,9 @@ void ActionExtract::VisitCallExpr(CallExpr *CE) {
   else if (Dest != nullptr)
     Kind = Action::Init;
   op = RHS;
+  if (!CE->getDirectCallee()) {
+    Visit(CE->getCallee());
+  }
   for (Expr *E : CE->arguments()) {
     Visit(E);
   }

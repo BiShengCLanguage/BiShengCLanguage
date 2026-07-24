@@ -1,0 +1,103 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef _Safe int (*Fn)(int);
+
+struct Box {
+  Fn fns[2];
+  int data;
+};
+
+struct Box *_Owned make_box(void);
+void safe_free(void *_Owned);
+void use_box(struct Box *_Borrow);
+void use_function_pointer(Fn *_Borrow);
+
+// An indirect callee is a use of `borrow`. It must therefore keep the mutable
+// borrow of `*owner` alive across the attempted move of `owner`.
+void indirect_callee_extends_borrow_lifetime(void) {
+  struct Box *_Owned owner = make_box();
+  struct Box *_Borrow borrow = &_Mut *owner; // expected-note {{`*owner` is borrowed here}}
+  safe_free((void *_Owned)owner); // expected-error {{cannot move out of `owner` because it is borrowed}}
+  _Unsafe {
+    (borrow->fns[0])(20);
+  }
+}
+
+// The callee path itself must also be extracted as an ActionUse. Here `box`
+// cannot be read through the function-pointer member while its mutable borrow
+// remains live.
+void indirect_callee_is_an_action_use(struct Box box) {
+  struct Box *_Borrow borrow = &_Mut box; // expected-note {{`box` is borrowed here}}
+  _Unsafe {
+    (box.fns[0])(20); // expected-error {{cannot use `box.fns[]` because it was mutably borrowed}}
+  }
+  use_box(borrow);
+}
+
+// An ordinary function-pointer variable is also an indirect callee. Calling it
+// reads `callee`, which is forbidden while its mutable borrow remains live.
+void function_pointer_callee_is_an_action_use(Fn callee) {
+  Fn *_Borrow borrow = &_Mut callee; // expected-note {{`callee` is borrowed here}}
+  _Unsafe {
+    callee(20); // expected-error {{cannot use `callee` because it was mutably borrowed}}
+  }
+  use_function_pointer(borrow);
+}
+
+// Calling through `borrow` is its last use. DefUse must find that use inside
+// the callee expression so the mutable borrow remains live across the write.
+void function_pointer_borrow_extends_lifetime(Fn callee, Fn replacement) {
+  Fn *_Borrow borrow = &_Mut callee; // expected-note {{`callee` is borrowed here}}
+  callee = replacement; // expected-error {{cannot assign to `callee` because it is borrowed}}
+  _Unsafe {
+    (*borrow)(20);
+  }
+}
+
+// An array subscript can also produce the function pointer used as the callee.
+// The call reads the borrowed array-element path.
+void function_pointer_array_callee_is_an_action_use(Fn first, Fn second) {
+  Fn callees[2] = {first, second};
+  Fn *_Borrow borrow = &_Mut callees[0]; // expected-note {{`callees[]` is borrowed here}}
+  _Unsafe {
+    callees[0](20); // expected-error {{cannot use `callees[]` because it was mutably borrowed}}
+  }
+  use_function_pointer(borrow);
+}
+
+// Dereferencing a pointer-to-function-pointer can produce the indirect callee.
+// The call reads `*slot` while its mutable borrow is still live.
+void dereferenced_function_pointer_callee_is_an_action_use(Fn *slot) {
+  Fn *_Borrow borrow = &_Mut *slot; // expected-note {{`*slot` is borrowed here}}
+  _Unsafe {
+    (*slot)(20); // expected-error {{cannot use `*slot` because it was mutably borrowed}}
+  }
+  use_function_pointer(borrow);
+}
+
+// A direct call still obtains its uses from the argument list. Once the last
+// argument use is over, NLL permits access to the original value again.
+void direct_call_arguments_are_still_visited(struct Box box) {
+  struct Box *_Borrow borrow = &_Mut box;
+  use_box(borrow);
+  box.data = 1;
+}
+
+// Once the borrow's last use is over, NLL permits reading the original
+// function-pointer variable as an indirect callee again.
+int valid_function_pointer_call_after_borrow_ends(Fn callee) {
+  Fn *_Borrow borrow = &_Mut callee;
+  use_function_pointer(borrow);
+  _Unsafe {
+    return callee(20);
+  }
+}
+
+// An indirect call through a borrow is valid when it does not overlap an
+// illegal access or move of the borrowed value.
+int valid_indirect_call(struct Box box) {
+  struct Box *_Borrow borrow = &_Mut box;
+  _Unsafe {
+    return (borrow->fns[0])(20);
+  }
+}
