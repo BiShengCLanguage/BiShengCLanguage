@@ -117,6 +117,19 @@ _Safe int subscript_index_borrow_ok(void) {
   return a[0] + dummy;
 }
 
+// Test `_Borrow _ArrayElem` → `_Borrow` downgrade with structs that have
+// _Owned fields. Previously, CheckOwnedQualTypeAssignment would reject this
+// because it didn't recognize the borrow-to-borrow ArrayElem downgrade.
+typedef struct _T {int a; int * _Owned p;} T;
+typedef struct _S { T a; T b; } S;
+
+_Safe void owned_struct_borrow_arrayelem_downgrade_ok(S* a) {
+  if (!a) return;
+  for (int i = 0; i < 10; ++i) {
+    S*_Borrow p = &_Mut (a[i]);
+  }
+}
+
 int main(void) {
   if (cf_if_else_ok() != 9)
     return 1;

@@ -305,8 +305,13 @@ bool Sema::CheckOwnedQualTypeCStyleCast(QualType LHSType, QualType RHSType) {
     if ((LHSRaw && RHSOwned) || (LHSOwned && RHSRaw)) {
       return false;
     }
-    if (LHSType.isArrayElemQualified() != RHSType.isArrayElemQualified())
-      return false;
+    if (LHSType.isArrayElemQualified() != RHSType.isArrayElemQualified()) {
+      // Allow `_Borrow _ArrayElem` to downgrade to plain `_Borrow`
+      if (!(LHSBorrow && RHSBorrow &&
+            !LHSType.isArrayElemQualified() &&
+            RHSType.isArrayElemQualified()))
+        return false;
+    }
     // Conversion between different raw pointers is allowed
     if (LHSRaw && RHSRaw) {
       return true;
@@ -371,7 +376,11 @@ bool Sema::CheckOwnedQualTypeAssignment(QualType LHSType, QualType RHSType, Sour
   if (LHSCanType.isOwnedQualified() == RHSCanType.isOwnedQualified() ||
       (LHSCanType->isTraitType() && RHSCanType->isOwnedStructureType())) {
     if (LHSType.isArrayElemQualified() != RHSType.isArrayElemQualified()) {
-      return false;
+      // Allow `_Borrow _ArrayElem` to downgrade to plain `_Borrow`
+      if (!(LHSCanType.isBorrowQualified() && RHSCanType.isBorrowQualified() &&
+            !LHSType.isArrayElemQualified() &&
+            RHSType.isArrayElemQualified()))
+        return false;
     }
     if (IsSameType) {
       return true;

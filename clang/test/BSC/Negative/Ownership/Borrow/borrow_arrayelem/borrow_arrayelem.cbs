@@ -134,3 +134,11 @@ _Safe void arithmetic_reborrow_while_star_p_borrowed(void) {
   p2[0] = 1;
   *q = 2;
 }
+
+// Reverse direction `_Borrow` → `_Borrow _ArrayElem` must remain rejected
+// (the fix only allows the downgrade: `_Borrow _ArrayElem` → `_Borrow`).
+_Safe void borrow_to_arrayelem_upgrade_rejected(void) {
+  int a = 0;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow _ArrayElem q = p; // expected-error {{conversion from type 'int *_Borrow' to 'int *_Borrow _ArrayElem' is forbidden in the safe zone}}
+}
