@@ -118,9 +118,11 @@ def process_subheadings(lines: list[str]) -> list[str]:
         m = SUBHEADING_RE.match(line)
         if m:
             hashes = m.group(1)
+            number = m.group(2)
             title = m.group(3)
             new_level = max(1, len(hashes) - 2)
-            result.append(f'{"#" * new_level} {title}\n')
+            prefix = f'{number}. ' if number else ''
+            result.append(f'{"#" * new_level} {prefix}{title}\n')
         else:
             result.append(line)
     return result
