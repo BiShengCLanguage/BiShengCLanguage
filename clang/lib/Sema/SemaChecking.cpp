@@ -159,26 +159,6 @@ static NullabilityKind getBSCDefNullability(QualType QT, ASTContext &Ctx) {
   return getDefNullability(QT, Ctx);
 }
 
-static QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
-                                       ASTContext &Ctx) {
-  if (NK != NullabilityKind::Nullable && NK != NullabilityKind::NonNull)
-    return QT;
-
-  Optional<NullabilityKind> Current = QT->getNullability(Ctx);
-  if (Current &&
-      (*Current == NK ||
-       (*Current == NullabilityKind::NullableResult &&
-        NK == NullabilityKind::Nullable)))
-    return QT;
-
-  QualType BaseTy = QT;
-  while (BaseTy->getNullability(Ctx))
-    BaseTy = BaseTy.getSingleStepDesugaredType(Ctx);
-
-  auto AttrKind = AttributedType::getNullabilityAttrKind(NK);
-  return Ctx.getAttributedType(AttrKind, BaseTy, BaseTy);
-}
-
 /// common checks for __move[_array]_to_raw / __take[_array]_from_raw
 static bool checkBSCRawTransferBuiltinCommon(Sema &S, CallExpr *TheCall,
                                              StringRef Name) {

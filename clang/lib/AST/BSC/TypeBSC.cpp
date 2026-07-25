@@ -12,6 +12,7 @@
 
 #if ENABLE_BSC
 
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Type.h"
@@ -346,6 +347,26 @@ NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx) {
       return NullabilityKind::Nullable;
   }
   return NullabilityKind::Unspecified;
+}
+
+QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
+                                ASTContext &Ctx) {
+  if (NK != NullabilityKind::Nullable && NK != NullabilityKind::NonNull)
+    return QT;
+
+  Optional<NullabilityKind> Current = QT->getNullability(Ctx);
+  if (Current &&
+      (*Current == NK ||
+       (*Current == NullabilityKind::NullableResult &&
+        NK == NullabilityKind::Nullable)))
+    return QT;
+
+  QualType BaseTy = QT;
+  while (BaseTy->getNullability(Ctx))
+    BaseTy = BaseTy.getSingleStepDesugaredType(Ctx);
+
+  auto AttrKind = AttributedType::getNullabilityAttrKind(NK);
+  return Ctx.getAttributedType(AttrKind, BaseTy, BaseTy);
 }
 
 /// Recursively check that LHS and RHS have the same effective nullability

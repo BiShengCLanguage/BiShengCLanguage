@@ -505,19 +505,8 @@ static void checkNestedPointerNullability(QualType LHS, QualType RHS,
         !(LHSKind == NullabilityKind::Nullable &&
           RHSKind == NullabilityKind::NonNull &&
           CurLHS.isConstQualified() && CurRHS.isConstQualified())) {
-      // Work around a Clang diagnostic-engine bug: when printing a
-      // QualType that carries two levels of AttributedType nullability
-      // (e.g. int * _Nullable * _Nonnull), the innermost _Nonnull is
-      // printed twice.  Stripping the outermost AttributedType before
-      // printing avoids the duplication without losing information
-      // (the inner types are shown separately below).
-      auto DropOuterAttr = [](QualType T) -> QualType {
-        if (const auto *AT = T->getAs<AttributedType>())
-          return AT->getModifiedType();
-        return T;
-      };
       NullabilityCheckDiagInfo DI(DiagLoc, NestedNullabilityMismatch,
-          DropOuterAttr(OrigRHS), DropOuterAttr(OrigLHS), CurRHS, CurLHS);
+                                  OrigRHS, OrigLHS, CurRHS, CurLHS);
       Reporter.addDiagInfo(DI);
       return;
     }

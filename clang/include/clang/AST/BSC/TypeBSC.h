@@ -27,6 +27,13 @@ namespace clang {
 /// NullabilityKind::Unspecified.
 NullabilityKind getDefNullability(QualType QT, const ASTContext &Ctx);
 
+/// Apply \p NK as outer nullability sugar on \p QT, idempotently.
+/// If \p QT already has the same nullability (treating NullableResult as
+/// Nullable), returns \p QT unchanged. Otherwise strips existing outer
+/// nullability sugar and wraps with a fresh AttributedType.
+QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
+                                ASTContext &Ctx);
+
 /// Returns true when LHS and RHS function types have the same effective
 /// nullability on every corresponding pair of parameters and return types.
 /// Returns false if any mismatch is found, e.g. a _Nonnull source parameter

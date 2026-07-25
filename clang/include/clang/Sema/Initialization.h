@@ -15,6 +15,9 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
+#if ENABLE_BSC
+#include "clang/AST/BSC/TypeBSC.h"
+#endif
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclAccessPair.h"
 #include "clang/AST/DeclarationName.h"
@@ -268,9 +271,10 @@ public:
     if (Context.getLangOpts().BSC) {
       Entity.Type =
         Context.getVariableArrayDecayedType(Type.getOnlyAOBQualifiedType(Context));
-      if (const AttributedType *AT = Type->getAs<AttributedType>())
-        Entity.Type = Context.getAttributedType(AT->getAttrKind(), Entity.Type,
-                                                Entity.Type);
+      if (Optional<NullabilityKind> Kind = Type->getNullability(Context))
+        if (*Kind == NullabilityKind::NonNull ||
+            *Kind == NullabilityKind::Nullable)
+          Entity.Type = applyNullabilityToType(Entity.Type, *Kind, Context);
     } else
 #endif
     Entity.Type =
