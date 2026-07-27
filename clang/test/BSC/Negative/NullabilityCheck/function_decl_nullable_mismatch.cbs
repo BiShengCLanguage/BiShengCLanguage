@@ -44,3 +44,77 @@ _Safe int *_Owned foo6(void) {
   int *_Owned p = nullptr;
   return p;
 }
+
+// Test 7: Nested param nullability mismatch (_Owned vs _Owned _Nullable)
+_Safe void foo7(int *_Owned *_Borrow p);  // expected-note {{previous declaration is here}}
+
+_Safe void foo7(int *_Owned _Nullable *_Borrow p) {  // expected-error {{conflicting types for 'foo7'}}
+}
+
+// Test 8: Nested return nullability mismatch (_Owned vs _Owned _Nullable)
+_Safe int *_Owned *_Borrow foo8(int *_Owned *_Borrow p);  // expected-note {{previous declaration is here}}
+
+_Safe int *_Owned _Nullable *_Borrow
+foo8(int *_Owned *_Borrow p) {  // expected-error {{conflicting types for 'foo8'}}
+  return p;
+}
+
+// Test 9: Matching nested nullability (should pass)
+_Safe void foo9(int *_Owned _Nullable *_Borrow p);
+
+_Safe void foo9(int *_Owned _Nullable *_Borrow p) {
+}
+
+// Test 10: Fnptr param — nested pointee-param nullability mismatch
+_Safe void foo10(void (*cb)(int *_Owned *_Borrow));  // expected-note {{previous declaration is here}}
+
+_Safe void foo10(void (*cb)(int *_Owned _Nullable *_Borrow)) {  // expected-error {{conflicting types for 'foo10'}}
+}
+
+// Test 11: Fnptr param — nested pointee-param nullability match (should pass)
+_Safe void foo11(void (*cb)(int *_Owned _Nullable *_Borrow));
+
+_Safe void foo11(void (*cb)(int *_Owned _Nullable *_Borrow)) {
+}
+
+// Test 12: Fnptr param — outer pointee-param nullability mismatch
+_Safe void foo12(void (*cb)(int *_Owned));  // expected-note {{previous declaration is here}}
+
+_Safe void foo12(void (*cb)(int *_Owned _Nullable)) {  // expected-error {{conflicting types for 'foo12'}}
+}
+
+// Test 13: Fnptr param — outer pointee-param nullability match (should pass)
+_Safe void foo13(void (*cb)(int *_Owned _Nullable));
+
+_Safe void foo13(void (*cb)(int *_Owned _Nullable)) {
+}
+
+// Test 14: Fnptr param — pointee return nullability mismatch
+_Safe void foo14(int *_Owned (*cb)(void));  // expected-note {{previous declaration is here}}
+
+_Safe void foo14(int *_Owned _Nullable (*cb)(void)) {  // expected-error {{conflicting types for 'foo14'}}
+}
+
+// Test 15: Fnptr param — pointee return nullability match (should pass)
+_Safe void foo15(int *_Owned _Nullable (*cb)(void));
+
+_Safe void foo15(int *_Owned _Nullable (*cb)(void)) {
+}
+
+// Test 16: Fnptr param — nested pointee-return nullability mismatch
+_Safe void foo16(int *_Owned *_Borrow (*cb)(int *_Owned *_Borrow));  // expected-note {{previous declaration is here}}
+
+_Safe void foo16(int *_Owned _Nullable *_Borrow (*cb)(int *_Owned *_Borrow)) {  // expected-error {{conflicting types for 'foo16'}}
+}
+
+// Test 17: Fnptr param — nested pointee-return nullability match (should pass)
+_Safe void foo17(int *_Owned _Nullable *_Borrow (*cb)(int *_Owned _Nullable *_Borrow));
+
+_Safe void foo17(int *_Owned _Nullable *_Borrow (*cb)(int *_Owned _Nullable *_Borrow)) {
+}
+
+// Test 18: Fnptr param — both pointee param and return nullability mismatch
+_Safe void foo18(int *_Owned (*cb)(int *_Owned *_Borrow));  // expected-note {{previous declaration is here}}
+
+_Safe void foo18(int *_Owned _Nullable (*cb)(int *_Owned _Nullable *_Borrow)) {  // expected-error {{conflicting types for 'foo18'}}
+}

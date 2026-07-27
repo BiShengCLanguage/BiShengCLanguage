@@ -79,7 +79,26 @@ void Sema::CheckBSCConstexprVarType(VarDecl* VD) {
 
 bool HasDiffNullabilityQualifiers(QualType LHSType, QualType RHSType,
                                    ASTContext &Ctx) {
-  return getDefNullability(LHSType, Ctx) != getDefNullability(RHSType, Ctx);
+  if (getDefNullability(LHSType, Ctx) != getDefNullability(RHSType, Ctx))
+    return true;
+  if (LHSType->isPointerType() && RHSType->isPointerType()) {
+    QualType LHSPType = LHSType->getPointeeType();
+    QualType RHSPType = RHSType->getPointeeType();
+    const auto *LHSFn = LHSPType->getAs<FunctionProtoType>();
+    const auto *RHSFn = RHSPType->getAs<FunctionProtoType>();
+    if (LHSFn && RHSFn && LHSFn->getNumParams() == RHSFn->getNumParams()) {
+      if (HasDiffNullabilityQualifiers(LHSFn->getReturnType(),
+                                       RHSFn->getReturnType(), Ctx))
+        return true;
+      for (unsigned I = 0, E = LHSFn->getNumParams(); I != E; ++I)
+        if (HasDiffNullabilityQualifiers(LHSFn->getParamType(I),
+                                         RHSFn->getParamType(I), Ctx))
+          return true;
+      return false;
+    }
+    return HasDiffNullabilityQualifiers(LHSPType, RHSPType, Ctx);
+  }
+  return false;
 }
 
 bool HasDiffBorrorOrOwnedQualifiers(QualType LHSType, QualType RHSType) {
