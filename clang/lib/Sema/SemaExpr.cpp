@@ -16544,6 +16544,11 @@ ExprResult Sema::ActOnBinOp(Scope *S, SourceLocation TokLoc,
           return ActOnTraitCompare(S, TokLoc, Opc, LHSExpr, RHSExpr);
       }
     }
+
+    // The left operand of a comma expression is always discarded, regardless
+    // of how the value of the whole expression is used.
+    if (Opc == BO_Comma)
+      CheckTemporaryVarMemoryLeak(LHSExpr);
   }
 
   QualType LHSCanType = LHSExpr->getType().getCanonicalType();

@@ -47,6 +47,23 @@ _Safe void comma_lhs(void) {
   make(), 0; // expected-error {{memory leak because temporary variable}}
 }
 
+_Safe int return_comma_lhs(void) {
+  return (make(), nullptr); // expected-error {{memory leak because temporary variable}}
+  // expected-error@-1 {{implicit conversion from type 'nullptr_t' to 'int' is forbidden in the safe zone}}
+}
+
+_Safe int return_comma_lhs_clean(void) {
+  return (make(), 0); // expected-error {{memory leak because temporary variable}}
+}
+
+_Safe int *_Owned return_comma_rhs(void) {
+  return ((void)0, make());
+}
+
+_Safe void initialize_from_comma_rhs(void) {
+  int value = (make(), 0); // expected-error {{memory leak because temporary variable}}
+}
+
 _Safe void conditional(int c) {
   c ? make() : nullptr; // expected-error {{memory leak because temporary variable}}
 }

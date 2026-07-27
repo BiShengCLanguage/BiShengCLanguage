@@ -556,11 +556,11 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
       return CheckTemporaryVarMemoryLeak(UO->getSubExpr());
   }
   if (auto *BO = dyn_cast<BinaryOperator>(E)) {
-    if (BO->getOpcode() == BO_Comma) {
-      bool LeakLHS = CheckTemporaryVarMemoryLeak(BO->getLHS());
-      bool LeakRHS = CheckTemporaryVarMemoryLeak(BO->getRHS());
-      return LeakLHS || LeakRHS;
-    }
+    // ActOnBinOp checks the comma LHS, which is always discarded. If the
+    // comma expression itself is discarded, only its result-producing RHS
+    // needs an additional check here.
+    if (BO->getOpcode() == BO_Comma)
+      return CheckTemporaryVarMemoryLeak(BO->getRHS());
   }
   if (auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
     // BinaryConditionalOperator (GNU `x ?: y`) reuses the common expression,

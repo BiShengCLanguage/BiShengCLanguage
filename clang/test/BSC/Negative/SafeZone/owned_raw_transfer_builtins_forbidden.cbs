@@ -14,6 +14,8 @@ _Safe void test_builtin_forbidden_in_safe_zone(void) {
 
 _Safe void test_no_recursive_bypass(void) {
   int *raw = get_raw();
-  int *_Owned p = (_Unsafe(__take_from_raw(raw)), raw); // expected-warning {{left operand of comma operator has no effect}} expected-error {{conversion from type 'int *' to 'int *_Owned' is forbidden in the safe zone}}
+  int *_Owned p = (_Unsafe(__take_from_raw(raw)), raw); // expected-warning {{left operand of comma operator has no effect}}
+  // expected-error@-1 {{memory leak because temporary variable}}
+  // expected-error@-2 {{conversion from type 'int *' to 'int *_Owned' is forbidden in the safe zone}}
   (void)p;
 }
