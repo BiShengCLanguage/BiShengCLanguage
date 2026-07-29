@@ -92,7 +92,7 @@ public:
   runOnBlock(const CFGBlock *block, StatusVD statusVD, StatusFP statusFP,
              StatusDPVD statusDPVD, NullabilityCheckDiagReporter &reporter,
              ASTContext &ctx, const FunctionDecl &fd, ParentMap &PM);
-  void initStatus(const CFG &cfg, ASTContext &ctx);
+  void initStatus(const CFG &cfg);
 
   NullabilityCheckImpl()
       : BlocksBeginStatusVD(0), BlocksEndStatusVD(0), BlocksBeginStatusFP(0),
@@ -953,11 +953,17 @@ void TransferFunctions::PassConditionStatusToSuccBlocks(Expr *CondExpr) {
   }
 }
 
-/// Recursively walk \\p S and collect every DeclRefExpr / MemberExpr whose
-/// declared nullability is Nullable.  Seeded entries are later updated by
-/// CheckInit / VisitBinaryOperator with the actual runtime value.
-static void collectNullableDecls(Stmt *S, ASTContext &Ctx,
-                                 StatusVD &VDMap, StatusFP &FPMap) {
+/// Recursively walk \p S while initStatus pre-scans the CFG. The caller passes
+/// the entry-state maps, so declarations and paths discovered in any ordinary
+/// block are seeded at the function entry rather than in the block being
+/// scanned. Variables and field paths use their declared Nullable default. A
+/// UO_Deref is added as (root VarDecl, dereference depth) only when that path
+/// is trackable and its result has Nullable DefNullability. The explicit
+/// Nullable entry prevents a predecessor that never narrows the path from
+/// contributing a missing map entry at a CFG join; initialization, assignments,
+/// and branch conditions may subsequently refine or replace the seeded state.
+static void collectNullableDecls(Stmt *S, StatusVD &VDMap, StatusFP &FPMap,
+                                 StatusDPVD &DPMap) {
   if (!S)
     return;
   if (auto DRE = dyn_cast<DeclRefExpr>(S)) {
@@ -972,15 +978,22 @@ static void collectNullableDecls(Stmt *S, ASTContext &Ctx,
         FPMap[FP] = NullabilityKind::Nullable;
       }
     }
+  } else if (auto UO = dyn_cast<UnaryOperator>(S)) {
+    if (UO->getOpcode() == UO_Deref) {
+      DerefPathVD DP;
+      if (getDerefPathVDFromExpr(UO, DP) && DP.second > 0 &&
+          UO->getType().getDefNullability() == NullabilityKind::Nullable) {
+        DPMap[DP] = NullabilityKind::Nullable;
+      }
+    }
   }
   for (Stmt *Child : S->children())
-    collectNullableDecls(Child, Ctx, VDMap, FPMap);
+    collectNullableDecls(Child, VDMap, FPMap, DPMap);
 }
 
-// Traverse all blocks of cfg to collect all nullable pointers used,
-// including local and global variable and parameters.
-// Init PathNullability of these pointers by Nullable.
-void NullabilityCheckImpl::initStatus(const CFG &cfg, ASTContext &ctx) {
+// Traverse the CFG once and seed entry PathNullability for every trackable
+// declaration, field path, and dereference path with Nullable DefNullability.
+void NullabilityCheckImpl::initStatus(const CFG &cfg) {
   const CFGBlock *entry = &cfg.getEntry();
   for (const CFGBlock *B : cfg.const_nodes()) {
     if (B != entry && B != &cfg.getExit() && !B->succ_empty() &&
@@ -990,8 +1003,9 @@ void NullabilityCheckImpl::initStatus(const CFG &cfg, ASTContext &ctx) {
         const CFGElement &elem = *it;
         if (elem.getAs<CFGStmt>()) {
           Stmt *S = const_cast<Stmt *>(elem.castAs<CFGStmt>().getStmt());
-          collectNullableDecls(S, ctx, BlocksEndStatusVD[entry],
-                               BlocksEndStatusFP[entry]);
+          collectNullableDecls(S, BlocksEndStatusVD[entry],
+                               BlocksEndStatusFP[entry],
+                               BlocksEndStatusDPVD[entry]);
         }
       }
     }
@@ -1088,7 +1102,7 @@ void clang::runNullabilityCheck(const FunctionDecl &fd, const CFG &cfg,
     return;
 
   NullabilityCheckImpl NCI;
-  NCI.initStatus(cfg, ctx);
+  NCI.initStatus(cfg);
 
   // Proceed with the worklist.
   ForwardDataflowWorklist worklist(cfg, ac);

@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -verify -nullability-check=all %s
+// expected-no-diagnostics
+
+// When every path reaching the join proves *p NonNull, the merged state must
+// remain NonNull.
+int all_paths_narrow_deref_path(int *_Nullable *_Nonnull p, int c) {
+  if (c != 0) {
+    if (*p == nullptr)
+      return -1;
+  } else {
+    if (*p == nullptr)
+      return -1;
+  }
+
+  return **p;
+}
+
+// The only path reaching the dereference has ruled out a null *p.
+int early_return_narrows_deref_path(int *_Nullable *_Nonnull p) {
+  if (*p == nullptr)
+    return -1;
+
+  return **p;
+}
+
+// Both predecessors establish NonNull, one by checking the path and the other
+// by assigning a NonNull value to the tracked slot.
+int check_or_assignment_both_nonnull(int *_Nullable *_Nonnull p,
+                                     int *_Nonnull value, int c) {
+  if (c != 0) {
+    if (*p == nullptr)
+      return -1;
+  } else {
+    *p = value;
+  }
+
+  return **p;
+}

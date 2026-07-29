@@ -1,0 +1,73 @@
+// RUN: %clang_cc1 -verify -nullability-check=all %s
+
+// Original issue : the inner null branch exits, while the
+// outer c == 0 path reaches the final dereference without checking *p.
+int original_nested_if_issue(int *_Nullable *_Nonnull p, int c) {
+  if (c != 0) {
+    if (*p == nullptr) {
+      return -1;
+    } else {
+      int value = **p;
+      (void)value;
+    }
+  }
+
+  int result =
+      **p; // expected-error {{nullable pointer cannot be dereferenced}}
+  return result;
+}
+
+// Reduced form of the original issue: a check on only one control-flow path
+// must not make *p NonNull on an unchecked path reaching the same CFG join.
+int unchecked_path_remains_nullable(int *_Nullable *_Nonnull p, int c) {
+  if (c != 0) {
+    if (*p == nullptr)
+      return -1;
+
+    int value = **p;
+    (void)value;
+  }
+
+  return **p; // expected-error {{nullable pointer cannot be dereferenced}}
+}
+
+// Entry initialization must cover every trackable dereference depth, not only
+// the first dereference from the root variable.
+int deeper_unchecked_path_remains_nullable(
+    int *_Nullable *_Nonnull *_Nonnull p, int c) {
+  if (c != 0) {
+    if (**p == nullptr)
+      return -1;
+
+    int value = ***p;
+    (void)value;
+  }
+
+  return ***p; // expected-error {{nullable pointer cannot be dereferenced}}
+}
+
+// The left side of && may bypass the *p check, so leaving the if does not prove
+// *p NonNull.
+int short_circuit_may_skip_check(int *_Nullable *_Nonnull p, int c) {
+  if (c != 0 && *p != nullptr) {
+    int value = **p;
+    (void)value;
+  }
+
+  return **p; // expected-error {{nullable pointer cannot be dereferenced}}
+}
+
+// A while loop may execute zero times. A NonNull fact learned in its body must
+// not replace the Nullable entry state on the direct loop-exit path.
+int loop_may_execute_zero_times(int *_Nullable *_Nonnull p, int count) {
+  while (count > 0) {
+    if (*p == nullptr)
+      return -1;
+
+    int value = **p;
+    (void)value;
+    --count;
+  }
+
+  return **p; // expected-error {{nullable pointer cannot be dereferenced}}
+}
