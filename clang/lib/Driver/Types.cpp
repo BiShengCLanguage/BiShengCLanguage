@@ -268,6 +268,8 @@ bool types::isBSC(ID Id) {
 
   case TY_BSC:
   case TY_BSCHeader:
+  case TY_PP_BSC:
+  case TY_PP_BSCHeader:
     return true;
   }
 }
