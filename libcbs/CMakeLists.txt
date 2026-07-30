@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.13.4)
+add_compile_options(-fbsc-experimental)
 
 # for macOS
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
