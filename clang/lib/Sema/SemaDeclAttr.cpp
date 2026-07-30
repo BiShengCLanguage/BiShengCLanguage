@@ -8297,6 +8297,8 @@ EnforceTCBLeafAttr *Sema::mergeEnforceTCBLeafAttr(
 
 #if ENABLE_BSC
 static void handleOperatorAttr(Sema &S, Decl *D, const ParsedAttr &Attrs) {
+  if (!S.getLangOpts().BSCExperimental)
+    S.Diag(Attrs.getLoc(), diag::err_bsc_exp_sema) << "operator overloading";
   D->addAttr(::new (S.Context) OperatorAttr(
       S.Context, Attrs, Attrs.getOperatorTypeBuffer().Kind));
 }

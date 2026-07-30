@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 _Trait F {
   int a(); // expected-error {{the first parameter of _Trait member function must be 'This* this'}}

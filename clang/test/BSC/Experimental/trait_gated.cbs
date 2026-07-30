@@ -1,0 +1,14 @@
+// RUN: not %clang -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=GATED
+// RUN: %clang -fbsc-experimental -fsyntax-only %s
+// expected-no-diagnostics
+
+// GATED: _Trait is an experimental BSC feature; enable with -fbsc-experimental
+
+_Trait MyTrait {
+  void foo(This* this);
+};
+
+struct S {};
+void struct S::foo(struct S* this) {}
+
+_Impl _Trait MyTrait for struct S;

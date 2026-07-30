@@ -1,0 +1,12 @@
+// RUN: not %clang -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=GATED
+// RUN: %clang -fbsc-experimental -fsyntax-only %s
+// expected-no-diagnostics
+
+// GATED: coroutine is an experimental BSC feature; enable with -fbsc-experimental
+
+#include "future.hbs"
+#include <stdlib.h>
+
+_Async int f() {
+  return 0;
+}

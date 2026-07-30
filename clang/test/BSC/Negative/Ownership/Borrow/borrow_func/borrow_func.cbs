@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 
 int *_Borrow f(); // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
 int *_Borrow f1(int a) { // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}

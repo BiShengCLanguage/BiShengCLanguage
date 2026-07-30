@@ -1,8 +1,8 @@
-// RUN: %clang %s %S/scheduler.cbs %S/noise.cbs -o %test.output -lpthread
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang -rewrite-bsc %S/scheduler.cbs -o %T/scheduler.c
-// RUN: %clang -rewrite-bsc %S/noise.cbs -o %T/noise.c
-// RUN: %clang %t-rw.c %T/scheduler.c %T/noise.c -o %t-rw.output -lpthread
+// RUN: %clang -fbsc-experimental %s %S/scheduler.cbs %S/noise.cbs -o %test.output -lpthread
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/scheduler.cbs -o %T/scheduler.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/noise.cbs -o %T/noise.c
+// RUN: %clang -fbsc-experimental %t-rw.c %T/scheduler.c %T/noise.c -o %t-rw.output -lpthread
 // expected-no-diagnostics
 
 #include <stdio.h>

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 // Fix crashes first, then optimize error messages.
 // TODO: missing "extraneous ')' before ';'".

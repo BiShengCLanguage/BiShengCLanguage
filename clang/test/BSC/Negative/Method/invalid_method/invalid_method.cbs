@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 ::a // expected-error {{unsupported global scope specifier '::'}}
 // expected-error@-1 {{unknown type name 'a'}}

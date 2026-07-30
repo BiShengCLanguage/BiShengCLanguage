@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 int foo1();   // expected-note {{previous declaration is here}}
 constexpr int foo1() {  // expected-error {{constexpr declaration of 'foo1' follows non-constexpr declaration}}

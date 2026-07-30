@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 
 _Owned struct D{
     int a ;

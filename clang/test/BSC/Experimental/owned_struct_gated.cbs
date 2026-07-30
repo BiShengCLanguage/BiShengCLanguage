@@ -1,0 +1,9 @@
+// RUN: not %clang -fsyntax-only %s 2>&1 | FileCheck %s --check-prefix=GATED
+// RUN: %clang -fbsc-experimental -fsyntax-only %s
+// expected-no-diagnostics
+
+// GATED: _Owned struct is an experimental BSC feature; enable with -fbsc-experimental
+
+_Owned struct S {
+  int x;
+};

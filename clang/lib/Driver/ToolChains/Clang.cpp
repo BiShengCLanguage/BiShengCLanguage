@@ -6470,6 +6470,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-fcoroutines-ts");
   }
 
+#if ENABLE_BSC
+  if (types::isBSC(InputType) &&
+      Args.hasFlag(options::OPT_fbsc_experimental,
+                   options::OPT_fno_bsc_experimental, false)) {
+    CmdArgs.push_back("-fbsc-experimental");
+  }
+#endif
+
   Args.AddLastArg(CmdArgs, options::OPT_fdouble_square_bracket_attributes,
                   options::OPT_fno_double_square_bracket_attributes);
 

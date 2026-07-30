@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 void test(int *_Owned _Borrow p) { // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
   int *_Owned _Borrow q = p; // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}

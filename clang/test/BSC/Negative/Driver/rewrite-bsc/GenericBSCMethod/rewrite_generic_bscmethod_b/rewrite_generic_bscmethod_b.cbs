@@ -1,4 +1,4 @@
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 
 #include "../rewrite_generic_bscmethod.hbs"
 

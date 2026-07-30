@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 // Regression: after parsing an _Owned struct, DesugarDestructor runs BSC dataflow.
 // Destructor bodies with invalid lvalues (`*b`, `c[0]` with undeclared names) must

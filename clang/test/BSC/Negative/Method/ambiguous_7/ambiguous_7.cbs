@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 unsigned double int::f1() { // expected-error {{'double' cannot be signed or unsigned}}
     return 0;

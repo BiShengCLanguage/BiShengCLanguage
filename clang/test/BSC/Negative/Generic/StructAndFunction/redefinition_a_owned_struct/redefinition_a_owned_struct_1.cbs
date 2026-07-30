@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -verify 
+// RUN: %clang_cc1 -fbsc-experimental %s -verify 
 
 _Owned struct Vec<T>{};
 long times(long x, const Vec<long> *_Borrow v) {     // expected-note{{previous definition is here}}

@@ -2115,6 +2115,8 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
                diag::err_owned_struct_in_function_scope);
         }
         if (RecordDecl *RD = dyn_cast<RecordDecl>(D)) {
+          if (!getLangOpts().BSCExperimental)
+            Diag(DS.getOwnedSpecLoc(), diag::err_bsc_exp_parse) << "_Owned struct";
           RD->setOwnedDecl(true);
         }
       }
@@ -2154,6 +2156,8 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
     Decl *D = TagOrTempResult.get();
     if (isa<RecordDecl>(D) && (DS.getTypeQualifiers() & DeclSpec::TQ_owned)) {
       RecordDecl *RD = dyn_cast<RecordDecl>(D);
+      if (!getLangOpts().BSCExperimental)
+        Diag(DS.getOwnedSpecLoc(), diag::err_bsc_exp_parse) << "_Owned struct";
       RD->setOwnedDecl(true);
     }
   }

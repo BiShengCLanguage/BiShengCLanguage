@@ -1,9 +1,9 @@
-// RUN: %clang %s -o %test.output
+// RUN: %clang -fbsc-experimental %s -o %test.output
 // RUN: %test.output
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
-// RUN: %clang -rewrite-bsc -line %s -o %t-rwline.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc -line %s -o %t-rwline.c
 // RUN: FileCheck --input-file=%t-rwline.c %s --check-prefix=CHECK-L
 int x = 0;
 int y = 0;

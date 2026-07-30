@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 // Regression (umbrella IJP3AP, F67): dereferencing a moved `_Owned` struct
 // field (`*s.p` after `s.p` was moved out) was silently accepted. The move

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 void * func1() {
     void::memvar; // expected-error{{variable has incomplete type 'void'}} expected-error{{use of undeclared identifier 'memvar'}}

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -internal-isystem %S/../../../../../../lib/Headers/bsc_include -verify %s 
+// RUN: %clang_cc1 -fbsc-experimental -internal-isystem %S/../../../../../../lib/Headers/bsc_include -verify %s 
 
 #include "../../async-func-read-opposite.hbs"
 

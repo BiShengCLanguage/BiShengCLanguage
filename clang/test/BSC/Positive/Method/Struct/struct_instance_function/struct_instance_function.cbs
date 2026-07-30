@@ -1,9 +1,9 @@
-// RUN: %clang_cc1 -verify %s
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
-// RUN: %clang -rewrite-bsc -line %s -o %t-rwline.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc -line %s -o %t-rwline.c
 // RUN: FileCheck --input-file=%t-rwline.c %s --check-prefix=CHECK-L
 // expected-no-diagnostics
 

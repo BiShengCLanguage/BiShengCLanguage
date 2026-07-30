@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -xbsc -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -xbsc -fsyntax-only -verify %s
 // expected-no-diagnostics
 
 struct Simple {

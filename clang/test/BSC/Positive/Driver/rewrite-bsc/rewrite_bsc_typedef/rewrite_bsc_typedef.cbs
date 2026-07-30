@@ -1,6 +1,6 @@
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s
-// RUN: %clang %t-rw.c -I %S -o %t-rw.output
+// RUN: %clang -fbsc-experimental %t-rw.c -I %S -o %t-rw.output
 // RUN: %t-rw.output
 
 

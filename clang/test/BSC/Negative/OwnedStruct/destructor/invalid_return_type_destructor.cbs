@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 _Owned struct A {    // expected-note {{previous definition is here}}
   int ~A(A this) { // expected-error {{destructor cannot have a return type}}

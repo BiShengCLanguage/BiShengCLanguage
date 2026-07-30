@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 union U1 {
     int a;
     int *_Borrow p; // expected-error {{type of union field cannot be qualified by '_Borrow'}}

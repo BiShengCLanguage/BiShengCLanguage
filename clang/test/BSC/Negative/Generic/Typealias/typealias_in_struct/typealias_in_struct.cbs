@@ -1,4 +1,4 @@
-// RUN: %clang_cc1  -verify %s
+// RUN: %clang_cc1 -fbsc-experimental  -verify %s
 
 struct S {
     typedef MyInt = int;  /* expected-error{{type name does not allow storage class to be specified}} 

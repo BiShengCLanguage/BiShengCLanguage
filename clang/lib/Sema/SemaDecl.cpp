@@ -9602,6 +9602,8 @@ static FunctionDecl *CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
 
       // This is a bsc method declaration.
       // FIXME: check whether UsesFPIntrin(before arg "isInline") is false?
+      if (!SemaRef.getLangOpts().BSCExperimental)
+        SemaRef.Diag(D.getBeginLoc(), diag::err_bsc_exp_sema) << "member function";
       BSCMethodDecl *Ret = BSCMethodDecl::Create(
           SemaRef.Context, DC, D.getBeginLoc(), NameInfo, R, TInfo, SC,
           SemaRef.getCurFPFeatures().isFPConstrained(), isInline, ConstexprKind,

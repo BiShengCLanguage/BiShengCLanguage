@@ -1,6 +1,6 @@
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang -rewrite-bsc %S/../rewrite_generic_bscmethod_b/*.cbs -o %t-rw1.c
-// RUN: %clang %t-rw.c %t-rw1.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/../rewrite_generic_bscmethod_b/*.cbs -o %t-rw1.c
+// RUN: %clang -fbsc-experimental %t-rw.c %t-rw1.c -o %t-rw.output
 // RUN: %t-rw.output
 
 #include "../rewrite_generic_bscmethod.hbs"

@@ -20,3 +20,7 @@ def spatial_check: Joined<["-"], "spatial-check=">, Flags<[CC1Option]>,
   Values<"static,user">, NormalizedValuesScope<"LangOptions">,
   NormalizedValues<["SC_STATIC", "SC_USER"]>,
   MarshallingInfoEnum<LangOpts<"SpatialCheck">, "SC_STATIC">;
+defm bsc_experimental : BoolFOption<"bsc-experimental",
+  LangOpts<"BSCExperimental">, DefaultFalse,
+  PosFlag<SetTrue, [CC1Option], "Enable the BSC experimental features">,
+  NegFlag<SetFalse>>;

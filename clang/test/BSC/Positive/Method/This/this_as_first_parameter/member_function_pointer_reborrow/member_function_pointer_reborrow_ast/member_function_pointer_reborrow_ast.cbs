@@ -1,5 +1,5 @@
 // Test without serialization:
-// RUN: %clang_cc1 -triple x86_64-unknown-unknown -ast-dump %s \
+// RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-unknown -ast-dump %s \
 // RUN: | FileCheck --strict-whitespace %s
 
 struct Foo {

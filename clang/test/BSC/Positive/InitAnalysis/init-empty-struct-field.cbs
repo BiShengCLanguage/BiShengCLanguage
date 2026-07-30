@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 // expected-no-diagnostics
 
 // Test: a struct member whose type is an empty struct has no bytes to

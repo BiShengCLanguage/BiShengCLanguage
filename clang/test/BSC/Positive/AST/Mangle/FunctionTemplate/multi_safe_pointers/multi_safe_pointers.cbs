@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -emit-llvm -o - %s | FileCheck %s
-// RUN: %clang -rewrite-bsc  %s -o %t-rw.c
+// RUN: %clang_cc1 -fbsc-experimental -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang -fbsc-experimental -rewrite-bsc  %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s --check-prefix=CHECK_REWRITE
 
 void forget<T>(T t) {

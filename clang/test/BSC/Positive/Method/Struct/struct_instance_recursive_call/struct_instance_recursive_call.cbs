@@ -1,7 +1,7 @@
-// RUN: %clang_cc1 -verify %s
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s
-// RUN: %clang_cc1 %t-rw.c -o %t-rw.output
+// RUN: %clang_cc1 -fbsc-experimental %t-rw.c -o %t-rw.output
 // expected-no-diagnostics
 
 typedef struct _queue {

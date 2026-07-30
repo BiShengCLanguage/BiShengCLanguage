@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 struct R {
    int num;
    int _Borrow p1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}

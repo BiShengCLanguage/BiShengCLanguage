@@ -1,4 +1,4 @@
-// RUN: %clang %s -o %t.output
+// RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
 // expected-no-diagnostics
 

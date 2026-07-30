@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 // Non-template trait followed by a template trait with the same name.
 
 _Trait a{}; // expected-note {{previous definition is here}}

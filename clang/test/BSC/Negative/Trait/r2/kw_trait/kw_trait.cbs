@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 typedef int _Trait; // expected-error {{declaration of anonymous _Trait must be a definition}}
                    // expected-error@-1 {{invalid syntax, semi not expected after '_Trait (null)'}}

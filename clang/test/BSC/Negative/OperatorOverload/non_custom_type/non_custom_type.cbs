@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 __attribute__((operator +))
 int intAdd_1(int a, int b) {     // expected-error {{overloaded 'intAdd_1' must have at least one parameter of class or enumeration type}}

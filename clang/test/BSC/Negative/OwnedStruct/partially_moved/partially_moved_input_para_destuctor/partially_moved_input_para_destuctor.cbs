@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 _Safe T *_Owned safe_malloc<T>(T t);
 _Safe void safe_free(void *_Owned p);

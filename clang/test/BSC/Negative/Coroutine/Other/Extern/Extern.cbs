@@ -1,9 +1,9 @@
-// RUN: %clang %s %S/Inputs/extern-file.cbs -o %test.output
+// RUN: %clang -fbsc-experimental %s %S/Inputs/extern-file.cbs -o %test.output
 // RUN: %test.output
-// RUN: %clang -rewrite-bsc %S/../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang -rewrite-bsc %S/Inputs/extern-file.cbs -o %T/extern-file.cbs.tmp-rw.c
-// RUN: %clang %T/extern-file.cbs.tmp-rw.c %t-rw.c -o %T/rw.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/Inputs/extern-file.cbs -o %T/extern-file.cbs.tmp-rw.c
+// RUN: %clang -fbsc-experimental %T/extern-file.cbs.tmp-rw.c %t-rw.c -o %T/rw.output
 // RUN: %T/rw.output
 
 #include "future.hbs"

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 void foo() {
     _Owned struct A { // expected-error {{_Owned struct cannot be defined in function scope; move the definition to file scope}}

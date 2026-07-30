@@ -1,4 +1,4 @@
-// RUN: %clang -fsyntax-only -xbsc %s
+// RUN: %clang -fbsc-experimental -fsyntax-only -xbsc %s
 
 // This test verifies the compiler does not crash during async desugaring
 // (TransformAwaitExpr) when a struct has poll() and free() methods (passing

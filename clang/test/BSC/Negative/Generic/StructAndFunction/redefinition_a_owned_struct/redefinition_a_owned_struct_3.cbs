@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -verify 
+// RUN: %clang_cc1 -fbsc-experimental %s -verify 
 
 _Owned struct Redefiniton<T> {
 _Public:

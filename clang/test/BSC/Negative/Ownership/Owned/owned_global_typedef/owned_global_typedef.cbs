@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 
 typedef _Owned int ownInt; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 ownInt a = 10;  //expected-error {{type of global variable cannot be qualified by '_Owned', 'ownInt' (aka '_Owned int') contains '_Owned' type}}

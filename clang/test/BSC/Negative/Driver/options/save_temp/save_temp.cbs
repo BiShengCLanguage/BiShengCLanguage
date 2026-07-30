@@ -1,4 +1,4 @@
-// RUN: %clang -save-temps %s
+// RUN: %clang -fbsc-experimental -save-temps %s
 
 struct Foo {
   int a;

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 int enum E::to_int(enum E* this) { // expected-error {{variable has incomplete type 'enum E'}}
   return 0;

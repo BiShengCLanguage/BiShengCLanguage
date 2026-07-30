@@ -1,14 +1,14 @@
-// RUN: %clang %s -o %t.output
+// RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
 // expected-no-diagnostics
 
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
 
 // Test with serialization:
-// RUN: %clang_cc1 -triple x86_64-unknown-unknown -emit-pch -o %t %s
-// RUN: %clang_cc1 -x bsc -triple x86_64-unknown-unknown -include-pch %t -ast-dump-all /dev/null \
+// RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-unknown -emit-pch -o %t %s
+// RUN: %clang_cc1 -fbsc-experimental -x bsc -triple x86_64-unknown-unknown -include-pch %t -ast-dump-all /dev/null \
 // RUN: | sed -e "s/ <undeserialized declarations>//" -e "s/ imported//" \
 // RUN: | FileCheck --strict-whitespace %s
 

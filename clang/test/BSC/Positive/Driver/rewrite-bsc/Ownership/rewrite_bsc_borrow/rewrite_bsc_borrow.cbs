@@ -1,8 +1,8 @@
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
-// RUN: %clang -S -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK_MANGLE
+// RUN: %clang -fbsc-experimental -S -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK_MANGLE
 
 struct R {
     int * _Borrow p1;

@@ -2976,6 +2976,8 @@ ExprResult Sema::BuildAwaitExpr(SourceLocation AwaitLoc, Expr *E) {
 }
 
 ExprResult Sema::ActOnAwaitExpr(SourceLocation AwaitLoc, Expr *E) {
+  if (!getLangOpts().BSCExperimental)
+    Diag(AwaitLoc, diag::err_bsc_exp_sema) << "coroutine";
   if (FunctionScopes.size() < 1 ||
       getCurFunction()->CompoundScopes.size() < 1) {
     Diag(AwaitLoc, diag::err_await_invalid_scope) << "this scope";
@@ -2992,6 +2994,8 @@ ExprResult Sema::ActOnAwaitExpr(SourceLocation AwaitLoc, Expr *E) {
 }
 
 SmallVector<Decl *, 8> Sema::ActOnAsyncFunctionDeclaration(FunctionDecl *FD) {
+  if (FD->isAsyncSpecified() && !getLangOpts().BSCExperimental)
+    Diag(FD->getBeginLoc(), diag::err_bsc_exp_sema) << "coroutine";
   SmallVector<Decl *, 8> Decls;
   if (!IsBSCCompatibleFutureType(FD->getReturnType())) {
     QualType ReturnTy = FD->getReturnType();
@@ -3054,6 +3058,8 @@ SmallVector<Decl *, 8> Sema::ActOnAsyncFunctionDeclaration(FunctionDecl *FD) {
 }
 
 SmallVector<Decl *, 8> Sema::ActOnAsyncFunctionDefinition(FunctionDecl *FD) {
+  if (FD->isAsyncSpecified() && !getLangOpts().BSCExperimental)
+    Diag(FD->getBeginLoc(), diag::err_bsc_exp_sema) << "coroutine";
   SmallVector<Decl *, 8> Decls;
   Decls.push_back(FD);
   // clangd does not analyze the function bodies of functions defined in header

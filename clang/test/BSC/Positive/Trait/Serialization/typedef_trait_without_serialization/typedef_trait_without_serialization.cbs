@@ -1,9 +1,9 @@
-// RUN: %clang %s -o %t.output
+// RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
 // expected-no-diagnostics
 
 // Test without serialization:
-// RUN: %clang_cc1 -triple x86_64-unknown-unknown -ast-dump %s \
+// RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-unknown -ast-dump %s \
 // RUN: | FileCheck --strict-whitespace %s
 
 typedef _Trait F {

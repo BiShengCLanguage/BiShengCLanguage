@@ -1,4 +1,4 @@
-// RUN: %clang_cc1  -verify %s
+// RUN: %clang_cc1 -fbsc-experimental  -verify %s
 
 struct S<T> {};
 void S<int>::foo(This* this) {}  // expected-error {{extended type of a BSC member function cannot be an instantiated type}}

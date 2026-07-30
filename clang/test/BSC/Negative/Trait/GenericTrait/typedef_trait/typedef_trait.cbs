@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 typedef _Trait F<T> { // expected-error {{use of undeclared identifier 'T'}} expected-error {{explicit specialization of undeclared template _Trait 'F'}}
   T foo(This* this, int a);  // expected-error {{unknown type name 'T'}}

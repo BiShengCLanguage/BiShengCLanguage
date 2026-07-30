@@ -1,4 +1,4 @@
-// RUN: %clang -fsyntax-only -xbsc %s
+// RUN: %clang -fbsc-experimental -fsyntax-only -xbsc %s
 
 #include "future.hbs"
 #include <stdlib.h>

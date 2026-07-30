@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 _Trait F<T> {}G; // expected-error {{expected ';' after _Trait}}
                 // expected-warning@-1 {{type specifier missing, defaults to 'int'; ISO C99 and later do not support implicit int}}

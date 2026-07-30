@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 #include "enum_header_1.hbs"
 #include "enum_header_2.hbs"
 

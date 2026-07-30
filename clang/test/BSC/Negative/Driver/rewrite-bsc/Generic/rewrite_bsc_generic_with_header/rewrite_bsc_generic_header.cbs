@@ -1,5 +1,5 @@
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
 
 #include "rewrite_bsc_generic_header.hbs"

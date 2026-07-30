@@ -1,3 +1,6 @@
+// BSC experimental features
+def err_bsc_exp_sema : Error<"%0 is an experimental BSC feature; enable with -fbsc-experimental">;
+
 // BSC instance member warnings and errors.
 def note_no_this_parameter : Note<"found the following member function %0 which doesn't have a 'this' parameter">;
 def err_no_instance_member : Error<

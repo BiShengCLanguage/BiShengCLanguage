@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 void int::increase(int a); // expected-note {{previous declaration is here}}
 void int::increase(int* this) { // expected-error {{conflicting types for 'increase'}}

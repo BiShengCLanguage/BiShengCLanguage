@@ -1,9 +1,9 @@
-// RUN: %clang %s -o %test.output
+// RUN: %clang -fbsc-experimental %s -o %test.output
 // RUN: %test.output
-// RUN: %clang -rewrite-bsc %S/../../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/../../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
 // expected-no-diagnostics
 

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 int bar() {
     _Trait F {                         // expected-error {{_Trait is only allowed to be defined at top-level}} 

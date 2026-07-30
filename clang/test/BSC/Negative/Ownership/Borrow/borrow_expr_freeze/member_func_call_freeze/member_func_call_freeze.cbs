@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 
 void use_mut(int *_Borrow p) {}
 void use_immut(const int *_Borrow p) {}

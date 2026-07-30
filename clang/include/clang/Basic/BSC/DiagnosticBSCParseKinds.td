@@ -1,3 +1,6 @@
+// BSC experimental features
+def err_bsc_exp_parse : Error<"%0 is an experimental BSC feature; enable with -fbsc-experimental">;
+
 // BSC trait warnings and errors.
 def invalid_param_for_trait_member : Error<"the first parameter of _Trait member function must be 'This* this'">;
 def err_unexpected_token_for_impl_trait_decl : Error<"unexpected token for ImplTraitDecl">;

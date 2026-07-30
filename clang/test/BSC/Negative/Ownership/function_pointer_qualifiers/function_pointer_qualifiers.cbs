@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 
 int plain(void) { return 0; }
 int takes_owned_arg(int *_Owned p);

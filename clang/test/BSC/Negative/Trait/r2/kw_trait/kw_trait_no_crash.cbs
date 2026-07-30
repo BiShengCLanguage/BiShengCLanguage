@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
 // Verify that using the old 'trait' keyword (now an identifier) produces a
 // proper diagnostic and does not crash the compiler.
 

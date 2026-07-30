@@ -1,24 +1,24 @@
-// RUN: %clang %s -o %test.output
-// RUN: %clang -rewrite-bsc %S/../../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental %s -o %test.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %S/../../../../../../../lib/Headers/bsc_include/future.hbs -o %T/future.h
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // expected-no-diagnostics
 
 // since it's a recursive call, we will get a segv if we run it.
 
 // Test without serialization:
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu \
+// RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-linux-gnu \
 // RUN: -internal-isystem  %S/../../../../../../../lib/Headers/bsc_include \
 // RUN: -internal-externc-isystem /usr/include/x86_64-linux-gnu \
 // RUN: -internal-externc-isystem /include -internal-externc-isystem /usr/include -ast-dump %s \
 // RUN: | FileCheck --strict-whitespace %s
 //
 // Test with serialization:
-// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu \
+// RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-linux-gnu \
 // RUN: -internal-isystem  %S/../../../../../../../lib/Headers/bsc_include \
 // RUN: -internal-externc-isystem /usr/include/x86_64-linux-gnu \
 // RUN: -internal-externc-isystem /include -internal-externc-isystem /usr/include -emit-pch -o %t %s
-// RUN: %clang_cc1 -x bsc -triple x86_64-unknown-linux-gnu \
+// RUN: %clang_cc1 -fbsc-experimental -x bsc -triple x86_64-unknown-linux-gnu \
 // RUN: -internal-externc-isystem /usr/include/x86_64-linux-gnu \
 // RUN: -internal-externc-isystem /include -internal-externc-isystem /usr/include -include-pch %t -ast-dump-all /dev/null \
 // RUN: | sed -e "s/ <undeserialized declarations>//" -e "s/ imported//" \

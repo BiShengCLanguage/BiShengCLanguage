@@ -307,6 +307,8 @@ void Parser::ParseTraitSpecifier(SourceLocation StartLoc, DeclSpec &DS,
                                  ParsedAttributes &Attributes) {
   assert(getLangOpts().BSC &&
          "Error enter bsc trait specifier parsing function.");
+  if (!getLangOpts().BSCExperimental)
+    Diag(StartLoc, diag::err_bsc_exp_parse) << "_Trait";
   DeclSpec::TST TagType = DeclSpec::TST_trait;
   tok::TokenKind TagTokKind = tok::kw__Trait;
   ParsedAttributes attrs(AttrFactory);
@@ -605,6 +607,8 @@ void Parser::ParseTraitSpecifier(SourceLocation StartLoc, DeclSpec &DS,
 /// - "impl trait T for int;"
 /// - "impl trait Future<T> for int;"
 Parser::DeclGroupPtrTy Parser::ParseImplTraitDeclaration() {
+  if (!getLangOpts().BSCExperimental)
+    Diag(Tok.getLocation(), diag::err_bsc_exp_parse) << "_Trait";
   ConsumeToken(); // Eat the "impl"
   SourceLocation TraitLoc = Tok.getLocation();
   TraitDecl *Trait = nullptr;

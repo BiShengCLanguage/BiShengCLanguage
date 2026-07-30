@@ -1,8 +1,8 @@
 // test .hbs header file 
-// RUN: %clang %S/queue.hbs -o %t
+// RUN: %clang -fbsc-experimental %S/queue.hbs -o %t
 
 // test linkage
-// RUN: %clang_cc1 -emit-llvm -o - %s | FileCheck %s
+// RUN: %clang_cc1 -fbsc-experimental -emit-llvm -o - %s | FileCheck %s
 
 #include "queue.hbs"
 

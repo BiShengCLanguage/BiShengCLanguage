@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify -x bsc %s
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify -x bsc %s
 // expected-no-diagnostics
 struct Vec<T> {
   T *buf;

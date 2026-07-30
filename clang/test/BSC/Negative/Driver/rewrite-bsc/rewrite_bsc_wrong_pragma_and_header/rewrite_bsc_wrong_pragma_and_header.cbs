@@ -1,6 +1,6 @@
-// RUN: %clang %s -o %t.output
+// RUN: %clang -fbsc-experimental %s -o %t.output
 // RUN: %t.output
-// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
 // RUN: FileCheck --input-file=%t-rw.c %s
 
 #include <stdlib.h>

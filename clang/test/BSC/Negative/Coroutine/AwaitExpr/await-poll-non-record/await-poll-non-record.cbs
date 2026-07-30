@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -internal-isystem %S/../../../../../../lib/Headers/bsc_include -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -internal-isystem %S/../../../../../../lib/Headers/bsc_include -verify %s
 
 // This test verifies the compiler does not crash when a struct has poll() and
 // free() methods (passing the implementedFutureType check) but poll() returns

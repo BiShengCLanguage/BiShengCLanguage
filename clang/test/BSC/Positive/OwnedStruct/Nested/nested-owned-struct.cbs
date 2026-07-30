@@ -1,5 +1,5 @@
 
-// RUN: %clang %s -o %test.output
+// RUN: %clang -fbsc-experimental %s -o %test.output
 // RUN: %test.output
 
 _Owned struct A {  

@@ -1,7 +1,7 @@
-// RUN: %clang -x bsc %s -o %t.output
+// RUN: %clang -fbsc-experimental -x bsc %s -o %t.output
 // RUN: %t.output
-// RUN: %clang -x bsc -rewrite-bsc %s -o %t-rw.c
-// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %clang -fbsc-experimental -x bsc -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
 
 struct S {
