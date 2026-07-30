@@ -17,6 +17,8 @@
 - 内存安全：所有权，借用
 - 并发：无栈协程
 
+> 提示：毕昇C语言提供了一系列语言特性，其中部分特性目前属于低优先级特性。低优先级特性（使用⚠️标记）尚未经过充分测试，且在未来可能发生重大变更，需使用`-fbsc-experimental`编译选项开启，请谨慎使用。
+
 ## 1. 入门指南
 
 ### 1.1. 构建与安装
@@ -72,17 +74,13 @@ $ touch demo.cbs
 ```c
 #include <stdio.h>
 
-struct Foo {
-    int a;
-};
-
-int struct Foo::getA(struct Foo* this) {
-    return this->a;
+T max<T>(T a, T b) {
+    return a > b ? a : b;
 }
 
 int main() {
-    struct Foo foo = {.a = 1};
-    printf("foo.getA() = %d\n", foo.getA());// expected result: 3
+    printf("max int   = %d\n",   max<int>(3, 7));       // expected result: 7
+    printf("max float = %.1f\n", max<float>(3.5, 2.1)); // expected result: 3.5
     return 0;
 }
 ```
@@ -92,14 +90,19 @@ int main() {
 ```shell
 $ clang demo.cbs -o demo
 $ ./demo
-foo.getA() = 1
+max int   = 7
+max float = 3.5
 ```
 
-输出如上结果，说明你已经成功应用了毕昇 C 的成员函数特性。
+输出如上结果，说明你已经成功应用了毕昇 C 的泛型特性。同一个 `max` 函数既能作用于 `int` 又能作用于 `float`，无需为每种类型重复编写实现。
 
 ## 2. 开发效率
 
-### 2.1. 成员函数
+### 2.1. 成员函数 ⚠️
+
+> ⚠️ 警告
+>
+> 成员函数目前是一个低优先级特性，可能存在错误和未定义的行为，请谨慎使用。
 
 #### 2.1.1. 概述
 
@@ -1162,7 +1165,11 @@ int main() {
 }
 ```
 
-### 2.4. _Trait
+### 2.4. _Trait ⚠️
+
+> ⚠️ 警告
+>
+> _Trait 目前是一个低优先级特性，可能存在错误和未定义的行为，请谨慎使用。
 
 #### 2.4.1. 概述
 
@@ -1879,7 +1886,11 @@ void test() {
 }
 ```
 
-### 2.5. 运算符重载
+### 2.5. 运算符重载 ⚠️
+
+> ⚠️ 警告
+>
+> 运算符重载目前是一个低优先级特性，可能存在错误和未定义的行为，请谨慎使用。
 
 #### 2.5.1. 概述
 
@@ -4736,7 +4747,11 @@ int main() {
 ```
 对于上面这个示例，当编译选项`-nullability-check`不存在或者`-nullability-check=safeonly`时，只有在`_Safe`区的`error2`会被报告；当`-nullability-check=all`时，非安全区的`error1`和安全区`error2`均会被报告。
 
-### 3.5. _Owned struct 类型
+### 3.5. _Owned struct 类型 ⚠️
+
+> ⚠️ 警告
+>
+> _Owned struct 目前是一个低优先级特性，可能存在错误和未定义的行为，请谨慎使用。
 
 `_Owned struct` 是一种自定义类型，与 `struct` 不同，主要体现在非拷贝语义上，一律是 `move` 语义整体跟踪。这意味着原变量中的资源所有权会转移到新变量或参数中。本节依次介绍如何定义 `_Owned struct` 类型，如何创建 `_Owned struct` 实例。
 
@@ -6616,7 +6631,11 @@ int * _Borrow p4 = p3; // error
 
 ## 4. 并行并发
 
-### 4.1. 无栈协程
+### 4.1. 无栈协程 ⚠️
+
+> ⚠️ 警告
+>
+> 无栈协程目前是一个低优先级特性，可能存在错误和未定义的行为，请谨慎使用。
 
 #### 4.1.1. 无栈协程简介
 
