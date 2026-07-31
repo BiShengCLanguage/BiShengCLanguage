@@ -1,0 +1,24 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+#include "bsc_type_traits.hbs"
+#include <stdio.h>
+
+_Unsafe TO_ do_ptr_cast<TO_, FROM_>(FROM_ ptr, void* _Borrow placement) {
+    if constexpr (is_owned_pointer<FROM_>() && is_owned_pointer<TO_>()) {
+        __remove_pointer<FROM_>* raw =
+            do_ptr_cast<__remove_pointer<FROM_>*>(ptr, placement);
+        return do_ptr_cast<TO_>(raw, placement);
+    } else {
+        return (TO_)(void*)ptr;
+    }
+}
+
+int main() {
+    int x = 1;
+    int* _Borrow p = &_Mut x;
+    int* q = do_ptr_cast<int*, int*_Borrow>(p, nullptr);
+    printf("%d\n", *q);
+    return 0;
+}

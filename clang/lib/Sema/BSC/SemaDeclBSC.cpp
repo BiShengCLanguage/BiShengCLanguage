@@ -597,6 +597,8 @@ public:
   // affect destructor insertion and AST recovery.
   bool AlwaysRebuild() { return false; }
 
+  ExprResult TransformConstantExpr(ConstantExpr *E) { return E; }
+
   void applyTransform() {
     StmtResult Res = BaseTransform::TransformStmt(FD->getBody());
     FD->setBody(Res.get());
@@ -1068,6 +1070,8 @@ public:
   // Don't redo semantic analysis to ensure that AST nodes are not rebuilt to
   // affect destructor insertion.
   bool AlwaysRebuild() { return false; }
+
+  ExprResult TransformConstantExpr(ConstantExpr *E) { return E; }
 
   void applyTransform() {
     StmtResult Res = BaseTransform::TransformStmt(FD->getBody());
