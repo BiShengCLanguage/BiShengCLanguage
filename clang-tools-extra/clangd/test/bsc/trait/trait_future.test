@@ -1,6 +1,6 @@
 // RUN: cp %s %t.cbs
 // RUN: cp %S/trait_future.hbs %T/trait_future.hbs
-// RUN: clangd --check=%t.cbs 2>&1 | FileCheck %s
+// RUN: %clangd-bsc --check=%t.cbs 2>&1 | FileCheck %s
 
 #include "trait_future.hbs"
 

@@ -1,5 +1,5 @@
 // RUN: cp %s %t.cbs
-// RUN: not clangd --check=%t.cbs 2>&1 | FileCheck %s
+// RUN: not %clangd-bsc --check=%t.cbs 2>&1 | FileCheck %s
 
 // CHECK: [trait_is_undefined] Line 8: '_Trait T' must be defined before it can be used
 // CHECK: All checks completed, 1 errors

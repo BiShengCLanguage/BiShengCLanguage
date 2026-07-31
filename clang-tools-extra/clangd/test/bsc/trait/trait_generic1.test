@@ -1,5 +1,5 @@
 // RUN: cp %s %t.cbs
-// RUN: not clangd --check=%t.cbs 2>&1 | FileCheck %s
+// RUN: not %clangd-bsc --check=%t.cbs 2>&1 | FileCheck %s
 
 // CHECK: [expected_comma_greater] Line 8: expected ',' or '>' in template-parameter-list
 // CHECK: [expected_after] Line 9: expected ';' after _Trait

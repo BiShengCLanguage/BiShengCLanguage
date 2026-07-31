@@ -1,5 +1,5 @@
 // RUN: cp %s %t.cbs
-// RUN: clangd --check=%t.cbs 2>&1 | FileCheck %s
+// RUN: %clangd-bsc --check=%t.cbs 2>&1 | FileCheck %s
 
 _Trait F {};
 int main() {

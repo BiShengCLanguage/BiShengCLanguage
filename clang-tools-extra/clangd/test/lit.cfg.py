@@ -25,6 +25,15 @@ lit.llvm.llvm_config.feature_config([('--targets-built',
 config.substitutions.append(('%clangd-benchmark-dir',
                              config.clangd_binary_dir + "/benchmarks"))
 
+# %clangd-bsc invokes clangd with --enable-config and a user config that adds
+# -fbsc-experimental, scoped to that single invocation via inline env vars so
+# non-BSC tests are unaffected.
+_bsc_config_dir = config.test_source_root + "/bsc/config"
+config.substitutions.append(
+    ('%clangd-bsc',
+     'env XDG_CONFIG_HOME=%s CLANGD_FLAGS=--enable-config clangd' %
+     _bsc_config_dir))
+
 if config.clangd_build_xpc:
   config.available_features.add('clangd-xpc-support')
 

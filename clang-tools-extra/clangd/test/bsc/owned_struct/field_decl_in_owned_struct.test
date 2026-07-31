@@ -1,5 +1,5 @@
 // RUN: cp %s %t.cbs
-// RUN: not clangd --check=%t.cbs 2>&1 | FileCheck %s
+// RUN: not %clangd-bsc --check=%t.cbs 2>&1 | FileCheck %s
 
 _Owned struct S{
   private2:
