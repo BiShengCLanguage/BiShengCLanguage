@@ -1,0 +1,191 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+// expected-no-diagnostics
+
+// Positive tests: verifying that Null-state propagation through init/assign
+// works correctly and allows safe patterns with _Owned _Nullable pointers.
+
+// ---------------------------------------------------------------------------
+// Basic owned pointer (BOP) tests
+// ---------------------------------------------------------------------------
+
+// Init from must-be-null → no leak, program compiles cleanly.
+void init_null_to_nullable(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = p;
+}
+
+// Assign from must-be-null → no leak, program compiles cleanly.
+void assign_null_to_nullable(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q;
+    q = p;
+}
+
+// Chained propagation: three variables, all must-be-null.
+void chained_null_transfer(void) {
+    int *_Owned _Nullable a = 0;
+    int *_Owned _Nullable b = a;
+    int *_Owned _Nullable c = b;
+}
+
+// ---------------------------------------------------------------------------
+// Owned pointer to struct (OPS) tests
+// ---------------------------------------------------------------------------
+
+struct S { int v; };
+
+void ops_init_null_to_nullable(void) {
+    struct S *_Owned _Nullable p = 0;
+    struct S *_Owned _Nullable q = p;
+}
+
+void ops_assign_null_to_nullable(void) {
+    struct S *_Owned _Nullable p = 0;
+    struct S *_Owned _Nullable q;
+    q = p;
+}
+
+void ops_chained_null_transfer(void) {
+    struct S *_Owned _Nullable a = 0;
+    struct S *_Owned _Nullable b = a;
+    struct S *_Owned _Nullable c = b;
+}
+
+// ---------------------------------------------------------------------------
+// Null-branch multi-use: in the `p == nullptr` branch, p is must-be-null and
+// can be used repeatedly to initialize other _Owned _Nullable pointers,
+// because its state does not change after each transfer.
+// ---------------------------------------------------------------------------
+
+void null_branch_multi_use_bop(int *_Owned _Nullable p) {
+    if (p == nullptr) {
+        int *_Owned _Nullable q = p;
+        int *_Owned _Nullable r = p;
+        int *_Owned _Nullable s = p;
+    } else {
+        int *raw = __move_to_raw(p);
+        (void)raw;
+    }
+}
+
+struct O { int *_Owned f; };
+void null_branch_multi_use_ops(struct O *_Owned _Nullable p) {
+    if (p == nullptr) {
+        struct O *_Owned _Nullable q = p;
+        struct O *_Owned _Nullable r = p;
+    } else {
+        struct O *raw = __move_to_raw(p);
+        (void)raw;
+    }
+}
+
+void null_branch_multi_use_local(void) {
+    int *_Owned _Nullable p = nullptr;
+    if (p == nullptr) {
+        int *_Owned _Nullable q = p;
+        int *_Owned _Nullable r = p;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Non-DeclRef expression shapes: must-be-null propagation must also work for
+// C-style casts, comma RHS, ternary (both arms null) and member fields.
+// ---------------------------------------------------------------------------
+
+void cast_init(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = (int *_Owned _Nullable)p;
+}
+
+void cast_assign(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q;
+    q = (int *_Owned _Nullable)p;
+}
+
+void ops_cast_init(void) {
+    struct S *_Owned _Nullable p = 0;
+    struct S *_Owned _Nullable q = (struct S *_Owned _Nullable)p;
+}
+
+void comma_init(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = (0, p);
+}
+
+void comma_assign(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q;
+    q = (0, p);
+}
+
+void ternary_init(_Bool c) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = c ? p : p;
+}
+
+void ternary_assign(_Bool c) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q;
+    q = c ? p : p;
+}
+
+struct W { int *_Owned _Nullable f; };
+void member_init(void) {
+    struct W w = { .f = 0 };
+    int *_Owned _Nullable q = w.f;
+}
+
+void member_assign(void) {
+    struct W w = { .f = 0 };
+    int *_Owned _Nullable q;
+    q = w.f;
+}
+
+void null_branch_cast_multi_use(void) {
+    int *_Owned _Nullable p = 0;
+    if (p == 0) {
+        int *_Owned _Nullable q = (int *_Owned _Nullable)p;
+        int *_Owned _Nullable r = (int *_Owned _Nullable)p;
+    }
+}
+
+void nested_cast_comma_ternary(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = (int *_Owned _Nullable)(0, 1 ? p : p);
+}
+
+// ---------------------------------------------------------------------------
+// Null-expr ternary arms and void* cast shapes
+// ---------------------------------------------------------------------------
+
+// Ternary with one arm a typed null expression, the other a Null DeclRef.
+void ternary_null_expr_arm(_Bool c) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = c ? (int *_Owned _Nullable)nullptr : p;
+}
+
+void ternary_null_expr_arm2(_Bool c) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = c ? p : (int *_Owned _Nullable)nullptr;
+}
+
+// Both arms are null expressions.
+void ternary_both_null_expr(_Bool c) {
+    int *_Owned _Nullable q =
+        c ? (int *_Owned _Nullable)nullptr : (int *_Owned _Nullable)nullptr;
+}
+
+// Init through a void* cast of a must-be-null pointer.
+void init_via_void(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q =
+        (int *_Owned _Nullable)(void *_Owned _Nullable)p;
+}
+
+// Assign through the same void* cast shape.
+void assign_via_void(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q;
+    q = (int *_Owned _Nullable)(void *_Owned _Nullable)p;
+}

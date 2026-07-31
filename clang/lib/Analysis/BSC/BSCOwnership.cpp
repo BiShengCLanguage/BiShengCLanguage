@@ -129,6 +129,17 @@ static pair<const Expr *, string> getMemberFullField(const MemberExpr *ME) {
   return {base, memberFieldName};
 }
 
+/// Peel a leading dereference from a member-expr base so that `p->f` and
+/// `(*p).f` resolve to the same root DeclRefExpr.
+static const DeclRefExpr *getRootDREFromMemberBase(const Expr *Base) {
+  const Expr *E = Base->IgnoreParenImpCastsSafe();
+  if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Deref)
+      E = UO->getSubExpr()->IgnoreParenImpCastsSafe();
+  }
+  return dyn_cast<DeclRefExpr>(E);
+}
+
 static string moveAsterisksToFront(string str) {
   size_t asterisk_pos = str.find_last_not_of('*');
   if (asterisk_pos != string::npos) {
@@ -944,9 +955,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSUse(
 
   // check the status of the variable
   if (!is(VD, Ownership::Status::Owned)) {
-    if (has(VD, Ownership::Status::Moved) || is(VD, Ownership::Status::Moved) ||
-        (is(VD, Ownership::Status::Null) && !OPSAllOwnedFields[VD].empty() &&
-         !isGetAddr)) {
+    if (has(VD, Ownership::Status::Moved) || is(VD, Ownership::Status::Moved)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfMoved, VD->getNameAsString()));
     } else if (is(VD, Ownership::Status::Uninitialized)) {
@@ -973,12 +982,14 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSUse(
   }
   if (!isGetAddr) {
     // change the status to moved
-    OPSOwnedOwnedFields[VD].clear();
-    resetAll(VD);
-    if (!isStar) {
-      set(VD, Ownership::Status::Moved);
-    } else {
-      set(VD, AllMoved);
+    if (!is(VD, Ownership::Status::Null)) {
+      OPSOwnedOwnedFields[VD].clear();
+      resetAll(VD);
+      if (!isStar) {
+        set(VD, Ownership::Status::Moved);
+      } else {
+        set(VD, AllMoved);
+      }
     }
   }
   return diags;
@@ -1577,7 +1588,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPUse(
   }
   if (!isGetAddr) {
     // change the status to moved
-    if (!is(VD, Uninitialized)) {
+    if (!is(VD, Uninitialized) && !is(VD, Ownership::Status::Null)) {
       BOPOwnedOwnedFields[VD].clear();
       resetAll(VD);
       set(VD, Ownership::Status::Moved);
@@ -2063,6 +2074,57 @@ public:
   void HandleDREAssign(const DeclRefExpr *DRE, std::string fullFieldName = "");
   void HandleDREUse(const DeclRefExpr *DRE, std::string fullFieldName = "");
 
+  /// Returns true if \p E is a must-be-null owned pointer expression: a
+  /// DeclRefExpr referring to a tracked variable whose only OwnershipStatus
+  /// is Null, or a struct-value field tracked as must-be-null. Peels parens,
+  /// implicit casts, value-preserving C-style casts, comma RHS, and ternary
+  /// with both arms must-be-null.
+  bool isExprRefToNullOwnedVar(const Expr *E) const {
+    E = E->IgnoreParenImpCasts();
+    if (E->isNullExpr(OS.ctx))
+      return true;
+    if (const CStyleCastExpr *CSCE = dyn_cast<CStyleCastExpr>(E))
+      return isExprRefToNullOwnedVar(CSCE->getSubExpr());
+    if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_Comma)
+        return isExprRefToNullOwnedVar(BO->getRHS());
+    }
+    if (const AbstractConditionalOperator *ACO =
+            dyn_cast<AbstractConditionalOperator>(E)) {
+      return isExprRefToNullOwnedVar(ACO->getTrueExpr()) &&
+             isExprRefToNullOwnedVar(ACO->getFalseExpr());
+    }
+    if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+      pair<const Expr *, string> memberField = getMemberFullField(ME);
+      // Peel a leading deref so `(*p).f` behaves like `p->f`.
+      if (const DeclRefExpr *DRE =
+              getRootDREFromMemberBase(memberField.first)) {
+        if (const VarDecl *SrcVD = dyn_cast<VarDecl>(DRE->getDecl())) {
+          // Struct value whose field is tracked as must-be-null.
+          if (stat.SStatus.count(SrcVD) &&
+              stat.SNullOwnedFields[SrcVD].count(memberField.second))
+            return true;
+          // Owned pointer to struct in must-be-null state: any field access
+          // yields a must-be-null value.
+          if (stat.OPSStatus.count(SrcVD) &&
+              stat.is(SrcVD, Ownership::Status::Null))
+            return true;
+        }
+      }
+      return false;
+    }
+    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
+      if (const VarDecl *SrcVD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        if ((stat.BOPStatus.count(SrcVD) &&
+             stat.is(SrcVD, Ownership::Status::Null)) ||
+            (stat.OPSStatus.count(SrcVD) &&
+             stat.is(SrcVD, Ownership::Status::Null)))
+          return true;
+      }
+    }
+    return false;
+  }
+
   void SetHandlingCallExpr() {
     isHandlingCallExpr = true;
   }
@@ -2113,7 +2175,8 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
 
   // manipulate struct member expr use
   if (op == Move || op == GetAddr) {
-    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(memberField.first))
+    // Peel a leading deref so `(*p).f` behaves like `p->f`.
+    if (const DeclRefExpr *DRE = getRootDREFromMemberBase(memberField.first))
       HandleDREUse(DRE, memberField.second);
   }
 }
@@ -2187,6 +2250,10 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     Expr *LHS = BO->getLHS();
     Expr *RHS = BO->getRHS();
 
+    // Peek at RHS before visiting: if it refers to a Null-state owned
+    // variable, propagate Null to the destination after assignment.
+    bool RHSFromNull = isExprRefToNullOwnedVar(RHS);
+
     // Assignment consumes RHS only when destination is move semantic.
     QualType LHSType = LHS->getType().getCanonicalType();
     op = IsTrackedType(LHSType) ? Move : GetAddr;
@@ -2197,7 +2264,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     Visit(LHS);
     op = None;
 
-    if (RHS->isNullExpr(OS.ctx)) {
+    if (RHS->isNullExpr(OS.ctx) || RHSFromNull) {
       stat.setToNull(LHS);
     } else if (IsCastFromVoidPointer(RHS)) {
       stat.setToAllMoved(LHS);
@@ -2373,7 +2440,9 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
       if (Expr *Init = VD->getInit()) {
         // if has init expr, change the status of VD from UNINIT to OWNED or NULL
         if (VQT->isPointerType() && VQT.isOwnedQualified()) {
-          if (Init->isNullExpr(OS.ctx)) {
+          // Null-state propagation takes priority over the void* cast shape:
+          // `(T *_Owned)(void *_Owned)p` from a must-be-null p is still null.
+          if (Init->isNullExpr(OS.ctx) || isExprRefToNullOwnedVar(Init)) {
             stat.setToNull(VD);
           } else if (IsCastFromVoidPointer(Init)) {
             stat.setToAllMoved(VD);

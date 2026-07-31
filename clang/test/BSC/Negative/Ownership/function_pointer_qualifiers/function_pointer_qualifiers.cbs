@@ -118,3 +118,20 @@ void test_function_template_instantiation(void) {
   takes_borrow_generic<int (*)(void)>(&plain);
   // expected-error@-1 {{no matching function for call to 'takes_borrow_generic'}}
 }
+
+// &_Mut *fp / &_Const *fp where fp is a function pointer variable
+void test_borrow_deref_func_ptr(void) {
+  int (*fp)(void) = &plain;
+  int (*from_addrmut_deref)(void) = &_Mut *fp;
+  // expected-error@-1 {{'&_Mut' for function pointer is not allowed}}
+
+  int (*from_addrconst_deref)(void) = &_Const *fp;
+  // expected-error@-1 {{'&_Const' for function pointer is not allowed}}
+
+  // Contrast: borrowing a data pointer should still work
+  int *data_ptr = 0;
+  int *_Borrow from_data_mut = &_Mut *data_ptr;
+  const int *_Borrow from_data_const = &_Const *data_ptr;
+  (void)from_data_mut;
+  (void)from_data_const;
+}

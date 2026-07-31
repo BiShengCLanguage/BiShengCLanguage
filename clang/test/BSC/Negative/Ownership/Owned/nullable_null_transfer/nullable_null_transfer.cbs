@@ -1,0 +1,143 @@
+// RUN: %clang_cc1 -verify %s
+
+// Null-state propagation: when a must-be-null _Owned _Nullable variable
+// is transferred to another _Owned _Nullable via init or assign, the
+// destination should also be must-be-null and not report a memory leak.
+
+// ---------------------------------------------------------------------------
+// Basic owned pointer (BOP) tests
+// ---------------------------------------------------------------------------
+
+// Init: q = p where p is must-be-null → q is must-be-null, no leak.
+void init_null_to_nullable_no_leak(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = p;
+}
+
+// Assign: q = p where p is must-be-null → q is must-be-null, no leak.
+void assign_null_to_nullable_no_leak(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q;
+    q = p;
+}
+
+// Contrast: init from non-null owned → leak.
+void init_nonnull_to_nullable_leak(void) {
+    int x = 0;
+    int *_Owned _Nonnull p = __take_from_raw(&x);
+    int *_Owned _Nullable q = p;
+} // expected-error {{memory leak of value: `q`}}
+
+// Contrast: init from may-be-null owned → leak (owns-if-not-null).
+void init_maybe_to_nullable_leak(int cond) {
+    int x = 0;
+    int *_Owned _Nullable p = 0;
+    if (cond) { p = __take_from_raw(&x); }
+    int *_Owned _Nullable q = p;
+} // expected-error {{memory leak of value: `q`}}
+
+// ---------------------------------------------------------------------------
+// Owned pointer to struct (OPS) tests
+// ---------------------------------------------------------------------------
+
+struct S { int v; };
+
+void ops_init_null_to_nullable_no_leak(void) {
+    struct S *_Owned _Nullable p = 0;
+    struct S *_Owned _Nullable q = p;
+}
+
+void ops_assign_null_to_nullable_no_leak(void) {
+    struct S *_Owned _Nullable p = 0;
+    struct S *_Owned _Nullable q;
+    q = p;
+}
+
+void ops_init_nonnull_to_nullable_leak(void) {
+    struct S s;
+    struct S *_Owned _Nonnull p = __take_from_raw(&s);
+    struct S *_Owned _Nullable q = p;
+} // expected-error {{memory leak of value: `q`}}
+
+// ---------------------------------------------------------------------------
+// Null-branch multi-use: p is must-be-null and can be reused in the
+// `p == nullptr` branch, but transferring it to a _Nonnull receiver is still
+// rejected by the nullability analysis.
+// ---------------------------------------------------------------------------
+
+_Safe void null_branch_init_nonnull_rejected(void) {
+    int *_Owned _Nullable p = nullptr;
+    if (p == nullptr) {
+        int *_Owned _Nullable q = p;            // OK: must-be-null → _Nullable
+        int *_Owned _Nonnull r = p;             // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+        (void)q;
+        (void)r;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Contrast for non-DeclRef shapes: when the source is NOT must-be-null, the
+// same cast/comma/ternary/member shapes must still report leaks.
+// ---------------------------------------------------------------------------
+
+void nonnull_source_cast_leak(void) {
+    int x = 0;
+    int *_Owned _Nonnull p = __take_from_raw(&x);
+    int *_Owned _Nullable q = (int *_Owned _Nullable)p;
+} // expected-error {{memory leak of value: `q`}}
+
+void maybe_source_ternary_leak(int cond) {
+    int x = 0;
+    int *_Owned _Nullable p = 0;
+    if (cond) { p = __take_from_raw(&x); }
+    int *_Owned _Nullable q = cond ? p : p;
+} // expected-error {{memory leak of value: `q`}}
+
+// Non-null source through a void* cast still leaks.
+void nonnull_source_via_void_leak(void) {
+    int x = 0;
+    int *_Owned _Nonnull p = __take_from_raw(&x);
+    int *_Owned _Nullable q = (int *_Owned _Nullable)(void *_Owned _Nullable)p;
+} // expected-error {{memory leak of value: `q`}}
+
+// Maybe-null source in a ternary with a null-expr arm still leaks.
+void maybe_source_ternary_null_arm_leak(int cond) {
+    int x = 0;
+    int *_Owned _Nullable p = 0;
+    if (cond) { p = __take_from_raw(&x); }
+    int *_Owned _Nullable q = cond ? (int *_Owned _Nullable)nullptr : p;
+} // expected-error {{memory leak of value: `q`}} expected-error {{memory leak of value: `p`}}
+
+// ---------------------------------------------------------------------------
+// Dereferencing a must-be-null _Owned _Nullable struct pointer: `p->f` and
+// `(*p).f` must behave identically. With nullability analysis off (non-_Safe),
+// the dereference is reported as `use of moved value` and the transferred
+// destination q stays must-be-null (no false leak). With it on (_Safe), the
+// nullability analysis rejects the dereference directly.
+// ---------------------------------------------------------------------------
+
+struct O { int *_Owned f; };
+
+void arrow_deref_null_ops(void) {
+    struct O *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = p->f; // expected-error {{use of moved value: `p.f`}}
+    (void)q;
+} // expected-error {{memory leak of value: `p`}}
+
+void paren_deref_null_ops(void) {
+    struct O *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = (*p).f; // expected-error {{use of moved value: `p.f`}}
+    (void)q;
+} // expected-error {{memory leak of value: `p`}}
+
+_Safe void arrow_deref_null_ops_safe(void) {
+    struct O *_Owned _Nullable p = nullptr;
+    int *_Owned _Nullable q = p->f; // expected-error {{cannot access member through nullable pointer}}
+    (void)q;
+}
+
+_Safe void paren_deref_null_ops_safe(void) {
+    struct O *_Owned _Nullable p = nullptr;
+    int *_Owned _Nullable q = (*p).f; // expected-error {{nullable pointer cannot be dereferenced}}
+    (void)q;
+}

@@ -15387,6 +15387,11 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
               << InputExpr->getSourceRange();
         }
       }
+      if (Input.get()->getType()->isFunctionPointerType()) {
+        Diag(OpLoc, diag::err_mut_or_const_expr_func)
+            << "&_Mut" << InputExpr->getSourceRange();
+        Input = ExprError();
+      }
     } else {
       if (Opc == UO_AddrMut && InputExpr->getType().hasBorrow())
         Diag(OpLoc, diag::err_borrow_on_borrow)
