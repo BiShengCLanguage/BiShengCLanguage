@@ -134,6 +134,10 @@ build_edition() {  # $1 src dir, $2 toml, $3 lang, $4 dest sub, $5 ref, $6 meta-
   esac
   echo "[INFO] building $lang -> ${sub:-<root>}"
   mdbook build "$work" --dest-dir "$SITE${sub:+/$sub}"
+  # Make numbered subsections (e.g. 3.8.5) selectable in the sidebar. Must run
+  # here, before later editions are built into this edition's subdirectories.
+  python3 "$HERE/inject_subtoc.py" "$SITE${sub:+/$sub}" || \
+    echo "[WARN] sidebar subsection injection failed for ${sub:-<root>} — sidebar stays page-level"
   rm -rf "$work"
 }
 
