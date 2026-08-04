@@ -76,6 +76,8 @@ bool Type::hasOwnedFields() const {
     return RecTy->hasOwnedFields();
   } else if (const auto *PointerTy = dyn_cast<PointerType>(CanonicalType)) {
     return PointerTy->hasOwnedFields();
+  } else if (const auto *ArrTy = dyn_cast<ArrayType>(CanonicalType)) {
+    return ArrTy->getElementType().getTypePtr()->hasOwnedFields();
   }
   return false;
 }
@@ -479,6 +481,11 @@ bool isMoveSemanticTypeImpl(QualType QT, llvm::SmallPtrSetImpl<const RecordType 
       QualType FQT = FD->getType().getCanonicalType();
       if (FQT.isOwnedQualified())
         return true;
+      if (const auto *AT = dyn_cast<ArrayType>(FQT)) {
+        if (isMoveSemanticTypeImpl(AT->getElementType(), Visited))
+          return true;
+        continue;
+      }
       if (isa<RecordType>(FQT)) {
         if (isMoveSemanticTypeImpl(FQT, Visited))
           return true;
@@ -555,6 +562,11 @@ bool RecordType::hasOwnedFields() const {
     for (FieldDecl *FD : Queue[i]->getDecl()->fields()) {
       // basic case
       QualType FieldTy = FD->getType().getCanonicalType();
+      if (FieldTy.isOwnedQualified() || FieldTy->isOwnedStructureType()) {
+        return true;
+      }
+      while (const auto *AT = dyn_cast<ArrayType>(FieldTy))
+        FieldTy = AT->getElementType().getCanonicalType();
       if (FieldTy.isOwnedQualified() || FieldTy->isOwnedStructureType()) {
         return true;
       }

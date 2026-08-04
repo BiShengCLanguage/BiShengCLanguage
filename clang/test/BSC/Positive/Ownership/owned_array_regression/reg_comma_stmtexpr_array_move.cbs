@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void consume(int *_Owned _Nullable);
+
+// Element transfers inside a comma expression / statement expression follow
+// the qualifying-loop rules like ordinary statements.
+void test_comma_move() {
+  int *_Owned a[2] = {safe_malloc(1), safe_malloc(2)};
+  for (int i = 0; i < 2; i++)
+    consume(a[i]), 0;
+}
+
+void test_stmtexpr_move() {
+  int *_Owned a[2] = {safe_malloc(1), safe_malloc(2)};
+  for (int i = 0; i < 2; i++)
+    ({ consume(a[i]); 0; });
+}

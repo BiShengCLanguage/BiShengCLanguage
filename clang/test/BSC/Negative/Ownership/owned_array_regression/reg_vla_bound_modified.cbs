@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_vla_bound_modified(int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < n; i++) {
+    a[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop}}
+  }
+  n = 2; // bound variable modified // expected-note {{for-loop is not a qualifying for-loop: VLA length / loop bound variable must not be modified, address-taken or mutably borrowed}}
+}

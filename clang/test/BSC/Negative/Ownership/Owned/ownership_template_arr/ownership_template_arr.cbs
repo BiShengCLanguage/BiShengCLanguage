@@ -1,32 +1,24 @@
 // RUN: %clang_cc1 -verify %s
-T func<T>(T t) {
-    T array[1] = {t};   // expected-error {{'int *_Owned[1]' cannot be qualified by '_Owned'}}
-    return array[0];
-}
+// expected-no-diagnostics
+
+T identity<T>(T t) { return t; }
+
 int *_Owned safe_malloc(int);
-void safe_free(void * _Owned);
+void safe_free(void *_Owned);
 
 void test() {
-    int a = 0;
-    int *_Owned p1 = safe_malloc(a);
+  int a = 0;
+  int *_Owned p1 = safe_malloc(a);
+  int *_Owned p2 = identity(p1);
+  safe_free((void *_Owned)p2);
+}
 
-    int *_Owned p2 = func(p1);   // expected-note {{in instantiation of function template specialization 'func<int *_Owned>' requested here}}
-    safe_free((void *_Owned)p2);
+void test_local_array() {
+  int *_Owned arr[2];
+  for (int i = 0; i < 2; i++)
+    arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i]);
 }
-void test2(){
-    int *_Owned arr[1];  // expected-error {{type of array cannot be qualified by '_Owned'}}
-}
-T func2<T>(T t) {
-  T array2d[1][1] = {{t}};       // expected-error {{type of 'int *_Owned[1][1]' cannot be qualified by '_Owned'}}
-  return array2d[0][0];
-}
-void test3(){
-    int a = 0;
-    int *_Owned p1 = safe_malloc(a);
 
-    int *_Owned p3 = func2(p1);  // expected-note {{in instantiation of function template specialization 'func2<int *_Owned>' requested here}}
-    safe_free((void *_Owned)p3);
-}
-int main() {
-    test();
-}
+int main() { test(); }

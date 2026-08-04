@@ -1,0 +1,30 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct FS {
+  int *_Owned a;
+};
+
+void test_uninit_struct_free() {
+  struct FS arr[2];
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i].a); // expected-error {{cannot cast 'a' to 'void * _Owned' because it is uninitialized}}
+}
+
+void test_uninit_ptr_free() {
+  int *_Owned arr[2];
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i]); // expected-error {{cannot cast 'arr[]' to 'void * _Owned' because it is uninitialized}}
+}

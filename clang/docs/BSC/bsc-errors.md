@@ -8,7 +8,7 @@ Backticks in the Message column are markdown formatting for placeholders and cod
 
 ---
 
-## OWN — owned (43 errors, 1 warning)
+## OWN — owned (45 errors, 1 warning)
 
 (OWN-024 and OWN-026 are retired: `err_typecheck_invalid_owned_binOp` and `err_typecheck_invalid_owned_arrsub` were combined with `err_bsc_ptr_inc_dec` into OWN-025 `err_bsc_op_not_supported`. OWN-012 is retired: `err_ownership_cast_owned` was removed from the compiler — its trigger condition was never produced by the ownership analysis, so it could not fire. OWN-006 is retired: `err_ownership_assign_possibly_partially_moved` was merged into OWN-005 `err_ownership_assign_partially_moved` as a `%select` variant. Codes are not renumbered.)
 
@@ -57,6 +57,9 @@ Backticks in the Message column are markdown formatting for placeholders and cod
 | OWN-044 | err_assignment_in_destructor | `this` cannot be moved in destructor | — |
 | OWN-045 | err_tag_name | `_Owned struct` only appears in the type's declaration or definition; use `%0` without `_Owned struct` | — |
 | OWN-046 | err_inconsistent_tag_name | declaration of `%0` as %select{`struct`\|`_Owned struct`}1 conflicts with previous declaration as %select{`_Owned struct`\|`struct`}1 | `note_previous_declaration` — previous declaration is here |
+| OWN-047 | err_ownership_array_elem_transfer_forbidden | cannot transfer ownership of array element `%0` outside a qualifying for-loop; use a full-range for-loop or safe_swap | — |
+| OWN-048 | err_ownership_array_elem_path_inconsistent | ownership state of array element `%0` is inconsistent across paths in for-loop body | — |
+| OWN-049 | err_ownership_array_elem_assign_owned | cannot assign to `%0` because it still holds an _Owned value; move or free it first | Fires on `arr[i] = ...` / `s[i].p = ...` / `p->arr[i] = ...` when the element (or field) still holds ownership; assigning `nullptr` to an owned element is likewise rejected (it discards the old value). Only a null / moved / uninitialized element may be (re)assigned |
 | **OWN-W001** | warn_destructor_execute | destructor of %0 may not run because the switch can jump over its initialization | Fires only for an `_Owned struct` variable declared in a switch's top-level block; the same hazard via `goto` is currently not diagnosed |
 
 ---

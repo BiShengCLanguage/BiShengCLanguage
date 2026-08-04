@@ -1,0 +1,43 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned a; };
+struct Wrap { struct S arr[2]; };
+struct Wrap2 { struct Wrap w[2]; };
+
+void test_full_free() {
+  struct Wrap w = {{{safe_malloc(1)}, {safe_malloc(2)}}};
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)w.arr[i].a);
+  }
+}
+
+void test_null_element() {
+  struct Wrap w = {{{safe_malloc(1)}, {nullptr}}};
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)w.arr[i].a);
+  }
+}
+
+void test_deep_free() {
+  struct Wrap2 w2 = {{{{{safe_malloc(1)}, {safe_malloc(2)}}},
+                      {{{safe_malloc(3)}, {safe_malloc(4)}}}}};
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      safe_free((void *_Owned)w2.w[i].arr[j].a);
+    }
+  }
+}

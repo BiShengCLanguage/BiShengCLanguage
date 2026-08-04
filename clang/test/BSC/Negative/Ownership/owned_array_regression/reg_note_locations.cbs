@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -verify -Wno-tautological-constant-out-of-range-compare %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void consume(int *_Owned _Nullable);
+
+// Early-exit note points at the return/break statement itself.
+void test_note_at_break() {
+  int *_Owned _Nullable a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    consume(a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    if (i == 1)
+      break; // expected-note {{for-loop is not a qualifying for-loop: loop body must not return or goto early}}
+  }
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// Note for a loop-variable modification points at the modification site.
+void test_note_at_loopvar_mod() {
+  int *_Owned _Nullable a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    consume(a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    i++;           // expected-note {{for-loop is not a qualifying for-loop: loop variable must not be modified or have its address taken outside the increment}}
+  }
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// Initializer not zero vs loop-variable type too small are distinct rules.
+void test_note_init_nonzero() {
+  int *_Owned _Nullable a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 1; i < 3; i++) { // expected-note {{for-loop is not a qualifying for-loop: loop variable must be initialized to zero (`T i = 0`)}}
+    consume(a[i]);              // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+void test_note_init_type_too_small() {
+  int *_Owned _Nullable a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  unsigned char i = 0;
+  for (i = 0; i < 300; i++) { // expected-note {{for-loop is not a qualifying for-loop: type of the loop variable is too small to hold the loop bound}}
+    consume(a[i]);            // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// VLA: the loop bound must be the same variable that declares the array length.
+void test_note_vla_bound_var_mismatch(int n, int m) {
+  int *_Owned _Nullable a[n];
+  for (int i = 0; i < m; i++) { // expected-note {{for-loop is not a qualifying for-loop: loop bound variable must be the same variable that declares the VLA length}}
+    consume(a[i]);              // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+}
+
+// VLA: the length variable must not be modified.
+void test_note_vla_bound_var_modified(int n) {
+  int *_Owned _Nullable a[n];
+  for (int i = 0; i < n; i++) {
+    consume(a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+  n = 2; // expected-note {{for-loop is not a qualifying for-loop: VLA length / loop bound variable must not be modified, address-taken or mutably borrowed}}
+}

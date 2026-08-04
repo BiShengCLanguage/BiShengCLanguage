@@ -24,6 +24,9 @@ using namespace clang;
 using namespace sema;
 
 namespace {
+// _Owned/_Borrow _ArrayElem may point at _Owned types or
+// types that contain _Owned members. Still reject pointees that are (or
+// contain) _Borrow, which cannot be owned as array storage.
 bool HasInvalidArrayElemPointeeImpl(
     QualType QT, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
   QT = QT.getCanonicalType();
@@ -32,13 +35,10 @@ bool HasInvalidArrayElemPointeeImpl(
     return false;
 
   if (QT->isPointerType())
-    return QT.isOwnedQualified() || QT.isBorrowQualified();
+    return QT.isBorrowQualified();
 
   if (const auto *AT = QT->getAsArrayTypeUnsafe())
     return HasInvalidArrayElemPointeeImpl(AT->getElementType(), Visited);
-
-  if (QT->isOwnedStructureType())
-    return true;
 
   if (const auto *RT = dyn_cast<RecordType>(QT)) {
     if (!Visited.insert(RT).second)
@@ -114,6 +114,10 @@ void Sema::CheckOwnedOrIndirectOwnedType(SourceLocation ErrLoc, QualType T, Stri
     ownedTypedef,
     ownedFields
   };
+  // Peel array types so arrays of owned / move-semantic element types are
+  // caught too (e.g. `static struct A ls_arr[3]` where A has owned fields).
+  while (const auto *AT = T->getAsArrayTypeUnsafe())
+    T = AT->getElementType();
   if (T.getCanonicalType().isOwnedQualified() && !T.getTypePtr()->getAs<TypedefType>()) {
     Diag(ErrLoc, diag::err_nested_owned_borrow_type_check)
         << ownedQualified << "_Owned" << Env;
@@ -145,7 +149,8 @@ bool Sema::CheckInstantiatedTypeOwnedQualifiers(QualType T, SourceLocation Loc) 
   auto isValidOwnedType = [](QualType Ty) {
     return (Ty->isPointerType() && !Ty->isFunctionPointerType()) ||
            Ty->isOwnedStructureType() ||
-           Ty->isOwnedTemplateSpecializationType();
+           Ty->isOwnedTemplateSpecializationType() ||
+           Ty->isArrayType(); // arrays with _Owned element types are valid
   };
 
   // Check owned qualifier

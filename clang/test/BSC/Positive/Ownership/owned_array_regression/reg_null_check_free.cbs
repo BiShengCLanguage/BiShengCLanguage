@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_null_check_free() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (a[i] != nullptr) {
+      safe_free((void *_Owned)a[i]);
+    }
+  }
+}
+
+struct S {
+  int *_Owned p;
+};
+void test_null_check_free_field() {
+  struct S s[2] = {{safe_malloc(1)}, {safe_malloc(2)}};
+  for (int i = 0; i < 2; i++) {
+    if (s[i].p != nullptr) {
+      safe_free((void *_Owned)s[i].p);
+    }
+  }
+}

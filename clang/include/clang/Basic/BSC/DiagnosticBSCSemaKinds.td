@@ -87,7 +87,7 @@ def err_owned_qualifier_non_pointer : Error<
 def err_arrayelem_requires_safe_pointer : Error<
   "'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type">;
 def err_arrayelem_invalid_pointee : Error<
-  "pointee type of %0 cannot be an _Owned or _Borrow pointer or contain _Owned or _Borrow qualified fields">;
+  "pointee type of %0 cannot be _Borrow pointers or contain _Borrow qualified fields">;
 
 
 // BSC trait warnings and errors.
@@ -327,6 +327,14 @@ def err_ownership_memory_leak_field : Error<
   "memory leak because %1 not freed or moved before '%0' goes out of scope">;
 def err_ownership_memory_leak : Error<
   "memory leak because '%0' is not freed or moved before it goes out of scope">;
+def err_ownership_array_elem_transfer_forbidden : Error<
+  "cannot transfer ownership of array element `%0` outside a qualifying for-loop; use a full-range for-loop or safe_swap">;
+def err_ownership_array_elem_path_inconsistent : Error<
+  "ownership state of array element `%0` is inconsistent across paths in for-loop body">;
+def err_ownership_array_elem_assign_owned : Error<
+  "cannot assign to '%0' because it still holds an _Owned value; move or free it first">;
+def note_ownership_array_elem_not_qualifying : Note<
+  "for-loop is not a qualifying for-loop: %0">;
 def err_ownership_owned_struct_partially_moved : Error<
   "partially moved _Owned struct: '%0' at scope end, %1 moved">;
 def err_ownership_owned_struct_not_properly_freed : Error<

@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -verify %s
+
+void consume(int *_Owned _Nullable);
+void bar_mut(int *_Owned _Nullable *_Borrow _ArrayElem);
+void bar_const(int *const _Owned _Nullable *_Borrow _ArrayElem);
+
+void test_borrow_moved_mut() {
+  int *_Owned _Nullable a[10] = {nullptr};
+  for (int i = 0; i < 10; ++i) {
+    consume(a[i]);
+  }
+  bar_mut(&_Mut a[0]);
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+void test_borrow_moved_const_ok() {
+  int *_Owned _Nullable a[10] = {nullptr};
+  for (int i = 0; i < 10; ++i) {
+    consume(a[i]);
+  }
+  bar_const(&_Const a[0]);
+}

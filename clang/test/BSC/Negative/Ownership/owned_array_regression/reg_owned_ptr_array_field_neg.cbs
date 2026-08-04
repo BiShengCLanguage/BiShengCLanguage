@@ -1,0 +1,73 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned arr[2]; };
+
+// Nothing freed: both the struct and the array field leak.
+void test_leak() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    p->arr[i] = safe_malloc(i);
+  }
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} \
+  // expected-error {{memory leak because p.arr[] is not freed or moved before 'p' goes out of scope}}
+
+// Freeing the struct while elements are still owned is rejected.
+void test_free_struct_with_arr() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    p->arr[i] = safe_malloc(i);
+  }
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned': p.arr[] is still _Owned; move it out first}}
+}
+
+// Double free of the same element is a use-after-move.
+void test_double_free() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    p->arr[i] = safe_malloc(i);
+  }
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    safe_free((void *_Owned)p->arr[i]); // expected-error {{use of moved value: 'p'}}
+  }
+  safe_free((void *_Owned)p);
+}
+
+// The struct is taken as wholly owned on `p = __take_from_raw(...)`, so
+// assigning to a field without clearing it first is a leak of the old value.
+void test_reassign() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  for (int i = 0; i < 2; i++)
+    p->arr[i] = safe_malloc(i); // expected-error {{cannot assign to 'arr[]' because it still holds an _Owned value; move or free it first}}
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)p->arr[i]);
+  safe_free((void *_Owned)p);
+}
+
+// A constant inner index (p->arr[0]) is not a qualifying transfer.
+void test_partial() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    p->arr[i] = safe_malloc(i);
+  }
+  for (int i = 0; i < 2; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    safe_free((void *_Owned)p->arr[0]); // expected-error {{cannot transfer ownership of array element `p` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned': p.arr[] is still _Owned; move it out first}}
+}

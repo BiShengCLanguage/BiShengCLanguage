@@ -1,0 +1,67 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// Struct-member owned element arrays are tracked like local arrays.
+
+struct W {
+  int *_Owned arr[2];
+};
+
+void test_struct_field_leak() {
+  struct W w;
+  for (int i = 0; i < 2; i++) {
+    w.arr[i] = safe_malloc(1);
+  }
+} // expected-error {{memory leak because w.arr[] is not freed or moved before 'w' goes out of scope}}
+
+void test_struct_field_double_free() {
+  struct W w; // 未初始化：释放未初始化元素应报 uninitialized（不是 use-of-moved）
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)w.arr[i]); // expected-error {{cannot cast 'arr[]' to 'void * _Owned' because it is uninitialized}}
+    safe_free((void *_Owned)w.arr[i]); // expected-error {{cannot cast 'arr[]' to 'void * _Owned' because it is uninitialized}}
+  }
+}
+
+void test_struct_field_outside_loop() {
+  struct W w;
+  safe_free((void *_Owned)w.arr[0]); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  safe_free((void *_Owned)w.arr[0]); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
+
+// Multi-dimensional owned array field (T11).
+struct M {
+  int *_Owned arr[2][2];
+};
+
+void test_struct_field_multi_dim() {
+  struct M m;
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      m.arr[i][j] = safe_malloc(1);
+    }
+  }
+} // expected-error {{memory leak because m.arr[][] is not freed or moved before 'm' goes out of scope}}
+
+// Nested host struct (T10): o.w.arr[i].
+struct Outer {
+  struct W w;
+};
+
+void test_struct_field_nested() {
+  struct Outer o;
+  for (int i = 0; i < 2; i++) {
+    o.w.arr[i] = safe_malloc(1);
+  }
+} // expected-error {{memory leak because o.w.arr[] is not freed or moved before 'o' goes out of scope}}

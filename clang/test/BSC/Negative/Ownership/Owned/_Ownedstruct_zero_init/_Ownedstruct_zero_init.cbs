@@ -18,7 +18,6 @@ struct T {
   int* _Nonnull p;
 };
 
-// _Nonnull can't be zero init
 _Safe void test(void){
   int* _Nonnull p2 = nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   struct T t2={0}; // expected-error {{cannot implicitly initialize 't2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 't2' or declare them as '_Nullable'}}
@@ -32,20 +31,14 @@ _Safe void test_n_zero_init(void) {
 }
 
 _Safe void test_initializations(void) {
-  // C89-style initialization
   struct S i_all = {1, nullptr};
   struct S i_zero = {0};         // Implicit null for p
   struct S i_empty = {};         // GNU C / C23 empty init
 
-  // C99 designated initializers
   struct S d_all = {.a = 1, .p = nullptr};
   struct S d_a = {.a = 1};
   struct S d_p = {.p = nullptr};
 
-  // Nested struct initialization
-  // FIXME: initializing w_zero with {0} will incorrectly report memory leak
-  //        for w_zero.s2.p, so we must explicitly initialize s1 and s2.
-  //        Should fix this after the bug is fixed.
   struct Wrapper w_zero = {  // Implicit null for s1.p and s2.p
     .s1 = {0},
     .s2 = {0}
@@ -55,7 +48,6 @@ _Safe void test_initializations(void) {
     .s2 = {2, nullptr}
   };
 
-  // Verify ownership tracking
   i_empty.p = getptr();
   consume(i_empty.p);
 
@@ -67,8 +59,7 @@ _Safe void test_initializations(void) {
 }
 
 _Safe void test_owned_struct_array(void) {
-  // Array of structs
-  struct S arr[3] = { // expected-error {{type of array cannot be qualified by '_Owned' (even indirectly) because 'struct S' contains a '_Owned' type}}
+  struct S arr[3] = {
     {0},
     {.a = 1}
   };

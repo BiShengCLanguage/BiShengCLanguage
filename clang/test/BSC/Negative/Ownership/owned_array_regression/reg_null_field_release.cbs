@@ -1,0 +1,45 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned arr[2]; };
+
+// Negated null check: free(null) is a no-op; the non-null elements leak.
+void test_negated() {
+  struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) {
+    if (!s[i].arr[i])
+      safe_free((void *_Owned)s[i].arr[i]); // no use-of-moved here
+  }
+} // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}
+
+// Explicit `== nullptr` form (same path as the negated form).
+void test_eq_null() {
+  struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) {
+    if (s[i].arr[i] == nullptr)
+      safe_free((void *_Owned)s[i].arr[i]);
+  }
+} // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}
+
+// A real double move-out is still detected (use-after-move). Uses a nested
+// loop (each index driven by its own variable) so the transfer qualifies.
+void test_double_move() {
+  struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 2; j++) {
+      safe_free((void *_Owned)s[i].arr[j]);
+      safe_free((void *_Owned)s[i].arr[j]); // expected-error {{use of moved value: 's'}}
+    }
+}

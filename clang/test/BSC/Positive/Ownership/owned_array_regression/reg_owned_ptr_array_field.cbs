@@ -1,0 +1,46 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned arr[2]; };
+
+void test_full() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  // The struct is taken as wholly owned, so a field must be released /
+  // moved out before being (re)assigned (a plain assignment, even to
+  // nullptr, would discard the owned value).
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    p->arr[i] = safe_malloc(i);
+  }
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)p->arr[i]);
+  safe_free((void *_Owned)p);
+}
+
+// Nested pointee field (arr[].a style through the owned pointer).
+struct Inner { int *_Owned a; };
+struct Mid { struct Inner arr[2]; };
+
+void test_nested_full() {
+  struct Mid *_Owned p = __take_from_raw((struct Mid *)malloc(sizeof(struct Mid)));
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i].a);
+    p->arr[i].a = safe_malloc(1);
+  }
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)p->arr[i].a);
+  safe_free((void *_Owned)p);
+}

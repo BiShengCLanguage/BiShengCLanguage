@@ -5205,12 +5205,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         D.setInvalidType(true);
       }
 
-#if ENABLE_BSC
-      // BSC rules: ele of array cannot be qualified by owned or owned-like
-      if (LangOpts.BSC)
-        S.CheckOwnedOrIndirectOwnedType(D.getIdentifierLoc(), T, "array");
-#endif
-
       // C99 6.7.5.2p1: The optional type qualifiers and the keyword static
       // shall appear only in a declaration of a function parameter with an
       // array type, ...

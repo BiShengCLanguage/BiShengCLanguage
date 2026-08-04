@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_uninit_free() {
+  int *_Owned a[3]; // no initializer, no allocating loop
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{cannot cast 'a[]' to 'void * _Owned' because it is uninitialized}}
+}

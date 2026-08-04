@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+struct T1 { int *_Owned ptr; };
+struct T2 { int *_Owned _ArrayElem ptr; };
+
+void foo(void) {
+  int *_Owned a[10];
+  int *_Owned b[10][10];
+  struct T1 sa[4];
+  struct T1 *_Owned _ArrayElem p1;
+  struct T2 *_Owned _ArrayElem p2;
+  (void)a;
+  (void)b;
+  (void)sa;
+  (void)p1;
+  (void)p2;
+}
+
+struct Outer {
+  int *_Owned arr[3];
+  struct T1 nested[2];
+};
+
+void bar(int *_Owned param_arr[5], struct T1 param_sa[2]) {
+  (void)param_arr;
+  (void)param_sa;
+}

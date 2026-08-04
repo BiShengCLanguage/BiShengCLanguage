@@ -1,0 +1,55 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_owned_array_leak_no_free() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+void test_owned_array_transfer_forbidden() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  safe_free((void *_Owned)arr[0]); // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop}}
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+void test_owned_array_leak_break() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)arr[i]); // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop}}
+    if (i == 1)
+      break; // expected-note {{for-loop is not a qualifying for-loop: loop body must not return or goto early}}
+  }
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+void test_bound_mismatch() {
+  int *_Owned arr[10] = {safe_malloc(0), safe_malloc(1), safe_malloc(2), safe_malloc(3),
+                         safe_malloc(4), safe_malloc(5), safe_malloc(6), safe_malloc(7),
+                         safe_malloc(8), safe_malloc(9)};
+  for (int i = 0; i < 5; i++) { // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    safe_free((void *_Owned)arr[i]); // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop}}
+  }
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+void test_path_inconsistent() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  // Path inconsistency does not disqualify the loop; only the divergence is reported.
+  for (int i = 0; i < 3; i++) {
+    if (i % 2 == 0) {
+      safe_free((void *_Owned)arr[i]);
+    }
+  } // expected-error {{ownership state of array element `arr` is inconsistent across paths in for-loop body}}
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+int main() {
+  return 0;
+}

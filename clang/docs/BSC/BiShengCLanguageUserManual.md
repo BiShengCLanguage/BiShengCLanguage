@@ -2401,20 +2401,19 @@ union A {
 };
 ```
 
-5. `_Owned`修饰的类型或拥有`_Owned`修饰的成员的类型不可以作为数组的成员、不可以作为 `_Owned _ArrayElem` 指针的指向类型或其成员。（`_ArrayElem` 指向类型限制详见 [3.3.1.1 节](#3311-指向类型限制)）
+5. 全局变量、静态变量不能是 `_Owned` 修饰的类型或是包含 `_Owned` 成员的结构体、数组。
 
 ```c
-#include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
-
-struct A {
-  int *_Owned p;
-};
+struct A { int *_Owned p; };
 
 _Safe void test(void) {
-  int *_Owned arr_i[2] = {safe_malloc(1), safe_malloc(2)}; // error: 数组成员不能被 _Owned 修饰
-  struct A arr_a[2] = {{safe_malloc(1)}, {safe_malloc(2)}}; // error: 数组成员不能被 _Owned 修饰
+  static int *_Owned ls_p; // error: 静态局部变量不能被 _Owned 修饰
+  static struct A ls_a; // error: 静态局部变量不能是含 _Owned 成员的结构体
 }
-_Safe struct A *_Owned _ArrayElem test2(void); // error: _Owned _ArrayElem 指针指向类型不能含有 _Owned 成员
+int *_Owned g_p; // error: 全局变量不能被 _Owned 修饰
+struct A g_a; // error: 全局变量不能是含 _Owned 成员的结构体
+int *_Owned g_arr[2]; // error: 全局数组元素不能被 _Owned 修饰
+struct A g_arr2[2]; // error: 全局数组元素不能是含 _Owned 成员的结构体
 ```
 
 6. `_Owned`指针不支持下标运算、算术运算（指针偏移操作），但支持比较运算。`_Owned _ArrayElem`指针支持下标运算（详见 [3.3.1.2 节](#3312-_owned-_arrayelem-指针)）。
@@ -3069,6 +3068,10 @@ int main() {
 1. 对指针的比较操作（如 `p == p2`，`p == nullptr` 等）
 
 `p` 在退出作用域时不会编译报错（不会报内存泄露）。
+
+##### 3.1.4.6. 数组中的 `_Owned` 元素
+
+`_Owned` 修饰的类型以及包含 `_Owned` 类型的成员的结构体可以作为数组成员。由于编译器无法静态追踪数组内不同元素的所有权状态，因此毕昇C不区分数组内不同下标的 `_Owned` 指针的所有权状态，如果要改变所有权则必须使用循环对数组内所有元素都进行相同的变更。详细规则请见[3.3.3节](#333-_owned-类型作为数组成员)。
 
 #### 3.1.5. 源源变换
 
@@ -4034,36 +4037,14 @@ int * _ArrayElem p3; // error, _ArrayElem 不能加在裸指针上
 
 ##### 3.3.1.1. 指向类型限制
 
-对于 `T * _Owned _ArrayElem` 与 `T* _Borrow _ArrayElem` 指针，类型 `T` 以及（对结构体来说）其所有递归展开后的成员不能是安全指针或 `_Owned struct`。
+对于 `T * _Owned _ArrayElem` 与 `T * _Borrow _ArrayElem` 指针，其指向类型 `T` 以及（对结构体来说）其所有递归展开后的成员不能是 `_Borrow` 指针或含 `_Borrow` 成员的类型。指向类型为 `_Owned` 指针或含 `_Owned` 成员的结构体是允许的（详见 [3.3.3 节](#333-_owned-类型作为数组成员)）。
 
 ```c
-int * _Borrow _ArrayElem p1 = ...; // ok, T = int
-int * _Borrow * _Borrow _ArrayElem p2 = ...; // error, T = int * _Borrow
-int * _Owned * _Borrow _ArrayElem p3 = ...; // error, T = int * _Owned
-```
-
-该规则可理解为：只有当 `T[]` 与 `T * _Borrow` 都是毕昇C支持的类型时，毕昇C才支持 `T* _Owned _ArrayElem` 与 `T* _Borrow _ArrayElem` 类型。由于毕昇C目前不支持在数组内跟踪元素的所有权、不支持二级借用，这些限制也作用于 `_ArrayElem`。
-
-举例：`T` 不能包含 `_Owned` 指针：
-```c
-typedef struct {
-  int * _Owned ptr;
-} T;
-T a[10]; // error
-T * _Borrow b; // ok
-T * _Owned _ArrayElem ptr; // error
-T * _Borrow _ArrayElem ptr; // error
-```
-
-举例：`T` 不能包含 `_Borrow` 指针：
-```c
-typedef struct {
-  int * _Borrow ptr;
-} T;
-T a[10]; // ok
-T * _Borrow b; // error
-T * _Owned _ArrayElem ptr; // error
-T * _Borrow _ArrayElem ptr; // error
+void test(void) {
+  int * _Borrow _ArrayElem p1 = ...; // ok, T = int
+  int * _Borrow * _Borrow _ArrayElem p2 = ...; // error, T = int * _Borrow
+  int * _Owned * _Borrow _ArrayElem p3 = ...; // ok, T = int * _Owned
+}
 ```
 
 ##### 3.3.1.2. `_Owned _ArrayElem` 指针
@@ -4391,6 +4372,122 @@ _Safe void *_Borrow f16(U2 *_Borrow s) {
     if (array && ...) {...}
     if (array || ...) {...}
     ```
+
+
+#### 3.3.3. `_Owned` 类型作为数组成员
+
+局部数组、结构体成员数组的元素可以是 `_Owned` 修饰的类型或含 `_Owned` 成员的结构体。毕昇C将数组内所有元素视为一个整体：数组内所有不同下标对应的相同 `_Owned` 成员使用统一的所有权状态进行跟踪。
+
+为在保证安全的前提下平衡易用性和规则复杂度，对于可能引起所有权变更的操作（例如赋值与释放），毕昇C采取如下策略：
+1. 如果特定 for 循环能在编译期保证对数组中每个元素做同样的所有权变更操作（以下称为“合格 for 循环”），那么允许使用该 for 循环改变数组元素的所有权。
+2. 用户可以用 safe_swap 在不转移所有权的前提下读写数组元素。
+3. 不满足以上条件的数组元素所有权变更操作均不允许。
+
+数组离开作用域时若元素仍然持有所有权，则报内存泄漏。
+
+##### 3.3.3.1. 使用合格 for 循环修改数组元素所有权
+
+对于数组 `a`，以下条件全部满足的 `for` 循环为合格 `for` 循环：
+
+1. 初始化部分为 `for (T i = 0; ...)`，`T` 是个整数类型，循环变量从 0 开始，每次循环增量恰好为 1（如 `i++`、`++i`、`i += 1`）。
+2. 条件部分为 `i < N`，其中 `N` 为数组长度（对定长数组必须是其长度，对变长数组 `N` 为边界变量且该变量在函数内不被修改、不被取地址或取借用），循环变量的类型 `T` 的可表达范围必须包含`N`。
+3. 循环体内不修改循环变量（不允许 `i++`、`i = ...` 等），不对循环变量取地址、取可变借用。
+4. 循环体内没有 `break`、`return`、`goto` 等提前退出循环的语句（嵌套循环内的 `break` 不影响外层循环的判定）。可以包含 `continue` 或只跳转到循环内的 `goto` 语句。
+5. 循环体内对数组只使用形如 `a[i]`（对于一维数组）、`a[i][j]`（对于多维数组，外层循环对应第一维、内层循环对应后续维度，维度顺序必须与声明一致）、`a[i].f`（对于结构体数组的字段）的表达式。
+
+合格 `for` 循环的循环体内，数组内 `_Owned` 元素的所有权规则与单个 `_Owned` 类型的变量的所有权规则一致。循环结束后下标为 `i` 的元素的所有权状态即为数组所有元素的所有权状态。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void test(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)a[i]); // ok: 合格 for 循环内允许元素转移
+  }
+}
+```
+
+**数组内所有权状态一致性要求**
+
+循环结束时，不允许一部分执行路径上 `_Owned` 元素持有所有权，一部分执行路径上 `_Owned` 元素失去所有权。释放时可以使用判空 `if` 等方式跳过对空指针的释放，不会认为所有权结果不一致而导致报错（空指针也视为没有所有权）。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void test1(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (i != 1) {
+      safe_free((void *_Owned)a[i]); // error, 循环结束时 a[1] 仍保留所有权但其他元素失去所有权
+    }
+  }
+}
+
+_Safe void test2(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (a[i] != nullptr) {
+      safe_free((void *_Owned)a[i]); // ok
+    }
+  }
+}
+```
+
+**多维数组嵌套**
+
+对多维数组 `int *_Owned a[2][3]`，正确写法是外层 `for (int i = 0; i < 2; i++)`、内层 `for (int j = 0; j < 3; j++)` 并访问 `a[i][j]`；若维度顺序颠倒（如外层 `j`、内层 `i` 访问 `a[i][j]`），则不是合格嵌套，元素转移被禁止。
+
+```c
+#include "bishengc_safety.hbs"
+
+_Safe void test(void) {
+  int * _Owned a[10][20];
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 20; j++) {
+      a[i][j] = safe_malloc(i * j); // 分配
+    }
+  }
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 20; j++) {
+      safe_free((void *_Owned)a[i][j]); // 释放
+    }
+  }
+}
+```
+
+##### 3.3.3.2. 合格 for 循环外禁止修改数组元素所有权
+
+在合格循环之外，不允许对数组元素执行所有权转移，包括赋值、初始化、传参、返回等操作。其他不改变所有权的操作（解引用、指针比较、取借用）在满足其他规则的前提下仍然允许。
+
+如需在合格 for 循环外修改数组元素，可以使用 `safe_swap` 将元素替换出来，再进行操作。
+```c
+int * _Owned a[10] = {...};
+int * _Owned tmp = ...;
+safe_swap(&_Mut a[0], &_Mut tmp); // ok: 通过 safe_swap 交换两个值
+```
+
+对于 `_Owned _ArrayElem` 指针，也可以使用 `__move_array_to_raw` 将整个数组的所有权转移到裸指针后再进行操作。
+
+##### 3.3.3.3. 结构体数组的 `_Owned` 字段
+
+含多个 `_Owned` 字段的结构体数组，每个字段独立跟踪所有权：合格 `for` 循环内可对某个字段执行转移而其他字段状态不变。数组退出作用域时只对仍持有所有权的字段报告泄漏。
+
+```c
+struct S { int *_Owned a; int *_Owned b; };
+_Safe void test_fields(void) {
+  struct S s[2] = {{safe_malloc(1), safe_malloc(2)},
+                   {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)s[i].a);
+    s[i].a = s[i].b; // b 移出，a 移入
+  }
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)s[i].a);
+  }
+  // 函数结束：s.a、s.b 均无所有权，无泄漏
+}
+```
 
 ### 3.4. 非空指针
 

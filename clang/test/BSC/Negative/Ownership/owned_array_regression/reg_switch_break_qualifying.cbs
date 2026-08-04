@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_switch_break(int x) {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    switch (x) {
+    case 1:
+      break;
+    default:
+      break;
+    }
+    safe_free((void *_Owned)arr[i]);
+  }
+}

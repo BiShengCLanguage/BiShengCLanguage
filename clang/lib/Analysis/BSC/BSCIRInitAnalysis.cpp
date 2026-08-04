@@ -1244,10 +1244,25 @@ void InitAnalysis::checkOperand(const Operand &Op, const InitLattice &State,
   if (Op.K == Operand::Constant)
     return;
 
-  if (Op.getPlace().Loc.isValid())
-    Loc = Op.getPlace().Loc;
+  // Array-element reads of owned-element arrays are validated by the
+  // ownership dataflow (elements are initialized through a qualifying
+  // for-loop); the init analysis tracks whole locals / fields only, so a
+  // loop-initialized owned array would be misreported as uninitialized
+  // here (e.g. `for (i) a[i] = safe_malloc(i); for (i) safe_free(a[i])`).
+  // Ordinary (non-owned) arrays keep the uninit check.
+  const Place &P = Op.getPlace();
+  if (llvm::any_of(P.Projections, [](const ProjectionElem &E) {
+        return E.K == ProjectionElem::Index ||
+               E.K == ProjectionElem::ConstantIndex;
+      })) {
+    if (P.Ty.isOwnedQualified() || P.Ty->isMoveSemanticType())
+      return;
+  }
 
-  LocalId Id = Op.getPlace().Base;
+  if (P.Loc.isValid())
+    Loc = P.Loc;
+
+  LocalId Id = P.Base;
   InitState IS = getInitState(State, Id);
 
   // If the whole local is Initialized, most field accesses are fine.

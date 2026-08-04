@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void bar(int *_Owned _Nullable *_Borrow _ArrayElem);
+
+void test_borrow_leak() {
+  int *_Owned _Nullable a[10] = {nullptr};
+  bar(&_Mut a[0]);
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+void test_partial_nonnull() {
+  int *_Owned _Nullable a[10] = {safe_malloc(1)};
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}

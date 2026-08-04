@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+int *_Owned foo2(int *_Owned);
+void bar(int, int *_Owned);
+
+void test_read_then_move_in_same_call() {
+  int *_Owned a[2] = {safe_malloc(1), safe_malloc(2)};
+  for (int i = 0; i < 2; i++)
+    bar(*a[i], foo2(a[i]));
+}

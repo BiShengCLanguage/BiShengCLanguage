@@ -1,0 +1,63 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// Implicit null check on a local array.
+void test_implicit_null(int flag) {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (arr[i])
+      safe_free((void *_Owned)arr[i]);
+  }
+}
+
+struct HW {
+  int *_Owned arr[3];
+};
+
+void test_field_null_check() {
+  struct HW w;
+  for (int i = 0; i < 3; i++)
+    w.arr[i] = safe_malloc(1);
+  for (int i = 0; i < 3; i++) {
+    if (w.arr[i] != nullptr)
+      safe_free((void *_Owned)w.arr[i]);
+  }
+}
+
+void test_field_implicit_null() {
+  struct HW w;
+  for (int i = 0; i < 3; i++)
+    w.arr[i] = safe_malloc(1);
+  for (int i = 0; i < 3; i++) {
+    if (w.arr[i])
+      safe_free((void *_Owned)w.arr[i]);
+  }
+}
+
+// Nested host struct: o.w.arr[i].
+struct HOuter {
+  struct HW w;
+};
+
+void test_nested_field_null_check() {
+  struct HOuter o;
+  for (int i = 0; i < 3; i++)
+    o.w.arr[i] = safe_malloc(1);
+  for (int i = 0; i < 3; i++) {
+    if (o.w.arr[i] != nullptr)
+      safe_free((void *_Owned)o.w.arr[i]);
+  }
+}

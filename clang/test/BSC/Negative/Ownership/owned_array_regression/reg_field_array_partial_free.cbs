@@ -1,0 +1,40 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned a[2]; };
+
+// Partial element free (constant inner index) must be rejected and leak.
+void test_partial_free() {
+  struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    safe_free((void *_Owned)s[i].a[0]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.a[] is not freed or moved before 's' goes out of scope}}
+
+// Double free of the same constant-index element must be rejected too (not
+// silently accepted as a use-after-move / double free).
+struct Inner { int *_Owned p; };
+struct Mid { struct Inner arr[2]; };
+
+void test_double_free() {
+  struct Mid m[2];
+  for (int a = 0; a < 2; a++) {
+    m[a].arr[0].p = safe_malloc(1); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    m[a].arr[1].p = safe_malloc(2); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+  for (int a = 0; a < 2; a++) {
+    safe_free((void *_Owned)m[a].arr[0].p); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    safe_free((void *_Owned)m[a].arr[0].p); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+}

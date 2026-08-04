@@ -1,0 +1,48 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+
+void use(int *_Borrow p);
+int rd(int *_Borrow p) { return *p; }
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void consume(int *_Owned _Nullable);
+
+// A bare read of a mutably-borrowed array element in the comma LHS must be
+// rejected (mirror of the scalar comma-LHS borrow rule).
+void test_comma_lhs_arr_read() {
+  int a[2] = {1, 2};
+  int *_Borrow b = &_Mut a[0]; // expected-note {{'a[]' is borrowed here}}
+  int v = (a[0], 0);           // expected-error {{cannot use 'a[]' because it was mutably borrowed}}
+  (void)v;
+  use(b);
+}
+
+// A trailing borrow of an array element inside a statement expression freezes
+// it; a later assignment is rejected.
+void test_stmtexpr_arr_borrow() {
+  int a[2] = {1, 2};
+  int *_Borrow b = ({ int *_Borrow tmp = &_Mut a[0]; tmp; }); // expected-note {{'a[]' is borrowed here}}
+  a[0] = 99; // expected-error {{cannot assign to 'a[]' because it is borrowed}}
+  use(b);
+}
+
+// Moving an element inside a comma expression still marks it moved; a later
+// use of the same element is a use-after-move.
+void test_comma_move_then_use() {
+  int *_Owned a[2] = {safe_malloc(1), safe_malloc(2)};
+  for (int i = 0; i < 2; i++) {
+    consume(a[i]), 0;
+    consume(a[i]); // expected-error {{use of moved value: 'a'}}
+  }
+}

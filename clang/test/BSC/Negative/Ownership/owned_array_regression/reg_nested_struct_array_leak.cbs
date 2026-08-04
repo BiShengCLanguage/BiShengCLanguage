@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned a; };
+struct Wrap { struct S arr[2]; };
+
+void test_nested_struct_array_leak() {
+  struct Wrap w = {{{safe_malloc(1)}, {safe_malloc(2)}}};
+} // expected-error {{memory leak because w.arr[].a is not freed or moved before 'w' goes out of scope}}
+
+struct Wrap2 { struct Wrap w[2]; };
+
+void test_deep_nesting_leak() {
+  struct Wrap2 w2 = {{{{{safe_malloc(1)}, {safe_malloc(2)}}},
+                      {{{safe_malloc(3)}, {safe_malloc(4)}}}}};
+} // expected-error {{memory leak because w2.w[].arr[].a is not freed or moved before 'w2' goes out of scope}}
+
+void test_scalar_free_forbidden() {
+  struct Wrap w = {{{safe_malloc(1)}, {safe_malloc(2)}}};
+  safe_free((void *_Owned)w.arr[0].a); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because w.arr[].a is not freed or moved before 'w' goes out of scope}}

@@ -1,0 +1,11 @@
+// RUN: %clang_cc1 -verify %s
+
+struct S {
+  int *_Owned a;
+};
+
+_Safe int *_Owned getptr(void);
+
+_Safe void test_struct_array_leak(void) {
+  struct S s[2] = {{getptr()}, {getptr()}};
+} // expected-error {{memory leak because s.a is not freed or moved before 's' goes out of scope}}

@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct T {
+  int *_Owned _Nullable ptr;
+};
+
+void test_arrayelem_elem_transfer_forbidden(struct T *_Owned _ArrayElem p,
+                                            unsigned n) {
+  (void)n;
+  safe_free((void *_Owned)p[0].ptr); // expected-error {{cannot transfer ownership of array element `p` outside a qualifying for-loop}}
+  p[0].ptr = safe_malloc(2); // expected-error {{cannot transfer ownership of array element `p` outside a qualifying for-loop}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} expected-error {{memory leak because p.ptr is not freed or moved before 'p' goes out of scope}}
+
+void test_owned_ptr_arrayelem(int *_Owned *_Owned _ArrayElem ap) {
+  safe_free((void *_Owned)ap[0]); // expected-error {{cannot transfer ownership of array element `ap` outside a qualifying for-loop}}
+} // expected-error {{memory leak because 'ap' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *ap is not freed or moved before 'ap' goes out of scope}}

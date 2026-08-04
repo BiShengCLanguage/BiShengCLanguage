@@ -15,9 +15,15 @@
 #include "clang/Analysis/Analyses/BSC/BSCOwnership.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Analysis/Analyses/BSC/BSCNullCheckInfo.h"
+#include "clang/Analysis/Analyses/PostOrderCFGView.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
+#include <algorithm>
+#include <functional>
+#include <queue>
+#include <utility>
 
 using namespace clang;
 using namespace std;
@@ -27,6 +33,7 @@ class OwnershipImpl {
 public:
   AnalysisDeclContext &analysisContext;
   ASTContext &ctx;
+  OwnedArrayLoopInfo LoopInfo;
   llvm::DenseMap<const CFGBlock *, Ownership::OwnershipStatus>
       blocksBeginStatus;
   llvm::DenseMap<const CFGBlock *, Ownership::OwnershipStatus> blocksEndStatus;
@@ -45,33 +52,16 @@ public:
 
   void MaybeSetNull(const CFGBlock *block, const CFGBlock *cur, Ownership::OwnershipStatus &status);
 
-  OwnershipImpl(AnalysisDeclContext &ac, ASTContext &context)
-      : analysisContext(ac), ctx(context), blocksBeginStatus(0), blocksEndStatus(0) {}
+  OwnershipImpl(AnalysisDeclContext &ac, ASTContext &context,
+                OwnedArrayLoopInfo loopInfo)
+      : analysisContext(ac), ctx(context), LoopInfo(std::move(loopInfo)),
+        blocksBeginStatus(0), blocksEndStatus(0) {}
 };
 } // namespace
 
 //===----------------------------------------------------------------------===//
 // Common static functions.
 //===----------------------------------------------------------------------===//
-
-// IsTrackedType judges if the status of a variable needs to be tracked.
-// We track 3 kind of variable according to its type:
-// 1. the basic owned pointer type such as `int * owned p`
-// 2. the struct owned pointer type such as `struct S * owned s`
-// 3. the struct type with at least one owned field
-// 4. the owned struct type such as `owned struct S`
-static bool IsTrackedType(QualType type) {
-  // case 1 and case 2
-  if (type->isPointerType() && type.isOwnedQualified())
-    return true;
-
-  // case 3
-  if ((type->isRecordType() && type.getTypePtr()->isOwnedStructureType()) ||
-      (type->isRecordType() && type->isMoveSemanticType()))
-    return true;
-
-  return false;
-}
 
 // Collect every CallExpr that appears as a (possibly parenthesized/cast)
 // argument of an enclosing CallExpr. The CFG built with setAllAlwaysAdd()
@@ -81,6 +71,8 @@ static bool IsTrackedType(QualType type) {
 // is a false "use of moved value" report. These calls are instead analyzed
 // inline, left-to-right, by the enclosing call, and their hoisted CFGStmt
 // elements are skipped in runOnBlock().
+// (IsTrackedType lives in BSCOwnership.h as a static inline helper; its
+// array-aware version is shared by the array-element feature.)
 static void CollectArgumentCalls(Stmt *S, bool InCallArg,
                                  llvm::DenseSet<const Stmt *> &ArgCalls) {
   if (!S)
@@ -199,6 +191,49 @@ static const DeclRefExpr *getRootDREFromMemberBase(const Expr *Base) {
   return dyn_cast<DeclRefExpr>(E);
 }
 
+// Peel an array-element expression a[i] / a[i][j] / s[i].f / s[i].a[j] down
+// to the base VarDecl (of an array or of a _ArrayElem pointer); nullptr if the
+// expression is not such an element access. Shared by the dataflow transfer
+// functions and the null-check handling.
+static const VarDecl *PeelArrayElemBase(const Expr *E) {
+  if (!E)
+    return nullptr;
+  const Expr *Base = E->IgnoreParenImpCastsSafe();
+  if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(Base)) {
+    Base = ASE->getBase()->IgnoreParenImpCastsSafe();
+    while (const ArraySubscriptExpr *Inner =
+               dyn_cast<ArraySubscriptExpr>(Base))
+      Base = Inner->getBase()->IgnoreParenImpCastsSafe();
+  } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(Base)) {
+    Base = ME->getBase()->IgnoreParenImpCastsSafe();
+    while (const ArraySubscriptExpr *A = dyn_cast<ArraySubscriptExpr>(Base))
+      Base = A->getBase()->IgnoreParenImpCastsSafe();
+  } else {
+    return nullptr;
+  }
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base))
+    return dyn_cast<VarDecl>(DRE->getDecl());
+  return nullptr;
+}
+
+
+// A transfer site whose base is an owned-element array or a _Owned
+// _ArrayElem pointer: element ownership transfer applies.
+static bool IsArrayTransferBase(const VarDecl *VD, bool IsArrElemPtr) {
+  return IsOwnedElementArrayType(VD->getType()) || IsArrElemPtr;
+}
+
+// Peel an owned-element *array field* access (w.arr[i] / o.w.arr[i]) to the
+// host and the "arr[]" / "w.arr[]" path. Returns false for plain nested
+// fields (no `[]`) or non-array fields. Used by the subscript / cast
+// transfer branches.
+static bool GetOwnedArrayField(const Expr *E, const VarDecl *&HostVD,
+                               std::string &FieldPath) {
+  if (!PeelHostAndFieldPath(E, HostVD, FieldPath))
+    return false;
+  return IsOwnedArrayFieldPath(HostVD, FieldPath);
+}
+
 static string moveAsterisksToFront(string str) {
   size_t asterisk_pos = str.find_last_not_of('*');
   if (asterisk_pos != string::npos) {
@@ -290,7 +325,8 @@ static bool IsCastFromVoidPointer(Expr *E) {
 
 bool Ownership::OwnershipStatus::empty() const {
   return OPSStatus.empty() && OPSAllOwnedFields.empty() &&
-         OPSOwnedOwnedFields.empty() && SStatus.empty() &&
+         OPSOwnedOwnedFields.empty() && OPSNullOwnedFields.empty() &&
+         SStatus.empty() &&
          SAllOwnedFields.empty() && SOwnedOwnedFields.empty() &&
          SNullOwnedFields.empty() && BOPStatus.empty() &&
          BOPAllOwnedFields.empty() && BOPOwnedOwnedFields.empty();
@@ -302,7 +338,8 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   if (statsA.empty())
     return Ownership::OwnershipStatus(
         statsB.OPSStatus, statsB.OPSAllOwnedFields, statsB.OPSOwnedOwnedFields,
-        statsB.SStatus, statsB.SAllOwnedFields, statsB.SOwnedOwnedFields,
+        statsB.OPSNullOwnedFields, statsB.SStatus, statsB.SAllOwnedFields,
+        statsB.SOwnedOwnedFields,
         statsB.SNullOwnedFields, statsB.SUninitOwnedFields,
         statsB.BOPStatus, statsB.BOPAllOwnedFields, statsB.BOPOwnedOwnedFields);
 
@@ -320,15 +357,30 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
             ei = statsB.OPSAllOwnedFields.end();
        it != ei; ++it) {
     const VarDecl *VD = it->first;
-    llvm::SmallSet<string, 10> value = statsB.OPSOwnedOwnedFields[VD];
+    llvm::SmallSet<string, 10> OwnedValue = statsB.OPSOwnedOwnedFields[VD];
+    llvm::SmallSet<string, 10> NullValue = statsB.OPSNullOwnedFields[VD];
     if (statsA.OPSAllOwnedFields.count(VD) &&
-        !statsA.OPSOwnedOwnedFields.empty()) {
-      if (!value.empty()) {
-        for (const auto &s : value)
+        (!statsA.OPSOwnedOwnedFields.empty() ||
+         !statsA.OPSNullOwnedFields.empty())) {
+      if (!statsA.OPSOwnedOwnedFields.empty() && !OwnedValue.empty()) {
+        for (const auto &s : OwnedValue)
           statsA.OPSOwnedOwnedFields[VD].insert(s);
       }
+      if (!statsA.OPSNullOwnedFields.empty() && !NullValue.empty()) {
+        for (const auto &s : NullValue)
+          statsA.OPSNullOwnedFields[VD].insert(s);
+      }
     } else {
-      statsA.OPSAllOwnedFields[VD] = value;
+      // statsA has no per-field state for VD: adopt statsB's field sets.
+      // Copy the static All list and the Owned / Null sets separately
+      // (mirror of the S branch), instead of overwriting All with the
+      // Owned values.
+      for (const auto &s : it->second)
+        statsA.OPSAllOwnedFields[VD].insert(s);
+      for (const auto &s : OwnedValue)
+        statsA.OPSOwnedOwnedFields[VD].insert(s);
+      for (const auto &s : NullValue)
+        statsA.OPSNullOwnedFields[VD].insert(s);
     }
   }
 
@@ -359,10 +411,16 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
           statsA.SNullOwnedFields[VD].insert(s);
       }
     } else {
+      // statsA has no per-field state for VD (both owned and null field sets
+      // are empty): adopt statsB's field sets. SAllOwnedFields must be copied
+      // too, otherwise later field transfers (setArrayFieldMoved etc.) see an
+      // empty static field list and skip the transition.
+      for (const auto &s : it->second)
+        statsA.SAllOwnedFields[VD].insert(s);
       for (const auto &s : OwnedValue)
-        statsA.SAllOwnedFields[VD].insert(s);
+        statsA.SOwnedOwnedFields[VD].insert(s);
       for (const auto &s : NullValue)
-        statsA.SAllOwnedFields[VD].insert(s);
+        statsA.SNullOwnedFields[VD].insert(s);
     }
   }
   // A path uninitialized on either branch stays uninitialized.
@@ -400,14 +458,16 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
 
   return Ownership::OwnershipStatus(
       statsA.OPSStatus, statsA.OPSAllOwnedFields, statsA.OPSOwnedOwnedFields,
-      statsA.SStatus, statsA.SAllOwnedFields, statsA.SOwnedOwnedFields,
-      statsA.SNullOwnedFields, statsA.SUninitOwnedFields,
-      statsA.BOPStatus, statsA.BOPAllOwnedFields, statsA.BOPOwnedOwnedFields);
+      statsA.OPSNullOwnedFields, statsA.SStatus, statsA.SAllOwnedFields,
+      statsA.SOwnedOwnedFields, statsA.SNullOwnedFields,
+      statsA.SUninitOwnedFields, statsA.BOPStatus, statsA.BOPAllOwnedFields,
+      statsA.BOPOwnedOwnedFields);
 }
 
 bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
   return OPSStatus == V.OPSStatus && OPSAllOwnedFields == V.OPSAllOwnedFields &&
-         OPSOwnedOwnedFields == V.OPSOwnedOwnedFields && SStatus == V.SStatus &&
+         OPSOwnedOwnedFields == V.OPSOwnedOwnedFields &&
+         OPSNullOwnedFields == V.OPSNullOwnedFields && SStatus == V.SStatus &&
          SAllOwnedFields == V.SAllOwnedFields &&
          SOwnedOwnedFields == V.SOwnedOwnedFields &&
          SNullOwnedFields == V.SNullOwnedFields &&
@@ -545,6 +605,31 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD) {
         initBOP(VDType, VD, Source::BOP);
       }
     }
+  } else if (const auto *AT = VDType->getAsArrayTypeUnsafe()) {
+    // Whole-array tracking for owned-element arrays: the array
+    // is one aggregate; element-level transfers update the aggregate state.
+    // Do not canonicalize the element: canonicalizing an array type drops the
+    // _Owned qualifier of its element type.
+    QualType ElemTy = AT->getElementType();
+    while (const auto *Inner = ElemTy->getAsArrayTypeUnsafe())
+      ElemTy = Inner->getElementType();
+    if (ElemTy->isPointerType() && ElemTy.isOwnedQualified()) {
+      if (!BOPStatus.count(VD)) {
+        BOPStatus[VD] = llvm::BitVector(7, 0);
+        set(VD, Uninitialized);
+      }
+    } else if (ElemTy->isRecordType() &&
+               (ElemTy.getTypePtr()->isOwnedStructureType() ||
+                ElemTy->isMoveSemanticType())) {
+      if (!SStatus.count(VD)) {
+        // ElemTy may be an ElaboratedType (e.g. "struct S") rather than the
+        // canonical RecordType; peel sugar so dyn_cast finds the record.
+        if (const RecordType *RT =
+                dyn_cast<RecordType>(ElemTy.getCanonicalType())) {
+          initS(RT->getDecl(), VD, Source::S);
+        }
+      }
+    }
   } else {
     if (!SStatus.count(VD)) {
       if (const RecordType *RT =
@@ -553,6 +638,39 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD) {
       }
     }
   }
+}
+
+// Strip the array levels of a field type, returning the "[]" suffix and the
+// element type. Returns false when the field is not an array. Shared by
+// initS / initOPS (the path uses `[]` for each array level).
+static bool StripArrayFieldLevels(QualType FieldTy, std::string &ArraySuffix,
+                                  QualType &ElemTy) {
+  ArraySuffix.clear();
+  ElemTy = FieldTy;
+  while (const auto *AT = dyn_cast<ArrayType>(ElemTy)) {
+    ArraySuffix += "[]";
+    ElemTy = AT->getElementType();
+  }
+  return !ArraySuffix.empty();
+}
+
+// Register an array field ("arr[]" for owned-pointer elements, "arr[].a" via
+// recursion for owned-record elements) into the target All set. Returns the
+// record to recurse into, or nullptr for owned-pointer elements (leaf).
+static const RecordDecl *
+RegisterArrayField(llvm::SmallSet<std::string, 10> &AllSet,
+                   const std::string &ArrFieldName, QualType ElemTy) {
+  if (ElemTy->isPointerType() && ElemTy.isOwnedQualified()) {
+    AllSet.insert(ArrFieldName);
+    return nullptr;
+  }
+  if (const RecordType *RT =
+          dyn_cast<RecordType>(ElemTy.getCanonicalType())) {
+    if (RT->isOwnedStructureType())
+      AllSet.insert(ArrFieldName);
+    return RT->getDecl();
+  }
+  return nullptr;
 }
 
 void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
@@ -564,13 +682,44 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
   // record all owned fields of VD in OPSAllOwnedFields
   for (RecordDecl::field_iterator it = RD->field_begin(), ei = RD->field_end();
        it != ei; ++it) {
-    QualType FT = it->getType().getCanonicalType();
+    // Use the sugared type: canonicalizing an array type drops the local
+    // _Owned qualifier of its element (int *_Owned arr[2]).
+    QualType FT = it->getType();
     string fieldName = parentFieldName + it->getNameAsString();
     if (IsTrackedType(FT)) {
+      // Array fields (e.g. struct S { int *_Owned arr[2]; }): the path uses
+      // `[]` for the array level and recurses into the element type, so the
+      // tracked field becomes "arr[]" (owned pointers) / "arr[].a" (records).
+      QualType FieldTy;
+      string arraySuffix;
+      if (StripArrayFieldLevels(FT, arraySuffix, FieldTy)) {
+        string arrFieldName = fieldName + arraySuffix;
+        if (source == Source::OPS) {
+          if (OPSAllOwnedFields[VD].empty()) {
+            OPSAllOwnedFields[VD] = {};
+            OPSOwnedOwnedFields[VD] = {};
+            OPSNullOwnedFields[VD] = {};
+          }
+          if (const RecordDecl *RT = RegisterArrayField(
+                  OPSAllOwnedFields[VD], arrFieldName, FieldTy))
+            initOPS(RT, VD, source, depth - 1, arrFieldName + ".");
+        } else if (source == Source::S) {
+          if (SAllOwnedFields[VD].empty()) {
+            SAllOwnedFields[VD] = {};
+            SOwnedOwnedFields[VD] = {};
+            SNullOwnedFields[VD] = {};
+          }
+          if (const RecordDecl *RT = RegisterArrayField(
+                  SAllOwnedFields[VD], arrFieldName, FieldTy))
+            initOPS(RT, VD, source, depth - 1, arrFieldName + ".");
+        }
+        continue;
+      }
       if (source == Source::OPS) {
         if (OPSAllOwnedFields[VD].empty()) {
           OPSAllOwnedFields[VD] = {};
           OPSOwnedOwnedFields[VD] = {};
+          OPSNullOwnedFields[VD] = {};
         }
         if (!FT->isRecordType() || FT->isOwnedStructureType())
           OPSAllOwnedFields[VD].insert(fieldName);
@@ -642,9 +791,34 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
   // record all owned fields of VD in SAllOwnedFields
   for (RecordDecl::field_iterator it = RD->field_begin(), ei = RD->field_end();
        it != ei; ++it) {
-    QualType FT = it->getType().getCanonicalType();
+    // Use the sugared type: canonicalizing an array type drops the local
+    // _Owned qualifier of its element (int *_Owned arr[2]).
+    QualType FT = it->getType();
     string fieldName = parentFieldName + it->getNameAsString();
     if (IsTrackedType(FT)) {
+      // Array fields (e.g. struct Wrap { struct S arr[2]; }): the path uses
+      // `[]` for the array level and recurses into the element type, so the
+      // tracked field becomes "arr[].a" instead of just "arr".
+      QualType FieldTy;
+      string arraySuffix;
+      if (StripArrayFieldLevels(FT, arraySuffix, FieldTy)) {
+        string arrFieldName = fieldName + arraySuffix;
+        if (source == Source::OPS) {
+          if (const RecordDecl *RT = RegisterArrayField(
+                  OPSAllOwnedFields[VD], arrFieldName, FieldTy))
+            initS(RT, VD, source, depth - 1, arrFieldName + ".");
+        } else if (source == Source::S) {
+          if (SAllOwnedFields[VD].empty()) {
+            SAllOwnedFields[VD] = {};
+            SOwnedOwnedFields[VD] = {};
+            SNullOwnedFields[VD] = {};
+          }
+          if (const RecordDecl *RT = RegisterArrayField(
+                  SAllOwnedFields[VD], arrFieldName, FieldTy))
+            initS(RT, VD, source, depth - 1, arrFieldName + ".");
+        }
+        continue;
+      }
       if (source == Source::OPS) {
         if (!FT->isRecordType() || FT->isOwnedStructureType())
           OPSAllOwnedFields[VD].insert(fieldName);
@@ -912,8 +1086,45 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
     setToNull(VD);
     return;
   }
+  // assigning nullptr to an array element (a[i] = nullptr, or
+  // s[i].f = nullptr for a struct array member) nulls the whole aggregate:
+  // within a qualifying loop every element receives the same assignment.
+  if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+    while (const ArraySubscriptExpr *Inner = dyn_cast<ArraySubscriptExpr>(Base))
+      Base = Inner->getBase()->IgnoreParenImpCasts();
+    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base)) {
+      if (const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        if (IsOwnedElementArrayType(VD->getType()))
+          setArrayElemNull(VD);
+        return;
+      }
+    }
+    // Struct-field array element: w.arr[i] (base is a member access). Peel
+    // the host and the "arr[]" path and null the field aggregate.
+    if (dyn_cast<MemberExpr>(Base)) {
+      const VarDecl *HostVD = nullptr;
+      std::string FieldPath;
+      if (PeelHostAndFieldPath(E, HostVD, FieldPath) &&
+          IsOwnedArrayFieldPath(HostVD, FieldPath))
+        setArrayFieldNull(HostVD, FieldPath);
+      return;
+    }
+  }
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
     pair<const Expr *, string> memberField = getMemberFullField(ME);
+    // Struct-array member: s[i].f = nullptr (base is an ArraySubscriptExpr).
+    const Expr *Base = memberField.first->IgnoreParenImpCasts();
+    while (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(Base))
+      Base = ASE->getBase()->IgnoreParenImpCasts();
+    if (const DeclRefExpr *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
+      if (const VarDecl *VD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
+        if (IsOwnedElementArrayType(VD->getType())) {
+          setArrayFieldNull(VD, memberField.second);
+          return;
+        }
+      }
+    }
     if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(memberField.first)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
       if (OPSStatus.count(VD)) {
@@ -980,6 +1191,227 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
           }
         }
       }
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Whole-array / struct-field transitions for owned-element arrays.
+//===----------------------------------------------------------------------===//
+
+void Ownership::OwnershipStatus::setArrayElemMoved(const VarDecl *VD) {
+  if (BOPStatus.count(VD)) {
+    // Basic owned-pointer arrays, e.g. int *_Owned a[N]: every element was
+    // moved out (freed / passed / returned), the aggregate no longer owns.
+    resetAll(VD);
+    set(VD, Ownership::Status::Moved);
+  }
+  if (SStatus.count(VD)) {
+    // Struct arrays, e.g. struct S a[N] with _Owned members: treat every
+    // tracked field of every element as moved out.
+    for (const string &field : SAllOwnedFields[VD])
+      SOwnedOwnedFields[VD].erase(field);
+    resetAll(VD);
+    set(VD, Ownership::Status::AllMoved);
+  }
+}
+
+void Ownership::OwnershipStatus::setArrayElemOwned(const VarDecl *VD) {
+  if (BOPStatus.count(VD)) {
+    resetAll(VD);
+    set(VD, Ownership::Status::Owned);
+    BOPOwnedOwnedFields[VD] = BOPAllOwnedFields[VD];
+  }
+  if (SStatus.count(VD)) {
+    setToOwned(VD);
+  }
+}
+
+void Ownership::OwnershipStatus::setArrayElemNull(const VarDecl *VD) {
+  if (BOPStatus.count(VD)) {
+    BOPOwnedOwnedFields[VD].clear();
+    resetAll(VD);
+    set(VD, Ownership::Status::Null);
+  }
+  if (SStatus.count(VD)) {
+    SOwnedOwnedFields[VD].clear();
+    if (SNullOwnedFields.count(VD))
+      SNullOwnedFields[VD] = SAllOwnedFields[VD];
+    resetAll(VD);
+    set(VD, Ownership::Status::AllMoved);
+  }
+}
+
+void Ownership::OwnershipStatus::setArrayFieldMoved(const VarDecl *VD,
+                                                    const std::string &fieldName) {
+  if (SStatus.count(VD)) {
+    if (!SAllOwnedFields[VD].count(fieldName))
+      return;
+    SOwnedOwnedFields[VD].erase(fieldName);
+    SNullOwnedFields[VD].erase(fieldName);
+    for (const string &str :
+         findPrefixStrings(SAllOwnedFields[VD], fieldName + ".")) {
+      SOwnedOwnedFields[VD].erase(str);
+      SNullOwnedFields[VD].erase(str);
+    }
+    refreshArrayFieldState(VD, SOwnedOwnedFields[VD], SAllOwnedFields[VD]);
+  }
+  // Owned struct-pointer host (`struct S *_Owned p`): the array field of the
+  // pointee is tracked with the OPS field sets.
+  if (OPSStatus.count(VD)) {
+    if (!OPSAllOwnedFields[VD].count(fieldName))
+      return;
+    OPSOwnedOwnedFields[VD].erase(fieldName);
+    OPSNullOwnedFields[VD].erase(fieldName);
+    for (const string &str :
+         findPrefixStrings(OPSAllOwnedFields[VD], fieldName + ".")) {
+      OPSOwnedOwnedFields[VD].erase(str);
+      OPSNullOwnedFields[VD].erase(str);
+    }
+    refreshArrayFieldState(VD, OPSOwnedOwnedFields[VD],
+                           OPSAllOwnedFields[VD]);
+  }
+}
+
+void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
+                                                    const std::string &fieldName) {
+  if (SStatus.count(VD)) {
+    if (!SAllOwnedFields[VD].count(fieldName))
+      return;
+    SOwnedOwnedFields[VD].insert(fieldName);
+    SNullOwnedFields[VD].erase(fieldName);
+    refreshArrayFieldState(VD, SOwnedOwnedFields[VD], SAllOwnedFields[VD]);
+  }
+  if (OPSStatus.count(VD)) {
+    if (!OPSAllOwnedFields[VD].count(fieldName))
+      return;
+    OPSOwnedOwnedFields[VD].insert(fieldName);
+    OPSNullOwnedFields[VD].erase(fieldName);
+    refreshArrayFieldState(VD, OPSOwnedOwnedFields[VD], OPSAllOwnedFields[VD]);
+  }
+}
+
+void Ownership::OwnershipStatus::setArrayFieldNull(const VarDecl *VD,
+                                                   const std::string &fieldName) {
+  if (SStatus.count(VD)) {
+    if (!SAllOwnedFields[VD].count(fieldName))
+      return;
+    SOwnedOwnedFields[VD].erase(fieldName);
+    SNullOwnedFields[VD].insert(fieldName);
+    refreshArrayFieldState(VD, SOwnedOwnedFields[VD], SAllOwnedFields[VD]);
+  }
+  if (OPSStatus.count(VD)) {
+    if (!OPSAllOwnedFields[VD].count(fieldName))
+      return;
+    OPSOwnedOwnedFields[VD].erase(fieldName);
+    OPSNullOwnedFields[VD].insert(fieldName);
+    refreshArrayFieldState(VD, OPSOwnedOwnedFields[VD], OPSAllOwnedFields[VD]);
+  }
+}
+
+bool Ownership::OwnershipStatus::arrayAggregateMoved(const VarDecl *VD) const {
+  if (BOPStatus.count(VD))
+    return is(VD, Ownership::Status::Moved);
+  if (SStatus.count(VD))
+    return SOwnedOwnedFields.lookup(VD).empty();
+  if (OPSStatus.count(VD))
+    return OPSOwnedOwnedFields.lookup(VD).empty();
+  return false;
+}
+
+bool Ownership::OwnershipStatus::arrayFieldOwned(
+    const VarDecl *VD, const std::string &fieldName) const {
+  if (SStatus.count(VD))
+    return SOwnedOwnedFields.lookup(VD).count(fieldName) > 0;
+  if (OPSStatus.count(VD))
+    return OPSOwnedOwnedFields.lookup(VD).count(fieldName) > 0;
+  return false;
+}
+
+bool Ownership::OwnershipStatus::arrayAggregateUninit(const VarDecl *VD) const {
+  if (BOPStatus.count(VD) || SStatus.count(VD) || OPSStatus.count(VD))
+    return is(VD, Ownership::Status::Uninitialized);
+  return false;
+}
+
+bool Ownership::OwnershipStatus::arrayAggregateNull(
+    const VarDecl *VD, const std::string &fieldName) const {
+  if (fieldName.empty()) {
+    if (BOPStatus.count(VD))
+      return is(VD, Ownership::Status::Null);
+    if (SStatus.count(VD))
+      return SNullOwnedFields.lookup(VD).size() ==
+             SAllOwnedFields.lookup(VD).size();
+    if (OPSStatus.count(VD))
+      return OPSNullOwnedFields.lookup(VD).size() ==
+             OPSAllOwnedFields.lookup(VD).size();
+    return false;
+  }
+  if (SStatus.count(VD))
+    return SNullOwnedFields.lookup(VD).count(fieldName) > 0;
+  if (OPSStatus.count(VD))
+    return OPSNullOwnedFields.lookup(VD).count(fieldName) > 0;
+  return false;
+}
+
+void Ownership::OwnershipStatus::refreshArrayFieldState(
+    const VarDecl *VD, const llvm::SmallSet<std::string, 10> &Owned,
+    const llvm::SmallSet<std::string, 10> &All) {
+  resetAll(VD);
+  if (Owned.empty()) {
+    if (All.empty())
+      set(VD, Ownership::Status::Owned);
+    else
+      set(VD, Ownership::Status::AllMoved);
+  } else if (Owned.size() < All.size()) {
+    set(VD, Ownership::Status::PartialMoved);
+  } else {
+    set(VD, Ownership::Status::Owned);
+  }
+}
+
+void Ownership::OwnershipStatus::removeArraysOne(const VarDecl *VD) {
+  OPSStatus.erase(VD);
+  OPSAllOwnedFields.erase(VD);
+  OPSOwnedOwnedFields.erase(VD);
+  OPSNullOwnedFields.erase(VD);
+  SStatus.erase(VD);
+  SAllOwnedFields.erase(VD);
+  SOwnedOwnedFields.erase(VD);
+  SNullOwnedFields.erase(VD);
+  SUninitOwnedFields.erase(VD);
+  BOPStatus.erase(VD);
+  BOPAllOwnedFields.erase(VD);
+  BOPOwnedOwnedFields.erase(VD);
+}
+
+void Ownership::OwnershipStatus::removeArrays(
+    llvm::ArrayRef<const VarDecl *> Arrays) {
+  for (const VarDecl *VD : Arrays)
+    removeArraysOne(VD);
+}
+
+void Ownership::OwnershipStatus::takeArraysFrom(
+    const OwnershipStatus &Other, llvm::ArrayRef<const VarDecl *> Arrays) {
+  for (const VarDecl *VD : Arrays) {
+    removeArraysOne(VD);
+    if (Other.OPSStatus.count(VD)) {
+      OPSStatus[VD] = Other.OPSStatus.lookup(VD);
+      OPSAllOwnedFields[VD] = Other.OPSAllOwnedFields.lookup(VD);
+      OPSOwnedOwnedFields[VD] = Other.OPSOwnedOwnedFields.lookup(VD);
+      OPSNullOwnedFields[VD] = Other.OPSNullOwnedFields.lookup(VD);
+    }
+    if (Other.SStatus.count(VD)) {
+      SStatus[VD] = Other.SStatus.lookup(VD);
+      SAllOwnedFields[VD] = Other.SAllOwnedFields.lookup(VD);
+      SOwnedOwnedFields[VD] = Other.SOwnedOwnedFields.lookup(VD);
+      SNullOwnedFields[VD] = Other.SNullOwnedFields.lookup(VD);
+      SUninitOwnedFields[VD] = Other.SUninitOwnedFields.lookup(VD);
+    }
+    if (Other.BOPStatus.count(VD)) {
+      BOPStatus[VD] = Other.BOPStatus.lookup(VD);
+      BOPAllOwnedFields[VD] = Other.BOPAllOwnedFields.lookup(VD);
+      BOPOwnedOwnedFields[VD] = Other.BOPOwnedOwnedFields.lookup(VD);
     }
   }
 }
@@ -1958,7 +2390,12 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
   }
 
   if (SStatus.count(VD)) {
-    if (!SOwnedOwnedFields[VD].count(fullFieldName)) {
+    // A `[]`-suffixed path is an array-field element (e.g. w.arr[].a):
+    // field-level tracking treats the whole array as one aggregate, so
+    // element-granularity moved detection cannot distinguish arr[0].a from
+    // arr[1].a; skip the error and keep erasing the aggregate field.
+    bool ArrayFieldPath = fullFieldName.find("[]") != std::string::npos;
+    if (!SOwnedOwnedFields[VD].count(fullFieldName) && !ArrayFieldPath) {
       OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
@@ -2105,12 +2542,65 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
 //===----------------------------------------------------------------------===//
 
 namespace {
+// recursively check that an initializer list initializes every
+// element/field with a null (or omitted / zero) value, so the whole array can
+// be treated as null-initialized.
+// True when an initializer of type `Ty` leaves every _Owned pointer (or
+// move-semantic sub-object) null: implicit init, an explicit null, or (for a
+// struct) every _Owned field owned-null. Plain (non-owned) fields may be
+// non-zero without implying ownership.
+static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
+  if (!Init)
+    return true;
+  Init = Init->IgnoreParenImpCasts();
+  if (isa<ImplicitValueInitExpr>(Init))
+    return true;
+  if (IsNullExpr(ctx, Init))
+    return true;
+  const auto *ILE = dyn_cast<InitListExpr>(Init);
+  if (!ILE)
+    return false;
+  Ty = Ty.getCanonicalType();
+  if (const RecordType *RT = Ty->getAs<RecordType>()) {
+    for (const FieldDecl *FD : RT->getDecl()->fields()) {
+      QualType FT = FD->getType();
+      if (!FT.isOwnedQualified() && !FT->hasOwnedFields())
+        continue; // plain field: ignore
+      const Expr *FieldInit = FD->getFieldIndex() < ILE->getNumInits()
+                                  ? ILE->getInit(FD->getFieldIndex())
+                                  : nullptr;
+      if (!isOwnedNullInit(ctx, FieldInit, FT))
+        return false;
+    }
+    return true;
+  }
+  // Non-struct element (owned pointer / nested array): every entry null.
+  for (unsigned I = 0; I < ILE->getNumInits(); ++I)
+    if (!isOwnedNullInit(ctx, ILE->getInit(I), Ty))
+      return false;
+  return true;
+}
+
+// True when every element of an owned-element array initializer owns nothing
+// (all elements owned-null).
+static bool isAllNullInits(ASTContext &ctx, const InitListExpr *ILE,
+                           QualType ElemType) {
+  for (unsigned I = 0; I < ILE->getNumInits(); ++I)
+    if (!isOwnedNullInit(ctx, ILE->getInit(I), ElemType))
+      return false;
+  return true;
+}
+
 class TransferFunctions : public StmtVisitor<TransferFunctions> {
   OwnershipImpl &OS;
   Ownership::OwnershipStatus &stat;
   OwnershipDiagReporter &reporter;
   bool isHandlingCallExpr = false;
   bool isAddrMut = false;
+  // The RHS of the assignment currently being visited (nullptr check for
+  // "assign to null" which must not be reported as overwriting an owned
+  // value).
+  const Expr *CurRHS = nullptr;
 
   enum Operation { None, Assign, Move, GetAddr };
   Operation op = Operation::None;
@@ -2191,6 +2681,33 @@ public:
     return false;
   }
 
+  // helpers for owned-element array element access.
+  // Peel an expression that may be a[i], a[i][j] or s[i].f / s[i].a[j] down
+  // to the base VarDecl of an owned-element array; returns the array variable
+  // (or nullptr). If the base is a T *_Owned _ArrayElem pointer, IsArrElemPtr
+  // is set (element transfer is always forbidden for those).
+  const VarDecl *peelArrayBase(const Expr *E, bool &IsArrElemPtr) const;
+  // Check that a transfer site is allowed; emit ArrayElemTransferForbidden
+  // otherwise. Returns true if the transfer is allowed.
+  bool isArrayElemTransferAllowed(const Expr *Site,
+                                  const VarDecl *ArrVD,
+                                  bool IsArrElemPtr);
+  // Apply the dataflow transition for a[i] / s[i].f transfers. Move-out of an
+  // already-moved aggregate / field reports use-after-move.
+  void applyArrayElemTransition(SourceLocation Loc, const VarDecl *ArrVD,
+                                const std::string &fieldName, bool IsAssign);
+  void applyArrayElemAssign(SourceLocation Loc, const VarDecl *ArrVD,
+                            const std::string &fieldName);
+  void applyArrayElemMoveOut(SourceLocation Loc, const VarDecl *ArrVD,
+                             const std::string &fieldName);
+  // Check a field-array transfer site (w.arr[i] / w.arr[i].a) against the
+  // qualifying-loop allow-sites; apply the transition when allowed and
+  // return whether it was performed.
+  bool tryTransferArrayField(const Expr *Site, const VarDecl *HostVD,
+                             const std::string &FieldPath, bool IsAssign);
+  // Record a transfer-forbidden diagnostic for ArrVD at Loc.
+  void emitArrayElemForbidden(SourceLocation Loc, const VarDecl *ArrVD);
+
   void SetHandlingCallExpr() {
     isHandlingCallExpr = true;
   }
@@ -2206,6 +2723,92 @@ void TransferFunctions::VisitStmt(Stmt *S) {
 }
 
 void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
+  // Owned-element stack arrays and _Owned _ArrayElem bases:
+  // element ownership transfer is only allowed inside a qualifying for-loop,
+  // and the transition is applied to the whole-array aggregate state here.
+  bool IsArrElemPtr = false;
+  const VarDecl *ArrVD = peelArrayBase(ASE, IsArrElemPtr);
+  if (ArrVD && IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+    if (op == Move || op == Assign) {
+      // A null aggregate releases nothing (free(null) is a no-op): no
+      // qualifying-loop site is needed for a null element move-out.
+      if (op == Move && stat.arrayAggregateNull(ArrVD, "")) {
+        Visit(ASE->getIdx());
+        return;
+      }
+      bool Allowed = isArrayElemTransferAllowed(ASE, ArrVD, IsArrElemPtr);
+      if (!Allowed) {
+        Visit(ASE->getIdx());
+        return;
+      }
+      applyArrayElemTransition(ASE->getExprLoc(), ArrVD, "", op == Assign);
+    } else if (op == GetAddr) {
+      // Borrowing (mutable or immutable) a _Owned array that has lost its
+      // ownership is forbidden: the for-loop may already have moved every
+      // element out (manual: cannot borrow a moved _Owned value).
+      bool Moved = false;
+      if (stat.BOPStatus.count(ArrVD))
+        Moved = stat.is(ArrVD, Ownership::Status::Moved);
+      else if (stat.SStatus.count(ArrVD))
+        Moved = stat.SOwnedOwnedFields[ArrVD].empty();
+      if (Moved) {
+        OwnershipDiagInfo DI(ASE->getExprLoc(),
+                             OwnershipDiagKind::InvalidUseOfMoved,
+                             ArrVD->getNameAsString());
+        reporter.addDiagInfo(DI);
+        Visit(ASE->getIdx());
+        return;
+      }
+      // Taking a mutable borrow (&_Mut a[i]) exposes the element to writes
+      // through the borrow, so the array is no longer known to be all-null:
+      // it may now own values. Promote the aggregate to owned (conservative),
+      // so a scope exit without freeing reports a leak.
+      if (isAddrMut)
+        stat.setArrayElemOwned(ArrVD);
+    }
+    // Read-only accesses (comparisons, deref, borrows) do not change the
+    // aggregate state; just visit the index and return.
+    Visit(ASE->getIdx());
+    return;
+  }
+
+  // Struct-field owned-element array: `w.arr[i]` (base is a member access,
+  // so peelArrayBase above cannot see it). PeelHostAndFieldPath yields the
+  // host and the array-field path "arr[]"; the field is tracked as an owned
+  // array aggregate of the host, same rules as a local owned-element array.
+  {
+    const VarDecl *HostVD = nullptr;
+    std::string FieldPath;
+    if (GetOwnedArrayField(ASE, HostVD, FieldPath)) {
+      if (op == Move || op == Assign) {
+        if (!tryTransferArrayField(ASE, HostVD, FieldPath, op == Assign)) {
+          Visit(ASE->getIdx());
+          return;
+        }
+      } else if (op == GetAddr) {
+          // Borrowing (mutable or immutable) an array field whose aggregate
+          // has lost its ownership is forbidden (mirror of the local-array
+          // rule): the qualifying loop may already have moved every element
+          // out.
+          bool Moved = false;
+          if (stat.SStatus.count(HostVD))
+            Moved = !stat.SOwnedOwnedFields[HostVD].count(FieldPath);
+          if (Moved) {
+            OwnershipDiagInfo DI(ASE->getExprLoc(),
+                                 OwnershipDiagKind::InvalidUseOfMoved,
+                                 HostVD->getNameAsString());
+            reporter.addDiagInfo(DI);
+          } else if (isAddrMut) {
+            // A mutable borrow (&_Mut w.arr[i]) exposes the field to writes
+            // through the borrow, so promote the aggregate to owned.
+            stat.setArrayFieldOwned(HostVD, FieldPath);
+          }
+        }
+        Visit(ASE->getIdx());
+        return;
+      }
+  }
+
   string suffix;
   Expr *E = ASE;
   while (ArraySubscriptExpr *ase = dyn_cast<ArraySubscriptExpr>(E)) {
@@ -2229,8 +2832,347 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
   Visit(ASE->getBase());
 }
 
+const VarDecl *
+TransferFunctions::peelArrayBase(const Expr *E, bool &IsArrElemPtr) const {
+  IsArrElemPtr = false;
+  const VarDecl *VD = PeelArrayElemBase(E);
+  if (!VD)
+    return nullptr;
+  if (IsOwnedElementArrayType(VD->getType()))
+    return VD;
+  if (IsOwnedArrayElemPtrTransferBase(VD->getType())) {
+    IsArrElemPtr = true;
+    return VD;
+  }
+  return nullptr;
+}
+
+bool TransferFunctions::isArrayElemTransferAllowed(const Expr *Site,
+                                                   const VarDecl *ArrVD,
+                                                   bool IsArrElemPtr) {
+  // _Owned _ArrayElem pointers carry no length information: element transfer
+  // is always forbidden.
+  if (IsArrElemPtr) {
+    emitArrayElemForbidden(Site->getExprLoc(), ArrVD);
+    return false;
+  }
+  // Inside a qualifying loop, transfers recorded in AllowedTransferExprs are
+  // permitted; for nested subscripts any enclosing subscript in the chain may
+  // have been recorded (e.g. the outer loop records a[i][j]).
+  bool Allowed = OS.LoopInfo.AllowedTransferExprs.count(Site);
+  if (!Allowed) {
+    for (const Expr *E = Site; E;) {
+      if (OS.LoopInfo.AllowedTransferExprs.count(E)) {
+        Allowed = true;
+        break;
+      }
+      if (const ArraySubscriptExpr *A = dyn_cast<ArraySubscriptExpr>(E))
+        E = A->getBase()->IgnoreParenImpCasts();
+      else
+        break;
+    }
+  }
+  if (!Allowed)
+    emitArrayElemForbidden(Site->getExprLoc(), ArrVD);
+  return Allowed;
+}
+
+// True when the owned field `fieldName` of the struct-array `ArrVD` is itself
+// an array type. Field-level tracking treats such a field as one aggregate, so
+// element-granularity use-after-move cannot be distinguished here; it is
+// skipped (element tracking is a future refinement).
+static bool isArrayField(const VarDecl *ArrVD, const std::string &fieldName) {
+  QualType Ty = ArrVD->getType();
+  while (const auto *AT = Ty->getAsArrayTypeUnsafe())
+    Ty = AT->getElementType();
+  // An owned struct-pointer host (`struct S *_Owned p`) tracks the pointee's
+  // fields like a local struct-array host (mirror of IsOwnedArrayField).
+  if (Ty->isPointerType())
+    Ty = Ty->getPointeeType();
+  const RecordType *RT = Ty->getAs<RecordType>();
+  if (!RT)
+    return false;
+  for (const FieldDecl *FD : RT->getDecl()->fields())
+    if (FD->getNameAsString() == fieldName)
+      return FD->getType()->isArrayType();
+  return false;
+}
+
+void TransferFunctions::applyArrayElemTransition(SourceLocation Loc,
+                                                  const VarDecl *ArrVD,
+                                                  const std::string &fieldName,
+                                                  bool IsAssign) {
+  if (IsAssign)
+    applyArrayElemAssign(Loc, ArrVD, fieldName);
+  else
+    applyArrayElemMoveOut(Loc, ArrVD, fieldName);
+}
+
+bool TransferFunctions::tryTransferArrayField(const Expr *Site,
+                                              const VarDecl *HostVD,
+                                              const std::string &FieldPath,
+                                              bool IsAssign) {
+  // A null element releases nothing (free(null) is a no-op): no transfer is
+  // needed and the site does not need to qualify -- e.g. the null branch of a
+  // `if (!s[i].arr[i]) safe_free(...)`, whose field index may share the host
+  // index variable (s[i].arr[i]) and would otherwise be rejected as a
+  // partial diagonal release.
+  if (!IsAssign && stat.arrayAggregateNull(HostVD, FieldPath))
+    return true;
+  if (!isArrayElemTransferAllowed(Site, HostVD, /*IsArrElemPtr=*/false))
+    return false;
+  applyArrayElemTransition(Site->getExprLoc(), HostVD, FieldPath, IsAssign);
+  return true;
+}
+
+void TransferFunctions::applyArrayElemAssign(SourceLocation Loc,
+                                             const VarDecl *ArrVD,
+                                             const std::string &fieldName) {
+  // Assigning to an element of an aggregate that still holds ownership
+  // silently leaks the previous value; report it (mirror of the scalar
+  // "cannot assign to owned value" rule). This covers both a null clear
+  // (`= nullptr` discards the owned value) and a non-null assignment. Only
+  // an exactly-owned (already initialized) aggregate triggers this: a
+  // possibly-uninitialized aggregate reached through a loop back edge must
+  // not.
+    bool IsNullAssign = CurRHS && CurRHS->isNullExpr(OS.ctx);
+    bool HoldsOwned = false;
+    if (fieldName.empty()) {
+      if (stat.BOPStatus.count(ArrVD))
+        HoldsOwned = stat.is(ArrVD, Ownership::Status::Owned) &&
+                     !stat.has(ArrVD, Ownership::Status::Uninitialized);
+      else if (stat.SStatus.count(ArrVD))
+        HoldsOwned = !stat.SOwnedOwnedFields[ArrVD].empty() &&
+                     !stat.has(ArrVD, Ownership::Status::Uninitialized);
+    } else {
+      if (stat.SStatus.count(ArrVD))
+        HoldsOwned = stat.SOwnedOwnedFields[ArrVD].count(fieldName) &&
+                     !stat.has(ArrVD, Ownership::Status::Uninitialized);
+      else if (stat.OPSStatus.count(ArrVD))
+        HoldsOwned = stat.OPSOwnedOwnedFields[ArrVD].count(fieldName) &&
+                     !stat.has(ArrVD, Ownership::Status::Uninitialized);
+    }
+    if (HoldsOwned) {
+      std::string Display =
+          fieldName.empty() ? ArrVD->getNameAsString() + "[]" : fieldName;
+      OwnershipDiagInfo DI(Loc, OwnershipDiagKind::ArrayElemAssignOwned,
+                           Display);
+      reporter.addDiagInfo(DI);
+    }
+  if (IsNullAssign) {
+    if (fieldName.empty())
+      stat.setArrayElemNull(ArrVD);
+    else
+      stat.setArrayFieldNull(ArrVD, fieldName);
+  } else {
+    if (fieldName.empty())
+      stat.setArrayElemOwned(ArrVD);
+    else
+      stat.setArrayFieldOwned(ArrVD, fieldName);
+  }
+}
+
+void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
+                                              const VarDecl *ArrVD,
+                                              const std::string &fieldName) {
+  // Move-out: detect use-after-move. With the qualifying-loop header no longer
+  // merging the back-edge, the aggregate reaches this point with the clean
+  // pre-loop state, so a second move-out of the same aggregate / field is a
+  // real use-after-move.
+  bool AlreadyMoved = false;
+  if (fieldName.empty()) {
+    AlreadyMoved = stat.arrayAggregateMoved(ArrVD);
+  } else {
+    // A pure array-field path ("arr[]" -- an _Owned pointer element array
+    // stored as a struct member) tracks element ownership, so a second
+    // move-out is a real use-after-move. Only *nested* array-field paths
+    // ("arr[].a" -- a member of a struct-element array) are aggregates with
+    // no element granularity and are exempt.
+    bool PureArrayField =
+        fieldName.find("[]") != std::string::npos &&
+        fieldName.find("[]") == fieldName.size() - 2;
+    if (stat.SStatus.count(ArrVD))
+      AlreadyMoved = !stat.SOwnedOwnedFields[ArrVD].count(fieldName) &&
+                     !stat.SNullOwnedFields[ArrVD].count(fieldName) &&
+                     !isArrayField(ArrVD, fieldName) &&
+                     (PureArrayField ||
+                      fieldName.find("[]") == std::string::npos);
+    else if (stat.OPSStatus.count(ArrVD))
+      AlreadyMoved = !stat.OPSOwnedOwnedFields[ArrVD].count(fieldName) &&
+                     !stat.OPSNullOwnedFields[ArrVD].count(fieldName) &&
+                     !isArrayField(ArrVD, fieldName) &&
+                     (PureArrayField ||
+                      fieldName.find("[]") == std::string::npos);
+  }
+  // A move-out of an uninitialized aggregate / field is a use of an
+  // uninitialized value (mirror of the scalar cast-uninit check), not a
+  // use-after-move. Use `is` (bit test), not `has` -- `has` means "some
+  // *other* bit is set besides this one", which is false for a state that is
+  // exactly Uninitialized.
+  bool Uninit = stat.arrayAggregateUninit(ArrVD);
+  if (Uninit) {
+    std::string Display =
+        fieldName.empty() ? ArrVD->getNameAsString() + "[]" : fieldName;
+    OwnershipDiagInfo DI(Loc, OwnershipDiagKind::InvalidCastUninit, Display);
+    reporter.addDiagInfo(DI);
+    return;
+  }
+  if (AlreadyMoved) {
+    OwnershipDiagInfo DI(Loc, OwnershipDiagKind::InvalidUseOfMoved,
+                         ArrVD->getNameAsString());
+    reporter.addDiagInfo(DI);
+    return;
+  }
+  // A must-be-null aggregate (all elements initialized to null) owns nothing:
+  // moving a null element out does not consume ownership (same rule as for
+  // scalar _Owned pointers, 87dbd70f), so the aggregate stays Null instead of
+  // becoming Moved. This allows e.g. consume(a[i]) on an all-null array to be
+  // repeated, and a later borrow sees Null (may own) rather than Moved.
+  bool NullTransfer = stat.arrayAggregateNull(ArrVD, fieldName);
+  if (!NullTransfer) {
+    if (fieldName.empty())
+      stat.setArrayElemMoved(ArrVD);
+    else
+      stat.setArrayFieldMoved(ArrVD, fieldName);
+  }
+}
+
+// A one-line description of why a for-loop failed the qualifying-loop rules,
+// used for the note attached to ArrayElemTransferForbidden.
+static std::string getNonQualifyingReasonString(NonQualifyingLoopReason R) {
+  switch (R) {
+  case NonQualifyingLoopReason::InitNotZero:
+    return "loop variable must be initialized to zero (`T i = 0`)";
+  case NonQualifyingLoopReason::InitTypeTooSmall:
+    return "type of the loop variable is too small to hold the loop bound";
+  case NonQualifyingLoopReason::CondNotMatch:
+    return "condition must be `i < N` where N is the array length";
+  case NonQualifyingLoopReason::IncrNotByOne:
+    return "increment must be step one (`i++` / `++i` / `i += 1`)";
+  case NonQualifyingLoopReason::LoopVarModified:
+    return "loop variable must not be modified or have its address taken outside the increment";
+  case NonQualifyingLoopReason::VlaBoundVarMismatch:
+    return "loop bound variable must be the same variable that declares the VLA length";
+  case NonQualifyingLoopReason::VlaBoundVarModified:
+    return "VLA length / loop bound variable must not be modified, address-taken or mutably borrowed";
+  case NonQualifyingLoopReason::EarlyExit:
+    return "loop body must not return or goto early";
+  case NonQualifyingLoopReason::BoundMismatch:
+    return "loop bound must equal the array length";
+  case NonQualifyingLoopReason::ElemAccessMismatch:
+    return "array accesses in the body must use the loop index (a[i])";
+  case NonQualifyingLoopReason::PathInconsistent:
+    return "if/else branches must transfer the element the same way";
+  case NonQualifyingLoopReason::NotAForLoop:
+  case NonQualifyingLoopReason::NotQualifying:
+    return "loop shape does not match the qualifying for-loop rules";
+  }
+  llvm_unreachable("unknown reason");
+}
+
+void TransferFunctions::emitArrayElemForbidden(SourceLocation Loc,
+                                               const VarDecl *ArrVD) {
+  OwnershipDiagInfo DI(Loc, OwnershipDiagKind::ArrayElemTransferForbidden,
+                       ArrVD->getNameAsString());
+  // Attach a note explaining why the transfer is rejected. Qualifying is a
+  // per-array concept: a loop may qualify for one array but not another
+  // (e.g. bound mismatch), so first check loop-level (array-independent)
+  // failures, then per-array failures.
+  const SourceManager &SM = OS.ctx.getSourceManager();
+  const ForStmt *Best = nullptr;
+  auto pickInnermost = [&](const ForStmt *FS) {
+    SourceRange R = FS->getSourceRange();
+    if (R.getBegin().isInvalid() || R.getEnd().isInvalid())
+      return;
+    if (SM.isPointWithin(Loc, R.getBegin(), R.getEnd())) {
+      // Prefer the innermost (latest-beginning) enclosing loop.
+      if (!Best || SM.isBeforeInTranslationUnit(Best->getBeginLoc(),
+                                                FS->getBeginLoc()))
+        Best = FS;
+    }
+  };
+  for (const auto &KV : OS.LoopInfo.NonQualifyingLoops)
+    pickInnermost(KV.first);
+  for (const auto &KV : OS.LoopInfo.NonCoveredArrays)
+    pickInnermost(KV.first);
+
+  if (!Best) {
+    reporter.addDiagInfo(DI);
+    return;
+  }
+  // The note points at the recorded failure site (a return/break statement,
+  // a loop-variable or bound-variable modification site, ...); fall back to
+  // the for-loop keyword when the failure is at the loop head itself.
+  auto NoteFor = [&](const LoopFailure &F) {
+    DI.NoteLoc = F.Loc.isValid() ? F.Loc : Best->getForLoc();
+    DI.Note = getNonQualifyingReasonString(F.Reason);
+  };
+  auto LoopIt = OS.LoopInfo.NonQualifyingLoops.find(Best);
+  if (LoopIt != OS.LoopInfo.NonQualifyingLoops.end()) {
+    NoteFor(LoopIt->second);
+  } else {
+    // Loop shape qualifies; the rejection is per-array (bound / index /
+    // VLA length).
+    auto ArrIt = OS.LoopInfo.NonCoveredArrays.find(Best);
+    if (ArrIt != OS.LoopInfo.NonCoveredArrays.end()) {
+      auto AIt = ArrIt->second.find(ArrVD);
+      if (AIt != ArrIt->second.end())
+        NoteFor(AIt->second);
+      else
+        NoteFor({NonQualifyingLoopReason::NotQualifying,
+                 SourceLocation()});
+    }
+  }
+  reporter.addDiagInfo(DI);
+}
+
 void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
   auto memberField = getMemberFullField(ME);
+
+  // Struct-array member access: s[i].f / s[i].a[j]. Ownership transfer of the
+  // member is only allowed inside a qualifying loop and updates the field's
+  // aggregate state.
+  bool IsArrElemPtr = false;
+  const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
+  if (ArrVD &&
+      IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+    if (op == Move || op == Assign) {
+      // Null member releases nothing (free(null) is a no-op).
+      if (op == Move && stat.arrayAggregateNull(ArrVD, memberField.second))
+        return;
+      bool Allowed = isArrayElemTransferAllowed(ME, ArrVD, IsArrElemPtr);
+      if (!Allowed)
+        return;
+      applyArrayElemTransition(ME->getExprLoc(), ArrVD, memberField.second, op == Assign);
+    }
+    return;
+  }
+
+  // Nested struct-array field (w.arr[i].a): array-field paths follow the
+  // qualifying-loop rules like ordinary arrays.
+  const VarDecl *HostVD = nullptr;
+  std::string FieldPath;
+  if (PeelHostAndFieldPath(ME, HostVD, FieldPath) &&
+      IsOwnedArrayFieldPath(HostVD, FieldPath)) {
+    if (op == Move || op == Assign) {
+      tryTransferArrayField(ME, HostVD, FieldPath, op == Assign);
+    } else if (op == GetAddr) {
+      // Same borrow rule as the local array: borrowing an array-field path
+      // whose aggregate has lost ownership is forbidden.
+      bool Moved = false;
+      if (stat.SStatus.count(HostVD))
+        Moved = !stat.SOwnedOwnedFields[HostVD].count(FieldPath);
+      if (Moved) {
+        OwnershipDiagInfo DI(ME->getExprLoc(),
+                             OwnershipDiagKind::InvalidUseOfMoved,
+                             HostVD->getNameAsString());
+        reporter.addDiagInfo(DI);
+      } else if (isAddrMut) {
+        stat.setArrayFieldOwned(HostVD, FieldPath);
+      }
+    }
+    return;
+  }
 
   // manipulate struct member expr assign
   if (op == Assign) {
@@ -2295,6 +3237,16 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
     VisitDeclRefExpr(DRE, suffix);
     return;
   }
+  // Write-through / read via deref does not transfer ownership of the pointer
+  // (e.g. *p[i].ptr = 42 on an _Owned _ArrayElem base, or *a[i] = 42 inside a
+  // qualifying loop on an owned-element array).
+  if (UO->getOpcode() == UO_Deref && (op == Assign || op == Move)) {
+    Operation Saved = op;
+    op = GetAddr;
+    Visit(UO->getSubExpr());
+    op = Saved;
+    return;
+  }
   if (UO->getOpcode() == UO_AddrConstDeref ||
       UO->getOpcode() == UO_AddrMutDeref ||
       UO->getOpcode() == UO_AddrConst ||
@@ -2327,7 +3279,9 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     op = None;
 
     op = Assign;
+    CurRHS = RHS;
     Visit(LHS);
+    CurRHS = nullptr;
     op = None;
 
     if (RHS->isNullExpr(OS.ctx) || RHSFromNull) {
@@ -2388,8 +3342,38 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
                                         Arg->getType()));
       reporter.addDiags(diags);
     }
+    // Passing a whole owned-element array as an argument would transfer
+    // ownership of the entire aggregate. Only per-element transfers inside a
+    // qualifying for-loop are allowed, so a whole-array argument is rejected
+    // at the call site (and must not silently move the aggregate). This
+    // covers both local arrays (arr) and struct-field arrays (w.arr).
+    // The argument may be an ArrayToPointerDecay implicit cast (w.arr decays
+    // to `int *_Owned *` when passed), so look through it to the array-typed
+    // expression.
+    const Expr *ArgCore = Arg->IgnoreParenImpCasts();
+    if (IsOwnedElementArrayType(ArgCore->getType())) {
+      const VarDecl *ArrVD = nullptr;
+      if (const DeclRefExpr *ArgDRE = dyn_cast<DeclRefExpr>(ArgCore))
+        ArrVD = dyn_cast<VarDecl>(ArgDRE->getDecl());
+      else {
+        const VarDecl *HostVD = nullptr;
+        std::string FieldPath;
+        if (PeelHostAndFieldPath(ArgCore, HostVD, FieldPath) &&
+            !FieldPath.empty())
+          ArrVD = HostVD;
+      }
+      if (ArrVD) {
+        OwnershipDiagInfo DI(Arg->getExprLoc(),
+                             OwnershipDiagKind::ArrayElemTransferForbidden,
+                             ArrVD->getNameAsString());
+        reporter.addDiagInfo(DI);
+      }
+      continue;
+    }
     // Passing an argument consumes ownership only when the argument's type
     // carries ownership itself, otherwise is a copy and must not move the arg
+    // (a _Bool parameter is not tracked, so this also covers the old
+    // `isBooleanType ? GetAddr : Move` special case).
     op = IsTrackedType(Arg->getType()) ? Move : GetAddr;
     Visit(Arg);
     op = None;
@@ -2438,12 +3422,77 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
     // @endcode
     else if (const MemberExpr *ME = dyn_cast<MemberExpr>(InnerE)) {
       auto memberField = getMemberFullField(ME);
+      // Struct-array member move-out: (void *_Owned)s[i].f.
+      bool IsArrElemPtr = false;
+      const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
+      if (ArrVD &&
+          IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+        // Null member releases nothing (free(null) is a no-op).
+        if (!stat.arrayAggregateNull(ArrVD, memberField.second)) {
+          bool Allowed = isArrayElemTransferAllowed(ME, ArrVD, IsArrElemPtr);
+          if (Allowed)
+            applyArrayElemTransition(CSCE->getExprLoc(), ArrVD,
+                                     memberField.second, /*IsAssign=*/false);
+        }
+        return;
+      }
+      // Nested struct-array field (e.g. (void *_Owned)w.arr[0].a): peel the
+      // host variable and the "arr[].a" path. Array-field paths (containing
+      // `[]`) follow the qualifying-loop rules like ordinary arrays; plain
+      // nested fields use the regular field move-out.
+      const VarDecl *HostVD = nullptr;
+      std::string FieldPath;
+      if (PeelHostAndFieldPath(ME, HostVD, FieldPath)) {
+        if (IsOwnedArrayFieldPath(HostVD, FieldPath)) {
+          tryTransferArrayField(ME, HostVD, FieldPath, /*IsAssign=*/false);
+        } else {
+          SmallVector<OwnershipDiagInfo> diags =
+              stat.checkCastField(HostVD, ME->getExprLoc(), FieldPath);
+          reporter.addDiags(diags);
+        }
+        return;
+      }
       if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(memberField.first)) {
         SmallVector<OwnershipDiagInfo> diags =
             stat.checkCastField(dyn_cast<VarDecl>(DRE->getDecl()),
                                 DRE->getLocation(), memberField.second);
         reporter.addDiags(diags);
       }
+    }
+    // @code
+    // (void * owned)arr[i]
+    // @endcode
+    else if (const ArraySubscriptExpr *ASE =
+                 dyn_cast<ArraySubscriptExpr>(InnerE)) {
+      bool IsArrElemPtr = false;
+      const VarDecl *ArrVD = peelArrayBase(ASE, IsArrElemPtr);
+      if (ArrVD &&
+          IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+        // Null aggregate releases nothing (free(null) is a no-op).
+        if (!stat.arrayAggregateNull(ArrVD, "")) {
+          bool Allowed = isArrayElemTransferAllowed(ASE, ArrVD, IsArrElemPtr);
+          if (Allowed)
+            applyArrayElemTransition(CSCE->getExprLoc(), ArrVD, "",
+                                     /*IsAssign=*/false);
+        }
+        return;
+      }
+      // Struct-field owned-element array: (void *_Owned)w.arr[i].
+      {
+        const VarDecl *HostVD = nullptr;
+        std::string FieldPath;
+        if (GetOwnedArrayField(ASE, HostVD, FieldPath)) {
+          if (!stat.arrayAggregateNull(HostVD, FieldPath)) {
+            bool Allowed = isArrayElemTransferAllowed(ASE, HostVD,
+                                                      /*IsArrElemPtr=*/false);
+            if (Allowed)
+              applyArrayElemTransition(CSCE->getExprLoc(), HostVD, FieldPath,
+                                       /*IsAssign=*/false);
+          }
+          return;
+        }
+      }
+      Visit(const_cast<ArraySubscriptExpr *>(ASE));
     }
     // @code
     // (void * owned)*outer
@@ -2500,8 +3549,12 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
 void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
   for (Decl *D : DS->decls()) {
     if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
+      // BSC canonicalizes arrays by canonicalizing the element type, which
+      // drops the _Owned qualifier (it lives on the sugar type), so keep the
+      // sugared type for the owned-element-array checks.
       QualType VQT = VD->getType().getCanonicalType();
-      if (IsTrackedType(VQT)) {
+      QualType SugaredVQT = VD->getType();
+      if (IsTrackedType(SugaredVQT)) {
         stat.init(VD);
       }
       if (Expr *Init = VD->getInit()) {
@@ -2515,6 +3568,23 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
             stat.setToAllMoved(VD);
           } else {
             stat.setToOwned(VD);
+          }
+        } else if (SugaredVQT->isArrayType() &&
+                   IsOwnedElementArrayType(SugaredVQT)) {
+          // Whole-array init: an empty / all-null initializer
+          // means no element owns anything; any non-null initializer makes
+          // the aggregate owned. Use the sugared element type so the _Owned
+          // qualifier survives.
+          QualType ElemTy = SugaredVQT;
+          while (const auto *AT = ElemTy->getAsArrayTypeUnsafe())
+            ElemTy = AT->getElementType();
+          if (const auto *ILE = dyn_cast<InitListExpr>(Init)) {
+            if (ILE->getNumInits() == 0 || isAllNullInits(OS.ctx, ILE, ElemTy))
+              stat.setArrayElemNull(VD);
+            else
+              stat.setArrayElemOwned(VD);
+          } else {
+            stat.setArrayElemOwned(VD);
           }
         } else if (VQT->isRecordType() && VQT->hasOwnedFields() &&
                    isa<InitListExpr>(Init)) {
@@ -2799,16 +3869,65 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
     return;
   }
   NullCheckInfo Info(Cond->IgnoreParenImpCasts(), ctx);
+
+  // NullCheckInfo deliberately skips array accesses (containsArrayAccess), so
+  // null checks on owned-array elements (a[i] != nullptr / s[i].f != nullptr)
+  // are handled here: on the branch where the element is null, null the
+  // whole-array aggregate.
+  const Expr *ArrElem = nullptr;
+  bool ArrElemNonNull = false;
+  if (const BinaryOperator *BO =
+          dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts())) {
+    if (BO->getOpcode() == BO_NE || BO->getOpcode() == BO_EQ) {
+      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+      if (IsNullExpr(ctx, RHS) && !IsNullExpr(ctx, LHS))
+        ArrElem = LHS;
+      else if (IsNullExpr(ctx, LHS) && !IsNullExpr(ctx, RHS))
+        ArrElem = RHS;
+      ArrElemNonNull = (BO->getOpcode() == BO_NE);
+    }
+  } else if (const UnaryOperator *UO =
+                 dyn_cast<UnaryOperator>(Cond->IgnoreParenImpCasts())) {
+    if (UO->getOpcode() == UO_LNot) {
+      // if (!arr[i]) -- implicit null check (arr[i] == nullptr)
+      ArrElem = UO->getSubExpr()->IgnoreParenImpCasts();
+      ArrElemNonNull = false;
+    } else {
+      // if (arr[i]) -- implicit null check (arr[i] != nullptr)
+      ArrElem = Cond->IgnoreParenImpCasts();
+      ArrElemNonNull = true;
+    }
+  } else {
+    // if (arr[i]) -- implicit null check (arr[i] != nullptr)
+    ArrElem = Cond->IgnoreParenImpCasts();
+    ArrElemNonNull = true;
+  }
+  bool ArrElemIsArray = ArrElem && PeelArrayElemBase(ArrElem) != nullptr;
+  if (!ArrElemIsArray && ArrElem) {
+    // Struct-field array element: w.arr[i] / o.w.arr[i]. The base is a
+    // member access, which PeelArrayElemBase cannot unwrap; recognise it via
+    // the host + "arr[]" path so the null-check branch nulls the field
+    // aggregate (same as the local-array null-check).
+    const VarDecl *HostVD = nullptr;
+    std::string FieldPath;
+    if (PeelHostAndFieldPath(ArrElem, HostVD, FieldPath) &&
+        IsOwnedArrayFieldPath(HostVD, FieldPath))
+      ArrElemIsArray = true;
+  }
+
   if (cur->succ_begin()[0] == block) {
     // block is True branch
-    for (const Expr *E : Info.nullCheckedExprs) {
+    for (const Expr *E : Info.nullCheckedExprs)
       status.setToNull(E);
-    }
+    if (ArrElemIsArray && !ArrElemNonNull)
+      status.setToNull(ArrElem);
   } else if (cur->succ_begin()[1] == block) {
     // block is False branch, inversely set present checked exprs to null
-    for (const Expr *E : Info.presentCheckedExprs) {
+    for (const Expr *E : Info.presentCheckedExprs)
       status.setToNull(E);
-    }
+    if (ArrElemIsArray && ArrElemNonNull)
+      status.setToNull(ArrElem);
   }
 }
 
@@ -2854,6 +3973,36 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
   return status;
 }
 
+
+// True when Pred is the back-edge predecessor of a qualifying for-loop's
+// header (condition) block, i.e. Pred's terminator lies inside the for loop
+// (its increment or body) rather than before it.
+static bool isLoopBackEdge(const CFGBlock *Pred, const ForStmt *FS,
+                           const SourceManager &SM) {
+  if (!Pred)
+    return false;
+  const Stmt *Term = Pred->getTerminatorStmt();
+  SourceLocation TermLoc = Term ? Term->getBeginLoc() : SourceLocation();
+  if (TermLoc.isInvalid()) {
+    // Fall back to the block's first statement when there is no terminator.
+    for (const CFGElement &E : *Pred) {
+      if (E.getAs<CFGStmt>()) {
+        TermLoc = E.castAs<CFGStmt>().getStmt()->getBeginLoc();
+        break;
+      }
+    }
+  }
+  // The back-edge predecessors (increment / body) lie after the condition
+  // expression, while the entry predecessor (the loop's init statement, which
+  // sits inside the for's parentheses) lies before it. Using the `for` keyword
+  // would misclassify the init block as a back edge.
+  SourceLocation CondEnd =
+      FS->getCond() ? FS->getCond()->getEndLoc() : SourceLocation();
+  if (TermLoc.isInvalid() || CondEnd.isInvalid())
+    return false;
+  return SM.isBeforeInTranslationUnit(CondEnd, TermLoc);
+}
+
 void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
                                  AnalysisDeclContext &ac,
                                  OwnershipDiagReporter &reporter,
@@ -2863,18 +4012,51 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
   if (cfg.getNumBlockIDs() > 300000)
     return;
 
-  OwnershipImpl *OS = new OwnershipImpl(ac, ctx);
+  // Classify qualifying for-loops for owned-element arrays and record the
+  // per-loop allow-sites for element transfer.
+  OwnedArrayLoopInfo LoopInfo;
+  if (fd.getBody())
+    classifyOwnedArrayLoops(ctx, &fd, LoopInfo, reporter);
+
+  OwnershipImpl *OS = new OwnershipImpl(ac, ctx, std::move(LoopInfo));
+
+  // Precompute the exit block of every qualifying loop: the back-edge change
+  // handler below needs the exit of a loop whose back edge just changed and
+  // must not scan the whole CFG for it on every change. Local to this
+  // function (only used here).
+  llvm::DenseMap<const ForStmt *, const CFGBlock *> LoopExitBlocks;
+  for (const CFGBlock *B : cfg) {
+    const Stmt *Term = B->getTerminatorStmt();
+    const ForStmt *FS = dyn_cast_or_null<ForStmt>(Term);
+    if (FS && OS->LoopInfo.QualifyingLoops.count(FS) && B->succ_size() == 2)
+      LoopExitBlocks[FS] = B->succ_begin()[1];
+  }
 
   if (const Stmt *Body = fd.getBody())
     CollectArgumentCalls(const_cast<Stmt *>(Body), false, OS->ArgCalls);
-
-  // Proceed with the worklist.
-  ForwardDataflowWorklist worklist(cfg, ac);
 
   const CFGBlock *entry = &cfg.getEntry();
   const CFGBlock *exit = &cfg.getExit();
 
   bool isDestructor = false;
+
+  llvm::BitVector Enqueued(cfg.getNumBlockIDs());
+  // A plain FIFO worklist (instead of ForwardDataflowWorklist): a qualifying
+  // loop's exit block is re-enqueued explicitly whenever its back-edge state
+  // changes (see below), which requires controlling the queue ourselves. The
+  // initial order still follows the post-order view so ancestor blocks tend
+  // to be processed first.
+  std::queue<const CFGBlock *> WorkQueue;
+  auto enqueueBlock = [&](const CFGBlock *B) {
+    if (B && !Enqueued[B->getBlockID()]) {
+      Enqueued[B->getBlockID()] = true;
+      WorkQueue.push(B);
+    }
+  };
+  auto enqueueSuccessors = [&](const CFGBlock *B) {
+    for (const CFGBlock *Succ : B->succs())
+      enqueueBlock(Succ);
+  };
 
   // Mark all owned parameter Owned at the entry
   for (ParmVarDecl *PVD : fd.parameters()) {
@@ -2886,9 +4068,10 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
     }
   }
 
-  for (const CFGBlock *B : cfg.const_reverse_nodes()) {
-    if (B != entry && !B->pred_empty()) {
-      worklist.enqueueBlock(B);
+  if (PostOrderCFGView *POV = ac.getAnalysis<PostOrderCFGView>()) {
+    for (const CFGBlock *B : *POV) {
+      if (B != entry && !B->pred_empty())
+        enqueueBlock(B);
     }
   }
 
@@ -2896,17 +4079,86 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
     isDestructor = md->isDestructor();
   }
 
-  while (const CFGBlock *block = worklist.dequeue()) {
+  while (!WorkQueue.empty()) {
+    const CFGBlock *block = WorkQueue.front();
+    WorkQueue.pop();
+    Enqueued[block->getBlockID()] = false;
     Ownership::OwnershipStatus &preVal = OS->blocksBeginStatus[block];
 
     // meet operator
     Ownership::OwnershipStatus val;
+    // for the header (condition) block of a qualifying
+    // for-loop, drop the back-edge state of covered arrays before merging. A
+    // qualifying loop applies a state-independent transition, so the header
+    // keeps the pre-loop array state and the body's single-pass transition
+    // yields the post-loop state (no fixed-point iteration over the back edge).
+    const ForStmt *HeaderFS =
+        dyn_cast_or_null<ForStmt>(block->getTerminatorStmt());
+    bool IsQualifyingHeader =
+        HeaderFS && OS->LoopInfo.QualifyingLoops.count(HeaderFS);
+
+    // Exit block of a qualifying loop: its only predecessor is the loop's
+    // condition block reached on the false branch. The loop header keeps the
+    // pre-loop state for the covered arrays (the back-edge state is dropped,
+    // see removeArrays below); the exit state is taken from the back-edge
+    // block once the dataflow converges (takeArraysFrom further down).
+    const ForStmt *LoopExit = nullptr;
     for (CFGBlock::const_pred_iterator it = block->pred_begin(),
                                        ei = block->pred_end();
          it != ei; ++it) {
       Ownership::OwnershipStatus Status = OS->blocksEndStatus[*it];
       OS->MaybeSetNull(block, *it, Status);
+      if (IsQualifyingHeader &&
+          isLoopBackEdge(*it, HeaderFS, ctx.getSourceManager())) {
+        // Only drop the back-edge state of the arrays *this* loop covers;
+        // other arrays must not be affected by this loop's header. This is
+        // intentional: non-covered variables (scalars, other arrays, ...)
+        // keep their normal back-edge merge so that modifications inside the
+        // loop body still flow to the loop head. Only the covered arrays get
+        // the state-independent (pre-loop) header state.
+        auto CovIt = OS->LoopInfo.LoopCoveredArrays.find(HeaderFS);
+        if (CovIt != OS->LoopInfo.LoopCoveredArrays.end())
+          Status.removeArrays(CovIt->second);
+      }
       val = OS->merge(val, Status);
+      if (!LoopExit && block != &cfg.getEntry() && block != &cfg.getExit() &&
+          block->pred_size() == 1 && it == block->pred_begin()) {
+        const CFGBlock *Pred = *it;
+        const Stmt *TermStmt = Pred ? Pred->getTerminatorStmt() : nullptr;
+        if (const ForStmt *FS = dyn_cast_or_null<ForStmt>(TermStmt)) {
+          if (Pred->succ_size() == 2 && Pred->succ_begin()[1] == block &&
+              OS->LoopInfo.QualifyingLoops.count(FS))
+            LoopExit = FS;
+        }
+      }
+    }
+    if (LoopExit) {
+      const CFGBlock *HeaderBlock = *block->pred_begin();
+      const CFGBlock *BackBlock = nullptr;
+      for (CFGBlock::const_pred_iterator it = HeaderBlock->pred_begin(),
+                                         ei = HeaderBlock->pred_end();
+           it != ei; ++it) {
+        if (*it && isLoopBackEdge(*it, LoopExit, ctx.getSourceManager())) {
+          BackBlock = *it;
+          break;
+        }
+      }
+      // The back-edge block is only deferred while it is untouched (its
+      // status is still empty). A processed back-edge block always carries
+      // the covered arrays of this qualifying loop (the loop covers at least
+      // one array, which is tracked in the increment/body state), so this is
+      // never a permanent stall: the back-edge is enqueued through normal
+      // successor propagation and, once it changes, the exit block is
+      // re-enqueued below.
+      if (BackBlock && OS->blocksEndStatus[BackBlock].empty()) {
+        enqueueBlock(block);
+        continue;
+      }
+      if (BackBlock) {
+        auto CovIt = OS->LoopInfo.LoopCoveredArrays.find(LoopExit);
+        if (CovIt != OS->LoopInfo.LoopCoveredArrays.end())
+          val.takeArraysFrom(OS->blocksEndStatus[BackBlock], CovIt->second);
+      }
     }
 
     OS->blocksEndStatus[block] =
@@ -2917,8 +4169,22 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
 
     preVal = val;
 
+    // A qualifying loop's exit block takes the covered-array state from the
+    // back-edge block. The header drops the back-edge state, so the header
+    // never changes and the exit block is not re-triggered through normal
+    // successor propagation once the back edge later converges. Re-enqueue
+    // the exit block whenever its back edge changes.
+    for (const auto &KV : OS->LoopInfo.LoopCoveredArrays) {
+      const ForStmt *FS = KV.first;
+      if (!isLoopBackEdge(block, FS, ctx.getSourceManager()))
+        continue;
+      auto ExitIt = LoopExitBlocks.find(FS);
+      if (ExitIt != LoopExitBlocks.end())
+        enqueueBlock(ExitIt->second);
+    }
+
     // Enqueue the value to the successors.
-    worklist.enqueueSuccessors(block);
+    enqueueSuccessors(block);
   }
 
   // check ownership rules of function parameters

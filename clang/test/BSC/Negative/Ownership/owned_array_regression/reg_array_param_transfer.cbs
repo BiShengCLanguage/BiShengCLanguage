@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void consume_arr(int *_Owned a[3]);
+
+void test_param_transfer() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_arr(arr); // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+// Struct-field array as a whole-array argument is rejected too.
+struct BW {
+  int *_Owned arr[3];
+};
+
+void test_field_array_arg() {
+  struct BW w;
+  for (int i = 0; i < 3; i++)
+    w.arr[i] = safe_malloc(1);
+  consume_arr(w.arr); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)w.arr[i]);
+}

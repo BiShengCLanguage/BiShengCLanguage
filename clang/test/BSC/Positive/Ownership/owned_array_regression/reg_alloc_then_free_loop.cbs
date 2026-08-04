@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_alloc_then_free_1d() {
+  int *_Owned a[3];
+  for (int i = 0; i < 3; i++)
+    a[i] = safe_malloc(i);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]);
+}
+
+void test_alloc_then_free_2d() {
+  int *_Owned a[2][3];
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      a[i][j] = safe_malloc(i * j);
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      safe_free((void *_Owned)a[i][j]);
+}

@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct Inner { int *_Owned p; };
+struct Mid { struct Inner arr[2]; };
+
+void test_nested_full_free() {
+  struct Mid m[2];
+  for (int a = 0; a < 2; a++)
+    for (int j = 0; j < 2; j++)
+      m[a].arr[j].p = safe_malloc(1);
+  for (int a = 0; a < 2; a++)
+    for (int j = 0; j < 2; j++)
+      safe_free((void *_Owned)m[a].arr[j].p);
+}

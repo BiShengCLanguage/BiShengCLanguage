@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_multi_inner_first_unrelated() {
+  int *_Owned arr[2][2] = {{safe_malloc(1), safe_malloc(2)},
+                           {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) {
+    for (int k = 0; k < 1; k++) {}
+    for (int j = 0; j < 2; j++)
+      safe_free((void *_Owned)arr[i][j]);
+  }
+}
+
+void test_multi_inner_two_unrelated() {
+  int *_Owned arr[2][2] = {{safe_malloc(1), safe_malloc(2)},
+                           {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) {
+    for (int k = 0; k < 1; k++) {}
+    for (int m = 0; m < 1; m++) {}
+    for (int j = 0; j < 2; j++)
+      safe_free((void *_Owned)arr[i][j]);
+  }
+}

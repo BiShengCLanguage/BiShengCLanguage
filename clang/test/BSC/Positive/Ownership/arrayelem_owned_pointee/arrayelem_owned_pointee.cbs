@@ -1,0 +1,37 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *calloc(unsigned long nmemb, unsigned long size);
+void free(void *ptr);
+
+T *_Owned _ArrayElem safe_calloc_array<T>(unsigned long size) {
+  if (0) {
+    T tmp = {0};
+    (void)tmp;
+  }
+  T *addr = (T *)calloc(size == 0 ? 1 : size, size == 0 ? 1 : sizeof(T));
+  return __take_array_from_raw(addr);
+}
+
+struct T {
+  int *_Owned _Nullable ptr;
+};
+
+void test_calloc_and_deref() {
+  struct T *_Owned _ArrayElem p = safe_calloc_array<struct T>(4);
+  if (p[0].ptr != 0) {
+    *p[0].ptr = 42;
+  }
+  _Unsafe {
+    free(__move_array_to_raw(p));
+  }
+}
+
+void test_take_from_raw() {
+  struct T *raw = (struct T *)calloc(2, sizeof(struct T));
+  struct T *_Owned _ArrayElem p;
+  _Unsafe {
+    p = __take_array_from_raw(raw);
+    free(__move_array_to_raw(p));
+  }
+}

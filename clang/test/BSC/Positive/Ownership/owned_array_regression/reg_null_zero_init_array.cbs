@@ -1,0 +1,42 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void bar(int *_Owned _Nullable *_Borrow _ArrayElem);
+
+void test_zero_init_ok() {
+  int *_Owned _Nullable a[10] = {0};
+}
+
+void test_null_init_ok() {
+  int *_Owned _Nullable a[10] = {nullptr};
+}
+
+void test_borrow_then_free() {
+  int *_Owned _Nullable a[10] = {nullptr};
+  bar(&_Mut a[0]);
+  for (int i = 0; i < 10; i++) {
+    safe_free((void *_Owned)a[i]);
+  }
+}
+
+void consume(int *_Owned _Nullable);
+void test_borrow_then_consume() {
+  int *_Owned _Nullable a[10] = {nullptr};
+  bar(&_Mut a[0]);
+  for (int i = 0; i < 10; ++i) {
+    consume(a[i]);
+  }
+}

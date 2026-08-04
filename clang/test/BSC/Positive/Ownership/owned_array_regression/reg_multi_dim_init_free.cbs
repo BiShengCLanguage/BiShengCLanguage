@@ -1,0 +1,42 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_multi_dim_init_free() {
+  int *_Owned a[2][3] = {{safe_malloc(1), safe_malloc(2), safe_malloc(3)},
+                         {safe_malloc(4), safe_malloc(5), safe_malloc(6)}};
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      safe_free((void *_Owned)a[i][j]);
+    }
+  }
+}
+
+struct Nested {
+  int *_Owned a[3];
+};
+void test_struct_inner_array_field() {
+  struct Nested s[2];
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      s[i].a[j] = safe_malloc(i + j);
+    }
+  }
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 3; j++) {
+      safe_free((void *_Owned)s[i].a[j]);
+    }
+  }
+}

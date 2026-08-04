@@ -25,6 +25,7 @@
 #include "clang/Analysis/Analyses/BSC/BSCOwnership.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include <set>
 #include <tuple>

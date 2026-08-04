@@ -1,0 +1,13 @@
+// RUN: %clang_cc1 -verify %s
+
+void consume(int *_Owned _Nullable);
+void bar(int *_Owned _Nullable *_Borrow _ArrayElem);
+
+void test_borrow_after_mut_borrow() {
+  int *_Owned _Nullable a[10] = {nullptr};
+  bar(&_Mut a[0]);
+  for (int i = 0; i < 10; ++i) {
+    consume(a[i]);
+  }
+  bar(&_Mut a[0]); // expected-error {{use of moved value: 'a'}}
+}

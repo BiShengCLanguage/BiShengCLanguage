@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_free_then_assign_leak() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)a[i]);
+  }
+  for (int i = 0; i < 3; i++) {
+    a[i] = safe_malloc(i); // re-assign: leaks at function end
+  }
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}

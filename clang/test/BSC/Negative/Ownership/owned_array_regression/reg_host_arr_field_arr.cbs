@@ -1,0 +1,53 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// Host array + owned-pointer array field.
+struct S {
+  int *_Owned a[2];
+};
+
+void test_hostarr_fieldarr_leak() {
+  struct S arr[3];
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 2; j++) {
+      arr[i].a[j] = safe_malloc(1);
+    }
+  }
+} // expected-error {{memory leak because arr.a[] is not freed or moved before 'arr' goes out of scope}}
+
+void test_hostarr_fieldarr_ok() {
+  struct S arr[3];
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 2; j++)
+      arr[i].a[j] = safe_malloc(1);
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 2; j++)
+      safe_free((void *_Owned)arr[i].a[j]);
+}
+
+// Nested host struct with a subscripted array-field (o.w[i].arr[j]).
+struct W {
+  int *_Owned arr[2];
+};
+struct Outer {
+  struct W w[2];
+};
+
+void test_nested_host_arr_leak() {
+  struct Outer o;
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 2; j++)
+      o.w[i].arr[j] = safe_malloc(1);
+} // expected-error {{memory leak because o.w[].arr[] is not freed or moved before 'o' goes out of scope}}

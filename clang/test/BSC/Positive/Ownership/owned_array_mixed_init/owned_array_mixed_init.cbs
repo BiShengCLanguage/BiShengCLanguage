@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_flat_mixed() {
+  int *_Owned _Nullable arr[2] = {safe_malloc(1), nullptr};
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+struct S {
+  int *_Owned _Nullable p1;
+  int *_Owned _Nullable p2;
+};
+void test_struct_mixed() {
+  struct S arr[2] = {{nullptr, safe_malloc(2)}, {safe_malloc(1), nullptr}};
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i].p1);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i].p2);
+}
+
+int main() { return 0; }

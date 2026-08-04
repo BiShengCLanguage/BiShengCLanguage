@@ -421,6 +421,10 @@ public:
         QT->hasBorrowFields() || QT->hasOwnedFields()) {
       return true;
     }
+    // Recurse into array element types to detect arrays of owned/borrow
+    // pointers (e.g., int *_Owned arr[10]).
+    if (const auto *AT = QT->getAsArrayTypeUnsafe())
+      return VisitQualType(AT->getElementType());
     return false;
   }
 

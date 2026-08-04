@@ -5970,7 +5970,7 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
     // -spatial-check=static.
     if (BaseType->isPointerType() &&
         (BaseType.isOwnedQualified() || BaseType.isBorrowQualified()) &&
-        BaseType->hasOwnedFields()) {
+        !BaseType.isArrayElemQualified() && BaseType->hasOwnedFields()) {
       return ExprError(Diag(LLoc, diag::err_bsc_op_not_supported)
                        << "array subscript" << BaseType
                        << Base->getSourceRange());

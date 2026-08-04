@@ -1,0 +1,46 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned a; };
+
+void test_1d() {
+  int *_Owned a[3];
+  for (int i = 0; i < 3; i++)
+    a[i] = safe_malloc(i);
+  _Unsafe { __assume_initialized(&a); }
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]);
+}
+
+void test_2d() {
+  int *_Owned a[2][3];
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      a[i][j] = safe_malloc(i * j);
+  _Unsafe { __assume_initialized(&a); }
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      safe_free((void *_Owned)a[i][j]);
+}
+
+void test_struct_arr() {
+  struct S s[2];
+  for (int i = 0; i < 2; i++)
+    s[i].a = safe_malloc(i);
+  _Unsafe { __assume_initialized(&s); }
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)s[i].a);
+}

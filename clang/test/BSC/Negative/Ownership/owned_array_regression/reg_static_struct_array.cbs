@@ -1,0 +1,10 @@
+// RUN: %clang_cc1 -verify %s
+
+struct A {
+  int *_Owned _Nullable p;
+};
+
+void test_static_struct_array(void) {
+  static struct A ls_arr[3]; // expected-error {{type of static local variable cannot be qualified by '_Owned' (even indirectly) because 'struct A' contains a '_Owned' type}}
+  static struct A ls_a; // expected-error {{type of static local variable cannot be qualified by '_Owned' (even indirectly) because 'struct A' contains a '_Owned' type}}
+}

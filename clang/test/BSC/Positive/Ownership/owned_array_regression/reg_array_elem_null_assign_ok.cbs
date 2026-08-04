@@ -1,0 +1,40 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// BOP host: all-null initializer -> a[i] = nullptr is a no-op clear.
+void test_bop_null_init() {
+  int *_Owned a[2] = {nullptr, nullptr};
+  for (int i = 0; i < 2; i++)
+    a[i] = nullptr;
+}
+
+// BOP host: release first, then clear -> legal.
+void test_bop_after_free() {
+  int *_Owned a[2] = {safe_malloc(1), safe_malloc(2)};
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)a[i]);
+    a[i] = nullptr;
+  }
+}
+
+// S host, field array: all-null initializer -> s[i].arr[j] = nullptr ok.
+struct S { int *_Owned arr[2]; };
+void test_s_null_init() {
+  struct S s[2] = {{nullptr, nullptr}, {nullptr, nullptr}};
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 2; j++)
+      s[i].arr[j] = nullptr;
+}

@@ -1,0 +1,99 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+_Safe void safe_swap<T>(T *_Borrow left, T *_Borrow right) {
+  _Unsafe {
+    T tmp = *left;
+    *left = *right;
+    *right = tmp;
+  }
+}
+
+void test_owned_array_free_loop() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)arr[i]);
+  }
+}
+
+void test_owned_array_free_loop_preinc() {
+  int *_Owned arr[2] = {safe_malloc(10), safe_malloc(20)};
+  for (int i = 0; i < 2; ++i) {
+    safe_free((void *_Owned)arr[i]);
+  }
+}
+
+void test_owned_array_move_loop() {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  int *_Owned dest[2];
+  for (int i = 0; i < 2; i++) {
+    dest[i] = arr[i];
+  }
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)dest[i]);
+  }
+}
+
+void test_assign_in_loop() {
+  int *_Owned a[3];
+  for (int i = 0; i < 3; i++) {
+    a[i] = safe_malloc(i);
+  }
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)a[i]);
+  }
+}
+
+struct S {
+  int a;
+  int *_Owned _Nullable p;
+};
+void test_owned_array_zero_init() {
+  struct S arr[3] = {};
+  (void)arr;
+}
+
+void test_multi_array_one_loop() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  int *_Owned b[3] = {safe_malloc(4), safe_malloc(5), safe_malloc(6)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)a[i]);
+    safe_free((void *_Owned)b[i]);
+  }
+}
+
+void test_vla_bound(int n) {
+  int *_Owned arr[n];
+  for (int i = 0; i < n; ++i)
+    arr[i] = safe_malloc(1);
+  for (int i = 0; i < n; ++i)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_safe_swap_outside_loop() {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  int *_Owned tmp = nullptr;
+  safe_swap(&_Mut arr[0], &_Mut tmp);
+  if (tmp != nullptr)
+    safe_free((void *_Owned)tmp);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+int main() {
+  test_owned_array_free_loop();
+  return 0;
+}

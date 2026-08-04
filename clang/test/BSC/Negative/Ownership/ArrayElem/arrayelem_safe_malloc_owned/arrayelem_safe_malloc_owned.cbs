@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+
+T *_Owned _ArrayElem safe_malloc_array<T>(unsigned long size, T initializer) {
+  // expected-error@+1 {{static assertion failed due to requirement '__is_move_semantic(struct T) == 0': safe_malloc_array cannot allocate an array of a move-semantic type; use safe_calloc_array or __take_array_from_raw instead}}
+  _Static_assert(__is_move_semantic(T) == 0,
+                 "safe_malloc_array cannot allocate an array of a "
+                 "move-semantic type; use safe_calloc_array or "
+                 "__take_array_from_raw instead");
+  T *addr = (T *)malloc(size * sizeof(T));
+  for (unsigned long i = 0; i < size; ++i)
+    addr[i] = initializer;
+  return __take_array_from_raw(addr);
+}
+
+struct T {
+  int *_Owned _Nullable ptr;
+};
+
+void test_malloc_array_forbidden() {
+  struct T init = {};
+  struct T *_Owned _ArrayElem p =
+      safe_malloc_array(2, init); // expected-note {{in instantiation of function template specialization 'safe_malloc_array<struct T>' requested here}}
+  (void)p;
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} expected-error {{memory leak because p.ptr is not freed or moved before 'p' goes out of scope}}

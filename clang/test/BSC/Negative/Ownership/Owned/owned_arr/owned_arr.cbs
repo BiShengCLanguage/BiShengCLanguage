@@ -5,11 +5,12 @@ typedef struct A {
 } SA;
 
 void test() {
-    _Owned int arr1[10]; // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of array cannot be qualified by '_Owned}}
-    SA arr2[3];         // expected-error {{type of array cannot be qualified by '_Owned' (even indirectly) because 'SA' (aka 'struct A') contains a '_Owned' type}}
-    struct A arr[4];    // expected-error {{type of array cannot be qualified by '_Owned' (even indirectly) because 'struct A' contains a '_Owned' type}}
+    _Owned int arr1[10]; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     _Owned int* arr3[2]; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     SA* arr4[3];
+    SA arr2[3];
+    struct A arr[4];
+    int *_Owned ok[2];
     return;
 }
 
@@ -19,5 +20,8 @@ void test2() {
 }
 
 struct B {
-    _Owned int arr1[3];  // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of array cannot be qualified by '_Owned'}}
+    int *_Owned arr[3];
+    _Owned int arr1[3];  // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 };
+
+int *_Owned global_arr[10]; // expected-error {{type of global variable cannot be qualified by '_Owned'}}

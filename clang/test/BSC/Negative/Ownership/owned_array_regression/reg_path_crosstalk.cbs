@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_path_crosstalk(int flag) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  int *_Owned b[3] = {safe_malloc(4), safe_malloc(5), safe_malloc(6)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)a[i]);
+    if (flag)
+      safe_free((void *_Owned)b[i]);
+  } // expected-error {{ownership state of array element `b` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)b[i]);
+}

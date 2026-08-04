@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// Path-inconsistent if/else: a swapped assign/free order leaks one path.
+void test_order_mismatch(int flag) {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (flag) {
+      arr[i] = safe_malloc(i); // expected-error {{cannot assign to 'arr[]' because it still holds an _Owned value; move or free it first}}
+      safe_free((void *_Owned)arr[i]);
+    } else {
+      safe_free((void *_Owned)arr[i]);
+      arr[i] = safe_malloc(i);
+    }
+  } // expected-error {{ownership state of array element `arr` is inconsistent across paths in for-loop body}}
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}

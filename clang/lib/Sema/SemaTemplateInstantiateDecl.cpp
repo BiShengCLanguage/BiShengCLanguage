@@ -1146,21 +1146,8 @@ Decl *TemplateDeclInstantiator::VisitVarDecl(VarDecl *D,
                           DI, D->getStorageClass());
 
 #if ENABLE_BSC
-  // Check invalid _Owned-qualified array types after template argument
-  // substitution.
   if (SemaRef.getLangOpts().BSC) {
     Var->setDefInTopLevelSwitchBlock(D->isDefInTopLevelSwitchBlock());
-
-    QualType T = Var->getType().getCanonicalType();
-    if (T.isOwnedQualified() && T->isArrayType()) {
-      // diag::err_nested_owned_borrow_type_check uses a %select{...}0 in the
-      // .td definition, so argument #0 is required to choose (ownedQualified
-      // here).
-      enum { ownedQualified };
-      StringRef Env = "template instantiation";
-      SemaRef.Diag(Var->getBeginLoc(), diag::err_nested_owned_borrow_type_check)
-          << ownedQualified << "_Owned" << Env;
-    }
   }
 #endif
 
