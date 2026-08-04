@@ -21,14 +21,14 @@ struct T {
 // _Nonnull can't be zero init
 _Safe void test(void){
   int* _Nonnull p2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-  struct T t2={0}; // expected-error {{type contains nonnull pointer must be properly initialized}}
+  struct T t2={0}; // expected-error {{cannot implicitly initialize 't2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 't2' or declare them as '_Nullable'}}
 }
 
 _Safe int *_Owned getptr(void);
 _Safe void consume(int *_Owned);
 
 _Safe void test_n_zero_init(void) {
-  struct N n = {0}; // expected-error {{type contains nonnull pointer must be properly initialized}}
+  struct N n = {0}; // expected-error {{cannot implicitly initialize 'n' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'n' or declare them as '_Nullable'}}
 }
 
 _Safe void test_initializations(void) {

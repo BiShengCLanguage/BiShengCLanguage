@@ -40,7 +40,7 @@ void test3(void){
 
 void test4(){
     struct simOut o1={(struct inside)(struct inside){nullptr}};// expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-    struct simOut o2={(struct inside)(struct inside){}};// expected-error {{type contains nonnull pointer must be properly initialized}}
+    struct simOut o2={(struct inside)(struct inside){}};// expected-error {{cannot implicitly initialize 'o2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'o2' or declare them as '_Nullable'}}
 }
 
 void test5(void){

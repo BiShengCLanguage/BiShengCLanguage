@@ -574,7 +574,8 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
   // early return if no initialization
   if (!Init || isa<ImplicitValueInitExpr>(Init)) {
     if (ShouldReportNullPtrError(DS) && FindNonnull(QT, Ctx)) {
-      NullabilityCheckDiagInfo DI(VD->getLocation(), NonnullInitByDefault);
+      NullabilityCheckDiagInfo DI(VD->getLocation(), NonnullInitByDefault,
+                                  VD->getNameAsString());
       Reporter.addDiagInfo(DI);
     }
     return;

@@ -131,6 +131,7 @@ public:
         break;
       case NonnullInitByDefault:
         S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind)) << DI.Name;
+        S.Diag(DI.Loc, diag::note_nonnull_init_reason) << DI.Name;
         break;
       default:
         llvm_unreachable("Unknown error type");

@@ -17,9 +17,8 @@ _Owned struct A{
 };
 
 int main(){
-    B b1={};// expected-error {{type contains nonnull pointer must be properly initialized}}
+    B b1={};// expected-error {{cannot implicitly initialize 'b1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'b1' or declare them as '_Nullable'}}
     return 0;
 }
-
 
 

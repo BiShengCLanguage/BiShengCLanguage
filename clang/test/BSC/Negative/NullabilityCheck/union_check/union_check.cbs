@@ -12,7 +12,7 @@ void case1() {
 
   union UInt u1 = {};
   union UInt u2 = {x};
-  union UPtr u3 = {};  // expected-error{{type contains nonnull pointer must be properly initialized}}
+  union UPtr u3 = {};  // expected-error {{cannot implicitly initialize 'u3' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u3' or declare them as '_Nullable'}}
   union UPtr u4 = {p};
 }
 
@@ -26,8 +26,8 @@ void case2() {
   int x = 1;
   int *p = &x;
 
-  union UOut u1 = {};  // expected-error{{type contains nonnull pointer must be properly initialized}}
-  union UOut u2 = {{}};  // expected-error{{type contains nonnull pointer must be properly initialized}}
+  union UOut u1 = {};  // expected-error {{cannot implicitly initialize 'u1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u1' or declare them as '_Nullable'}}
+  union UOut u2 = {{}};  // expected-error {{cannot implicitly initialize 'u2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u2' or declare them as '_Nullable'}}
   union UOut u3 = {{p}};
 }
 
@@ -41,8 +41,8 @@ void case3() {
   int x = 1;
   int *p = &x;
 
-  struct SOut s1 = {};  // expected-error{{type contains nonnull pointer must be properly initialized}}
-  struct SOut s2 = {{}};  // expected-error{{type contains nonnull pointer must be properly initialized}}
+  struct SOut s1 = {};  // expected-error {{cannot implicitly initialize 's1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's1' or declare them as '_Nullable'}}
+  struct SOut s2 = {{}};  // expected-error {{cannot implicitly initialize 's2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's2' or declare them as '_Nullable'}}
   struct SOut s3 = {{p}};
 }
 
@@ -56,7 +56,7 @@ void case4() {
   int x = 1;
   int *p = &x;
 
-  union UOut u1 = {};  // expected-error{{type contains nonnull pointer must be properly initialized}}
-  union UOut u2 = {{}};  // expected-error{{type contains nonnull pointer must be properly initialized}}
+  union UOut u1 = {};  // expected-error {{cannot implicitly initialize 'u1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u1' or declare them as '_Nullable'}}
+  union UOut u2 = {{}};  // expected-error {{cannot implicitly initialize 'u2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u2' or declare them as '_Nullable'}}
   union UOut u3 = {{p}};
 }

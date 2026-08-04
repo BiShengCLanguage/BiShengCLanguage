@@ -4,7 +4,7 @@
 
 int var = 1;
 int *_Nonnull globalP1 = &var;
-int *_Nonnull globalP2; // expected-error {{type contains nonnull pointer must be properly initialized}}
+int *_Nonnull globalP2; // expected-error {{cannot implicitly initialize 'globalP2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'globalP2' or declare them as '_Nullable'}}
 int *_Nonnull arr[1]={nullptr}; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 int* _Nonnull p2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 
@@ -19,7 +19,7 @@ struct T {
 };
 
 // _Nonnull can't be zero init
-struct T t2={0}; // expected-error {{type contains nonnull pointer must be properly initialized}}
+struct T t2={0}; // expected-error {{cannot implicitly initialize 't2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 't2' or declare them as '_Nullable'}}
 
 struct S{
   int *_Nonnull p;
@@ -29,8 +29,8 @@ struct S2{
   struct S s1;
 };
 
-struct S s1;  // expected-error {{type contains nonnull pointer must be properly initialized}}
-struct S2 s2; // expected-error {{type contains nonnull pointer must be properly initialized}}
+struct S s1;  // expected-error {{cannot implicitly initialize 's1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's1' or declare them as '_Nullable'}}
+struct S2 s2; // expected-error {{cannot implicitly initialize 's2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's2' or declare them as '_Nullable'}}
 
 // Test global struct with null initialization
 struct S s3 = {nullptr}; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
@@ -55,29 +55,29 @@ union U2 {
   int a[2];
 };
 
-union U2 u21; // expected-error {{type contains nonnull pointer must be properly initialized}}
-union U2 u22 = {}; // expected-error {{type contains nonnull pointer must be properly initialized}}
+union U2 u21; // expected-error {{cannot implicitly initialize 'u21' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u21' or declare them as '_Nullable'}}
+union U2 u22 = {}; // expected-error {{cannot implicitly initialize 'u22' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'u22' or declare them as '_Nullable'}}
 union U2 u23 = { nullptr }; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 union U2 u24 = { .p = nullptr }; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 
 // Test static global variables with null
-static int *_Nonnull staticP1; // expected-error {{type contains nonnull pointer must be properly initialized}}
+static int *_Nonnull staticP1; // expected-error {{cannot implicitly initialize 'staticP1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'staticP1' or declare them as '_Nullable'}}
 static int *_Nonnull staticP2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 static int *_Nonnull staticP3 = {nullptr}; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-static struct S staticS; // expected-error {{type contains nonnull pointer must be properly initialized}}
+static struct S staticS; // expected-error {{cannot implicitly initialize 'staticS' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'staticS' or declare them as '_Nullable'}}
 static struct S staticS2 = {nullptr}; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 
 // Test thread-local global variables with null
-_Thread_local int *_Nonnull tlP1; // expected-error {{type contains nonnull pointer must be properly initialized}}
+_Thread_local int *_Nonnull tlP1; // expected-error {{cannot implicitly initialize 'tlP1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'tlP1' or declare them as '_Nullable'}}
 _Thread_local int *_Nonnull tlP2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-_Thread_local struct S tlS; // expected-error {{type contains nonnull pointer must be properly initialized}}
+_Thread_local struct S tlS; // expected-error {{cannot implicitly initialize 'tlS' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'tlS' or declare them as '_Nullable'}}
 
 // Test const global variables with null
-const int *_Nonnull constP1; // expected-error {{type contains nonnull pointer must be properly initialized}}
+const int *_Nonnull constP1; // expected-error {{cannot implicitly initialize 'constP1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'constP1' or declare them as '_Nullable'}}
 const int *_Nonnull constP2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 
 // Test volatile global variables with null
-volatile int *_Nonnull volatileP1; // expected-error {{type contains nonnull pointer must be properly initialized}}
+volatile int *_Nonnull volatileP1; // expected-error {{cannot implicitly initialize 'volatileP1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'volatileP1' or declare them as '_Nullable'}}
 volatile int *_Nonnull volatileP2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 
 // Test nested struct with null in global scope
@@ -86,6 +86,6 @@ struct Nested {
   int *_Nonnull arr[2];
 };
 
-struct Nested nested1; // expected-error {{type contains nonnull pointer must be properly initialized}}
+struct Nested nested1; // expected-error {{cannot implicitly initialize 'nested1' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'nested1' or declare them as '_Nullable'}}
 struct Nested nested2 = { {nullptr}, {&var, &var} }; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
 struct Nested nested3 = { {&var}, {nullptr, &var} }; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}

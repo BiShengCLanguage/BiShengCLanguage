@@ -385,7 +385,15 @@ def err_nonnull_assigned_by_nullable : Error<
 def err_nested_nullability_mismatch : Error<
   "nested pointer nullability mismatch from %0 to %1, inner %2 mismatch with %3">;
 def err_nonnull_init_by_default : Error<
-  "type contains nonnull pointer must be properly initialized">;
+  "cannot implicitly initialize '%0' because it contains '_Nonnull' pointer">;
+def note_nonnull_init_reason : Note<
+  "add explicit initializer for '_Nonnull' pointers inside '%0' or declare "
+  "them as '_Nullable'">;
+def err_global_nonnull_init_by_default : Error<
+  "cannot implicitly initialize '%0' because it contains '_Nonnull' pointer">;
+def note_global_nonnull_init_reason : Note<
+  "add explicit initializer for '_Nonnull' pointers inside '%0' or declare "
+  "them as '_Nullable'">;
 
 // BSC string literal borrow errors.
 def err_mut_borrow_string_literal : Error<

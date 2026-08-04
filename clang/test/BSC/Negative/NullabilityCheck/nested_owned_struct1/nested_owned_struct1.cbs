@@ -25,24 +25,24 @@ _Owned struct A{
 
 void test1(){
     A a = {};// #1
-    B b = {};// expected-error {{type contains nonnull pointer must be properly initialized}}
+    B b = {};// expected-error {{cannot implicitly initialize 'b' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'b' or declare them as '_Nullable'}}
 }
-// expected-error@#1 {{type contains nonnull pointer must be properly initialized}}
+// expected-error@#1 {{cannot implicitly initialize 'a' because it contains '_Nonnull' pointer}} expected-note@#1 {{add explicit initializer for '_Nonnull' pointers inside 'a' or declare them as '_Nullable'}}
 
 void test2(){
-    B b ={};// expected-error {{type contains nonnull pointer must be properly initialized}}
-    A a = {.b=b};// expected-error {{type contains nonnull pointer must be properly initialized}}
-    A c = {};// expected-error {{type contains nonnull pointer must be properly initialized}}
+    B b ={};// expected-error {{cannot implicitly initialize 'b' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'b' or declare them as '_Nullable'}}
+    A a = {.b=b};// expected-error {{cannot implicitly initialize 'a' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'a' or declare them as '_Nullable'}}
+    A c = {};// expected-error {{cannot implicitly initialize 'c' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'c' or declare them as '_Nullable'}}
 }
 
 void test3(){
     B b = {.p=nullptr};// expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-    A a = {.b=b};// expected-error {{type contains nonnull pointer must be properly initialized}}
+    A a = {.b=b};// expected-error {{cannot implicitly initialize 'a' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'a' or declare them as '_Nullable'}}
 }
 
 void test4(){
     B b = {.p=safe_malloc(42)};
-    A a = {.b=b};// expected-error {{type contains nonnull pointer must be properly initialized}}
+    A a = {.b=b};// expected-error {{cannot implicitly initialize 'a' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'a' or declare them as '_Nullable'}}
 }
 
 void test5(){

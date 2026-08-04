@@ -8,9 +8,11 @@ struct NonZeroInit {
 void test_safe_calloc_non_zero_init(void) {
     struct NonZeroInit * _Owned p = safe_calloc<struct NonZeroInit>(); // expected-note {{in instantiation of function template specialization 'safe_calloc<struct NonZeroInit>' requested here}}
 } // expected-error {{memory leak of value: `p`}}
-// expected-error@bishengc_safety.hbs:* {{type contains nonnull pointer must be properly initialized}}
+// expected-error@bishengc_safety.hbs:* {{cannot implicitly initialize 'tmp' because it contains '_Nonnull' pointer}}
+// expected-note@bishengc_safety.hbs:* {{add explicit initializer for '_Nonnull' pointers inside 'tmp' or declare them as '_Nullable'}}
 
 void test_safe_calloc_array_non_zero_init(void) {
     struct NonZeroInit * _Owned _ArrayElem arr = safe_calloc_array<struct NonZeroInit>(4); // expected-note {{in instantiation of function template specialization 'safe_calloc_array<struct NonZeroInit>' requested here}}
 } // expected-error {{memory leak of value: `arr`}}
-// expected-error@bishengc_safety.hbs:* {{type contains nonnull pointer must be properly initialized}}
+// expected-error@bishengc_safety.hbs:* {{cannot implicitly initialize 'tmp' because it contains '_Nonnull' pointer}}
+// expected-note@bishengc_safety.hbs:* {{add explicit initializer for '_Nonnull' pointers inside 'tmp' or declare them as '_Nullable'}}

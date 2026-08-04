@@ -14882,8 +14882,12 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
         QT = RD->field_begin()->getType();
       }
     }
-    if (FindNonnull(QT, Context))
-      Diag(VD->getLocation(), diag::err_nonnull_init_by_default);
+    if (FindNonnull(QT, Context)) {
+      Diag(VD->getLocation(), diag::err_global_nonnull_init_by_default)
+          << VD->getNameAsString();
+      Diag(VD->getLocation(), diag::note_global_nonnull_init_reason)
+          << VD->getNameAsString();
+    }
     return;
   }
   // check pointer initialization

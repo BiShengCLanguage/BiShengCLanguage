@@ -91,7 +91,7 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 
 ---
 
-## INIT — initialization (31 errors, 1 warning)
+## INIT — initialization (32 errors, 1 warning)
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
@@ -109,7 +109,7 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | INIT-012 | err_assume_init_bad_arg | `__assume_initialized` requires `&` expression as argument | — |
 | INIT-013 | err_assume_init_array_subscript | `__assume_initialized` argument cannot contain an array subscript | `note_assume_init_array_subscript_hint` — the init analysis tracks arrays as whole units; address the enclosing array instead |
 | INIT-014 | err_assume_init_complex_arg | unsupported `__assume_initialized` argument | `note_assume_init_complex_arg_hint` — the argument must be `&` applied to a variable, struct field access, or pointer dereference |
-| INIT-015 | err_nonnull_init_by_default | type contains nonnull pointer must be properly initialized | — |
+| INIT-015 | err_nonnull_init_by_default | cannot implicitly initialize `'%0'` because it contains `'_Nonnull'` pointer | `note_nonnull_init_reason` — add explicit initializer for `'_Nonnull'` pointers inside `'%0'` or declare them as `'_Nullable'` |
 | INIT-016 | err_ensure_init_if_ret_not_init | `'*%0'` not initialized at return in `__attribute__((ensure_init_if_ret(%1)))` function | `note_ensure_init_ptr_reassigned_here` — fires when the failing matching-return path included a re-point |
 | INIT-017 | err_ensure_init_if_ret_maybe_not_init | `'*%0'` may not be initialized on all paths at return in `__attribute__((ensure_init_if_ret(%1)))` function | `note_ensure_init_ptr_reassigned_here` — same trigger as INIT-016 |
 | INIT-018 | err_ensure_init_if_ret_non_const_return | cannot verify `__attribute__((ensure_init_if_ret(%1)))` contract for `'*%0'`: return value is not an integer constant, so the runtime value may equal the cond value — `'*%0'` must be initialized on this path | `note_ensure_init_ptr_reassigned_here` — same trigger as INIT-016 |
@@ -126,6 +126,7 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | INIT-029 | err_ensure_init_if_ret_duplicate | `__attribute__((ensure_init_if_ret))` specified more than once with conflicting arguments on the same parameter | An exact repeat instead warns via the generic `attribute … is already applied` |
 | INIT-030 | err_ensure_init_redecl_mismatch | conflicting `__attribute__((ensure_init))` on parameter %0 in redeclaration of %1 | `note_previous_declaration` — previous declaration is here |
 | INIT-031 | err_ensure_init_unsafe_without_safe | `__attribute__((ensure_init))` on parameter %0 of `_Unsafe` declaration requires the matching `_Safe` declaration to carry the same attribute | `note_previous_declaration` — previous declaration is here |
+| INIT-032 | err_global_nonnull_init_by_default | cannot implicitly initialize `'%0'` because it contains `'_Nonnull'` pointer | `note_global_nonnull_init_reason` — add explicit initializer for `'_Nonnull'` pointers inside `'%0'` or declare them as `'_Nullable'` |
 | **INIT-W001** | warn_ensure_init_not_addressof | `%select{ensure_init\|ensure_init_if_ret}0` effect cannot be verified when argument is not an address-of expression | Message names the attribute the parameter actually carries; also fires for `ensure_init_if_ret` parameters, including indirect calls through a function-pointer typedef |
 
 ---
@@ -175,7 +176,8 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | NONNULL-002 | err_nonnull_assigned_by_nullable | nonnull pointer cannot be assigned by nullable pointer | — |
 | NONNULL-003 | err_nested_nullability_mismatch | nested pointer nullability mismatch from <source> to <dest>, inner <inner_source> mismatch with <inner_dest> | — |
 
-(`err_nonnull_init_by_default` is filed under **INIT** as `INIT-015`.)
+(`err_nonnull_init_by_default` is filed under **INIT** as `INIT-015`;
+`err_global_nonnull_init_by_default` is filed as `INIT-032`.)
 
 ---
 
@@ -197,13 +199,13 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 |------------|-------------------------------|-------:|---------:|
 | OWN-       | owned                         | 46     | 1        |
 | BOR-       | borrow                        | 20     | 0        |
-| INIT-      | initialization                | 31     | 1        |
+| INIT-      | initialization                | 32     | 1        |
 | MISC-      | declaration / dispatch        | 7      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
 | NONNULL-   | nonnull pointer               | 3      | 0        |
 | NULLABLE-  | nullable pointer              | 5      | 0        |
-| **Total**  |                               | **124** | **2**   |
+| **Total**  |                               | **125** | **2**   |
 
-Plus **23 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
+Plus **25 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 
 Out-of-scope BSC features (not coded here): traits, async/await, generic, constexpr, operator overload, instance member functions. These contribute several more errors, one warning (`warn_type_has_not_impl_trait`), and one note (`note_no_this_parameter`).

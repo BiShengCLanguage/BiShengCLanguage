@@ -19,11 +19,11 @@ void test1() {
     .p1 = {nullptr, nullptr},
     .p2 = {nullptr, nullptr}
   };
-  struct S1 s2 = { // expected-error {{type contains nonnull pointer must be properly initialized}} expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  struct S1 s2 = { // expected-error {{cannot implicitly initialize 's2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's2' or declare them as '_Nullable'}} expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
     .p1 = {nullptr},
     .p2 = {nullptr}
   };
-  struct S1 s3 = { // expected-error {{type contains nonnull pointer must be properly initialized}}
+  struct S1 s3 = { // expected-error {{cannot implicitly initialize 's3' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's3' or declare them as '_Nullable'}}
     .p1 = {p},
     .p2 = {q1}
   };
@@ -35,9 +35,9 @@ void test1() {
     .p1 = {nullptr, p},
     .p2 = {nullptr, q1}
   };
-  struct S1 s6 = { // expected-error {{type contains nonnull pointer must be properly initialized}}
+  struct S1 s6 = { // expected-error {{cannot implicitly initialize 's6' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's6' or declare them as '_Nullable'}}
     .p1 = {},
     .p2 = {}
   };
-  struct S1 s7 = {}; // expected-error {{type contains nonnull pointer must be properly initialized}}
+  struct S1 s7 = {}; // expected-error {{cannot implicitly initialize 's7' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 's7' or declare them as '_Nullable'}}
 }
