@@ -10476,6 +10476,23 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
   QualType LHSCan = getCanonicalType(LHS),
            RHSCan = getCanonicalType(RHS);
 
+#if ENABLE_BSC
+  // The stripping above only reaches qualifiers stored on the (possibly
+  // sugared) type itself. BSC qualifiers can also be baked into canonical
+  // types through typedefs (e.g. `typedef int * _Nullable P;`), where they
+  // surface as local qualifiers of the canonical type. Strip them here too,
+  // otherwise the qualifier comparison below sees an extra difference that
+  // the ObjC-only GC fallback is not prepared for.
+  LHSCan.removeLocalOwned();
+  RHSCan.removeLocalOwned();
+  LHSCan.removeLocalBorrow();
+  RHSCan.removeLocalBorrow();
+  LHSCan.removeLocalArrayElem(*this);
+  RHSCan.removeLocalArrayElem(*this);
+  LHSCan.removeLocalNullability(*this);
+  RHSCan.removeLocalNullability(*this);
+#endif
+
   // If two types are identical, they are compatible.
   if (LHSCan == RHSCan)
     return LHS;

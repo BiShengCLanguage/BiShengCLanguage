@@ -1,0 +1,5 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+typedef _Safe unsigned (* _Nullable FPTy)(void);
+FPTy p = nullptr;                          // expected-note {{previous definition is here}}
+_Safe unsigned (* p)(void) = nullptr;      // expected-error {{redefinition of 'p'}}

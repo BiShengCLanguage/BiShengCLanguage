@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+typedef _Safe unsigned (* _Nullable FPTy)(void);
+FPTy p1;                        // tentative definition
+_Safe unsigned (* p1)(void);    // redeclaration differing only in _Nullable
+
+typedef int * _Nonnull NPTy;
+NPTy p2;
+int * p2;
+
+// Function redeclarations whose function type differs only in a
+// typedef-carried _Nullable on the function pointer.
+typedef _Safe unsigned (* _Nullable FnTy)(void);
+_Safe unsigned (* f)(void);
+FnTy f;
+
+// Return type merged through a typedef with _Nullable.
+typedef int * _Nullable RetTy;
+RetTy get(void);
+int * get(void);
