@@ -1,0 +1,6 @@
+// RUN: not %clang_cc1 -fsyntax-only -xbsc %s 2>&1 | FileCheck %s
+// CHECK: error:
+// CHECK-NOT: PLEASE submit a bug report
+
+struct S<T> { T a; };
+struct S<int> { int a; };

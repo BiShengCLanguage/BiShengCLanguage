@@ -6476,8 +6476,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    options::OPT_fno_bsc_experimental, false)) {
     CmdArgs.push_back("-fbsc-experimental");
   }
-#endif
 
+#endif
   Args.AddLastArg(CmdArgs, options::OPT_fdouble_square_bracket_attributes,
                   options::OPT_fno_double_square_bracket_attributes);
 

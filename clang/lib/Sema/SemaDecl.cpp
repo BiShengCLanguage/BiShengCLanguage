@@ -18517,7 +18517,10 @@ void Sema::ActOnTagFinishDefinition(Scope *S, Decl *TagD,
   }
 
   if (auto *RD = dyn_cast<CXXRecordDecl>(Tag)) {
-    FieldCollector->FinishClass();
+#if ENABLE_BSC
+    if (FieldCollector)
+#endif
+      FieldCollector->FinishClass();
     if (RD->hasAttr<SYCLSpecialClassAttr>()) {
       auto *Def = RD->getDefinition();
       assert(Def && "The record is expected to have a completed definition");
