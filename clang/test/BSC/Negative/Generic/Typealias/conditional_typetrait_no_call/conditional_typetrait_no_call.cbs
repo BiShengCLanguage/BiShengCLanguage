@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -verify %s
+
+// A __conditional condition that is a function designator (the user forgot
+// the '()' call, so the condition has function type '_Safe bool (void)')
+// must be diagnosed and error-recovered without crashing the compiler.
+
+#include <stdbool.h>
+
+_Safe constexpr bool is_integral<T>(void) { return __is_integral(T); }
+
+typedef IntOrPtr<T> = __conditional(is_integral<T>, T, T *);
+// expected-error@-1{{BSC constexpr if condition expression does not support type '_Safe bool (void)'}}
+
+int main(void) {
+    _Unsafe {
+        IntOrPtr<int> a = 0;
+        // expected-note@-1{{in instantiation of template type alias 'IntOrPtr' requested here}}
+        (void)a;
+        return 0;
+    }
+}

@@ -634,7 +634,7 @@ bool Type::isBSCTemplateRecordType() const {
 
 ConditionalType::ConditionalType(llvm::Optional<bool> CondRes, Expr *CondE,
                                  QualType T1, QualType T2, QualType can)
-    : Type(Conditional, can,
+    : Type(Conditional, can.isNull() ? QualType(this, 0) : can,
            toTypeDependence(CondE->getDependence()) |
                (CondE->isInstantiationDependent() ? TypeDependence::Dependent
                                                   : TypeDependence::None) |
@@ -645,7 +645,10 @@ ConditionalType::ConditionalType(llvm::Optional<bool> CondRes, Expr *CondE,
       UnderlyingType(can) {}
 
 bool ConditionalType::isSugared() const {
-  return !CondExpr->isInstantiationDependent();
+  // A ConditionalType whose condition could not be resolved has no
+  // underlying type to desugar to; treat it as unsugared so that
+  // desugar() never yields a NULL QualType.
+  return !CondExpr->isInstantiationDependent() && !getUnderlyingType().isNull();
 }
 
 QualType ConditionalType::desugar() const {

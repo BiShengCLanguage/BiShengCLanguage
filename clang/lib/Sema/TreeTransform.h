@@ -6324,6 +6324,13 @@ QualType TreeTransform<Derived>::TransformConditionalType(TypeLocBuilder &TLB,
       return QualType();
     CondResult = Cond.getKnownValue();
     New_CondExpr = CondExpr.get();
+    // The condition is no longer dependent, yet its value is still unknown:
+    // ActOnCondition diagnosed the problem (e.g. the condition has a type
+    // __conditional cannot use) and error-recovered with a RecoveryExpr.
+    // Fail the transformation instead of building a conditional type that
+    // has no underlying type.
+    if (!CondResult && !New_CondExpr->isInstantiationDependent())
+      return QualType();
   }
 
   TypeSourceInfo* Old_ConditionalTypeInfo1 = TL.getConditionalTInfo1();
