@@ -4734,9 +4734,9 @@ int main() {
 ```C
 void foo() {
   int *p1 = nullptr;
-  int *p2 = (int *_Nonnull)p1; // error: cannot cast nullable pointer to nonnull type
-  int *_Owned p3 = (int *_Owned)p1; // error: cannot cast nullable pointer to nonnull type
-  int *_Borrow p4 = (int *_Borrow)p1; // error: cannot cast nullable pointer to nonnull type
+  int *p2 = (int *_Nonnull)p1; // error: cannot cast possibly-null status pointer 'p1' to a '_Nonnull' pointer
+  int *_Owned p3 = (int *_Owned)p1; // error: cannot cast possibly-null status pointer 'p1' to a '_Nonnull' pointer
+  int *_Borrow p4 = (int *_Borrow)p1; // error: cannot cast possibly-null status pointer 'p1' to a '_Nonnull' pointer
 }
 
 int main() {
@@ -4776,6 +4776,7 @@ struct Data {
 _Safe void test(void) {
   struct Data data = {.value = 10};
   struct Data *_Borrow _Nullable p = foo(&_Mut data);
+  p->value = 10; // error: cannot access the member through possibly-null status pointer 'p'
   if (p != nullptr) {
     // 经过判空后， nullable 会转换为 nonnull
     p->value = 10;
@@ -4849,9 +4850,9 @@ int main() {
 _Safe void test(void) {
   int *_Borrow _Nullable p = nullptr;
   _Unsafe {
-    *p = 10; // error1: nullable pointer cannot be dereferenced
+    *p = 10; // error1: cannot dereference possibly-null status pointer 'p'
   }
-  *p = 5; // error2: nullable pointer cannot be dereferenced
+  *p = 5; // error2: cannot dereference possibly-null status pointer 'p'
 }
 
 int main() {

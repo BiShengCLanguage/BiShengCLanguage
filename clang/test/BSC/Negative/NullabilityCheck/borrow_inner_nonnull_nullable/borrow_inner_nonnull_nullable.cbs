@@ -13,21 +13,21 @@ _Safe void borrow_nonnull(int * _Nonnull * _Borrow);
 // ---- &_Mut, no null check ----
 _Safe void test_mut_no_check(int * _Nullable p) {
   borrow_nonnull(&_Mut p);
-  // expected-error@-1 {{cannot pass nullable pointer argument}}
+  // expected-error@-1 {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
 }
 
 // ---- after control-flow merge ----
 _Safe void test_after_merge(int * _Nullable p) {
   if (p) { borrow_nonnull(&_Mut p); }
   borrow_nonnull(&_Mut p);
-  // expected-error@-1 {{cannot pass nullable pointer argument}}
+  // expected-error@-1 {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
 }
 
 // ---- double indirection ----
 _Safe void borrow_double(int * _Nonnull ** _Borrow);
 _Safe void test_double(int * _Nullable *pp) {
   borrow_double(&_Mut pp);
-  // expected-error@-1 {{nested pointer nullability mismatch from 'int *_Nullable **_Borrow' to 'int *_Nonnull **_Borrow', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
+  // expected-error@-1 {{nested pointer nullability mismatch: cannot use 'int *_Nullable **_Borrow' as 'int *_Nonnull **_Borrow'}} expected-note@-1 {{inner pointer nullability differs between 'int *_Nullable' and 'int *_Nonnull'}}
 }
 
 // ---- struct field, Nullable ----
@@ -35,5 +35,5 @@ struct S { int *_Nullable fp; };
 _Safe void test_struct_field(void) {
   struct S s = { 0 };
   borrow_nonnull(&_Mut s.fp);
-  // expected-error@-1 {{cannot pass nullable pointer argument}}
+  // expected-error@-1 {{cannot pass possibly-null status pointer 'fp' to a '_Nonnull' parameter}}
 }

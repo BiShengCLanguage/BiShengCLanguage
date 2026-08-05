@@ -36,9 +36,9 @@ void test_nonnull_borrow_args(void) {
 
 // _Nonnull in safe zone - produces ERROR
 _Safe void test_safe_nonnull_assignment(void) {
-  int * _Nonnull p1 = (int *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-  void * _Nonnull p2 = (void *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-  char * _Nonnull p3 = (char *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  int * _Nonnull p1 = (int *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  void * _Nonnull p2 = (void *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  char * _Nonnull p3 = (char *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void)p1;
   (void)p2;
   (void)p3;
@@ -46,12 +46,12 @@ _Safe void test_safe_nonnull_assignment(void) {
 
 // _Nonnull with const in safe zone
 _Safe void test_safe_nonnull_const(void) {
-  const int * _Nonnull cp = (const int *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  const int * _Nonnull cp = (const int *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void)cp;
 }
 
 // _Nonnull with volatile in safe zone
 _Safe void test_safe_nonnull_volatile(void) {
-  volatile int * _Nonnull vp = (volatile int *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  volatile int * _Nonnull vp = (volatile int *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void)vp;
 }

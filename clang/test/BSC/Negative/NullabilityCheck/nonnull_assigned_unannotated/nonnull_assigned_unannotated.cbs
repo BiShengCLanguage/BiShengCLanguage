@@ -1,10 +1,10 @@
 // RUN: %clang_cc1 -nullability-check=all -verify %s
 
 void from_raw(int **raw) {
-  int *_Nonnull *p = raw; // expected-error {{nested pointer nullability mismatch from 'int **' to 'int *_Nonnull *', inner 'int *' mismatch with 'int *_Nonnull'}}
+  int *_Nonnull *p = raw; // expected-error {{nested pointer nullability mismatch: cannot use 'int **' as 'int *_Nonnull *'}} expected-note {{inner pointer nullability differs between 'int *' and 'int *_Nonnull'}}
   (void)p;
 }
 void from_nullable(int *_Nullable *nb) {
-  int *_Nonnull *p = nb; // expected-error {{nested pointer nullability mismatch from 'int *_Nullable *' to 'int *_Nonnull *', inner 'int *_Nullable' mismatch with 'int *_Nonnull'}}
+  int *_Nonnull *p = nb; // expected-error {{nested pointer nullability mismatch: cannot use 'int *_Nullable *' as 'int *_Nonnull *'}} expected-note {{inner pointer nullability differs between 'int *_Nullable' and 'int *_Nonnull'}}
   (void)p;
 }

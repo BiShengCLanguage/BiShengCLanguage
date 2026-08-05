@@ -204,5 +204,5 @@ void test_tree_node() {
 struct OwnedField { int *_Owned o; int v; };
 
 _Safe void test_owned_nonnull_in_safe(void) {
-    struct OwnedField s = {.o = nullptr, .v = 1}; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    struct OwnedField s = {.o = nullptr, .v = 1}; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
 }

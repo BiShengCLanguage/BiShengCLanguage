@@ -12,5 +12,5 @@ void maybe_uninit_field_move(void) {
     if (rand()) {
         h.data = safe_malloc_int();
     }
-    free(__move_to_raw(h.data)); // expected-error {{use of uninitialized value: `h.data`}}
+    free(__move_to_raw(h.data)); // expected-error {{use of uninitialized value: 'h.data'}}
 }

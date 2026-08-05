@@ -9,5 +9,5 @@ void moved_field_not_uninit(void) {
     struct H h;
     h.data = safe_malloc_int();
     free(__move_to_raw(h.data));
-    int x = *h.data; // expected-error {{use of moved value: `h.data`}}
+    int x = *h.data; // expected-error {{use of moved value: 'h.data'}}
 }

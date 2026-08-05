@@ -9,117 +9,117 @@ _Safe void test1(int *_Borrow _Nullable p) {
     if (p != nullptr) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_direct(int *_Borrow _Nullable p) {
     if (p) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_paren(int *_Borrow _Nullable p) {
     if ((p)) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_assignment(int *_Borrow _Nullable p) {
     if ((p = ptr_factory(nullptr))) {
         *p = 10; 
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_assignment_cmp(int *_Borrow _Nullable p) {
     if ((p = ptr_factory(nullptr)) != nullptr) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_null_assignment(int *_Borrow _Nullable p) {
     if ((p = nullptr)) {
         *p = 10; 
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}} 
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_null_assignment_cmp(int *_Borrow _Nullable p) {
     if ((p = nullptr) != nullptr) {
         *p = 10;  
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_null_assignment_cmp_inv(int *_Borrow _Nullable p) {
     if ((p = nullptr) == nullptr) {
-        *p = 10; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
         *p = 20; 
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_comma(int *_Borrow _Nullable p, int x) {
     if (++x, p) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_comma_cmp(int *_Borrow _Nullable p, int x) {
     if (++x, p != nullptr) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_transitive_assign(int *_Borrow _Nullable p, int *_Borrow _Nullable q, int x) {
     if ((p = q = nullptr)) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_multi_comma(int *_Borrow _Nullable p, int x) {
     if (++x, ++x, p) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_multi_comma_cmp(int *_Borrow _Nullable p, int x) {
     if (++x, ++x, p != nullptr) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 
@@ -138,11 +138,11 @@ _Safe void test3(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
         *p = 10;
         *q = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 20; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
-    *p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
 }
 
 _Safe void test4(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
@@ -161,14 +161,14 @@ _Safe void test4(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
 
 _Safe void test5(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
     if (p != nullptr || q != nullptr) {
-        *p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 10;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 20; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
-    *p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
 }
 
 _Safe void test6(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
@@ -216,29 +216,29 @@ _Safe void test8(int *_Borrow _Nullable p, int *_Borrow _Nullable q, int *_Borro
         *q = 10;
         *m = 10;
     } else {
-        *p = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *m = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 20;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+        *m = 20;  // expected-error {{cannot dereference possibly-null status pointer 'm'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *m = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+    *m = 30;  // expected-error {{cannot dereference possibly-null status pointer 'm'}}
 }
 
 _Safe void test9(int *_Borrow _Nullable p, int *_Borrow _Nullable q, int *_Borrow _Nullable m) {
     int a = 10;
     if (p != nullptr || q != nullptr || m != nullptr) {
-        *p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *m = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 10;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+        *m = 10;  // expected-error {{cannot dereference possibly-null status pointer 'm'}}
     } else {
-        *p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *m = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 10;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+        *m = 10;  // expected-error {{cannot dereference possibly-null status pointer 'm'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *m = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+    *m = 30;  // expected-error {{cannot dereference possibly-null status pointer 'm'}}
 }
 
 _Safe void test10(int *_Borrow _Nullable p) {
@@ -249,20 +249,20 @@ _Safe void test10(int *_Borrow _Nullable p) {
     } else {
         p = &_Mut a;
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test11(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
     int a = 0;
     if (p != nullptr && q != nullptr || a > 0) {
-        *p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 10;  // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 20; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
-    *p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
 }
 
 _Safe void test12(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
@@ -271,11 +271,11 @@ _Safe void test12(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
         *p = 10;
         *q = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 20; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
-    *p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
 }
 
 _Safe void test13(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
@@ -296,18 +296,18 @@ _Safe void test14(int *_Borrow _Nullable p) {
     if (p) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test15(int *_Borrow _Nullable p) {
     if (!p) {
-        *p = 10; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
         *p = 20;
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test16(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
@@ -315,11 +315,11 @@ _Safe void test16(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
         *p = 10;
         *q = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 20; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
-    *p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 30; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
 }
 
 struct S {
@@ -329,14 +329,14 @@ _Safe void test17(struct S *_Borrow _Nullable p) {
     if (p != nullptr) {
         p->a = 10;
     } else {
-        p->a = 20; // expected-error {{cannot access member through nullable pointer}}
+        p->a = 20; // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
     }
-    p->a = 30;  // expected-error {{cannot access member through nullable pointer}}
+    p->a = 30;  // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
 }
 
 _Safe void test18(void) {
     int *_Borrow _Nullable arr[3] = {nullptr, nullptr, nullptr};
 	if (arr[0]) {
-		*(arr[0]) = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+		*(arr[0]) = 1; // expected-error {{cannot dereference a possibly-null status pointer}}
 	}
 }

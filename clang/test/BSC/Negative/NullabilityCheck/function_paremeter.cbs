@@ -8,9 +8,9 @@ _Safe void test1(void) {
     int *_Borrow _Nullable p2 = &_Mut a;
     foo1(p2);
     int *_Borrow _Nullable p3 = nullptr;
-    foo1(p3);  // expected-error {{cannot pass nullable pointer argument}}
+    foo1(p3);  // expected-error {{cannot pass possibly-null status pointer 'p3' to a '_Nonnull' parameter}}
     foo1(&_Mut a);
-    foo1(nullptr); // expected-error {{cannot pass nullable pointer argument}}
+    foo1(nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 }
 
 _Safe int *_Owned safe_malloc(int a);
@@ -21,9 +21,9 @@ _Safe void test2(void) {
     int *_Owned _Nullable p2 = safe_malloc(5);
     foo2(p2);
     int *_Owned _Nullable p3 = nullptr;
-    foo2(p3);   // expected-error {{cannot pass nullable pointer argument}}
+    foo2(p3);   // expected-error {{cannot pass possibly-null status pointer 'p3' to a '_Nonnull' parameter}}
     foo2(safe_malloc(5));
-    foo2(nullptr); // expected-error {{cannot pass nullable pointer argument}}
+    foo2(nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 }
 
 _Safe void foo3(int *_Borrow _Nullable a);
@@ -52,8 +52,8 @@ _Safe void test4(void) {
 _Safe void test5(void) {
     int a = 10;
     int *_Borrow _Nullable p1 = a == 1 ? nullptr : &_Mut a;
-    foo1(p1); // expected-error {{cannot pass nullable pointer argument}}
-    foo1(a == 1 ? nullptr : &_Mut a); // expected-error {{cannot pass nullable pointer argument}}
+    foo1(p1); // expected-error {{cannot pass possibly-null status pointer 'p1' to a '_Nonnull' parameter}}
+    foo1(a == 1 ? nullptr : &_Mut a); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 
     int b = 10;
     int *_Borrow _Nullable p2 = a == 1 && b == 10 ? &_Mut b : &_Mut a;

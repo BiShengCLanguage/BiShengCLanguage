@@ -13,7 +13,7 @@ _Safe void test_nonnull_empty(void) {
 
 // Mixed init: {a, nullptr} — nullptr violates _Nonnull.
 _Safe void test_nonnull_mixed(int *_Nonnull a) {
-    int *_Nonnull arr[2] = {a, nullptr}; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    int *_Nonnull arr[2] = {a, nullptr}; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
     use_ptr(arr[0]);
 }
 

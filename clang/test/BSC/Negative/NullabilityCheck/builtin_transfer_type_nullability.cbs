@@ -6,19 +6,19 @@ void consume(int *_Owned _Nullable);
 
 void test_take_from_raw_preserves_nullable_type(void) {
   int *p = get_raw();
-  int *_Owned _Nonnull q = __take_from_raw(p); // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  int *_Owned _Nonnull q = __take_from_raw(p); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   consume(q);
 }
 
 void test_move_to_raw_preserves_nullable_type(void) {
   int *_Owned _Nullable p = get_owned();
-  int * _Nonnull q = __move_to_raw(p); // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  int * _Nonnull q = __move_to_raw(p); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void) q;
 }
 
 void test_hybrid_preserves_nullable_type(void) {
   int * _Owned _Nullable p = get_owned();
   int * _Owned _Nullable q = __take_from_raw(__move_to_raw(p));
-  *q = 10; // expected-error {{nullable pointer cannot be dereferenced}}
+  *q = 10; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
   consume(q);
 }

@@ -9,17 +9,17 @@ void take_nonnull(int * _Nonnull p) {
 }
 
 void test_nonnull_args(void) {
-  take_nonnull(nullptr); // expected-error {{cannot pass nullable pointer argument}}
-  take_nonnull((int *)nullptr); // expected-error {{cannot pass nullable pointer argument}}
+  take_nonnull(nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  take_nonnull((int *)nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 }
 
 // _Nonnull function return
 int * _Nonnull return_nonnull_nullptr(void) {
-  return nullptr; // expected-error {{cannot return nullable pointer type}}
+  return nullptr; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
 }
 
 void * _Nonnull return_void_nonnull_nullptr(void) {
-  return (void *)nullptr; // expected-error {{cannot return nullable pointer type}}
+  return (void *)nullptr; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
 }
 
 // _Nonnull with _Borrow parameter
@@ -28,15 +28,15 @@ void take_nonnull_borrow(int * _Nonnull _Borrow p) {
 }
 
 void test_nonnull_borrow_args(void) {
-  take_nonnull_borrow(nullptr); // expected-error {{cannot pass nullable pointer argument}}
-  take_nonnull_borrow((int * _Borrow)nullptr); // expected-error {{cannot cast nullable pointer to nonnull type}} expected-error {{cannot pass nullable pointer argument}}
+  take_nonnull_borrow(nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  take_nonnull_borrow((int * _Borrow)nullptr); // expected-error {{cannot cast a possibly-null status pointer to a '_Nonnull' pointer}} expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 }
 
 // _Nonnull in safe zone
 _Safe void test_safe_nonnull_assignment(void) {
-  int * _Nonnull p1 = (int *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-  void * _Nonnull p2 = (void *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-  char * _Nonnull p3 = (char *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  int * _Nonnull p1 = (int *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  void * _Nonnull p2 = (void *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  char * _Nonnull p3 = (char *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void)p1;
   (void)p2;
   (void)p3;
@@ -44,11 +44,11 @@ _Safe void test_safe_nonnull_assignment(void) {
 
 // _Nonnull with const in safe zone
 _Safe void test_safe_nonnull_const(void) {
-  const int * _Nonnull cp = (const int *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  const int * _Nonnull cp = (const int *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void)cp;
 }
 
 _Safe void test_safe_nonnull_volatile(void) {
-  volatile int * _Nonnull vp = (volatile int *)nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  volatile int * _Nonnull vp = (volatile int *)nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   (void)vp;
 }

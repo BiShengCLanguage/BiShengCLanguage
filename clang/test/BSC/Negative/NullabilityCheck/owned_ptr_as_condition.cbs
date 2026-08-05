@@ -10,8 +10,8 @@ struct Foo {
 
 _Safe void reference(int *_Owned _Nullable p) {
     if (p == nullptr) {
-        int x = *p; // expected-error {{nullable pointer cannot be dereferenced}}
-        strict_consume(p); // expected-error {{cannot pass nullable pointer argument}}
+        int x = *p; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        strict_consume(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 } // no memory leak error expected, because nullability goes before ownership
 
@@ -19,16 +19,16 @@ _Safe void reference_not(int *_Owned _Nullable p, int x) {
     if (p != nullptr) {
         ++x;
     } else {
-        x = *p; // expected-error {{nullable pointer cannot be dereferenced}}
-        strict_consume(p); // expected-error {{cannot pass nullable pointer argument}}
+        x = *p; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        strict_consume(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 }
 
 
 _Safe void logical_not(int *_Owned _Nullable p) {
     if (!p) {
-        int x = *p; // expected-error {{nullable pointer cannot be dereferenced}}
-        strict_consume(p); // expected-error {{cannot pass nullable pointer argument}}
+        int x = *p; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        strict_consume(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 }
 
@@ -36,15 +36,15 @@ _Safe void basic(int *_Owned _Nullable p, int x) {
     if (p) {
         ++x;
     } else {
-        x = *p; // expected-error {{nullable pointer cannot be dereferenced}}
-        strict_consume(p); // expected-error {{cannot pass nullable pointer argument}}
+        x = *p; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        strict_consume(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 }
 
 _Safe void member_not(struct Foo foo) {
     if (!foo.p) {
-        int x = *(foo.p); // expected-error {{nullable pointer cannot be dereferenced}}
-        strict_consume(foo.p); // expected-error {{cannot pass nullable pointer argument}}
+        int x = *(foo.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        strict_consume(foo.p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 }
 
@@ -52,48 +52,48 @@ _Safe void member(struct Foo foo, int x) {
     if (foo.p) {
         ++x;
     } else {
-        x = *(foo.p);  // expected-error {{nullable pointer cannot be dereferenced}}
-        strict_consume(foo.p); // expected-error {{cannot pass nullable pointer argument}}
+        x = *(foo.p);  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        strict_consume(foo.p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 }
 
 _Safe void ternary(int *_Owned _Nullable p, int x) {
-    x = (nullptr == p) ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (nullptr == p) ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p == nullptr) ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p == nullptr) ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (nullptr != p) ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (nullptr != p) ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p != nullptr) ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p != nullptr) ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
+    x = (nullptr == p) ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (nullptr == p) ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p == nullptr) ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p == nullptr) ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (nullptr != p) ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (nullptr != p) ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p != nullptr) ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p != nullptr) ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     
-    x = !p ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = !p ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = !p ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = !p ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
+    x = !p ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = !p ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = !p ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = !p ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     consume(p);
 }
 
 _Safe void ternary_borrow(int *_Borrow _Nullable p, int x) {
-    x = (nullptr == p) ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (nullptr == p) ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p == nullptr) ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p == nullptr) ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (nullptr != p) ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (nullptr != p) ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p != nullptr) ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = (p != nullptr) ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
+    x = (nullptr == p) ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (nullptr == p) ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p == nullptr) ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p == nullptr) ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (nullptr != p) ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (nullptr != p) ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p != nullptr) ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = (p != nullptr) ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     
-    x = !p ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = !p ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = !p ? (*p = 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = !p ? (*p += 1) : 0; // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p = 1); // expected-error {{nullable pointer cannot be dereferenced}}
-    x = p ? 0 : (*p += 1); // expected-error {{nullable pointer cannot be dereferenced}}
+    x = !p ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = !p ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = !p ? (*p = 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = !p ? (*p += 1) : 0; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p = 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    x = p ? 0 : (*p += 1); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }

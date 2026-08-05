@@ -199,6 +199,28 @@ MemberExpr *getMemberExprFromExpr(Expr *E) {
   return nullptr;
 }
 
+/// Return the source pointer name used by nullability diagnostics.
+/// Comma and assignment expressions produce the value of their RHS, so name
+/// extraction follows the RHS. This intentionally differs from data-flow
+/// tracking, which follows an assignment's LHS to update the assigned object.
+static std::string getDiagNameFromExpr(Expr *E) {
+  if (!E)
+    return {};
+
+  E = E->IgnoreParenImpCastsSafe();
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma || BO->getOpcode() == BO_Assign)
+      return getDiagNameFromExpr(BO->getRHS());
+    return {};
+  }
+
+  if (VarDecl *VD = getVarDeclFromExpr(E))
+    return VD->getNameAsString();
+  if (MemberExpr *ME = getMemberExprFromExpr(E))
+    return ME->getMemberDecl()->getNameAsString();
+  return {};
+}
+
 // Extract a dereference-chain key from expression E if E is rooted at one
 // variable and composed by unary dereference operations.
 bool getDerefPathVDFromExpr(Expr *E, DerefPathVD &DP) {
@@ -547,6 +569,7 @@ bool TransferFunctions::checkPathSensitiveFirstLevel(
         Inner.getDefNullability() == NullabilityKind::NonNull) {
       if (getExprPathNullability(FirstLevel) == NullabilityKind::Nullable) {
         NullabilityCheckDiagInfo DI(DiagLoc, DiagKind);
+        DI.Name = getDiagNameFromExpr(FirstLevel);
         Reporter.addDiagInfo(DI);
         return false;
       }
@@ -586,7 +609,9 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
     NullabilityKind RHSKind = getExprPathNullability(Init);
     if (LHSKind == NullabilityKind::NonNull) {
       if (RHSKind == NullabilityKind::Nullable && ShouldReportNullPtrError(DS)) {
-        NullabilityCheckDiagInfo DI(VD->getLocation(), NonnullAssignedByNullable);
+        NullabilityCheckDiagInfo DI(VD->getLocation(),
+                                    NonnullAssignedByNullable,
+                                    getDiagNameFromExpr(Init));
         Reporter.addDiagInfo(DI);
       }
     } else {
@@ -697,6 +722,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     if (LHSQT.getCanonicalType()->isPointerType()) {
       NullabilityKind RHSKind = getExprPathNullability(BO->getRHS());
       NullabilityKind LHSKind = LHSQT.getDefNullability();
+      std::string SourceName = getDiagNameFromExpr(BO->getRHS());
 
       DerefPathVD LHSDP;
       bool HasLHSDP = getDerefPathVDFromExpr(LHS, LHSDP) && LHSDP.second > 0;
@@ -706,7 +732,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
           if (RHSKind == NullabilityKind::Nullable &&
               ShouldReportNullPtrError(BO)) {
             NullabilityCheckDiagInfo DI(BO->getBeginLoc(),
-                                        NonnullAssignedByNullable);
+                                        NonnullAssignedByNullable, SourceName);
             Reporter.addDiagInfo(DI);
           }
         } else {
@@ -721,7 +747,8 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
           // whose PathNullability is nullable.
           if (RHSKind == NullabilityKind::Nullable && ShouldReportNullPtrError(BO)) {
             NullabilityCheckDiagInfo DI(BO->getBeginLoc(),
-                                        NonnullAssignedByNullable);
+                                        NonnullAssignedByNullable,
+                                        SourceName);
             Reporter.addDiagInfo(DI);
           }
         } else if (CurrStatusVD.count(VD)) {
@@ -740,7 +767,8 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
           if (MemberLHSKind == NullabilityKind::NonNull) {
             if (RHSKind == NullabilityKind::Nullable && ShouldReportNullPtrError(BO)) {
               NullabilityCheckDiagInfo DI(ME->getBeginLoc(),
-                                          NonnullAssignedByNullable);
+                                          NonnullAssignedByNullable,
+                                          SourceName);
               Reporter.addDiagInfo(DI);
             }
           } else {
@@ -780,8 +808,8 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
       if (PVD->getType().getDefNullability() == NullabilityKind::NonNull) {
         Expr *ArgE = CE->getArg(i);
         if (getExprPathNullability(ArgE) == NullabilityKind::Nullable && ShouldReportNullPtrError(CE)) {
-          NullabilityCheckDiagInfo DI(ArgE->getBeginLoc(),
-                                      PassNullableArgument);
+          NullabilityCheckDiagInfo DI(ArgE->getBeginLoc(), PassNullableArgument,
+                                      getDiagNameFromExpr(ArgE));
           Reporter.addDiagInfo(DI);
         }
       }
@@ -810,7 +838,8 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
   if (Op == UO_Deref) {
     if (getExprPathNullability(UO->getSubExpr()) == NullabilityKind::Nullable && ShouldReportNullPtrError(UO)) {
       NullabilityCheckDiagInfo DI(UO->getBeginLoc(),
-                                  NullablePointerDereference);
+                                  NullablePointerDereference,
+                                  getDiagNameFromExpr(UO->getSubExpr()));
       Reporter.addDiagInfo(DI);
     }
   }
@@ -821,7 +850,8 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
 void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
   if (getExprPathNullability(ASE->getBase()) == NullabilityKind::Nullable && ShouldReportNullPtrError(ASE)) {
     NullabilityCheckDiagInfo DI(ASE->getBeginLoc(),
-                                NullablePointerDereference);
+                                NullablePointerDereference,
+                                getDiagNameFromExpr(ASE->getBase()));
     Reporter.addDiagInfo(DI);
   }
 }
@@ -830,8 +860,10 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
 void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
   if (ME->isArrow()) {
     if (getExprPathNullability(ME->getBase()) == NullabilityKind::Nullable && ShouldReportNullPtrError(ME)) {
-      NullabilityCheckDiagInfo DI(ME->getBeginLoc(),
-                                  NullablePointerAccessMember);
+      Expr *Base = ME->getBase()->IgnoreParenImpCastsSafe();
+      NullabilityCheckDiagInfo DI(Base->getExprLoc(),
+                                  NullablePointerAccessMember,
+                                  getDiagNameFromExpr(ME->getBase()));
       Reporter.addDiagInfo(DI);
     }
   }
@@ -844,7 +876,9 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
     if (getExprPathNullability(CSCE->getSubExpr()->IgnoreParenImpCasts()) ==
             NullabilityKind::Nullable &&
         ShouldReportNullPtrError(CSCE)) {
-      NullabilityCheckDiagInfo DI(CSCE->getBeginLoc(), NullableCastNonnull);
+      Expr *Source = CSCE->getSubExpr()->IgnoreParenImpCasts();
+      NullabilityCheckDiagInfo DI(CSCE->getBeginLoc(), NullableCastNonnull,
+                                  getDiagNameFromExpr(Source));
       Reporter.addDiagInfo(DI);
     }
   }
@@ -858,7 +892,8 @@ void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
     return;
   if (Fd.getReturnType().getDefNullability() == NullabilityKind::NonNull) {
     if (getExprPathNullability(RV) == NullabilityKind::Nullable && ShouldReportNullPtrError(RS)) {
-      NullabilityCheckDiagInfo DI(RV->getBeginLoc(), ReturnNullable);
+      NullabilityCheckDiagInfo DI(RV->getBeginLoc(), ReturnNullable,
+                                  getDiagNameFromExpr(RV));
       Reporter.addDiagInfo(DI);
     }
   }

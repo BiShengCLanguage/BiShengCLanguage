@@ -41,58 +41,58 @@ _Safe void basic(int *_Borrow _Nullable p) {
     if (ID(p != nullptr)) {
         *p = 1;
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 3;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 3;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void basic_o(int *_Owned _Nullable p) {
     if (ID(p == nullptr)) {
-        hard_exhaust(p); // expected-error {{cannot pass nullable pointer argument}}
+        hard_exhaust(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     }
 }
 
 _Safe void pointer_volatile(int *_Borrow _Nullable volatile p) {
     if (ID(p != nullptr)) {
-        *p = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 3;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 3;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void pointee_volatile(volatile int *_Borrow _Nullable p) {
     if (ID(p != nullptr)) {
         *p = 1;
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 3;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 3;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 // Section III: GetTrackablePtr exclusions
 
 _Safe void array_direct(struct ArrayWrapper aw) {
     if (ID(aw.arr[0] != nullptr)) {
-        *(aw.arr[0]) = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(aw.arr[0]) = 1; // expected-error {{cannot dereference a possibly-null status pointer}}
     } else {
-        *(aw.arr[0]) = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(aw.arr[0]) = 2; // expected-error {{cannot dereference a possibly-null status pointer}}
     }
 }
 
 _Safe void array_nested(struct NestedArrayWrapper naw) {
     if (ID(naw.aw.arr[1])) {
-        *(naw.aw.arr[1]) = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(naw.aw.arr[1]) = 1; // expected-error {{cannot dereference a possibly-null status pointer}}
     } else {
-        *(naw.aw.arr[1]) = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(naw.aw.arr[1]) = 2; // expected-error {{cannot dereference a possibly-null status pointer}}
     }
 }
 
 _Safe void array_indirect(struct PWArrayWrapper paw) {
     if (ID(paw.pwa.arr[0].ptr != nullptr)) {
-        *(paw.pwa.arr[0].ptr) = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(paw.pwa.arr[0].ptr) = 1; // expected-error {{cannot dereference possibly-null status pointer 'ptr'}}
     } else {
-        *(paw.pwa.arr[0].ptr) = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(paw.pwa.arr[0].ptr) = 2; // expected-error {{cannot dereference possibly-null status pointer 'ptr'}}
     }
 }
 
@@ -102,14 +102,14 @@ _Safe void triviality_and_true(int *_Borrow _Nullable p) {
     if (ID(p != nullptr && 1)) {
         *p = 1;
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 3; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 3; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void triviality_or_true(int *_Borrow _Nullable p) {
     if (ID(p != nullptr || 1)) {
-        *p = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
         *p = 2;
     }
@@ -119,7 +119,7 @@ _Safe void triviality_or_false(int *_Borrow _Nullable p) {
     if (ID(p != nullptr || 0)) {
         *p = 1;
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
 }
 
@@ -139,18 +139,18 @@ _Safe void logical_and_two_ptrs(int *_Borrow _Nullable p, int *_Borrow _Nullable
         *p = 1;
         *q = 1;
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 2; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
 }
 
 _Safe void logical_or_intersection(int *_Borrow _Nullable p, int *_Borrow _Nullable q) {
     if (ID((p != nullptr && q != nullptr) || p != nullptr)) {
         *p = 1;
-        *q = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *q = 1; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     } else {
-        *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
-        *q = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *q = 2; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
     }
 }
 
@@ -166,7 +166,7 @@ _Safe void ownership_and_true(int *_Owned _Nullable p) {
 
 _Safe void ownership_or_true(int *_Owned _Nullable p) {
     if (ID(p != nullptr || 1)) {
-        hard_exhaust(p); // expected-error {{cannot pass nullable pointer argument}}
+        hard_exhaust(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
     } else {
         soft_exhaust(p);
     }
@@ -184,7 +184,7 @@ _Safe void ownership_logical_or_intersection(int *_Owned _Nullable p,
                                              int *_Owned _Nullable q) {
     if (ID((p != nullptr && q != nullptr) || p != nullptr)) {
         hard_exhaust(p);
-        hard_exhaust(q); // expected-error {{cannot pass nullable pointer argument}}
+        hard_exhaust(q); // expected-error {{cannot pass possibly-null status pointer 'q' to a '_Nonnull' parameter}}
     } else {
         soft_exhaust(p);
         soft_exhaust(q);

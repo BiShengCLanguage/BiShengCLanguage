@@ -12,9 +12,9 @@ _Safe void test1(void) {
     NullableBorrowInt p2 = &_Mut a;
     foo1(p2);
     NullableBorrowInt p3 = nullptr;
-    foo1(p3);  // expected-error {{cannot pass nullable pointer argument}}
+    foo1(p3);  // expected-error {{cannot pass possibly-null status pointer 'p3' to a '_Nonnull' parameter}}
     foo1(&_Mut a);
-    foo1(nullptr); // expected-error {{cannot pass nullable pointer argument}}
+    foo1(nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 }
 
 _Safe NonnullOwnedInt safe_malloc(int a);
@@ -25,9 +25,9 @@ _Safe void test2(void) {
     NullableOwnedInt p2 = safe_malloc(5); 
     foo2(p2);
     NullableOwnedInt p3 = nullptr; 
-    foo2(p3);   // expected-error {{cannot pass nullable pointer argument}}
+    foo2(p3);   // expected-error {{cannot pass possibly-null status pointer 'p3' to a '_Nonnull' parameter}}
     foo2(safe_malloc(5));
-    foo2(nullptr); // expected-error {{cannot pass nullable pointer argument}}
+    foo2(nullptr); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
 }
 
 _Safe void foo3(NullableBorrowInt a);   
@@ -58,7 +58,7 @@ _Safe void test5(void) {
     if (p != nullptr) {
         *p = 10;
     } else {
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }

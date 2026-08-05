@@ -183,7 +183,7 @@ Plain *_Owned assign_after_conditional_free_custom(Plain *_Owned p, Plain val, _
 
 _Safe Plain *_Owned _Nullable assign_after_definite_null_custom(Plain *_Owned _Nullable p, Plain val){
     if (p == nullptr) {
-        *p = val; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = val; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
     return p;
 }
@@ -195,6 +195,6 @@ _Safe Plain *_Owned _Nullable assign_after_maybe_null_custom(Plain *_Owned _Null
             p = nullptr;
         }
     }
-    *p = val; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = val; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     return p;
 }

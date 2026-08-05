@@ -12,5 +12,5 @@ void owned_field_never_assigned(void) {
     struct H h;
     h.tag = 1;
     int ok = h.tag;
-    int bad = *h.data; // expected-error {{use of uninitialized value: `h.data.`}} expected-error {{use of uninitialized value: `h.data*`}}
+    int bad = *h.data; // expected-error {{use of uninitialized value: 'h.data.'}} expected-error {{use of uninitialized value: 'h.data*'}}
 }

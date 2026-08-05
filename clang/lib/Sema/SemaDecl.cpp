@@ -14887,7 +14887,7 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
     NullabilityKind RHSKind = GetExprNK(Init);
     if (LHSKind == NullabilityKind::NonNull) {
       if (RHSKind == NullabilityKind::Nullable) {
-        Diag(VD->getLocation(), diag::err_nonnull_assigned_by_nullable);
+        Diag(VD->getLocation(), diag::err_nonnull_assigned_by_nullable) << 0;
       }
     }
     return;

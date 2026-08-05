@@ -2,12 +2,12 @@
 
 int from_and(int *_Nullable p, int x) {
   if (!(p == nullptr && x > 0))
-    return *p; // expected-error {{nullable pointer cannot be dereferenced}}
+    return *p; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   return -1;
 }
 
 int double_negation(int *_Nullable p) {
   if (!!(p == nullptr))
-    return *p; // expected-error {{nullable pointer cannot be dereferenced}}
+    return *p; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   return 0;
 }

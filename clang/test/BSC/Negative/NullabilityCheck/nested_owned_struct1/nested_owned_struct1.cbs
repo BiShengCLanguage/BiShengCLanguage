@@ -36,7 +36,7 @@ void test2(){
 }
 
 void test3(){
-    B b = {.p=nullptr};// expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    B b = {.p=nullptr};// expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
     A a = {.b=b};// expected-error {{cannot implicitly initialize 'a' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 'a' or declare them as '_Nullable'}}
 }
 

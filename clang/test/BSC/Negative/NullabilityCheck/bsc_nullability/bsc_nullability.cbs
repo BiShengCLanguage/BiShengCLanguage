@@ -3,7 +3,7 @@
 _Safe int *_Borrow _Nullable foo1(int* _Borrow a);
 _Safe void test1(void) {
     int a = 10;
-    int *_Borrow p1 = foo1(&_Mut a); // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    int *_Borrow p1 = foo1(&_Mut a); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
     int *_Borrow _Nullable p2 = foo1(&_Mut a);
 }
 
@@ -22,7 +22,7 @@ _Safe void test3(void) {
     if (p != nullptr) {
         p->a = 10;
     } else {
-        p->a = 20; // expected-error {{cannot access member through nullable pointer}}
+        p->a = 20; // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
     }
-    p->a = 30; // expected-error {{cannot access member through nullable pointer}}
+    p->a = 30; // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
 }

@@ -1,4 +1,10 @@
 // RUN: %clang_cc1 -nullability-check=all -verify %s
+// RUN: not %clang_cc1 -nullability-check=all %s 2>&1 | FileCheck %s --check-prefix=LOC
+
+// The diagnostic points at the nullable base, not the member accessed through it.
+// LOC: nested_pointer.cbs:{{[0-9]+}}:10: error: cannot access the member through a possibly-null status pointer
+// LOC: nested_pointer.cbs:{{[0-9]+}}:10: error: cannot access the member through a possibly-null status pointer
+// LOC: nested_pointer.cbs:{{[0-9]+}}:16: error: cannot access the member through possibly-null status pointer 'in'
 
 _Safe void exhaust<T>(T *_Owned _Nullable);
 
@@ -12,7 +18,7 @@ struct Outer {
 
 void test_raw_double_ptr(int **p) {
     if (p) {
-        **p = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        **p = 1; // expected-error {{cannot dereference a possibly-null status pointer}}
     }
 }
 
@@ -26,7 +32,7 @@ void test_raw_double_ptr_ref(int **p) {
 
 void test_raw_triple_ptr(int ***p) {
     if (p) {
-        ***p = 1; // expected-error {{nullable pointer cannot be dereferenced}} expected-error {{nullable pointer cannot be dereferenced}}
+        ***p = 1; // expected-error {{cannot dereference a possibly-null status pointer}} expected-error {{cannot dereference a possibly-null status pointer}}
     }
 }
 
@@ -42,7 +48,7 @@ void test_raw_triple_ptr_ref(int ***p) {
 
 void test_raw_ptr_to_struct_ptr(struct Inner **pp) {
     if (pp) {
-        (*pp)->p = nullptr; // expected-error {{cannot access member through nullable pointer}}
+        (*pp)->p = nullptr; // expected-error {{cannot access the member through a possibly-null status pointer}}
     }
 }
 
@@ -56,7 +62,7 @@ void test_raw_ptr_to_struct_ptr_ref(struct Inner **pp) {
 
 void test_raw_ptr_to_nested_struct_ptr(struct Outer **pp) {
     if (pp) {
-        (*pp)->in->p = nullptr; // expected-error {{cannot access member through nullable pointer}}
+        (*pp)->in->p = nullptr; // expected-error {{cannot access the member through a possibly-null status pointer}} expected-error {{cannot access the member through possibly-null status pointer 'in'}}
     }
 }
 
@@ -72,7 +78,7 @@ void test_raw_ptr_to_nested_struct_ptr_ref(struct Outer **pp) {
 
 void test_owned_inner(struct Inner *_Owned _Nullable oi) {
     if (oi) {
-        *(oi->p) = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+        *(oi->p) = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
     exhaust(oi);
 }
@@ -88,7 +94,7 @@ void test_owned_inner_ref(struct Inner *_Owned _Nullable oi) {
 
 void test_owned_outer(struct Outer *_Owned _Nullable oo) {
     if (oo) {
-        *(oo->in->p) = 2; // expected-error {{nullable pointer cannot be dereferenced}} expected-error {{cannot access member through nullable pointer}}
+        *(oo->in->p) = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}} expected-error {{cannot access the member through possibly-null status pointer 'in'}}
     }
     exhaust(oo);
 }
@@ -106,7 +112,7 @@ void test_owned_outer_ref(struct Outer *_Owned _Nullable oo) {
 
 void test_borrow_inner(struct Inner *_Borrow _Nullable b) {
     if (b) {
-        *b->p = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+        *b->p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
 }
 
@@ -120,7 +126,7 @@ void test_borrow_inner_ref(struct Inner *_Borrow _Nullable b) {
 
 void test_borrow_outer(struct Outer *_Borrow _Nullable m) {
     if (m) {
-        m->in->p = nullptr; // expected-error {{cannot access member through nullable pointer}}
+        m->in->p = nullptr; // expected-error {{cannot access the member through possibly-null status pointer 'in'}}
     }
 }
 
@@ -136,7 +142,7 @@ void test_deref_fact_invalidate_after_null_assign(int **p) {
     if (p) {
         if (*p) {
             *p = nullptr;
-            **p = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+            **p = 1; // expected-error {{cannot dereference a possibly-null status pointer}}
         }
     }
 }
@@ -145,7 +151,7 @@ void test_deref_fact_invalidate_after_ptr_assign(int **p, int *_Nullable q) {
     if (p) {
         if (*p) {
             *p = q;
-            **p = 1; // expected-error {{nullable pointer cannot be dereferenced}}
+            **p = 1; // expected-error {{cannot dereference a possibly-null status pointer}}
         }
     }
 }

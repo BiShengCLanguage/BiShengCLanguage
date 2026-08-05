@@ -4,8 +4,8 @@ void *malloc(unsigned long);
 
 void test() {
   int *p = (int *)malloc(sizeof(int) * 2);
-  p[1] = 2; // expected-error {{nullable pointer cannot be dereferenced}}
-  *p = 3;   // expected-error {{nullable pointer cannot be dereferenced}}
+  p[1] = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  *p = 3;   // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 int main(){

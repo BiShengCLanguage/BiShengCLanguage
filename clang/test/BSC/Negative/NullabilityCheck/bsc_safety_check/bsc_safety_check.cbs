@@ -3,10 +3,10 @@
 _Safe int *_Owned _Nonnull safe_malloc(int a);
 _Safe void test1(void) {
     int *_Owned _Nullable p1 = nullptr;
-    int *_Owned _Nonnull p2 = p1; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    int *_Owned _Nonnull p2 = p1; // expected-error {{cannot assign possibly-null status pointer 'p1' to a '_Nonnull' pointer}}
     int *_Owned _Nullable p3 = safe_malloc(5);
     int *_Owned _Nonnull p4 = p3;
     int *_Owned _Nonnull p5 = safe_malloc(5);
-    p5 = p1; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    p5 = p1; // expected-error {{cannot assign possibly-null status pointer 'p1' to a '_Nonnull' pointer}}
     p5 = p3;
 }

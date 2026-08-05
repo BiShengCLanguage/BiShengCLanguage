@@ -2,20 +2,20 @@
 
 _Safe void foo(void) {
     int *_Borrow _Nullable ptr = nullptr;
-    int *_Borrow cref1 = ptr;  // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
-    int *_Borrow cref = &_Mut *ptr;  // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    int *_Borrow cref1 = ptr;  // expected-error {{cannot assign possibly-null status pointer 'ptr' to a '_Nonnull' pointer}}
+    int *_Borrow cref = &_Mut *ptr;  // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
     return;
 }
 _Safe void consume(int *_Owned _Nullable);
 
 _Safe void ternary_borrow(_Bool flag, int *_Owned _Nullable p, int *_Owned _Nullable q) {
-    int *_Borrow ref = &_Mut*(1 ? p : q);  // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    int *_Borrow ref = &_Mut*(1 ? p : q);  // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
     consume(p);
     consume(q);
 }
 
 _Safe void ternary_borrow2(_Bool flag, int *_Owned p, int *_Owned _Nullable q) {
-    int *_Borrow ref = &_Mut*(1 ? p : q);  // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+    int *_Borrow ref = &_Mut*(1 ? p : q);  // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
     consume(p);
     consume(q);
 }

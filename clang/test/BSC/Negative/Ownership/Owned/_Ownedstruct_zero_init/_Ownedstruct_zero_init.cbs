@@ -20,7 +20,7 @@ struct T {
 
 // _Nonnull can't be zero init
 _Safe void test(void){
-  int* _Nonnull p2 = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  int* _Nonnull p2 = nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   struct T t2={0}; // expected-error {{cannot implicitly initialize 't2' because it contains '_Nonnull' pointer}} expected-note {{add explicit initializer for '_Nonnull' pointers inside 't2' or declare them as '_Nullable'}}
 }
 

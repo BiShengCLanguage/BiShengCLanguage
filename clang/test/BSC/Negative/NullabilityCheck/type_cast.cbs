@@ -3,7 +3,7 @@
 _Safe int *_Borrow return_and_take_nonnull(int *_Borrow a) {
     _Unsafe {
         int *_Borrow _Nullable p = nullptr;
-        return (int *_Borrow)p;  // expected-error {{cannot cast nullable pointer to nonnull type}}
+        return (int *_Borrow)p;  // expected-error {{cannot cast possibly-null status pointer 'p' to a '_Nonnull' pointer}}
     }
 }
 
@@ -14,8 +14,8 @@ _Safe void test1(void) {
         return_and_take_nonnull((int *_Borrow)p);
         int *_Borrow k1 = (int *_Borrow)p;
         p = nullptr;
-        return_and_take_nonnull((int *_Borrow)p); // expected-error {{cannot cast nullable pointer to nonnull type}}
-        int *_Borrow k2 = (int *_Borrow)p;  // expected-error {{cannot cast nullable pointer to nonnull type}}
+        return_and_take_nonnull((int *_Borrow)p); // expected-error {{cannot cast possibly-null status pointer 'p' to a '_Nonnull' pointer}}
+        int *_Borrow k2 = (int *_Borrow)p;  // expected-error {{cannot cast possibly-null status pointer 'p' to a '_Nonnull' pointer}}
     }
 }
 
@@ -23,13 +23,13 @@ void *get_nullable();
 void free_nonnull(int *_Nonnull p);
 _Safe void test2(void) {
     _Unsafe {
-        int *_Nonnull p1 = (int *_Nonnull)get_nullable(); // expected-error {{cannot cast nullable pointer to nonnull type}}
+        int *_Nonnull p1 = (int *_Nonnull)get_nullable(); // expected-error {{cannot cast a possibly-null status pointer to a '_Nonnull' pointer}}
 
         int *p = get_nullable();  //implicit cast void* to int*
-        *p = 10;   // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 10;   // expected-error {{cannot dereference possibly-null status pointer 'p'}}
         if (p != nullptr) {
             *p = 20;
         }
-        free_nonnull((int *_Nonnull)p); // expected-error {{cannot cast nullable pointer to nonnull type}}
+        free_nonnull((int *_Nonnull)p); // expected-error {{cannot cast possibly-null status pointer 'p' to a '_Nonnull' pointer}}
     }
 }

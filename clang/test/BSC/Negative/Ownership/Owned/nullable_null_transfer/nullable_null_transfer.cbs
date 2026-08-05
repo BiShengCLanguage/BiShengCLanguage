@@ -69,7 +69,7 @@ _Safe void null_branch_init_nonnull_rejected(void) {
     int *_Owned _Nullable p = nullptr;
     if (p == nullptr) {
         int *_Owned _Nullable q = p;            // OK: must-be-null → _Nullable
-        int *_Owned _Nonnull r = p;             // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+        int *_Owned _Nonnull r = p;             // expected-error {{cannot assign possibly-null status pointer 'p' to a '_Nonnull' pointer}}
         (void)q;
         (void)r;
     }
@@ -132,12 +132,12 @@ void paren_deref_null_ops(void) {
 
 _Safe void arrow_deref_null_ops_safe(void) {
     struct O *_Owned _Nullable p = nullptr;
-    int *_Owned _Nullable q = p->f; // expected-error {{cannot access member through nullable pointer}}
+    int *_Owned _Nullable q = p->f; // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
     (void)q;
 }
 
 _Safe void paren_deref_null_ops_safe(void) {
     struct O *_Owned _Nullable p = nullptr;
-    int *_Owned _Nullable q = (*p).f; // expected-error {{nullable pointer cannot be dereferenced}}
+    int *_Owned _Nullable q = (*p).f; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     (void)q;
 }

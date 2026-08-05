@@ -123,11 +123,14 @@ public:
       case NullableCastNonnull:
       case NullablePointerDereference:
       case NullablePointerAccessMember:
-        S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind));
+        S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind))
+            << (DI.Name.empty() ? 0 : 1) << DI.Name;
         break;
       case NestedNullabilityMismatch:
         S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind))
-            << DI.Types[0] << DI.Types[1] << DI.Types[2] << DI.Types[3];
+            << DI.Types[0] << DI.Types[1];
+        S.Diag(DI.Loc, diag::note_nested_pointer_nullability_mismatch)
+            << DI.Types[2] << DI.Types[3];
         break;
       case NonnullInitByDefault:
         S.Diag(DI.Loc, getNullabilityDiagID(DI.Kind)) << DI.Name;

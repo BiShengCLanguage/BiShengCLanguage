@@ -4,7 +4,7 @@ struct Inner { int *_Borrow _Nullable f; };
 
 int distinct_bases(struct Inner *_Nonnull ps, struct Inner *_Nonnull qs) {
   if ((*ps).f != nullptr) {
-    return *(*qs).f; // expected-error {{nullable pointer cannot be dereferenced}}
+    return *(*qs).f; // expected-error {{cannot dereference possibly-null status pointer 'f'}}
   }
   return 0;
 }

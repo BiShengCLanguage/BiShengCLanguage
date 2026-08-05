@@ -8,7 +8,7 @@ int test1(void) {
       *p =1; 
       p = nullptr;
     }
-    *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   }
   return 0;
 }
@@ -21,7 +21,7 @@ int test2(void) {
       *p =1; 
       p = q;
     }
-    *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 
   };
   return 0;
@@ -35,7 +35,7 @@ int test3(void) {
       *p =1; 
       p = q;
     }
-    *p = 2; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 2; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   }
   return 0;
 }

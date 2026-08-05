@@ -175,9 +175,9 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
-| NONNULL-001 | err_nullable_cast_nonnull | cannot cast nullable pointer to nonnull type | — |
-| NONNULL-002 | err_nonnull_assigned_by_nullable | nonnull pointer cannot be assigned by nullable pointer | — |
-| NONNULL-003 | err_nested_nullability_mismatch | nested pointer nullability mismatch from `%0` to `%1`, inner `%2` mismatch with `%3` | — |
+| NONNULL-001 | err_nullable_cast_nonnull | cannot cast %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 to a '_Nonnull' pointer | — |
+| NONNULL-002 | err_nonnull_assigned_by_nullable | cannot assign %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 to a '_Nonnull' pointer | — |
+| NONNULL-003 | err_nested_nullability_mismatch | nested pointer nullability mismatch: cannot use %0 as %1 | `note_nested_pointer_nullability_mismatch` — inner pointer nullability differs between %0 and %1 |
 
 (`err_nonnull_init_by_default` is filed under **INIT** as `INIT-015`;
 `err_global_nonnull_init_by_default` is filed as `INIT-032`.)
@@ -188,10 +188,10 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
-| NULLABLE-001 | err_nullable_pointer_dereference | nullable pointer cannot be dereferenced | — |
-| NULLABLE-002 | err_pass_nullable_argument | cannot pass nullable pointer argument | — |
-| NULLABLE-003 | err_return_nullable | cannot return nullable pointer type | — |
-| NULLABLE-004 | err_nullable_pointer_access_member | cannot access member through nullable pointer | — |
+| NULLABLE-001 | err_nullable_pointer_dereference | cannot dereference %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 | — |
+| NULLABLE-002 | err_pass_nullable_argument | cannot pass %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 to a '_Nonnull' parameter | — |
+| NULLABLE-003 | err_return_nullable | cannot return %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 as a '_Nonnull' pointer | — |
+| NULLABLE-004 | err_nullable_pointer_access_member | cannot access the member through %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 | — |
 | NULLABLE-005 | err_bsc_nullptr_cast | cannot cast an object of type `nullptr_t` to %1 / %1 to `nullptr_t` | — |
 
 ---

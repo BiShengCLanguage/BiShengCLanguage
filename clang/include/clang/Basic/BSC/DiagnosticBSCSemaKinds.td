@@ -362,19 +362,21 @@ def err_operator_overload_needs_point : Error<
 
 // BSC Pointer Nullability Check errors.
 def err_nullable_pointer_dereference : Error<
-  "nullable pointer cannot be dereferenced">;
+  "cannot dereference %select{a possibly-null status pointer|possibly-null status pointer '%1'}0">;
 def err_pass_nullable_argument : Error<
-  "cannot pass nullable pointer argument">;
+  "cannot pass %select{a possibly-null status pointer|possibly-null status pointer '%1'}0 to a '_Nonnull' parameter">;
 def err_return_nullable : Error<
-  "cannot return nullable pointer type">;
+  "cannot return %select{a possibly-null status pointer|possibly-null status pointer '%1'}0 as a '_Nonnull' pointer">;
 def err_nullable_cast_nonnull : Error<
-  "cannot cast nullable pointer to nonnull type">;
+  "cannot cast %select{a possibly-null status pointer|possibly-null status pointer '%1'}0 to a '_Nonnull' pointer">;
 def err_nullable_pointer_access_member : Error<
-  "cannot access member through nullable pointer">;
+  "cannot access the member through %select{a possibly-null status pointer|possibly-null status pointer '%1'}0">;
 def err_nonnull_assigned_by_nullable : Error<
-  "nonnull pointer cannot be assigned by nullable pointer">;
+  "cannot assign %select{a possibly-null status pointer|possibly-null status pointer '%1'}0 to a '_Nonnull' pointer">;
 def err_nested_nullability_mismatch : Error<
-  "nested pointer nullability mismatch from %0 to %1, inner %2 mismatch with %3">;
+  "nested pointer nullability mismatch: cannot use %0 as %1">;
+def note_nested_pointer_nullability_mismatch : Note<
+  "inner pointer nullability differs between %0 and %1">;
 def err_nonnull_init_by_default : Error<
   "cannot implicitly initialize '%0' because it contains '_Nonnull' pointer">;
 def note_nonnull_init_reason : Note<

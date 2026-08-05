@@ -89,7 +89,7 @@ _Safe void custom_star_assign_possibly_uninit(int cond, MixedTop val) {
     if (cond) {
         p = nullptr;
     }
-    *p = val; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = val; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     // expected-error@-1 {{use of possibly uninitialized value: 'p'}}
 }
 

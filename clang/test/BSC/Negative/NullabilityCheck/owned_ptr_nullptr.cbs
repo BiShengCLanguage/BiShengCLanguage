@@ -10,7 +10,7 @@ _Safe void test1(void) {
         p = safe_malloc<int>(10);
         *p = 10;
     }
-    safe_free((void *_Owned)p); // expected-error {{cannot cast nullable pointer to nonnull type}}
+    safe_free((void *_Owned)p); // expected-error {{cannot cast possibly-null status pointer 'p' to a '_Nonnull' pointer}}
 }
 
 _Safe void test2(void) {
@@ -35,5 +35,5 @@ _Safe void test3(void) {
     if (p != nullptr) {
         *p = 10;
     }
-    safe_free((void *_Owned)p); // expected-error {{cannot cast nullable pointer to nonnull type}}
+    safe_free((void *_Owned)p); // expected-error {{cannot cast possibly-null status pointer 'p' to a '_Nonnull' pointer}}
 }

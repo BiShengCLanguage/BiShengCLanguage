@@ -17,7 +17,7 @@ _Safe void test2(void) {
         *p = 10;
         p = get_random_ptr(&_Mut a);
     }
-    *p = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test3(void) {
@@ -28,7 +28,7 @@ _Safe void test3(void) {
             *p = 10;
             p = get_random_ptr(&_Mut a);
         } while (p != nullptr);
-        *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
 }
 
@@ -55,8 +55,8 @@ _Safe void test5(void) {
         p = get_random_ptr(&_Mut a);
         q = get_random_ptr(&_Mut a);
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-    *q = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *q = 20; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
 }
 
 struct S {
@@ -79,7 +79,7 @@ _Safe void test7(void) {
         p->a = 10;
         p = get_random_ptr_S(&_Mut a);
     }
-    p->a = 20;  // expected-error {{cannot access member through nullable pointer}}
+    p->a = 20;  // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
 }
 
 _Safe void test8(void) {
@@ -89,7 +89,7 @@ _Safe void test8(void) {
         *p = 10;
         p = get_random_ptr(&_Mut a);
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test9(void) {
@@ -98,7 +98,7 @@ _Safe void test9(void) {
     while ((p = get_random_ptr(&_Mut a)) != nullptr) {
         *p = 10;
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test10(void) {
@@ -117,7 +117,7 @@ _Safe void test11(void) {
         *p = 10;
         p = get_random_ptr(&_Mut a);
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test12(void) {
@@ -128,7 +128,7 @@ _Safe void test12(void) {
         *p = 10;
         p = get_random_ptr(&_Mut a);
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test13(void) {
@@ -139,7 +139,7 @@ _Safe void test13(void) {
         *p = 10;
         p = get_random_ptr(&_Mut a);
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test14(void) {
@@ -150,5 +150,5 @@ _Safe void test14(void) {
         *p = 10;
         p = get_random_ptr(&_Mut a);
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }

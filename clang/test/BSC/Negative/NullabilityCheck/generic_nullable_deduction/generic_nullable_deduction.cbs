@@ -17,5 +17,5 @@ _Safe void test(void) {
     f1(p);
 
     // Error: non-template function with non-null parameter gets nullable arg
-    non_template_func(p); // expected-error {{cannot pass nullable pointer argument}}
+    non_template_func(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
 }

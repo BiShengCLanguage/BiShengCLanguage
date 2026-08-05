@@ -18,5 +18,5 @@ void plain_member_of_uninit_owned_struct_field(void) {
     struct M m;
     m.c = 1;
     int ok = m.c;
-    int bad = m.inner.a; // expected-error {{use of uninitialized value: `m.inner.a`}}
+    int bad = m.inner.a; // expected-error {{use of uninitialized value: 'm.inner.a'}}
 }

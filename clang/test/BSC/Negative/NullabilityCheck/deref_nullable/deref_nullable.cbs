@@ -9,7 +9,7 @@ _Safe void test1(void) {
     if (s.p != nullptr) {
         *s.p = 10;
     } else {
-        *s.p = 20;              // expected-error{{nullable pointer cannot be dereferenced}}
+        *s.p = 20;              // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;                  // expected-error{{nullable pointer cannot be dereferenced}}
+    *s.p = 30;                  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }

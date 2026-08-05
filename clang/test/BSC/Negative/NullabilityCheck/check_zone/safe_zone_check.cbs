@@ -3,14 +3,14 @@
 _Safe void check_dereferenced_test1(void) {
   int *_Borrow _Nullable p = nullptr;
   {
-    *p = 10; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 10; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     _Unsafe {
       int a = 2;
       *p = a;
-      _Safe *p = a; // expected-error {{nullable pointer cannot be dereferenced}}
+      _Safe *p = a; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
   }
-  *p = 5;         // expected-error {{nullable pointer cannot be dereferenced}}
+  *p = 5;         // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   _Unsafe *p = 5;  // ok
 }
 void check_dereferenced_test2() {
@@ -30,10 +30,10 @@ void check_dereferenced_test3() {
         if (p != nullptr) {
           *p = 10;
         }
-        *p = 15; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 15; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
       }
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   }
 }
 
@@ -42,7 +42,7 @@ void check_dereferenced_test4() {
   if (p != nullptr) {
     _Safe *p = 5;
   }
-  _Safe *p = 10;            // expected-error {{nullable pointer cannot be dereferenced}}
+  _Safe *p = 10;            // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 void check_dereferenced_test5<T>() {
@@ -54,10 +54,10 @@ void check_dereferenced_test5<T>() {
         if (p != nullptr) {
           *p = 10;
         }
-        *p = 15; // expected-error {{nullable pointer cannot be dereferenced}}
+        *p = 15; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
       }
     }
-    *p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+    *p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   }
 }
 
@@ -66,11 +66,11 @@ void check_dereferenced_test6<T>() {
   if (p != nullptr) {
     _Safe *p = 5;
   }
-  _Safe *p = 10;            // expected-error {{nullable pointer cannot be dereferenced}}
+  _Safe *p = 10;            // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void check_assigned_test(void) {
-  int *_Borrow p = nullptr; // expected-error {{nonnull pointer cannot be assigned by nullable pointer}}
+  int *_Borrow p = nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   _Unsafe {
     int *_Borrow p2 = nullptr;
   }
@@ -78,12 +78,12 @@ _Safe void check_assigned_test(void) {
 
 _Safe int* _Borrow _Nonnull check_returned_test(int *_Borrow _Nonnull ptr ) {
   int *_Borrow _Nullable p = nullptr;
-  return p; // expected-error {{cannot return nullable pointer type}}
+  return p; // expected-error {{cannot return possibly-null status pointer 'p' as a '_Nonnull' pointer}}
 }
 
 _Safe void check_param_pass_test(int *_Borrow ptr) {
   int *_Borrow _Nullable p = nullptr;
-  int *_Borrow p2 = check_returned_test(p); // expected-error {{cannot pass nullable pointer argument}}
+  int *_Borrow p2 = check_returned_test(p); // expected-error {{cannot pass possibly-null status pointer 'p' to a '_Nonnull' parameter}}
   _Unsafe {
     int *_Borrow p3 = check_returned_test(p);
   }

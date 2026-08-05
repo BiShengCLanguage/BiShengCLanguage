@@ -10,8 +10,8 @@ struct N {
 
 _Safe void test1(void) {
     struct N n1 = { .b = nullptr };
-    if (n1.b->a != nullptr)   // expected-error {{cannot access member through nullable pointer}}
-        *n1.b->a = 10;  // expected-error {{cannot access member through nullable pointer}}
+    if (n1.b->a != nullptr)   // expected-error {{cannot access the member through possibly-null status pointer 'b'}}
+        *n1.b->a = 10;  // expected-error {{cannot access the member through possibly-null status pointer 'b'}}
     struct M m = { .a = nullptr };
     struct N n2 = { .b = &_Mut m };
     if (n2.b->a != nullptr)
@@ -26,7 +26,7 @@ _Safe void test2(void) {
 
 _Safe void test3(void) {
     struct N n1 = { .b = nullptr };
-    if (n1.b->a != nullptr && n1.b != nullptr)  // expected-error {{cannot access member through nullable pointer}}
+    if (n1.b->a != nullptr && n1.b != nullptr)  // expected-error {{cannot access the member through possibly-null status pointer 'b'}}
         *n1.b->a = 10;
 }
 
@@ -43,16 +43,16 @@ _Safe struct N *_Owned _Nullable safe_malloc(struct N n);
 _Safe void test5(void) {
     struct N n = { .b = nullptr };
     struct N *_Owned _Nullable p = safe_malloc(n);
-    if (p->b->a != nullptr)   // expected-error {{cannot access member through nullable pointer}}
-        *p->b->a = 10;  // expected-error {{cannot access member through nullable pointer}}
+    if (p->b->a != nullptr)   // expected-error {{cannot access the member through possibly-null status pointer 'p'}} expected-error {{cannot access the member through possibly-null status pointer 'b'}}
+        *p->b->a = 10;  // expected-error {{cannot access the member through possibly-null status pointer 'p'}} expected-error {{cannot access the member through possibly-null status pointer 'b'}}
     safe_free(p);
 }
 
 _Safe void test6(void) {
     struct N n = { .b = nullptr };
     struct N *_Owned _Nullable p = safe_malloc(n);
-    if (p->b != nullptr && p->b->a != nullptr)  // expected-error {{cannot access member through nullable pointer}} expected-error {{cannot access member through nullable pointer}}
-        *p->b->a = 10; // expected-error {{cannot access member through nullable pointer}}
+    if (p->b != nullptr && p->b->a != nullptr)  // expected-error 2 {{cannot access the member through possibly-null status pointer 'p'}}
+        *p->b->a = 10; // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
     safe_free(p);
 }
 

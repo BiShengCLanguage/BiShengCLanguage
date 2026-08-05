@@ -6,9 +6,9 @@ typedef _Safe int (*unary_f)(int);
 
 _Safe int test1(unary_f f) {
     // function pointer f is _Nullable by default
-    return (*f)(1); // expected-error {{nullable pointer cannot be dereferenced}}
+    return (*f)(1); // expected-error {{cannot dereference possibly-null status pointer 'f'}}
 }
 
 _Safe int test2(unary_f _Nullable f) {
-    return (*f)(1); // expected-error {{nullable pointer cannot be dereferenced}}
+    return (*f)(1); // expected-error {{cannot dereference possibly-null status pointer 'f'}}
 }

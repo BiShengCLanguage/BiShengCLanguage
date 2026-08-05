@@ -14,9 +14,9 @@ _Safe void test1_direct(void) {
     if (s.p) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_paren(void) {
@@ -24,9 +24,9 @@ _Safe void test1_paren(void) {
     if ((s.p)) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_assignment(void) {
@@ -34,9 +34,9 @@ _Safe void test1_assignment(void) {
     if ((s.p = ptr_factory(nullptr))) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_assignment_cmp(void) {
@@ -44,9 +44,9 @@ _Safe void test1_assignment_cmp(void) {
     if ((s.p = ptr_factory(nullptr)) != nullptr) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_null_assignment(void) {
@@ -54,9 +54,9 @@ _Safe void test1_null_assignment(void) {
     if ((s.p = nullptr)) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_null_assignment_cmp(void) {
@@ -64,19 +64,19 @@ _Safe void test1_null_assignment_cmp(void) {
     if ((s.p = nullptr) != nullptr) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_null_assignment_cmp_inv(void) {
     struct S s = { .p = nullptr };
     if ((s.p = nullptr) == nullptr) {
-        *s.p = 10; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 10; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
         *s.p = 20;
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_comma(int x) {
@@ -84,9 +84,9 @@ _Safe void test1_comma(int x) {
     if (++x, s.p) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_comma_cmp(int x) {
@@ -94,9 +94,9 @@ _Safe void test1_comma_cmp(int x) {
     if (++x, s.p != nullptr) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_transitive_assign(void) {
@@ -105,9 +105,9 @@ _Safe void test1_transitive_assign(void) {
     if ((s1.p = s2.p = nullptr)) {
         *s1.p = 10;
     } else {
-        *s1.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_multi_comma(int x) {
@@ -115,9 +115,9 @@ _Safe void test1_multi_comma(int x) {
     if (++x, ++x, s.p) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1_multi_comma_cmp(int x) {
@@ -125,9 +125,9 @@ _Safe void test1_multi_comma_cmp(int x) {
     if (++x, ++x, s.p != nullptr) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test1(void) {
@@ -135,9 +135,9 @@ _Safe void test1(void) {
     if (s.p != nullptr) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test2(void) {
@@ -158,11 +158,11 @@ _Safe void test3(void) {
         *s1.p = 10;
         *s2.p = 10;
     } else {
-        *s1.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test4(void) {
@@ -185,14 +185,14 @@ _Safe void test5(void) {
     struct S s1 = { .p = nullptr };
     struct S s2 = { .p = nullptr };
     if (s1.p != nullptr || s2.p != nullptr) {
-        *s1.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
-        *s1.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test6(void) {
@@ -248,13 +248,13 @@ _Safe void test8(void) {
         *s2.p = 10;
         *s3.p = 10;
     } else {
-        *s1.p = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s3.p = 20;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 20;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s3.p = 20;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *s3.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s3.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test9(void) {
@@ -263,17 +263,17 @@ _Safe void test9(void) {
     struct S s2 = { .p = nullptr };
     struct S s3 = { .p = nullptr };
     if (s1.p != nullptr || s2.p != nullptr || s3.p != nullptr) {
-        *s1.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s3.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s3.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
-        *s1.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s3.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s3.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
-    *s3.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s3.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test10(void) {
@@ -285,7 +285,7 @@ _Safe void test10(void) {
     } else {
         s.p = &_Mut a;
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test11(void) {
@@ -293,14 +293,14 @@ _Safe void test11(void) {
     struct S s1 = { .p = nullptr };
     struct S s2 = { .p = nullptr };
     if (s1.p != nullptr && s2.p != nullptr || a > 0) {
-        *s1.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 10;  // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 10;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
-        *s1.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test12(void) {
@@ -311,11 +311,11 @@ _Safe void test12(void) {
         *s1.p = 10;
         *s2.p = 10;
     } else {
-        *s1.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test13(void) {
@@ -339,19 +339,19 @@ _Safe void test14(void) {
     if (s.p) {
         *s.p = 10;
     } else {
-        *s.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test15(void) {
     struct S s = { .p = nullptr };
     if (!s.p) {
-        *s.p = 10; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s.p = 10; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     } else {
         *s.p = 20;
     }
-    *s.p = 30;  // expected-error {{nullable pointer cannot be dereferenced}}
+    *s.p = 30;  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 _Safe void test16(void) {
@@ -361,11 +361,11 @@ _Safe void test16(void) {
         *s1.p = 10;
         *s2.p = 10;
     } else {
-        *s1.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
-        *s2.p = 20; // expected-error {{nullable pointer cannot be dereferenced}}
+        *s1.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+        *s2.p = 20; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     }
-    *s1.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
-    *s2.p = 30; // expected-error {{nullable pointer cannot be dereferenced}}
+    *s1.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    *s2.p = 30; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
 }
 
 struct S1 {

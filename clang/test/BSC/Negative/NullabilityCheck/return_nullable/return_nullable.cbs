@@ -1,5 +1,5 @@
 // RUN: %clang_cc1 -verify %s
 
 _Safe int *_Borrow foo1(int *_Borrow _Nullable a) {
-    return a;             // expected-error{{cannot return nullable pointer type}}
+    return a;             // expected-error {{cannot return possibly-null status pointer 'a' as a '_Nonnull' pointer}}
 }
