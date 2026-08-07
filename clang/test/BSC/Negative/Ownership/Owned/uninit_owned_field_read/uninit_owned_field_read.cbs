@@ -1,0 +1,16 @@
+// RUN: %clang_cc1 -verify %s
+
+// Suppressing the plain-field uninit false positive must not suppress
+// reads of an owned field that was never assigned.
+
+struct H {
+    int *_Owned data;
+    int tag;
+};
+
+void owned_field_never_assigned(void) {
+    struct H h;
+    h.tag = 1;
+    int ok = h.tag;
+    int bad = *h.data; // expected-error {{use of uninitialized value: `h.data.`}} expected-error {{use of uninitialized value: `h.data*`}}
+}

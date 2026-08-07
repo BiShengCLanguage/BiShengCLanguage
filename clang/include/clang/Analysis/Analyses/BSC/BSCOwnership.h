@@ -119,6 +119,9 @@ public:
     llvm::DenseMap<const VarDecl *, SOwnedField> SAllOwnedFields;
     llvm::DenseMap<const VarDecl *, SOwnedField> SOwnedOwnedFields;
     llvm::DenseMap<const VarDecl *, SOwnedField> SNullOwnedFields;
+    // Owned field paths never yet assigned; distinguishes uninitialized from
+    // moved-out at field granularity.
+    llvm::DenseMap<const VarDecl *, SOwnedField> SUninitOwnedFields;
 
     // basic owned pointer status, e.g. int * owned p
     using BOPOwnedField = llvm::SmallSet<std::string, 10>;
@@ -200,12 +203,14 @@ public:
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> saof,
                     llvm::DenseMap<const VarDecl *, SOwnedField> soof,
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> snof,
+                    llvm::DenseMap<const VarDecl *, SOwnedField> sunof,
                     llvm::DenseMap<const VarDecl *, OwnershipSet> bops,
                     llvm::DenseMap<const VarDecl *, BOPOwnedField> bopaof,
                     llvm::DenseMap<const VarDecl *, BOPOwnedField> bopoof)
         : OPSStatus(opss), OPSAllOwnedFields(opsaof),
           OPSOwnedOwnedFields(opsoof), SStatus(ss), SAllOwnedFields(saof),
-          SOwnedOwnedFields(soof), SNullOwnedFields(snof), BOPStatus(bops),
+          SOwnedOwnedFields(soof), SNullOwnedFields(snof),
+          SUninitOwnedFields(sunof), BOPStatus(bops),
           BOPAllOwnedFields(bopaof), BOPOwnedOwnedFields(bopoof) {}
 
   private:

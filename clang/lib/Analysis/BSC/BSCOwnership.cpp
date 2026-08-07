@@ -79,6 +79,34 @@ findPrefixStrings(const llvm::SmallSet<string, 10> fieldSet, string prefix) {
   return prefixStrings;
 }
 
+// Whether prefix names the same field as path or a field enclosing it,
+// honoring path separators: "a.b" is a prefix of "a.b", "a.b.c" and "a.b*",
+// but not of "a.bc".
+static bool isFieldPathPrefix(const string &prefix, const string &path) {
+  if (path.size() < prefix.size() ||
+      path.compare(0, prefix.size(), prefix) != 0)
+    return false;
+  return path.size() == prefix.size() || path[prefix.size()] == '.' ||
+         path[prefix.size()] == '*';
+}
+
+// Whether the access path touches any field tracked in the set: the path is
+// a tracked field itself or a dereference of one ("data.", "data*"), lies
+// inside one ("inner.a" under "inner"), or covers one ("a1" over "a1.b1").
+// A trailing '.' is an access marker, not part of the key, and is dropped
+// before matching.
+static bool overlapsOwnedFields(const llvm::SmallSet<string, 10> &ownedFields,
+                                string path) {
+  if (!path.empty() && path.back() == '.')
+    path.pop_back();
+  if (path.empty())
+    return true;
+  for (const auto &owned : ownedFields)
+    if (isFieldPathPrefix(owned, path) || isFieldPathPrefix(path, owned))
+      return true;
+  return false;
+}
+
 // Deref uses append trailing '*' markers to the field path, e.g. **q.pp is
 // encoded as "pp**". The ownership sets may also contain real '*' keys for
 // nested owned fields, such as "pp*" for the inner owned pointer of pp, so we
@@ -244,7 +272,7 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
     return Ownership::OwnershipStatus(
         statsB.OPSStatus, statsB.OPSAllOwnedFields, statsB.OPSOwnedOwnedFields,
         statsB.SStatus, statsB.SAllOwnedFields, statsB.SOwnedOwnedFields,
-        statsB.SNullOwnedFields,
+        statsB.SNullOwnedFields, statsB.SUninitOwnedFields,
         statsB.BOPStatus, statsB.BOPAllOwnedFields, statsB.BOPOwnedOwnedFields);
 
   for (auto it = statsB.OPSStatus.begin(), ei = statsB.OPSStatus.end();
@@ -306,6 +334,12 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
         statsA.SAllOwnedFields[VD].insert(s);
     }
   }
+  // A path uninitialized on either branch stays uninitialized.
+  for (auto it = statsB.SUninitOwnedFields.begin(),
+            ei = statsB.SUninitOwnedFields.end();
+       it != ei; ++it)
+    for (const auto &s : it->second)
+      statsA.SUninitOwnedFields[it->first].insert(s);
 
   for (auto it = statsB.BOPStatus.begin(), ei = statsB.BOPStatus.end();
        it != ei; ++it) {
@@ -336,7 +370,7 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   return Ownership::OwnershipStatus(
       statsA.OPSStatus, statsA.OPSAllOwnedFields, statsA.OPSOwnedOwnedFields,
       statsA.SStatus, statsA.SAllOwnedFields, statsA.SOwnedOwnedFields,
-      statsA.SNullOwnedFields,
+      statsA.SNullOwnedFields, statsA.SUninitOwnedFields,
       statsA.BOPStatus, statsA.BOPAllOwnedFields, statsA.BOPOwnedOwnedFields);
 }
 
@@ -345,7 +379,9 @@ bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
          OPSOwnedOwnedFields == V.OPSOwnedOwnedFields && SStatus == V.SStatus &&
          SAllOwnedFields == V.SAllOwnedFields &&
          SOwnedOwnedFields == V.SOwnedOwnedFields &&
-         SNullOwnedFields == V.SNullOwnedFields && BOPStatus == V.BOPStatus &&
+         SNullOwnedFields == V.SNullOwnedFields &&
+         SUninitOwnedFields == V.SUninitOwnedFields &&
+         BOPStatus == V.BOPStatus &&
          BOPAllOwnedFields == V.BOPAllOwnedFields &&
          BOPOwnedOwnedFields == V.BOPOwnedOwnedFields;
 }
@@ -629,6 +665,7 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
   if (source == Source::S && depth == 10) {
     SStatus[VD] = llvm::BitVector(7, 0);
     set(VD, Ownership::Status::Uninitialized);
+    SUninitOwnedFields[VD] = SAllOwnedFields[VD];
   }
 }
 
@@ -737,6 +774,7 @@ void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
     resetAll(VD);
     set(VD, Ownership::Status::Owned);
     SOwnedOwnedFields[VD] = SAllOwnedFields[VD];
+    SUninitOwnedFields[VD].clear();
   }
 
   if (BOPStatus.count(VD)) {
@@ -801,11 +839,13 @@ void Ownership::OwnershipStatus::setToAllMoved(const Expr *E) {
         if (SAllOwnedFields[VD].count(memberField.second)) {
           SOwnedOwnedFields[VD].insert(memberField.second);
           SNullOwnedFields[VD].erase(memberField.second);
+          SUninitOwnedFields[VD].erase(memberField.second);
           auto allPrefixStrs =
               findPrefixStrings(SAllOwnedFields[VD], memberField.second + ".");
           for (const string &str : allPrefixStrs) {
             SOwnedOwnedFields[VD].erase(str);
             SNullOwnedFields[VD].erase(str);
+            SUninitOwnedFields[VD].erase(str);
           }
           resetAll(VD);
           if (SOwnedOwnedFields[VD].size() == 0) {
@@ -859,11 +899,13 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
         if (SAllOwnedFields[VD].count(memberField.second)) {
           SOwnedOwnedFields[VD].erase(memberField.second);
           SNullOwnedFields[VD].insert(memberField.second);
+          SUninitOwnedFields[VD].erase(memberField.second);
           auto allPrefixStrs =
               findPrefixStrings(SAllOwnedFields[VD], memberField.second + ".");
           for (const string &str : allPrefixStrs) {
             SOwnedOwnedFields[VD].erase(str);
             SNullOwnedFields[VD].insert(str);
+            SUninitOwnedFields[VD].erase(str);
           }
         }
       }
@@ -1360,19 +1402,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                           VD->getNameAsString() + "." + fullFieldName));
   }
-  // The whole-struct Uninitialized bit is coarse: it is set whenever ANY owned
-  // field is still uninitialized. Each _Owned field is tracked individually, so
-  // reading a field that has already acquired ownership must be accepted even
-  // while a sibling field remains uninitialized. Suppress this field-level
-  // uninit diagnostic when the field
-  // being read -- or the owned pointer it dereferences (`a.`/`a*` -> `a`) -- is
-  // currently owned.
-  bool fieldIsOwned = SOwnedOwnedFields[VD].count(fullFieldName);
-  if (!fieldIsOwned && !fullFieldName.empty() &&
-      (fullFieldName.back() == '.' || fullFieldName.back() == '*'))
-    fieldIsOwned = SOwnedOwnedFields[VD].count(
-        fullFieldName.substr(0, fullFieldName.size() - 1));
-  if ((is(VD, Uninitialized) || has(VD, Uninitialized)) && !fieldIsOwned &&
+  if (overlapsOwnedFields(SUninitOwnedFields[VD], fullFieldName) &&
       diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfUninit,
@@ -1459,6 +1489,7 @@ Ownership::OwnershipStatus::checkSAssign(const VarDecl *VD,
     }
   }
   SOwnedOwnedFields[VD] = SAllOwnedFields[VD];
+  SUninitOwnedFields[VD].clear();
 
   return diags;
 }
@@ -1551,6 +1582,10 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   // add allPrefixStrs to SOwnedOwnedFields
   for (const auto &str : allPrefixStrs) {
     SOwnedOwnedFields[VD].insert(str);
+  }
+  SUninitOwnedFields[VD].erase(fullFieldName);
+  for (const auto &str : allPrefixStrs) {
+    SUninitOwnedFields[VD].erase(str);
   }
 
   return diags;

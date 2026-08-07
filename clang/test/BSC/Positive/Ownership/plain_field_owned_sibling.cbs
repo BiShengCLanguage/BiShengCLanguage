@@ -1,0 +1,55 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Reading a plain (non-owned) field that has been assigned must not be
+// reported as uninitialized, regardless of the init state of _Owned
+// sibling fields.
+
+int rand(void);
+void free(void *);
+int *_Owned safe_malloc_int(void);
+
+struct H {
+    int *_Owned data;
+    int tag;
+};
+
+struct Outer {
+    struct H inner;
+    int count;
+};
+
+int plain_read_owned_sibling_never_assigned(void) {
+    struct H h;
+    h.tag = 1;
+    return h.tag;
+}
+
+int plain_read_all_fields_assigned(void) {
+    struct H h;
+    h.data = safe_malloc_int();
+    h.tag = 1;
+    int x = h.tag;
+    free(__move_to_raw(h.data));
+    return x;
+}
+
+int plain_read_owned_sibling_branch_assigned(void) {
+    struct H h;
+    h.tag = 1;
+    if (rand()) {
+        h.data = safe_malloc_int();
+    } else {
+        h.data = safe_malloc_int();
+    }
+    int x = h.tag;
+    free(__move_to_raw(h.data));
+    return x;
+}
+
+int nested_plain_reads(void) {
+    struct Outer o;
+    o.inner.tag = 3;
+    o.count = 1;
+    return o.inner.tag + o.count;
+}

@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+
+// A plain field inside an uninitialized _Owned struct field is reached
+// through owned data: still reported.
+
+_Owned struct S {
+_Public:
+    int a;
+    _Safe ~S(This this) {}
+};
+
+struct M {
+    S inner;
+    int c;
+};
+
+void plain_member_of_uninit_owned_struct_field(void) {
+    struct M m;
+    m.c = 1;
+    int ok = m.c;
+    int bad = m.inner.a; // expected-error {{use of uninitialized value: `m.inner.a`}}
+}
