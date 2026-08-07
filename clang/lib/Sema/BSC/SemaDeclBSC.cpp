@@ -412,10 +412,8 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
           DiagId = diag::err_ownership_use_possibly_uninit;
           break;
         case bscir::InitDiagKind::ReturnUninit:
-          DiagId = diag::err_return_uninit;
-          break;
         case bscir::InitDiagKind::ReturnMaybeUninit:
-          DiagId = diag::err_return_possibly_uninit;
+          DiagId = diag::err_return_uninit;
           break;
         case bscir::InitDiagKind::EnsureInitNotInit:
           DiagId = diag::err_ensure_init_not_init;
@@ -454,6 +452,11 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
                  D.Kind == bscir::InitDiagKind::EnsureInitDerefReadUninit)
           // %0 = param name, %1 = which attribute the param carries.
           Diag(D.Loc, DiagId) << D.VarName << D.AttrSelect;
+        else if (D.Kind == bscir::InitDiagKind::ReturnUninit ||
+                 D.Kind == bscir::InitDiagKind::ReturnMaybeUninit)
+          Diag(D.Loc, DiagId)
+              << D.VarName
+              << (D.Kind == bscir::InitDiagKind::ReturnMaybeUninit ? 1 : 0);
         else
           Diag(D.Loc, DiagId) << D.VarName;
         for (SourceLocation NoteLoc : D.NoteLocs) {

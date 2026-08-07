@@ -20,14 +20,14 @@ struct A {
 
 int * _Owned IntPtrOwned() {
     int * _Owned a;
-    return a; // expected-error {{use of uninitialized value: `a`}}
+    return a; // expected-error {{use of uninitialized value: 'a'}}
 }
 
 void func1(int * _Owned * _Owned * _Owned a, int * _Owned * _Owned * _Owned b) {
     int * _Owned c = IntPtrOwned();
     int * _Owned d = c;
-    int * _Owned e = c; // expected-error {{use of moved value: `c`}}
-} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}} expected-error {{memory leak of value: `b`}} expected-error {{field memory leak of value: `b`, *b, **b are leak}} expected-error {{memory leak of value: `d`}} expected-error {{memory leak of value: `e`}}
+    int * _Owned e = c; // expected-error {{use of moved value: 'c'}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *b, **b are not freed or moved before 'b' goes out of scope}} expected-error {{memory leak because 'd' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'e' is not freed or moved before it goes out of scope}}
 
 void * _Owned VoidPtrOwned_err(struct C * _Owned c) {
     int *d = __move_to_raw(c->a);
@@ -37,15 +37,15 @@ void * _Owned VoidPtrOwned_err(struct C * _Owned c) {
 
 void * _Owned VoidPtrOwned_succ(struct C * _Owned c) {
     struct C d = (struct C) *c;
-    return (void * _Owned)c; // expected-error {{field memory leak of value: `d`, d.a, d.b are leak}}
+    return (void * _Owned)c; // expected-error {{memory leak because d.a, d.b are not freed or moved before 'd' goes out of scope}}
 }
 
 int * _Owned IntOwned() {
     int * _Owned a;
-    return a; // expected-error {{use of uninitialized value: `a`}}
+    return a; // expected-error {{use of uninitialized value: 'a'}}
 }
 
-void callee1(int * _Owned a, int * _Owned b) {} // expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `b`}}
+void callee1(int * _Owned a, int * _Owned b) {} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void caller1(int * _Owned a, int * _Owned b) {
     callee1(a, b);
@@ -53,10 +53,10 @@ void caller1(int * _Owned a, int * _Owned b) {
 
 void caller2(int * _Owned a, int * _Owned b) {
     int * _Owned c = a;
-    callee1(a, b); // expected-error {{use of moved value: `a`}}
-} // expected-error {{memory leak of value: `c`}}
+    callee1(a, b); // expected-error {{use of moved value: 'a'}}
+} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 
-void callee2(void * _Owned a) {} // expected-error {{memory leak of value: `a`}}
+void callee2(void * _Owned a) {} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void caller3(void * _Owned a) {
     callee2(a);
@@ -65,10 +65,10 @@ void caller3(void * _Owned a) {
 void caller4(struct A * _Owned a) {
     struct A b = (struct A)*a;
     callee2((void * _Owned)a);
-} // expected-error {{field memory leak of value: `b`, b.b.a, b.b.b, b.b.c, b.b.c.a, b.b.c.b, b.c, b.c.a, b.c.b, b.c.c... are leak}}
+} // expected-error {{memory leak because b.b.a, b.b.b, b.b.c, b.b.c.a, b.b.c.b, b.c, b.c.a, b.c.b, b.c.c... are not freed or moved before 'b' goes out of scope}}
 
 void caller5(struct A * _Owned a) {
-    callee2((void * _Owned)a); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `a`, a.b.a, a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c... are _Owned}}
+    callee2((void * _Owned)a); // expected-error {{cannot cast 'a' to 'void * _Owned': a.b.a, a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c... are still _Owned; move it out first}}
 }
 
 int main() { return 0; }

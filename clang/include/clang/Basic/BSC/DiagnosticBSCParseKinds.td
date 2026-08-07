@@ -9,8 +9,10 @@ def err_invalid_trait : Error<"invalid syntax, semi not expected after '_Trait %
 def err_multi_trait_call_func : Error<"%0 cannot directly call functions">;
 
 // BSC _Owned struct
-def err_tag_name : Error<"must ignore '_Owned struct' tag before struct name">;
-def err_inconsistent_tag_name : Error<"inconsistent tag before struct name">;
+def err_tag_name : Error<
+  "'_Owned struct' only appears in the type's declaration or definition; use %0 without '_Owned struct'">;
+def err_inconsistent_tag_name : Error<
+  "declaration of %0 as %select{'struct'|'_Owned struct'}1 conflicts with previous declaration as %select{'_Owned struct'|'struct'}1">;
 def err_owned_struct_in_function_scope : Error<"_Owned struct cannot be defined in function scope; move the definition to file scope">;
 
 // BSC generic warnings and errors.

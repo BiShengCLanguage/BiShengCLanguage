@@ -5,7 +5,7 @@ void test1() {
   int temp = 2;
   int *_Borrow p1 = &_Mut local;
   int *_Borrow p2 = &_Mut temp;
-  p2 = p1; // expected-note {{`*p1` is borrowed here}}
-  *p1 = 2; // expected-error{{cannot assign to `*p1` because it is borrowed}}
+  p2 = p1; // expected-note {{'*p1' is borrowed here}}
+  *p1 = 2; // expected-error{{cannot assign to '*p1' because it is borrowed}}
   temp = *p2;
 }

@@ -6,7 +6,7 @@ struct A {
     B b;
 };
 void test(struct A a) {
-} // expected-error {{field memory leak of value: `a`, a.b is leak}}
+} // expected-error {{memory leak because a.b is not freed or moved before 'a' goes out of scope}}
 
 int main(){
     return 0;

@@ -8,7 +8,7 @@ int test1(){
   if (b == NULL) {
     int x0 = 0;
     int *_Owned p0 = __take_from_raw(&x0);      
-    goto FAIL; //expected-error {{memory leak of value: `p0`}}
+    goto FAIL; //expected-error {{memory leak because 'p0' is not freed or moved before it goes out of scope}}
   }
 	return 0;
 FAIL:
@@ -23,7 +23,7 @@ int test2(){
   }
   int x0 = 0;
   int *_Owned p0 = __take_from_raw(&x0);
-	return 0; //expected-error {{memory leak of value: `p0`}}
+	return 0; //expected-error {{memory leak because 'p0' is not freed or moved before it goes out of scope}}
 FAIL:
   return 1;
 }
@@ -38,7 +38,7 @@ int test3(){
 FAIL:{
     int x2 = 0;
     int *_Owned p2 = __take_from_raw(&x2);     
-    return 1; //expected-error {{memory leak of value: `p2`}}
+    return 1; //expected-error {{memory leak because 'p2' is not freed or moved before it goes out of scope}}
   }
 }
 
@@ -49,12 +49,12 @@ int test4() {
     int y = 0;
     int z = 1;
     int *_Owned p1 = __take_from_raw(&y);
-    goto next; // expected-error {{memory leak of value: `p1`}}
+    goto next; // expected-error {{memory leak because 'p1' is not freed or moved before it goes out of scope}}
   }
   int v = 3;
 next:{
     int x2 = 0;
     int *_Owned p2 = __take_from_raw(&x2);
-    return 0; // expected-error {{memory leak of value: `p2`}}
+    return 0; // expected-error {{memory leak because 'p2' is not freed or moved before it goes out of scope}}
   }
 }

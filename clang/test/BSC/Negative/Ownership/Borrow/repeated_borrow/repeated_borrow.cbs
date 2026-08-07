@@ -5,7 +5,7 @@ void use_immut(const int *_Borrow p);
 void test1() {
   int local = 42;
   int *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow q = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  int *_Borrow q = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   use_mut(p);
   use_mut(q);
 }
@@ -13,7 +13,7 @@ void test1() {
 void test2() {
   int local = 42;
   int *_Borrow p = &_Mut local; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow q = &_Const local; // expected-error {{cannot borrow `local` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q = &_Const local; // expected-error {{cannot borrow 'local' as immutable because it is also borrowed as mutable}}
   use_mut(p);
   use_immut(q);
 }
@@ -22,6 +22,6 @@ void test3(int *_Borrow p) {
   int local = 5;
   p = &_Mut local;
   const int *_Borrow p1 = &_Const *p; // expected-note {{immutable borrow occurs here}}
-  use_mut(p); // expected-error {{cannot borrow `*p` as mutable because it is also borrowed as immutable}}
+  use_mut(p); // expected-error {{cannot borrow '*p' as mutable because it is also borrowed as immutable}}
   use_immut(p1);
 }

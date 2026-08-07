@@ -43,6 +43,6 @@ void test() {
   b4 = &_Const *p;
   _Trait T *t1 = &_Mut b;
   const _Trait T *t2 = &_Const b;
-  &_Mut foo; // expected-error {{'&_Mut' for function pointer is not allowed}}
-  &_Const foo; // expected-error {{'&_Const' for function pointer is not allowed}}
+  &_Mut foo; // expected-error {{'&_Mut' cannot be applied to a function}}
+  &_Const foo; // expected-error {{'&_Const' cannot be applied to a function pointer}}
 }

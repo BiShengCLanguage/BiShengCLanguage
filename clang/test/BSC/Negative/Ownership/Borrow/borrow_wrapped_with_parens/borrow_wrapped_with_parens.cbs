@@ -15,8 +15,8 @@ void use(B *_Borrow header);
 A *_Owned test1() {
   A *_Owned block = nullptr;
   B *_Borrow header = nullptr;
-  header = borrow_bak_offset((&_Mut block), sizeof(B)); // expected-note {{`block` is borrowed here}}
-  A *_Owned block2 = block; // expected-error {{cannot move out of `block` because it is borrowed}}
+  header = borrow_bak_offset((&_Mut block), sizeof(B)); // expected-note {{'block' is borrowed here}}
+  A *_Owned block2 = block; // expected-error {{cannot move out of 'block' because it is borrowed}}
   use(header);
   return block2;
 }
@@ -24,8 +24,8 @@ A *_Owned test1() {
 A *_Owned test2() {
   A *_Owned block = nullptr;
   B *_Borrow header = nullptr;
-  header = borrow_bak_offset(((&_Mut block)), sizeof(B)); // expected-note {{`block` is borrowed here}}
-  A *_Owned block2 = block; // expected-error {{cannot move out of `block` because it is borrowed}}
+  header = borrow_bak_offset(((&_Mut block)), sizeof(B)); // expected-note {{'block' is borrowed here}}
+  A *_Owned block2 = block; // expected-error {{cannot move out of 'block' because it is borrowed}}
   use(header);
   return block2;
 }

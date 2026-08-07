@@ -8,10 +8,10 @@ void test(int flag) {
   int *_Borrow q = &_Mut b;
   for (int i = 0; i < 3; ++i) {
     if (flag) {
-      p = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+      p = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
                       // expected-note@-1 {{first mut borrow occurs here}}
     } else {
-      q = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+      q = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
                       // expected-note@-1 {{first mut borrow occurs here}}
     }
     flag = ~flag;

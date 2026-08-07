@@ -8,32 +8,32 @@ void param_fundamental(int *_Owned *_Borrow const *_Borrow const p);
 // expected-error@-1 {{type of 'int *_Owned *const _Borrow' cannot be qualified by '_Borrow'}}
 
 void param_custom(struct Wrapper *_Borrow const wrapper); 
-// expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+// expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
 void param_nested_custom(struct Wrapper *_Borrow const *_Borrow const wrapper); 
 // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-// expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+// expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
 void param_fundamental(int *_Owned *_Borrow const *_Borrow const p) {} 
 // expected-error@-1 {{type of 'int *_Owned *const _Borrow' cannot be qualified by '_Borrow'}}
 
 void param_custom(struct Wrapper *_Borrow const wrapper) {} 
-// expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+// expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
 void param_nested_custom(struct Wrapper *_Borrow const *_Borrow const wrapper) {} 
 // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-// expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+// expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
 void local() {
   int *_Owned *_Borrow const *_Borrow const _Nullable p = nullptr; 
   // expected-error@-1 {{type of 'int *_Owned *const _Borrow' cannot be qualified by '_Borrow'}}
   
   struct Wrapper *_Borrow const _Nullable wrapper1 = nullptr; 
-  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
   struct Wrapper *_Borrow const *_Borrow const _Nullable wrapper2 = nullptr;
   // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 }
 
 void cast() {
@@ -42,36 +42,36 @@ void cast() {
   // expected-error@-2 {{type of 'int *_Owned *const _Borrow' cannot be qualified by '_Borrow'}}
 
   struct Wrapper *_Borrow const _Nullable wrapper1 = (struct Wrapper *_Borrow const _Nullable)nullptr; 
-  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
-  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
+  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
   struct Wrapper *_Borrow const *_Borrow const _Nullable wrapper2 = (struct Wrapper *_Borrow const *_Borrow const _Nullable)nullptr; 
   // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
   // expected-error@-2 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-  // expected-error@-3 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
-  // expected-error@-4 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-3 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
+  // expected-error@-4 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 }
 
 typedef int *_Owned *_Borrow const *_Borrow const MyType1; 
 // expected-error@-1 {{type of 'int *_Owned *const _Borrow' cannot be qualified by '_Borrow'}}
 
 typedef struct Wrapper *_Borrow const MyType2; 
-// expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+// expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
 typedef struct Wrapper *_Borrow const *_Borrow const MyType3; 
 // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-// expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+// expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
 struct Fields {
   int *_Owned *_Borrow const *_Borrow const member1; 
   // expected-error@-1 {{type of 'int *_Owned *const _Borrow' cannot be qualified by '_Borrow'}}
 
   struct Wrapper *_Borrow const member2; 
-  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 
   struct Wrapper *_Borrow const *_Borrow const member3; 
   // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
 };
 
 union Variants {
@@ -80,17 +80,17 @@ union Variants {
   // expected-error@-2 {{type of union field cannot be qualified by '_Borrow'}}
 
   struct Wrapper *_Borrow const member2; 
-  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-1 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
   // expected-error@-2 {{type of union field cannot be qualified by '_Borrow'}}
 
   struct Wrapper *_Borrow const *_Borrow const member3; 
   // expected-error@-1 {{type of 'struct Wrapper *const _Borrow' cannot be qualified by '_Borrow'}}
-  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct Wrapper' contains '_Borrow' type}}
+  // expected-error@-2 {{type of 'struct Wrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct Wrapper' contains a '_Borrow' type}}
   // expected-error@-3 {{type of union field cannot be qualified by '_Borrow'}}
 };
 
 void param_final_builtin_array(int (*_Borrow const *_Borrow const _Nullable p)[8]);
-// expected-error@-1 {{type of 'int (*const _Borrow)[8]' cannot be qualified by '_Borrow' }}
+// expected-error@-1 {{type of 'int (*const _Borrow)[8]' cannot be qualified by '_Borrow'}}
 
 void param_final_string_char_array(const char (*_Borrow const *_Borrow const _Nullable p)[6]);
 // expected-error@-1 {{type of 'const char (*const _Borrow)[6]' cannot be qualified by '_Borrow'}}
@@ -159,9 +159,9 @@ void cast_extra() {
   // expected-error@-1 {{type of 'const char (*const _Borrow)[6]' cannot be qualified by '_Borrow'}}
 
   const char *_Borrow const *_Borrow const _Nullable final_cstring =
-  // expected-error@-1 {{type of 'const char *const _Borrow' cannot be qualified by '_Borrow' }}
+  // expected-error@-1 {{type of 'const char *const _Borrow' cannot be qualified by '_Borrow'}}
       (const char *_Borrow const *_Borrow const _Nullable)nullptr;
-  // expected-error@-1 {{type of 'const char *const _Borrow' cannot be qualified by '_Borrow' }}
+  // expected-error@-1 {{type of 'const char *const _Borrow' cannot be qualified by '_Borrow'}}
 }
 
 struct BorrowArrayWrapper {
@@ -169,5 +169,5 @@ struct BorrowArrayWrapper {
 };
 
 void borrow_inside_array(struct BorrowArrayWrapper *_Borrow p);
-// expected-error@-1 {{type of 'struct BorrowArrayWrapper' cannot be qualified by '_Borrow'(even indirectly), 'struct BorrowArrayWrapper' contains '_Borrow' type}}
+// expected-error@-1 {{type of 'struct BorrowArrayWrapper' cannot be qualified by '_Borrow' (even indirectly) because 'struct BorrowArrayWrapper' contains a '_Borrow' type}}
 

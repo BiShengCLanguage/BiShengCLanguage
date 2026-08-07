@@ -11,7 +11,7 @@ _Safe void test_nested_if_partial(int a, int b) {
     } else {
         x = 3;
     }
-    int y = x + 1; // expected-error {{use of possibly uninitialized value: `x`}}
+    int y = x + 1; // expected-error {{use of possibly uninitialized value: 'x'}}
 }
 
 _Safe void test_inner_branch_only(int a, int b) {
@@ -20,5 +20,5 @@ _Safe void test_inner_branch_only(int a, int b) {
         x = 1;
     }
     // outer else: x not initialized
-    int y = x + 1; // expected-error {{use of possibly uninitialized value: `x`}}
+    int y = x + 1; // expected-error {{use of possibly uninitialized value: 'x'}}
 }

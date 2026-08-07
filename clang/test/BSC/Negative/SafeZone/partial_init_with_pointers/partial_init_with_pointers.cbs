@@ -28,6 +28,6 @@ _Safe int main(void) {
   int *a  = _Unsafe((int*)malloc(sizeof(int)));
   union UnionWithPointer u2 = {.ptr=a};
 
-  return 0; // expected-error {{field memory leak of value: `s2`, s2.ptr is leak}}
-            // expected-error@-1 {{field memory leak of value: `s1`, s1.ptr is leak}}
+  return 0; // expected-error {{memory leak because s2.ptr is not freed or moved before 's2' goes out of scope}}
+            // expected-error@-1 {{memory leak because s1.ptr is not freed or moved before 's1' goes out of scope}}
 }

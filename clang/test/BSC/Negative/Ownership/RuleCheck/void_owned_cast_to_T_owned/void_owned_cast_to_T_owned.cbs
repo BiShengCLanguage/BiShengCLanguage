@@ -28,7 +28,7 @@ void test1(struct Inner *_Owned p) {
   safe_free((void *_Owned)p->data);
   void *_Owned erased = (void *_Owned)p;
   struct Inner *_Owned typed = (struct Inner *_Owned)erased;
-  consume_inner(typed); // expected-error {{use of all moved value: `typed`}}
+  consume_inner(typed); // expected-error {{use of 'typed' after all its fields were moved}}
 }
 
 void test2(struct Inner *_Owned p) {
@@ -36,7 +36,7 @@ void test2(struct Inner *_Owned p) {
   void *_Owned erased = (void *_Owned)p;
   struct Inner *_Owned typed;
   typed = (struct Inner *_Owned)erased;
-  consume_inner(typed); // expected-error {{use of all moved value: `typed`}}
+  consume_inner(typed); // expected-error {{use of 'typed' after all its fields were moved}}
 }
 
 void test3(int *_Owned leafSrc, struct Inner *_Owned innerSrc) {
@@ -48,7 +48,7 @@ void test3(int *_Owned leafSrc, struct Inner *_Owned innerSrc) {
       .inner = (struct Inner *_Owned)innerErased,
   };
   consume_int(h.leaf);
-  consume_inner(h.inner); // expected-error {{use of partially moved value: `h.inner`, h.leaf, h.inner.data are moved}}
+  consume_inner(h.inner); // expected-error {{use of partially moved value: 'h.inner', h.leaf, h.inner.data are moved}}
 }
 
 void test4(int *_Owned leafSrc, struct Inner *_Owned innerSrc) {
@@ -59,37 +59,37 @@ void test4(int *_Owned leafSrc, struct Inner *_Owned innerSrc) {
   h.leaf = (int *_Owned)leafErased;
   h.inner = (struct Inner *_Owned)innerErased;
   consume_int(h.leaf);
-  consume_inner(h.inner); // expected-error {{use of partially moved value: `h.inner`, h.leaf, h.inner.data are moved}}
+  consume_inner(h.inner); // expected-error {{use of partially moved value: 'h.inner', h.leaf, h.inner.data are moved}}
 }
 
 void test5(struct Holder *_Owned h, void *_Owned erased) {
   safe_free((void *_Owned)h->inner->data);
   safe_free((void *_Owned)h->inner);
   h->inner = (struct Inner *_Owned)erased;
-  consume_holder(h); // expected-error {{use of partially moved value: `h`, h.inner.data is moved}}
+  consume_holder(h); // expected-error {{use of partially moved value: 'h', h.inner.data is moved}}
 }
 
 S *_Owned test6(void *_Owned p) {
-  return (S *_Owned)p; // expected-error {{cannot pass or return a cast from 'void *_Owned' to 'S *_Owned' because it would use a moved value}}
+  return (S *_Owned)p; // expected-error {{cannot pass or return a cast from 'void * _Owned' to 'S *_Owned' because it would use a moved value}}
 }
 
 void test7(void *_Owned p) {
-  consume_s((S *_Owned)p); // expected-error {{cannot pass or return a cast from 'void *_Owned' to 'S *_Owned' because it would use a moved value}}
+  consume_s((S *_Owned)p); // expected-error {{cannot pass or return a cast from 'void * _Owned' to 'S *_Owned' because it would use a moved value}}
 }
 
 S *_Owned test8(int cond, void *_Owned a, void *_Owned b) {
-  return cond ? (S *_Owned)a : (S *_Owned)b; // expected-error {{cannot pass or return a cast from 'void *_Owned' to 'S *_Owned' because it would use a moved value}}
-} // expected-error {{memory leak of value: `a`}}
-  // expected-error@-1 {{memory leak of value: `b`}}
+  return cond ? (S *_Owned)a : (S *_Owned)b; // expected-error {{cannot pass or return a cast from 'void * _Owned' to 'S *_Owned' because it would use a moved value}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void test9(int cond, void *_Owned a, void *_Owned b) {
-  consume_s(cond ? (S *_Owned)a : (S *_Owned)b); // expected-error {{cannot pass or return a cast from 'void *_Owned' to 'S *_Owned' because it would use a moved value}}
-} // expected-error {{memory leak of value: `a`}}
-  // expected-error@-1 {{memory leak of value: `b`}}
+  consume_s(cond ? (S *_Owned)a : (S *_Owned)b); // expected-error {{cannot pass or return a cast from 'void * _Owned' to 'S *_Owned' because it would use a moved value}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void test10(int cond, void *_Owned a, S *_Owned b) {
   S *_Owned s = cond ? (S *_Owned)a : b;
-  consume_s(s); // expected-error {{use of all moved value: `s`}}
-} // expected-error {{memory leak of value: `a`}}
-  // expected-error@-1 {{memory leak of value: `b`}}
-  // expected-error@-2 {{field memory leak of value: `b`, b.p is leak}}
+  consume_s(s); // expected-error {{use of 's' after all its fields were moved}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because 'b' is not freed or moved before it goes out of scope}}
+  // expected-error@-2 {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}

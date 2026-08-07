@@ -388,4 +388,4 @@ _Safe void test17(void) {
             safe_free((void *_Owned)p->p);
         }
     }
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}

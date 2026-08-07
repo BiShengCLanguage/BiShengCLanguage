@@ -12,7 +12,7 @@ _Safe int try_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
 // Earlier &_Mut x must still report use-of-uninit.
 _Safe void test_addr_before_call(void) {
     int x;
-    int *_Borrow p = &_Mut x;   // expected-error {{use of uninitialized value: `x`}}
+    int *_Borrow p = &_Mut x;   // expected-error {{use of uninitialized value: 'x'}}
     int r = try_init(&_Mut x);  // ok: &_Mut x here feeds the call arg
     if (r == 0) {
         int y = x;              // OK
@@ -25,8 +25,8 @@ _Safe int try_init_pair(int *_Borrow __attribute__((ensure_init_if_ret(0))) a,
 
 _Safe void test_two_args(void) {
     int x, y;
-    int *_Borrow px = &_Mut x; // expected-error {{use of uninitialized value: `x`}}
-    int *_Borrow py = &_Mut y; // expected-error {{use of uninitialized value: `y`}}
+    int *_Borrow px = &_Mut x; // expected-error {{use of uninitialized value: 'x'}}
+    int *_Borrow py = &_Mut y; // expected-error {{use of uninitialized value: 'y'}}
     int r = try_init_pair(&_Mut x, &_Mut y); // ok: both feed call args
     if (r == 0) {
         int sum = x + y;       // OK

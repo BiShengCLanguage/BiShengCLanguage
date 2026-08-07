@@ -78,10 +78,10 @@ void test() {
 
   struct R r = { 1, &_Mut a };
   struct R * _Borrow pr = &_Mut r; // expected-error {{'&_Mut' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'struct R' cannot be qualified by '_Borrow'(even indirectly), 'struct R' contains '_Borrow' type}}
+  // expected-error@-1 {{type of 'struct R' cannot be qualified by '_Borrow' (even indirectly) because 'struct R' contains a '_Borrow' type}}
 
   const struct R * _Borrow pr2 = &_Const r; // expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
-  // expected-error@-1 {{type of 'const struct R' cannot be qualified by '_Borrow'(even indirectly), 'const struct R' contains '_Borrow' type}}
+  // expected-error@-1 {{type of 'const struct R' cannot be qualified by '_Borrow' (even indirectly) because 'const struct R' contains a '_Borrow' type}}
 
   &_Const r.p1; /* expected-error {{'&_Const' on a '_Borrow' qualified type is not allowed}}
                   expected-warning {{expression result unused}} */

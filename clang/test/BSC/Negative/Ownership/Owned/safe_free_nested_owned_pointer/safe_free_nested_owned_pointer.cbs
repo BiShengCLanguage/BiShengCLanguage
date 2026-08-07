@@ -17,7 +17,7 @@ void test_double_pointer_ok() {
   int* _Owned * _Owned outer = safe_malloc(inner);
   int* _Owned * _Owned * _Owned ultraout = safe_malloc(outer);
   safe_free((void *_Owned)**ultraout);
-  safe_free((void *_Owned)ultraout);  //expected-error {{invalid cast to `void * _Owned` of not all moved value: `ultraout`, *ultraout is _Owned}}
+  safe_free((void *_Owned)ultraout);  //expected-error {{cannot cast 'ultraout' to 'void * _Owned': *ultraout is still _Owned; move it out first}}
 }
 int main(){
   test_double_pointer_ok();

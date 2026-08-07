@@ -14,7 +14,7 @@ _Safe void test_wide_const(void) {
     long ret = try_init(&_Mut x);
     // 0x100000000 has low-32-bits == 0 (the cond) but ret != 0 on this edge.
     if (ret == 0x100000000L) {
-        int y = x; // expected-error {{use of uninitialized value: `x`}}
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
         (void)y;
     }
 }

@@ -18,8 +18,8 @@ void test1() {
   struct V *_Borrow p = &_Mut v;
   int *_Borrow q1 = &_Mut p->a; // expected-note {{mutable borrow occurs here}}
   int *_Borrow q2 = &_Mut *p->b; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow q3 = &_Const p->a; // expected-error {{cannot borrow `(*p).a` as immutable because it is also borrowed as mutable}}
-  const int *_Borrow q4 = &_Const *p->b; // expected-error {{cannot borrow `*(*p).b` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q3 = &_Const p->a; // expected-error {{cannot borrow '(*p).a' as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q4 = &_Const *p->b; // expected-error {{cannot borrow '*(*p).b' as immutable because it is also borrowed as mutable}}
   use_mut(q1);
   use_mut(q2);
   use_immut(q3);
@@ -29,8 +29,8 @@ void test1() {
   p = &_Mut k.v;
   q1 = &_Mut p->a; // expected-note {{mutable borrow occurs here}}
   q2 = &_Mut *p->b; // expected-note {{mutable borrow occurs here}}
-  q3 = &_Const p->a; // expected-error {{cannot borrow `(*p).a` as immutable because it is also borrowed as mutable}}
-  q4 = &_Const *p->b; // expected-error {{cannot borrow `*(*p).b` as immutable because it is also borrowed as mutable}}
+  q3 = &_Const p->a; // expected-error {{cannot borrow '(*p).a' as immutable because it is also borrowed as mutable}}
+  q4 = &_Const *p->b; // expected-error {{cannot borrow '*(*p).b' as immutable because it is also borrowed as mutable}}
   use_mut(q1);
   use_mut(q2);
   use_immut(q3);
@@ -40,8 +40,8 @@ void test1() {
 void test2(struct V *_Borrow p) {
   int *_Borrow q1 = &_Mut p->a; // expected-note {{mutable borrow occurs here}}
   int *_Borrow q2 = &_Mut *p->b; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow q3 = &_Const p->a; // expected-error {{cannot borrow `(*p).a` as immutable because it is also borrowed as mutable}}
-  const int *_Borrow q4 = &_Const *p->b; // expected-error {{cannot borrow `*(*p).b` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q3 = &_Const p->a; // expected-error {{cannot borrow '(*p).a' as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q4 = &_Const *p->b; // expected-error {{cannot borrow '*(*p).b' as immutable because it is also borrowed as mutable}}
   use_mut(q1);
   use_mut(q2);
   use_immut(q3);
@@ -51,8 +51,8 @@ void test2(struct V *_Borrow p) {
 void struct V::foo(This *_Borrow this) {
   int *_Borrow q1 = &_Mut this->a; // expected-note {{mutable borrow occurs here}}
   int *_Borrow q2 = &_Mut *this->b; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow q3 = &_Const this->a; // expected-error {{cannot borrow `(*this).a` as immutable because it is also borrowed as mutable}}
-  const int *_Borrow q4 = &_Const *this->b; // expected-error {{cannot borrow `*(*this).b` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q3 = &_Const this->a; // expected-error {{cannot borrow '(*this).a' as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q4 = &_Const *this->b; // expected-error {{cannot borrow '*(*this).b' as immutable because it is also borrowed as mutable}}
   use_mut(q1);
   use_mut(q2);
   use_immut(q3);

@@ -20,12 +20,12 @@ void test() {
   int a = 5;
   int *_Borrow p1 = &_Mut a;
   int *_Borrow p2 = &_Mut a;
-  struct K k = { .p = &_Mut a }; // expected-note {{`a` is borrowed here}}
-                                // expected-note@-1 {{`a` is borrowed here}}
-  int *_Owned o = __take_from_raw(&a); // expected-error {{cannot use `a` because it was mutably borrowed}}
+  struct K k = { .p = &_Mut a }; // expected-note {{'a' is borrowed here}}
+                                // expected-note@-1 {{'a' is borrowed here}}
+  int *_Owned o = __take_from_raw(&a); // expected-error {{cannot use 'a' because it was mutably borrowed}}
   {
     struct N n = { .b = 5, .c = o  };
-    struct M m = { .a = &a, .n = &n }; // expected-error {{cannot use `a` because it was mutably borrowed}}
+    struct M m = { .a = &a, .n = &n }; // expected-error {{cannot use 'a' because it was mutably borrowed}}
     p1 = &_Mut *m.a;
     p2 = &_Mut m.n->b;
     k.p = &_Mut *m.n->c;

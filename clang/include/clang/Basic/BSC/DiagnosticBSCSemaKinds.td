@@ -14,7 +14,7 @@ def err_incompatible_pointer_cast : Error<
 def err_incompatible_const_cast : Error<
   "incompatible conversion from const type '%0' to non-const type '%1' in member function call">;
 def err_incompatible_owned_cast : Error<
-  "incompatible conversion from non _Owned type '%0' to _Owned type '%1' in member function call">;
+  "incompatible conversion from non-_Owned type '%0' to _Owned type '%1' in member function call">;
 
 // BSC _Async/_Await warnings and errors.
 def err_async_non_function : Error<
@@ -34,9 +34,9 @@ def err_invalid_async_function : Error <
 // BSC ownership warnings and errors.
 def err_nested_owned_borrow_type_check : Error<
   "%select{"
-  "type of %2 cannot be qualified by '%1' |"
-  "type of %2 cannot be qualified by '%1', %3 contains '%1' type |"
-  "type of %2 cannot be qualified by '%1'(even indirectly), %3 contains '%1' type}0">;
+  "type of %2 cannot be qualified by '%1'|"
+  "type of %2 cannot be qualified by '%1' because %3 contains a '%1' type|"
+  "type of %2 cannot be qualified by '%1' (even indirectly) because %3 contains a '%1' type}0">;
 def err_owned_funcPtr_incompatible : Error<"cannot cast %0 to %1">;
 def err_owned_qualcheck_incompatible : Error<
   "incompatible _Owned types, cannot cast %0 to %1">;
@@ -60,25 +60,24 @@ def err_owned_raw_cast_disallowed : Error<
   "cannot cast between _Owned and raw pointer; use __move_to_raw or __take_from_raw for ownership transfer">;
 def err_owned_array_raw_cast_disallowed : Error<
   "cannot cast between _Owned _ArrayElem and raw pointer; use __move_array_to_raw or __take_array_from_raw for ownership transfer">;
-def err_typecheck_invalid_owned_binOp : Error<
-  "invalid operands to binary expression (%0 and %1)">;
-def err_typecheck_invalid_owned_arrsub : Error<
-  "_Owned pointer type (%0) do not support ArraySubscript operate">;
+def err_bsc_op_not_supported : Error<"%0 is not supported on %1">;
 def err_owned_temporary_memLeak : Error<
-  "memory leak because temporary variable '%0' is _Owned or indirect _Owned type">;
+  "the _Owned value of '%0' is discarded and would leak">;
+def err_owned_member_access_in_return : Error<
+  "cannot use a member of '%0' in a return expression because '%0' is destroyed before the return; copy the member to a local first">;
 def err_funcPtr_incompatible : Error<
   "incompatible _Borrow function pointer types, cannot cast %0 to %1">;
 def err_borrow_on_borrow : Error<"%0 on a '_Borrow' qualified type is not allowed">;
 def err_mut_expr_unmodifiable  : Error<"the expression after '&_Mut' must be modifiable">;
-def err_mut_or_const_expr_func : Error<"'%0' for function pointer is not allowed">;
+def err_mut_or_const_expr_func : Error<"%0 cannot be applied to a %select{function|function pointer}1">;
 def err_safe_mut : Error<"global or static variables are not allowed to be mutably borrowed within the safe zone">;
-def err_move_borrow : Error<"_Borrow type does not allow move ownership">;
-def err_typecheck_invalid_borrow_not_pointer : Error<"_Borrow type requires a pointer or reference (%0 is invalid)">;
+def err_move_borrow : Error<"cannot take ownership of a borrowed value">;
+def err_typecheck_invalid_borrow_not_pointer : Error<"'_Borrow' can only be applied to a pointer type; %0 is not a pointer">;
 def err_borrow_qualcheck_incompatible : Error<
   "incompatible _Borrow types, cannot cast %0 to %1">;
 def err_borrow_qualcheck_compare : Error<
   "incompatible _Borrow types, %0 and %1 cannot be compared">;
-def err_typecheck_borrow_func : Error<"no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified">;
+def err_typecheck_borrow_func : Error<"return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified">;
 def err_typecheck_borrow_subscript : Error<"subscript of _Borrow pointer is not allowed">;
 def err_owned_and_borrow_conflict : Error<"cannot combine '_Owned' and '_Borrow' qualifiers on the same type">;
 def err_bsc_qualifier_in_knr_function : Error<
@@ -86,9 +85,9 @@ def err_bsc_qualifier_in_knr_function : Error<
 def err_owned_qualifier_non_pointer : Error<
   "type of %1 cannot be qualified by '%0'">;
 def err_arrayelem_requires_safe_pointer : Error<
-  "'_ArrayElem' must be used with '_Owned' or '_Borrow' together to qualify a pointer type">;
+  "'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type">;
 def err_arrayelem_invalid_pointee : Error<
-  "pointee type of %0 cannot be _Owned or _Borrow pointers or contain _Owned or _Borrow qualified fields">;
+  "pointee type of %0 cannot be an _Owned or _Borrow pointer or contain _Owned or _Borrow qualified fields">;
 
 
 // BSC trait warnings and errors.
@@ -135,12 +134,10 @@ def note_unsafe_cast_non_trivial_pointee_type : Note<
 def note_inc_dec_void_in_safe_zone : Note<
   "prefix/postfix '++' and '--' in safe zone produce void; use only for side effect">;
 def err_safe_zone_ptr_arithmetic : Error<
-  "use of %select{'++'|'--'}0 on raw pointer not supported in safe zone; "
-  "consider wrap in '_Unsafe { ... }'">;
+  "use of %select{'++'|'--'}0 on a raw pointer is not supported in the safe "
+  "zone; consider wrapping it in '_Unsafe { ... }'">;
 def note_bsc_ptr_declared_here : Note<
   "pointer %0 declared here">;
-def err_bsc_ptr_inc_dec : Error<
-  "%select{'++'|'--'}0 is not supported on %1">;
 def note_bsc_ptr_inc_dec_fix_named : Note<
   "%select{|use '_Borrow _ArrayElem' or }0declare %1 as a raw pointer for pointer arithmetic">;
 def note_bsc_ptr_inc_dec_fix_anon : Note<
@@ -152,7 +149,7 @@ def note_unsafe_to_safe_function_pointer : Note<
   "assigning an unsafe function pointer to a safe function pointer type is not allowed">;
 def note_safe_to_unsafe_function_no_unsafe_decl : Note<
   "function %0 has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer">;
-def err_safe_function : Error<"%0 is forbidden in the _Safe function">;
+def err_safe_function : Error<"%0 is forbidden in a _Safe function">;
 def err_safe_global_var : Error<"defining mutable global variables is not allowed within the safe zone"> ;
 def err_bsc_generic_heterogeneous_redecl : Error<"generic function %0 cannot have both _Safe and _Unsafe declarations">;
 def err_bsc_incompatible_heterogeneous_redecl_type : Error<
@@ -178,22 +175,22 @@ def note_bsc_heterogeneous_candidate_arg_count : Note<
 def err_safe_string_init_too_long : Error<
   "too-long initializer-string for char array is forbidden in safe zone; array size %0 cannot hold string of length %1 (including null terminator)">;
 def note_safe_string_init_too_long_hint : Note<
-  "adjust the length of the array or string, or wrap it with `_Unsafe`">;
+  "adjust the length of the array or string, or wrap it with '_Unsafe'">;
 
 // BSC _Owned struct
 def err_invalid_member_use_in_class_method : Error <
   "invalid implicit use of member %0 in struct member function">;
 def err_static_class_func : Error<
   "function declared in struct scope cannot have 'static' storage class">;
-  def err_need_explicit_constructor_owned_struct : Error<"need explicit constructor because %0 has private field">;
-def err_struct_member_redeclared : Error<"struct member cannot be redeclared">;
+  def err_need_explicit_constructor_owned_struct : Error<"%0 requires an explicit constructor because it has a _Private field">;
 
 // BSC Destructor
 def invalid_param_for_destructor : Error<"the parameter of destructor must be '%0 this'">;
 def invalid_param_num_for_destructor : Error<"destructor can only have one parameter">;
 def err_destructor_call : Error<"destructor %0 cannot be called directly">;
 def err_assignment_in_destructor : Error<"'this' cannot be moved in destructor">;
-def warn_destructor_execute : Warning<"the destructor may be not executed">,
+def warn_destructor_execute : Warning<
+  "destructor of %0 may not run because the switch can jump over its initialization">,
 InGroup<BSCOwnedStruct>;
 def err_owned_struct_destructor_name : Error<"expected the _Owned struct name after '~' to name the enclosing _Owned struct">;
 def err_owned_struct_destructor_body : Error<"destructor must have a function body">;
@@ -201,21 +198,19 @@ def err_owned_struct_destructor_body : Error<"destructor must have a function bo
 // BSC Ownership Analysis errors.
 // use
 def err_ownership_use_moved : Error<
-  "use of moved value: `%0`">;
+  "use of moved value: '%0'">;
 def err_ownership_use_partially_moved : Error<
-  "use of partially moved value: `%0`, %1 moved">;
+  "use of partially moved value: '%0', %1 moved">;
 def err_ownership_use_all_moved: Error<
-  "use of all moved value: `%0`">;
+  "use of '%0' after all its fields were moved">;
 def err_ownership_use_uninit : Error<
-  "use of uninitialized value: `%0`">;
+  "use of uninitialized value: '%0'">;
 def err_ownership_use_possibly_uninit : Error<
-  "use of possibly uninitialized value: `%0`">;
+  "use of possibly uninitialized value: '%0'">;
 
 // return value initialization
 def err_return_uninit : Error<
-  "return value of `%0` is not initialized on all paths">;
-def err_return_possibly_uninit : Error<
-  "return value of `%0` may not be initialized on all paths">;
+  "non-void function '%0' does not return a value%select{| in all control paths}1">;
 
 // ensure_init contract verification
 def err_ensure_init_not_init : Error<
@@ -305,63 +300,59 @@ def note_assume_init_complex_arg_hint : Note<
 
 // assign
 def err_ownership_assign_owned : Error<
-  "assign to _Owned value: `%0`">;
+  "cannot assign to '%0' because it still holds an _Owned value; move or free it first">;
 def err_ownership_assign_partially_moved : Error<
-  "assign to partially moved value: `%0`, %1 moved">;
-def err_ownership_assign_possibly_partially_moved : Error<
-  "assign to possibly partially moved value: `%0`, %1 possibly moved">;
+  "cannot assign to '%0': %1 %select{|possibly }2moved out and the remaining _Owned fields would leak">;
 def err_ownership_assign_all_moved : Error<
-  "assign to all moved value: `%0`">;
+  "cannot assign to '%0': all fields were moved but '%0' still owns its allocation">;
 // field assign
 def err_ownership_assign_field_uninit : Error<
-  "assign to part of uninitialized value: `%0`">;
+  "cannot assign to a field of '%0' because '%0' is uninitialized">;
 def err_ownership_assign_field_owned : Error<
-  "assign to part of _Owned value: `%0`">;
+  "cannot assign to '%0' because it still holds an _Owned value; move or free it first">;
 def err_ownership_assign_field_moved : Error<
-  "assign to part of moved value: `%0`">;
+  "cannot assign to '%0' because the value it belongs to was moved">;
 def err_ownership_assign_field_subfield_owned : Error<
-  "assign to subfield _Owned value: `%0`, %1 _Owned">;
+  "cannot assign to '%0': %1 still _Owned and would leak">;
 
-// cast to `void * _Owned`
+// cast to 'void * _Owned'
 def err_ownership_cast_moved : Error<
-  "invalid cast to `void * _Owned` of moved or uninitialized value: `%0`">;
-def err_ownership_cast_owned : Error<
-  "invalid cast to `void * _Owned` of _Owned value: `%0`">;
+  "cannot cast '%0' to 'void * _Owned' because it was moved">;
 def err_ownership_cast_uninit: Error<
-  "invalid cast to `void * _Owned` of uninit value: `%0`">;
+  "cannot cast '%0' to 'void * _Owned' because it is uninitialized">;
 def err_ownership_cast_subfield_owned : Error<
-  "invalid cast to `void * _Owned` of not all moved value: `%0`, %1 _Owned">;
+  "cannot cast '%0' to 'void * _Owned': %1 still _Owned; move it out first">;
 // memory leak
 def err_ownership_memory_leak_field : Error<
-  "field memory leak of value: `%0`, %1 leak">;
+  "memory leak because %1 not freed or moved before '%0' goes out of scope">;
 def err_ownership_memory_leak : Error<
-  "memory leak of value: `%0`">;
-def err_ownership_owned_struct_patially_moved : Error<
-  "partially moved _Owned struct:`%0` at scope end, %1 moved">;
+  "memory leak because '%0' is not freed or moved before it goes out of scope">;
+def err_ownership_owned_struct_partially_moved : Error<
+  "partially moved _Owned struct: '%0' at scope end, %1 moved">;
 def err_ownership_owned_struct_not_properly_freed : Error<
-  "destructor for`%0` incorrect, %1 of _Owned type and needs to be handled manually">;
+  "%1 not freed in the destructor of '%0'; _Owned fields must be freed or moved manually">;
 def err_ownership_cast_pass_to_arg_or_ret: Error<
-  "cannot pass or return a cast from 'void *_Owned' to %0 because it would use a moved value">;
+  "cannot pass or return a cast from 'void * _Owned' to %0 because it would use a moved value">;
 
 // New BSC Borrow Checker errors.
 def err_borrow_assign_when_borrowed : Error<
-  "cannot assign to `%0` because it is borrowed">;
+  "cannot assign to '%0' because it is borrowed">;
 def err_borrow_move_when_borrowed : Error<
-  "cannot move out of `%0` because it is borrowed">;
+  "cannot move out of '%0' because it is borrowed">;
 def err_borrow_use_when_mut_borrowed : Error<
-  "cannot use `%0` because it was mutably borrowed">;
-def note_borrowed_here : Note<"`%0` is borrowed here">;
+  "cannot use '%0' because it was mutably borrowed">;
+def note_borrowed_here : Note<"'%0' is borrowed here">;
 def err_borrow_mut_borrow_more_than_once : Error<
-  "cannot borrow `%0` as mutable more than once at a time">;
+  "cannot borrow '%0' as mutable more than once at a time">;
 def note_first_mut_borrow_occurs_here : Note<"first mut borrow occurs here">;
 def err_borrow_not_live_long : Error<
-  "`%0` does not live long enough">;
-def note_dropped_while_borrowed: Note<"`%0` dropped here while still borrowed">;
+  "'%0' does not live long enough">;
+def note_dropped_while_borrowed: Note<"'%0' dropped here while still borrowed">;
 def err_borrow_immut_borrow_when_mut_borrowed : Error<
-  "cannot borrow `%0` as immutable because it is also borrowed as mutable">;
+  "cannot borrow '%0' as immutable because it is also borrowed as mutable">;
 def note_mutable_borrow_occurs_here : Note<"mutable borrow occurs here">;
 def err_borrow_mut_borrow_when_immut_borrowed : Error<
-  "cannot borrow `%0` as mutable because it is also borrowed as immutable">;
+  "cannot borrow '%0' as mutable because it is also borrowed as immutable">;
 def note_immutable_borrow_occurs_here : Note<"immutable borrow occurs here">;
 
 // BSC operator overload errors.
@@ -399,7 +390,8 @@ def note_global_nonnull_init_reason : Note<
 def err_mut_borrow_string_literal : Error<
   "cannot take mutable borrow of string literal with '&_Mut'; string literals are immutable">;
 def err_mut_borrow_string_literal_indirect : Error<
-  "cannot take mutable borrow into string literal storage; string literals are immutable">;
+  "cannot take mutable borrow into string literal storage; string literals are "
+  "immutable; use '&_Const' with a 'const %0 *_Borrow' target, or a plain 'const %0 *'">;
 def err_pass_string_literal_to_mut_borrow : Error<
   "cannot pass string literal to parameter of type %0; string literals are immutable">;
 

@@ -7,5 +7,5 @@ typedef struct A {
 } A;
 
 void test1(A * _Owned p) {
-	free_owned_new((void * _Owned)p); // expected-error{{invalid cast to `void * _Owned` of not all moved value: `p`, p.a is _Owned}}
+	free_owned_new((void * _Owned)p); // expected-error{{cannot cast 'p' to 'void * _Owned': p.a is still _Owned; move it out first}}
 }

@@ -11,49 +11,49 @@
 _Safe int *_Owned make(void);
 
 _Safe void direct(void) {
-  make(); // expected-error {{memory leak because temporary variable}}
+  make(); // expected-error {{the _Owned value of}}
 }
 
 _Safe void paren(void) {
-  (make()); // expected-error {{memory leak because temporary variable}}
+  (make()); // expected-error {{the _Owned value of}}
 }
 
 _Safe void paren_nested(void) {
-  ((make())); // expected-error {{memory leak because temporary variable}}
+  ((make())); // expected-error {{the _Owned value of}}
 }
 
 _Safe void cast_wrap(void) {
-  (int *_Owned)make(); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  (int *_Owned)make(); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
 _Safe void logical_not(void) {
-  !make(); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  !make(); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
 _Safe void logical_not_combinations(int c) {
-  !((make())); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
-  !((int *_Owned)make()); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
-  !(make(), c); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
-  !(c ? make() : make()); // expected-error 2 {{memory leak because temporary variable}} expected-warning {{expression result unused}}
-  c ? !make() : !make(); // expected-error 2 {{memory leak because temporary variable}} expected-warning {{expression result unused}}
-  make() ?: make(); // expected-error 2 {{memory leak because temporary variable}}
+  !((make())); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
+  !((int *_Owned)make()); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
+  !(make(), c); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
+  !(c ? make() : make()); // expected-error 2 {{the _Owned value of}} expected-warning {{expression result unused}}
+  c ? !make() : !make(); // expected-error 2 {{the _Owned value of}} expected-warning {{expression result unused}}
+  make() ?: make(); // expected-error 2 {{the _Owned value of}}
 }
 
 _Safe void comma(void) {
-  (void)0, make(); // expected-error {{memory leak because temporary variable}}
+  (void)0, make(); // expected-error {{the _Owned value of}}
 }
 
 _Safe void comma_lhs(void) {
-  make(), 0; // expected-error {{memory leak because temporary variable}}
+  make(), 0; // expected-error {{the _Owned value of}}
 }
 
 _Safe int return_comma_lhs(void) {
-  return (make(), nullptr); // expected-error {{memory leak because temporary variable}}
+  return (make(), nullptr); // expected-error {{the _Owned value of}}
   // expected-error@-1 {{implicit conversion from type 'nullptr_t' to 'int' is forbidden in the safe zone}}
 }
 
 _Safe int return_comma_lhs_clean(void) {
-  return (make(), 0); // expected-error {{memory leak because temporary variable}}
+  return (make(), 0); // expected-error {{the _Owned value of}}
 }
 
 _Safe int *_Owned return_comma_rhs(void) {
@@ -61,24 +61,24 @@ _Safe int *_Owned return_comma_rhs(void) {
 }
 
 _Safe void initialize_from_comma_rhs(void) {
-  int value = (make(), 0); // expected-error {{memory leak because temporary variable}}
+  int value = (make(), 0); // expected-error {{the _Owned value of}}
 }
 
 _Safe void conditional(int c) {
-  c ? make() : nullptr; // expected-error {{memory leak because temporary variable}}
+  c ? make() : nullptr; // expected-error {{the _Owned value of}}
 }
 
 _Safe void conditional_cond(void) {
-  make() ? 0 : 1; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  make() ? 0 : 1; // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
 // GNU `x ?: y` (BinaryConditionalOperator) -- the reused common expression is
 // the discarded owned temporary.
 _Safe void gnu_conditional(void) {
-  make() ?: nullptr; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  make() ?: nullptr; // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
 // _Safe(...) wrapper (BSC SafeExpr) -- stripped by IgnoreParenCastsSafe.
 _Safe void safe_wrap(void) {
-  _Safe(make()); // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  _Safe(make()); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }

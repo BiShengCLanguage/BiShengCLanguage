@@ -19,7 +19,7 @@ _Safe void test_init_inside_loop_only(int n) {
         x = n;
         n = n - 1;
     }
-    int y = x; // expected-error {{use of possibly uninitialized value: `x`}}
+    int y = x; // expected-error {{use of possibly uninitialized value: 'x'}}
 }
 
 // Variable used inside loop body must be initialized before the loop.
@@ -27,7 +27,7 @@ _Safe void test_use_inside_loop(int n) {
     int x;
     int sum = 0;
     while (n > 0) {
-        sum = sum + x; // expected-error {{use of uninitialized value: `x`}}
+        sum = sum + x; // expected-error {{use of uninitialized value: 'x'}}
         n = n - 1;
     }
 }

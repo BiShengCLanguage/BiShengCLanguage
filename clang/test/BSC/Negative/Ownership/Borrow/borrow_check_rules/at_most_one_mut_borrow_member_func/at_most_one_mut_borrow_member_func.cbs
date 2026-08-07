@@ -14,7 +14,7 @@ void use_immut(const int *_Borrow p);
 void test1() {
   int a = 5;
   int *_Borrow p = a.get_mut_borrow(); // expected-note {{first mut borrow occurs here}}
-  int *_Borrow q = a.get_mut_borrow(); // expected-error {{cannot borrow `a` as mutable more than once at a time}}
+  int *_Borrow q = a.get_mut_borrow(); // expected-error {{cannot borrow 'a' as mutable more than once at a time}}
   use_mut(p);
   use_mut(q);
 }
@@ -22,7 +22,7 @@ void test1() {
 void test2() {
   int a = 5;
   const int *_Borrow p = a.get_immut_borrow(); // expected-note {{immutable borrow occurs here}}
-  int *_Borrow q = a.get_mut_borrow(); // expected-error {{cannot borrow `a` as mutable because it is also borrowed as immutable}}
+  int *_Borrow q = a.get_mut_borrow(); // expected-error {{cannot borrow 'a' as mutable because it is also borrowed as immutable}}
   use_immut(p);
   use_mut(q);
 }

@@ -5,7 +5,7 @@ struct A {};
 void func4(int * _Owned a) {
 	return;
 	int * b = __move_to_raw(a);
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func5(int num) {
 	int b = 5;
@@ -14,26 +14,26 @@ void func5(int num) {
 	if (num > 0) {
 		a = p;
 	} else {
-		return; // expected-error {{memory leak of value: `p`}}
+		return; // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 	}
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func(struct A * _Owned a) {
 	struct A * _Owned b = a;
-} // expected-error {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func9(int * _Owned a) {
 	{
 		int * p = __move_to_raw(a);
 	}
 	{
-		int * _Owned q = a; // expected-error {{use of moved value: `a`}}
-	} // expected-error {{memory leak of value: `q`}}
+		int * _Owned q = a; // expected-error {{use of moved value: 'a'}}
+	} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 }
 
 _Bool owned_cannot_return_as_bool(int *_Owned _Nullable p) {
 	return p;
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Bool borrow_can_return_as_bool(int *_Borrow _Nullable p) {
 	return p;

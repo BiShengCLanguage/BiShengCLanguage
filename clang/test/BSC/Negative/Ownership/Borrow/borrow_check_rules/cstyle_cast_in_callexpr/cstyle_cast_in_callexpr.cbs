@@ -3,6 +3,6 @@
 int *_Borrow foo(int *_Borrow p, int *_Borrow q);
 
 void test(int *p) {
-  int *_Borrow m = foo((int *_Borrow)p, (int *_Borrow)p); // expected-error {{cannot borrow `*p` as mutable more than once at a time}} // expected-note {{first mut borrow occurs here}}                              
+  int *_Borrow m = foo((int *_Borrow)p, (int *_Borrow)p); // expected-error {{cannot borrow '*p' as mutable more than once at a time}} // expected-note {{first mut borrow occurs here}}                              
   *m = 2;
 } 

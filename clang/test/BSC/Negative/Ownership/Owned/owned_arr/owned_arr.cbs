@@ -6,8 +6,8 @@ typedef struct A {
 
 void test() {
     _Owned int arr1[10]; // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of array cannot be qualified by '_Owned}}
-    SA arr2[3];         // expected-error {{type of array cannot be qualified by '_Owned'(even indirectly), 'SA' (aka 'struct A') contains '_Owned' type}}
-    struct A arr[4];    // expected-error {{type of array cannot be qualified by '_Owned'(even indirectly), 'struct A' contains '_Owned' type}}
+    SA arr2[3];         // expected-error {{type of array cannot be qualified by '_Owned' (even indirectly) because 'SA' (aka 'struct A') contains a '_Owned' type}}
+    struct A arr[4];    // expected-error {{type of array cannot be qualified by '_Owned' (even indirectly) because 'struct A' contains a '_Owned' type}}
     _Owned int* arr3[2]; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     SA* arr4[3];
     return;

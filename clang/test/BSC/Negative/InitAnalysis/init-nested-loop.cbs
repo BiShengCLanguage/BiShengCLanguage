@@ -14,5 +14,5 @@ _Safe void test_nested_in_loop(int n) {
         o.inner.b = n;
         n = n - 1;
     }
-    int val = o.inner.b; // expected-error {{use of possibly uninitialized value: `o.inner.b`}}
+    int val = o.inner.b; // expected-error {{use of possibly uninitialized value: 'o.inner.b'}}
 }

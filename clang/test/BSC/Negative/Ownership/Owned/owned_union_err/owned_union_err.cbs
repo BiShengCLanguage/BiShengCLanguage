@@ -20,7 +20,7 @@ union A {
 
 typedef _Owned int ownedInt; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 union B {
-    ownedInt a; //expected-error {{type of union field cannot be qualified by '_Owned', 'ownedInt' (aka '_Owned int') contains '_Owned' type}}
+    ownedInt a; //expected-error {{type of union field cannot be qualified by '_Owned' because 'ownedInt' (aka '_Owned int') contains a '_Owned' type}}
 };
 
 struct S {

@@ -6,19 +6,19 @@ struct S * _Owned initS();
 int f1() {
 	int * _Owned a = initIPO(), * _Owned b;
 	b = a;
-	return 0; // expected-error {{memory leak of value: `b`}}
+	return 0; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 int f2() {
 	int * _Owned a = initIPO(), * _Owned b = a;
-	return 0; // expected-error {{memory leak of value: `b`}}
+	return 0; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 int f3() {
 	int * _Owned a = initIPO(), * _Owned b, * _Owned c;
 	b = a;
 	c = b;
-	return 0; // expected-error {{memory leak of value: `c`}}
+	return 0; // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 }
 
 int f4() {
@@ -30,7 +30,7 @@ int f4() {
 	} else {
 		c = a;
 	}
-	return 0; // expected-error {{memory leak of value: `b`}} expected-error {{memory leak of value: `c`}}
+	return 0; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 }
 
 int f5() {
@@ -38,9 +38,9 @@ int f5() {
 	int * _Owned a = initIPO();
 	if (flag) {
 		int * _Owned b = a;
-	} else { // expected-error {{memory leak of value: `b`}}
+	} else { // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 		int * _Owned c = a;
-	} // expected-error {{memory leak of value: `c`}}
+	} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 	return 0;
 }
 
@@ -54,7 +54,7 @@ int f6() {
 		case 2: c = b; break;
 		default: break;
 	}
-	return 0; // expected-error {{memory leak of value: `c`}} expected-error {{memory leak of value: `b`}} expected-error {{memory leak of value: `a`}}
+	return 0; // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 }
 
 int f7() {
@@ -62,8 +62,8 @@ int f7() {
 	int * _Owned b = initIPO();
 	{
 		int * _Owned c = b;
-	} // expected-error {{memory leak of value: `c`}}
-	return 0; // expected-error {{memory leak of value: `a`}}
+	} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
+	return 0; // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 }
 
 struct S {
@@ -74,7 +74,7 @@ struct S {
 int f8() {
 	struct S * _Owned s1 = initS();
 	struct S * _Owned s2 = s1;
-	return 0; // expected-error {{memory leak of value: `s2`}}
+	return 0; // expected-error {{memory leak because 's2' is not freed or moved before it goes out of scope}}
 }
 
 int f9() {
@@ -83,7 +83,7 @@ int f9() {
 		int * _Owned b = a;
 		{
 			int * _Owned c = b;
-		} // expected-error {{memory leak of value: `c`}}
+		} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 	}
 	return 0;
 }
@@ -92,7 +92,7 @@ int f10() {
 	int local = 1;
 	int * _Owned a = __take_from_raw(&local);
 	int * _Owned b = a;
-	return 0; // expected-error {{memory leak of value: `b`}}
+	return 0; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 int * _Owned f11(int * _Owned a)
@@ -100,7 +100,7 @@ int * _Owned f11(int * _Owned a)
   const int local = 2;
   const int * _Owned b = __take_from_raw(&local);
   *a -= *b;
-  return a; // expected-error {{memory leak of value: `b`}}
+  return a; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 int * _Owned f12(int * _Owned a)
@@ -108,5 +108,5 @@ int * _Owned f12(int * _Owned a)
   const int local = 1;
   const int * _Owned b = __take_from_raw(&local);
   *a = *a - *b;
-  return a; // expected-error {{memory leak of value: `b`}}
+  return a; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }

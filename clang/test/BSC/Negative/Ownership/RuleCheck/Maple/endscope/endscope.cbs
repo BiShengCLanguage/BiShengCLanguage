@@ -18,44 +18,44 @@ struct A {
     struct A *f;
 };
 
-void func1(struct A a) {} // expected-error {{field memory leak of value: `a`, a.b.a, a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c... are leak}}
+void func1(struct A a) {} // expected-error {{memory leak because a.b.a, a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c... are not freed or moved before 'a' goes out of scope}}
 
 void func(struct A a) {
     int * x = __move_to_raw(a.b.a);
-} // expected-error {{field memory leak of value: `a`, a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c, a.c.c.a... are leak}}
+} // expected-error {{memory leak because a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c, a.c.c.a... are not freed or moved before 'a' goes out of scope}}
 
 void func2(struct A * _Owned a) {
     int *b = __move_to_raw(a->b.a);
-} // expected-error {{memory leak of value: `a`}}
-  // expected-error@-1 {{field memory leak of value: `a`, a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c, a.c.c.a... are leak}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because a.b.b, a.b.c, a.b.c.a, a.b.c.b, a.c, a.c.a, a.c.b, a.c.c, a.c.c.a... are not freed or moved before 'a' goes out of scope}}
 
-void endscope_0(int * _Owned * _Owned * _Owned a, int *b) {} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}}
+void endscope_0(int * _Owned * _Owned * _Owned a, int *b) {} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}}
 
 void endscope_00(int * _Owned * _Owned * _Owned a, int *b) {
     int c = ***a;
-} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}}
 
 void endscope_1(int * _Owned * _Owned * _Owned a) {
     {}
-} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}}
 
 void endscope_2(int * _Owned * _Owned * _Owned a) {
     return;
-} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}}
 
 void endscope_3(int * _Owned * _Owned * _Owned a) {
     int * _Owned * _Owned * _Owned b = a;
-} // expected-error {{memory leak of value: `b`}} expected-error {{field memory leak of value: `b`, *b, **b are leak}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *b, **b are not freed or moved before 'b' goes out of scope}}
 
 void endscope_4(int * _Owned * _Owned * _Owned a) {
     int * _Owned * _Owned * _Owned b = a;
     *b; // expected-warning {{expression result unused}}
-} // expected-error {{memory leak of value: `b`}} expected-error {{field memory leak of value: `b`, *b, **b are leak}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *b, **b are not freed or moved before 'b' goes out of scope}}
 
 __attribute__((__noinline__))
 void * _Owned VoidPtrOwned() {
     void * _Owned a;
-    return a; // expected-error {{use of uninitialized value: `a`}}
+    return a; // expected-error {{use of uninitialized value: 'a'}}
 }
 
 void endscope_5() {
@@ -63,7 +63,7 @@ void endscope_5() {
         void * _Owned c = VoidPtrOwned();
         void * _Owned d = VoidPtrOwned();
         void * _Owned e = VoidPtrOwned();
-    } // expected-error {{memory leak of value: `e`}} expected-error {{memory leak of value: `d`}} expected-error {{memory leak of value: `c`}}
+    } // expected-error {{memory leak because 'e' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'd' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 }
 
 void endscope_6(int * _Owned * _Owned * _Owned a, int * _Owned * _Owned * _Owned b) {
@@ -77,4 +77,4 @@ void endscope_6(int * _Owned * _Owned * _Owned a, int * _Owned * _Owned * _Owned
         return;
     }
     return;
-} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}} expected-error {{memory leak of value: `b`}} expected-error {{field memory leak of value: `b`, *b, **b are leak}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *b, **b are not freed or moved before 'b' goes out of scope}}

@@ -18,8 +18,8 @@ void func1(int n) {
         default:
             break;
     }
-    b = __take_from_raw(&num); // expected-error {{assign to _Owned value: `b`}}
-} // expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `b`}}
+    b = __take_from_raw(&num); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func2(int n) {
     int num = 5;
@@ -45,8 +45,8 @@ void func2(int n) {
             break;
         }
     }
-    b = __take_from_raw(&num); // expected-error {{assign to _Owned value: `b`}}
-} // expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `b`}}
+    b = __take_from_raw(&num); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func3(int n) {
     int num = 5;
@@ -66,7 +66,7 @@ void func3(int n) {
         default:
             break;
     }
-}  // expected-error {{memory leak of value: `a`}}
+}  // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func4(int n) {
     int num = 5;
@@ -84,7 +84,7 @@ void func4(int n) {
         case 2:
             a = __take_from_raw(&num);
         case 4: {
-            a = __take_from_raw(&num); // expected-error {{assign to _Owned value: `a`}}
+            a = __take_from_raw(&num); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
         }
             break;
         case 5:
@@ -92,7 +92,7 @@ void func4(int n) {
         default:
             break;
     }
-    int * b = __move_to_raw(a); // expected-error {{use of possibly uninitialized value: `a`}}
+    int * b = __move_to_raw(a); // expected-error {{use of possibly uninitialized value: 'a'}}
 }
 
 void func5(int n) {
@@ -107,7 +107,7 @@ void func5(int n) {
                 }
             }
         case 1:
-            a = __take_from_raw(&num); // expected-error {{assign to _Owned value: `a`}}
+            a = __take_from_raw(&num); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
             break;
         case 4:
             for (int i = 0; i < 10; i++)
@@ -117,7 +117,7 @@ void func5(int n) {
         default:
             break;
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func6(int n) {
     int num = 5;
@@ -128,12 +128,12 @@ void func6(int n) {
             for (int i = 0; i < 10; i++)
                 break;
         case 2:
-            a = __take_from_raw(&num); // expected-error {{assign to _Owned value: `a`}}
+            a = __take_from_raw(&num); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
             break;
         default:
             break;
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func7(int n) {
     int num = 5;
@@ -145,13 +145,13 @@ void func7(int n) {
                 b = a;
 
             if (num < 5)
-                b = a; // expected-error {{assign to _Owned value: `b`}} expected-error {{use of moved value: `a`}}
+                b = a; // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'a'}}
             break;
         }
         case 1:
             b = a;
             {
-                b = a; // expected-error {{assign to _Owned value: `b`}} expected-error {{use of moved value: `a`}}
+                b = a; // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'a'}}
                 break;
             }
         case 4:
@@ -159,12 +159,12 @@ void func7(int n) {
             for (int i = 0; i < 10; i++)
                 break;
         case 5:
-            b = __take_from_raw(&num); // expected-error {{assign to _Owned value: `b`}}
+            b = __take_from_raw(&num); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
         default: {
             break;
         }
     }
-} // expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func8(int n) {
     int num = 5;
@@ -193,7 +193,7 @@ void func8(int n) {
             break;
         }
     }
-} // expected-error {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func9(int n) {
     int num = 5;
@@ -216,14 +216,14 @@ void func9(int n) {
                 break;
         }
         case 5: {
-            b = a; // expected-error {{assign to _Owned value: `b`}} expected-error {{use of moved value: `a`}}
+            b = a; // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'a'}}
             break;
         }
         default: {
             break;
         }
     }
-} // expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void ptr_cannot_switch(int *_Owned _Nullable p, int *_Borrow _Nullable q) {
     switch(p) { // expected-error {{statement requires expression of integer type ('int *_Owned _Nullable' invalid)}}

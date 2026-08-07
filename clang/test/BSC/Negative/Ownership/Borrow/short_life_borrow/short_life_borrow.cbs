@@ -4,7 +4,7 @@ void use_mut(int *_Borrow p);
 void test1(int *_Borrow p) {
   {
     int local1 = 42;
-    p = &_Mut local1; // expected-error {{`local1` does not live long enough}}
-  } // expected-note {{`local1` dropped here while still borrowed}}
+    p = &_Mut local1; // expected-error {{'local1' does not live long enough}}
+  } // expected-note {{'local1' dropped here while still borrowed}}
   use_mut(p);
 }

@@ -6,33 +6,33 @@ void owned_comma_reuse_diff(int *_Owned _Nullable p,
                             int *_Owned _Nullable q) {
     int *_Owned _Nullable r = (p, q); // expected-warning {{left operand of comma operator has no effect}}
     exhaust(r);
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void owned_comma_nested(int *_Owned _Nullable p, int *_Owned _Nullable q,
                         int *_Owned _Nullable r) {
     int *_Owned _Nullable s = ((p, q), r); // expected-warning {{left operand of comma operator has no effect}}
     // expected-warning@-1 {{left operand of comma operator has no effect}}
     exhaust(s);
-} // expected-error {{memory leak of value: `p`}} 
-// expected-error@-1 {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} 
+// expected-error@-1 {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 int *_Owned _Nullable owned_comma_return(int *_Owned _Nullable p,
                                         int *_Owned _Nullable q) {
     return (p, q); // expected-warning {{left operand of comma operator has no effect}}
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 int *_Owned _Nullable owned_comma_return_nested(
     int *_Borrow _Nullable b, int *_Owned _Nullable p,
     int *_Owned _Nullable q) {
     return ((b, p), q); // expected-warning {{left operand of comma operator has no effect}}
     // expected-warning@-1 {{left operand of comma operator has no effect}}
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void multi_free(int *_Owned _Nullable p, int x) {
     if (p) {
         int *_Borrow _Nullable r = (++x, &_Mut *p);
         exhaust(p);
-        int *_Owned _Nullable q = (++x, p); // expected-error {{use of moved value: `p`}}
+        int *_Owned _Nullable q = (++x, p); // expected-error {{use of moved value: 'p'}}
         exhaust(q);
     }
 }

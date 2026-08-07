@@ -12,7 +12,7 @@ void test_direct_mut() {
 }
 
 void test_indirect_mut() {
-  const char * _Borrow p = &_Mut * "hello";  // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  const char * _Borrow p = &_Mut * "hello";  // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void test_indirect_mut_via_var() {

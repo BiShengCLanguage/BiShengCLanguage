@@ -23,7 +23,7 @@ _Safe void test_three_level_missing_deep(void) {
     // s.mid.inner.y missing
     s.mid.z = 3;
     s.w = 4;
-    int val = s.mid.inner.y; // expected-error {{use of uninitialized value: `s.mid.inner.y`}}
+    int val = s.mid.inner.y; // expected-error {{use of uninitialized value: 's.mid.inner.y'}}
 }
 
 // Missing an intermediate field
@@ -33,7 +33,7 @@ _Safe void test_three_level_missing_mid(void) {
     s.mid.inner.y = 2;
     // s.mid.z missing
     s.w = 4;
-    int val = s.mid.z; // expected-error {{use of uninitialized value: `s.mid.z`}}
+    int val = s.mid.z; // expected-error {{use of uninitialized value: 's.mid.z'}}
 }
 
 // Branch: deep field initialized on one path only
@@ -44,5 +44,5 @@ _Safe void test_three_level_branch(int cond) {
     s.w = 4;
     if (cond)
         s.mid.inner.y = 2;
-    int val = s.mid.inner.y; // expected-error {{use of possibly uninitialized value: `s.mid.inner.y`}}
+    int val = s.mid.inner.y; // expected-error {{use of possibly uninitialized value: 's.mid.inner.y'}}
 }

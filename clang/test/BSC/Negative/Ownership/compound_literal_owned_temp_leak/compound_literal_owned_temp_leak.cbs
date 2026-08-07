@@ -6,18 +6,18 @@ struct B { int *_Owned p; };
 int *_Owned mk(void);
 
 void bare_stmt(void) {
-  (struct S){.f = mk()}; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  (struct S){.f = mk()}; // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
 void multi_owned_field(void) {
-  (struct M){.f = mk(), .g = mk()}; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  (struct M){.f = mk(), .g = mk()}; // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
 int member_access(void) {
-  return (struct B){.p = mk()}.p == nullptr; // expected-error {{memory leak because temporary variable}}
+  return (struct B){.p = mk()}.p == nullptr; // expected-error {{the _Owned value of}}
 }
 
 void wrapped_literals(int c) {
-  (void)0, (struct S){.f = mk()}; // expected-error {{memory leak because temporary variable}} expected-warning {{expression result unused}}
-  c ? (struct S){.f = mk()} : (struct S){.f = mk()}; // expected-error 2 {{memory leak because temporary variable}} expected-warning {{expression result unused}}
+  (void)0, (struct S){.f = mk()}; // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
+  c ? (struct S){.f = mk()} : (struct S){.f = mk()}; // expected-error 2 {{the _Owned value of}} expected-warning {{expression result unused}}
 }

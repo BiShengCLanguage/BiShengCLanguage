@@ -22,21 +22,21 @@ struct B {
 };
 
 void test_memory_leak(struct A sa) {
-} // expected-error {{field memory leak of value: `sa`, sa.s is leak}}
+} // expected-error {{memory leak because sa.s is not freed or moved before 'sa' goes out of scope}}
 
 void test_no_leak(struct A sa) {
   S sp = sa.s;
 }
 
 void test_owned_pointer_A(struct A* _Owned ap) {
-} // expected-error {{memory leak of value: `ap`}}
-  // expected-error@-1 {{field memory leak of value: `ap`, ap.s is leak}}
+} // expected-error {{memory leak because 'ap' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because ap.s is not freed or moved before 'ap' goes out of scope}}
 
 void test_raw_pointer_A(struct A* ap) {
 }
 
 void test_nested_memory_leak(struct B sb) {
-} // expected-error {{field memory leak of value: `sb`, sb.t, sb.t.s are leak}}
+} // expected-error {{memory leak because sb.t, sb.t.s are not freed or moved before 'sb' goes out of scope}}
 
 void test_nested_no_leak(struct B sb) {
   T t = sb.t;
@@ -44,11 +44,11 @@ void test_nested_no_leak(struct B sb) {
 
 void test_partially_moved_leak1(struct B sb) {
   S s = sb.t.s;
-} // expected-error {{field memory leak of value: `sb`, sb.t is leak}}
+} // expected-error {{memory leak because sb.t is not freed or moved before 'sb' goes out of scope}}
 
 void test_partially_moved_leak2(struct B sb) {
   S s = sb.t.s;
-  T t = sb.t; // expected-error {{use of partially moved value: `sb.t`, sb.t.s is moved}}
+  T t = sb.t; // expected-error {{use of partially moved value: 'sb.t', sb.t.s is moved}}
 }
 
 struct A* _Owned change_to_owned_pointer(struct A a);
@@ -62,5 +62,5 @@ void use_after_free() {
   print(*ap);
   safe_free((void* _Owned)ap);
 
-  struct A an = a; // expected-error {{use of partially moved value: `a`, a.s is moved}}
-} // expected-error {{field memory leak of value: `an`, an.s is leak}}
+  struct A an = a; // expected-error {{use of partially moved value: 'a', a.s is moved}}
+} // expected-error {{memory leak because an.s is not freed or moved before 'an' goes out of scope}}

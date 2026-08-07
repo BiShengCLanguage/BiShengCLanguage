@@ -9,6 +9,6 @@ _Public:
 int main() {
 	short b = 5;
 	S s1;
-	s1.b = &b; // expected-error {{assign to part of uninitialized value: `s1`}}
+	s1.b = &b; // expected-error {{cannot assign to a field of 's1' because 's1' is uninitialized}}
 	return 0;
 }

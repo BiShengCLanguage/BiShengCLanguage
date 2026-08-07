@@ -2,23 +2,23 @@
 
 // Test field types of record decl type.
 struct S1 {
-  int _Borrow a1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int a2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  int _Borrow *a3; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int *a4; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  int _Borrow a1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int a2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  int _Borrow *a3; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int *a4; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   int *_Borrow a5;
   const int *_Borrow a6;
   int *_Borrow *a7;
 };
 
 union U1 {
-  int _Borrow a1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int a2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  int _Borrow *a3; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int *a4; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  int _Borrow a1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int a2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  int _Borrow *a3; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int *a4; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   int *_Borrow a5; // expected-error {{type of union field cannot be qualified by '_Borrow'}}
   const int *_Borrow a6; // expected-error {{type of union field cannot be qualified by '_Borrow'}}
-  int *_Borrow *a7; // expected-error {{type of union field cannot be qualified by '_Borrow'(even indirectly), 'int *_Borrow *' contains '_Borrow' type}}
+  int *_Borrow *a7; // expected-error {{type of union field cannot be qualified by '_Borrow' (even indirectly) because 'int *_Borrow *' contains a '_Borrow' type}}
 };
 
 // Test _Borrow qualifier cannot qualifies record decl.
@@ -44,73 +44,73 @@ _Borrow union U3<T> { // expected-warning {{'_Borrow' ignored on this declaratio
 
 // Test generic record decl type.
 struct S4<T> {
-  T _Borrow a1;  // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  T _Borrow a1;  // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   T *_Borrow a2;
 };
 
 // Test typedef decl.
-typedef int _Borrow         borrow_int_t; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+typedef int _Borrow         borrow_int_t; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 typedef int * _Borrow       borrow_int_ptr_t;
 typedef const int * _Borrow borrow_const_int_ptr_t;
-typedef struct S1 _Borrow   S1_borrow_t1; // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
-typedef _Borrow struct S1   S1_borrow_t2; // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
+typedef struct S1 _Borrow   S1_borrow_t1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
+typedef _Borrow struct S1   S1_borrow_t2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
 typedef struct S1 * S1_pt;
-typedef S1_pt _Borrow S1_pointer_borrow_t; // expected-error {{type of 'struct S1' cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
+typedef S1_pt _Borrow S1_pointer_borrow_t; // expected-error {{type of 'struct S1' cannot be qualified by '_Borrow' (even indirectly) because 'struct S1' contains a '_Borrow' type}}
 
 // Test global variables.
-int _Borrow        g_1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-_Borrow int        g_2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+int _Borrow        g_1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+_Borrow int        g_2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 int *_Borrow       g_3; // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 const int *_Borrow g_4; // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
-struct S1 _Borrow  g_5; // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
-                        // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
-_Borrow struct S1  g_6; // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
-                        // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
+struct S1 _Borrow  g_5; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
+                        // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1' contains a '_Borrow' type}}
+_Borrow struct S1  g_6; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
+                        // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1' contains a '_Borrow' type}}
 S4<int>            g_7; // expected-note {{in instantiation of template class 'S4<int>' requested here}}
 S4<int *>          g_8;
 // An array of a struct that indirectly contains a _Borrow is a no-lifetime slot
 // too and must be rejected (single- and multi-dimensional).
-struct S1           g_9[1];    // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[1]' contains '_Borrow' type}}
-struct S1           g_10[2][3]; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[2][3]' contains '_Borrow' type}}
+struct S1           g_9[1];    // expected-error {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1[1]' contains a '_Borrow' type}}
+struct S1           g_10[2][3]; // expected-error {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1[2][3]' contains a '_Borrow' type}}
 // A file-scope array of a struct holding a _Borrow field is a no-lifetime slot
 // and must be rejected (a borrow parked there would dangle).
 struct B { int *_Borrow f; };
-struct B            garr[1];   // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct B[1]' contains '_Borrow' type}}
+struct B            garr[1];   // expected-error {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct B[1]' contains a '_Borrow' type}}
 // An array whose element is a bare _Borrow pointer is rejected as well.
 int *_Borrow        g_11[1];   // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 int *_Borrow        g_12[2][3]; // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 
 // Test static variables.
-static int _Borrow        s_1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-static _Borrow int        s_2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+static int _Borrow        s_1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+static _Borrow int        s_2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 static int *_Borrow       s_3; // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 static const int *_Borrow s_4; // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
-static struct S1 _Borrow  s_5; // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
-                               // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
-static _Borrow struct S1  s_6; // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
-                               // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1' contains '_Borrow' type}}
-static S4<int>            s_7; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'S4<int>' contains '_Borrow' type}}
-static S4<int *>          s_8; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'S4<int *>' contains '_Borrow' type}}
-static struct S1          s_9[1]; // expected-error {{type of global variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[1]' contains '_Borrow' type}}
+static struct S1 _Borrow  s_5; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
+                               // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1' contains a '_Borrow' type}}
+static _Borrow struct S1  s_6; // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
+                               // expected-error@-1 {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1' contains a '_Borrow' type}}
+static S4<int>            s_7; // expected-error {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'S4<int>' contains a '_Borrow' type}}
+static S4<int *>          s_8; // expected-error {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'S4<int *>' contains a '_Borrow' type}}
+static struct S1          s_9[1]; // expected-error {{type of global variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1[1]' contains a '_Borrow' type}}
 
 // Test function parameter types and return types.
 int *_Borrow f1(int *_Borrow p);
 const int *_Borrow f2(const int *_Borrow p);
-int _Borrow f3(int _Borrow); // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-                             // expected-error@-1 {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-struct S1 _Borrow f4(struct S1 _Borrow); // expected-error {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
-                                         // expected-error@-1 {{_Borrow type requires a pointer or reference ('struct S1' is invalid)}}
+int _Borrow f3(int _Borrow); // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+                             // expected-error@-1 {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+struct S1 _Borrow f4(struct S1 _Borrow); // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
+                                         // expected-error@-1 {{'_Borrow' can only be applied to a pointer type; 'struct S1' is not a pointer}}
 S4<int> f5(S4<int>);
 
 // Test variables in _Unsafe function.
 _Unsafe void f6(void) {
   struct S5 {
-    int _Borrow a1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+    int _Borrow a1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   };
-  int _Borrow a1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int a2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  int _Borrow *a3; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int *a4; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  int _Borrow a1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int a2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  int _Borrow *a3; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int *a4; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   int *_Borrow a5;
   const int *_Borrow a6;
   int *_Borrow *a7;
@@ -118,10 +118,10 @@ _Unsafe void f6(void) {
 
 // Test variables in _Safe function.
 _Safe void f7(void) {
-  int _Borrow a1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int a2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  int _Borrow *a3 = nullptr; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  _Borrow int *a4 = nullptr; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  int _Borrow a1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int a2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  int _Borrow *a3 = nullptr; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  _Borrow int *a4 = nullptr; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   int *_Borrow a5 = nullptr;
   const int *_Borrow a6 = nullptr;
   int *_Borrow *a7 = nullptr;
@@ -132,7 +132,7 @@ _Safe void f7(void) {
 // and must be rejected, while a scope-bounded local array stays legal.
 _Safe void f8(void) {
   struct S1 larr[1]; // legal: scope-bounded local array
-  static struct S1 sl[1]; // expected-error {{type of static local variable cannot be qualified by '_Borrow'(even indirectly), 'struct S1[1]' contains '_Borrow' type}}
+  static struct S1 sl[1]; // expected-error {{type of static local variable cannot be qualified by '_Borrow' (even indirectly) because 'struct S1[1]' contains a '_Borrow' type}}
 
   int *_Borrow lparr[1]; // legal: scope-bounded local array of _Borrow pointers
   static int *_Borrow slp[1]; // expected-error {{type of static local variable cannot be qualified by '_Borrow'}}

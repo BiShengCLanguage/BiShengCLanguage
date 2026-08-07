@@ -14,7 +14,7 @@ _Safe void test_diamond_different_vars(int cond) {
         // y not initialized
     }
     int a = x;  // ok: initialized on both paths
-    int b = y;  // expected-error {{use of possibly uninitialized value: `y`}}
+    int b = y;  // expected-error {{use of possibly uninitialized value: 'y'}}
 }
 
 // Struct field diamond: one field on both, another on one
@@ -30,5 +30,5 @@ _Safe void test_diamond_struct(int cond) {
         // p.b not initialized on this path
     }
     int a = p.a;  // ok: both paths
-    int b = p.b;  // expected-error {{use of possibly uninitialized value: `p.b`}}
+    int b = p.b;  // expected-error {{use of possibly uninitialized value: 'p.b'}}
 }

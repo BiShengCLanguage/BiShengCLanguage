@@ -10,7 +10,7 @@ struct Outer { struct Empty e; int n; };
 
 _Safe int empty_present_real_unset(void) {
     struct Outer o;
-    struct Outer c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct Outer c = o; // expected-error {{use of uninitialized value: 'o'}}
     return c.n;
 }
 
@@ -20,7 +20,7 @@ struct Outer2 { struct Empty e; int a; int b; };
 _Safe int empty_present_one_unset(void) {
     struct Outer2 o;
     o.a = 1;
-    struct Outer2 c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct Outer2 c = o; // expected-error {{use of uninitialized value: 'o'}}
     return c.a;
 }
 
@@ -30,7 +30,7 @@ struct WithUnion { struct Empty e; union { int a; float b; } u; };
 
 _Safe int empty_with_unset_union(void) {
     struct WithUnion o;
-    struct WithUnion c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct WithUnion c = o; // expected-error {{use of uninitialized value: 'o'}}
     return 0;
 }
 
@@ -47,7 +47,7 @@ struct NamedBits { unsigned f : 3; };
 
 _Safe int named_bitfield_unset(void) {
     struct NamedBits o;
-    struct NamedBits c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct NamedBits c = o; // expected-error {{use of uninitialized value: 'o'}}
     return 0;
 }
 
@@ -58,7 +58,7 @@ struct Bits3 { unsigned : 3; };
 
 _Safe int unnamed_bitfield_nonzero(void) {
     struct Bits3 o;
-    struct Bits3 c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct Bits3 c = o; // expected-error {{use of uninitialized value: 'o'}}
     return 0;
 }
 
@@ -68,7 +68,7 @@ struct Bits0 { unsigned : 0; };
 
 _Safe int unnamed_bitfield_zero(void) {
     struct Bits0 o;
-    struct Bits0 c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct Bits0 c = o; // expected-error {{use of uninitialized value: 'o'}}
     return 0;
 }
 
@@ -79,7 +79,7 @@ struct WithBits { struct Bits3 eb; int n; };
 _Safe int bits_sibling_blocks(void) {
     struct WithBits o;
     o.n = 1;
-    struct WithBits c = o; // expected-error {{use of uninitialized value: `o`}}
+    struct WithBits c = o; // expected-error {{use of uninitialized value: 'o'}}
     return c.n;
 }
 

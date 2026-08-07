@@ -8,7 +8,7 @@ void init_int(int *__attribute__((ensure_init)) out);
 // &x for ensure_init arg is exempt, but earlier &x in same block is not.
 void addr_of_before_ensure_init(void) {
     int x;
-    int *p = &x;    // expected-error {{use of uninitialized value: `x`}}
+    int *p = &x;    // expected-error {{use of uninitialized value: 'x'}}
     init_int(&x);   // ok: &x feeds ensure_init arg
     int y = x;      // ok: x initialized by ensure_init
 }
@@ -18,8 +18,8 @@ void init_pair(int *__attribute__((ensure_init)) a, int *__attribute__((ensure_i
 
 void two_uninit_addr_of(void) {
     int x, y;
-    int *px = &x;   // expected-error {{use of uninitialized value: `x`}}
-    int *py = &y;   // expected-error {{use of uninitialized value: `y`}}
+    int *px = &x;   // expected-error {{use of uninitialized value: 'x'}}
+    int *py = &y;   // expected-error {{use of uninitialized value: 'y'}}
     init_pair(&x, &y); // ok: both feed ensure_init args
     int sum = x + y;   // ok
 }
@@ -27,7 +27,7 @@ void two_uninit_addr_of(void) {
 // __assume_initialized: same scoping rule.
 void assume_init_scoped(void) {
     int x;
-    int *p = &x;    // expected-error {{use of uninitialized value: `x`}}
+    int *p = &x;    // expected-error {{use of uninitialized value: 'x'}}
     __assume_initialized(&x); // ok: &x feeds builtin arg
     int y = x;      // ok
 }

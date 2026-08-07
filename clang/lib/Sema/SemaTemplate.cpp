@@ -4287,7 +4287,7 @@ TypeResult Sema::ActOnTagTemplateIdType(TagUseKind TUK,
   if (TUK != Sema::TUK_Definition && getLangOpts().BSC &&
       (Result->isOwnedStructureType() ||
        Result->isOwnedTemplateSpecializationType())) {
-    Diag(TagLoc, diag::err_tag_name);
+    Diag(TagLoc, diag::err_tag_name) << Result;
   }
 #endif
   // Check the tag kind

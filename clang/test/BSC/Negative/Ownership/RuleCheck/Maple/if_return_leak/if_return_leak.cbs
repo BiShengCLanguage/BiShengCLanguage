@@ -6,14 +6,14 @@ struct A {
 
 void eat(struct A * _Owned a) {
     struct A b = (struct A)*a;
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void f() {
     struct A a = { .a = 0 };
     if (a.a) {
         struct A * _Owned b = __take_from_raw(&a);
         if (a.a) {
-            return; // expected-error {{memory leak of value: `b`}}
+            return; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
         }
         eat(b);
     }

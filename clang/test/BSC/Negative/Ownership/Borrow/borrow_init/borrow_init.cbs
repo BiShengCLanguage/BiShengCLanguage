@@ -16,7 +16,7 @@ void test() {
   int * _Borrow * b3;
   int * _Borrow b4 = &_Mut a; // legal
   const int * _Borrow b5 = &_Const b; // legal
-  int _Borrow * b6 = &_Mut a; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  int _Borrow * b6 = &_Mut a; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
                             // expected-error@-1 {{incompatible _Borrow types, cannot cast 'int *_Borrow' to 'int *'}}
   struct R r;
   struct R *pr;

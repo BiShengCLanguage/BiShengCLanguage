@@ -11,5 +11,5 @@ _Safe void test_deep_partial(void) {
     v.top.sub.x = 1;
     v.top.z = 2;
     v.w = 3;
-    int val = v.top.sub.y; // expected-error {{use of uninitialized value: `v.top.sub.y`}}
+    int val = v.top.sub.y; // expected-error {{use of uninitialized value: 'v.top.sub.y'}}
 }

@@ -5,14 +5,14 @@ void * _Owned VoidPtrOwned();
 void write_error_4() {
     void * _Owned c = VoidPtrOwned();
     void * _Owned d = c;
-    void * _Owned e = c; // expected-error {{use of moved value: `c`}}
-} // expected-error {{memory leak of value: `e`}} expected-error {{memory leak of value: `d`}}
+    void * _Owned e = c; // expected-error {{use of moved value: 'c'}}
+} // expected-error {{memory leak because 'e' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'd' is not freed or moved before it goes out of scope}}
 
 void f4(int * _Owned p) {
     int re1;
     re1 = *p;
     return;
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 int * _Owned f5(int * _Owned p) {
     int re1;
@@ -32,9 +32,9 @@ void f8(int * _Owned * _Owned * _Owned p) {
     int * _Owned * _Owned q;
     q = *p;
     ufree((void * _Owned)p);
-} // expected-error {{memory leak of value: `q`}} expected-error {{field memory leak of value: `q`, *q is leak}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *q is not freed or moved before 'q' goes out of scope}}
 
 void f9(int * _Owned * _Owned * _Owned p) {
     int * _Owned q = **p;
-    ufree((void * _Owned)p); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `p`, *p is _Owned}}
-} // expected-error {{memory leak of value: `q`}}
+    ufree((void * _Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned': *p is still _Owned; move it out first}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}

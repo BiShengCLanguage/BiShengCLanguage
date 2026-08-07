@@ -22,7 +22,7 @@ _Public:
     if(this.a == NULL) {
     return;
     }
-    safe_free((void* _Owned)this.a); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `this.a`, this.a.b is _Owned}}
+    safe_free((void* _Owned)this.a); // expected-error {{cannot cast 'this.a' to 'void * _Owned': this.a.b is still _Owned; move it out first}}
   }   
 };
 int main() {

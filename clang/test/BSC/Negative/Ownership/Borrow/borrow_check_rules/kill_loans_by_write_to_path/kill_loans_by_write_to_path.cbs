@@ -11,13 +11,13 @@ void use_mut_s(struct S* _Borrow p);
 void test1() {
   struct S s1 = { .a = 1 };
   struct S s2 = { .a = 2 };
-  struct S* _Borrow sp = &_Mut s1; // expected-note {{`s1.a` is borrowed here}}
-                                 // expected-note@-1 {{`s1.a` is borrowed here}}
+  struct S* _Borrow sp = &_Mut s1; // expected-note {{'s1.a' is borrowed here}}
+                                 // expected-note@-1 {{'s1.a' is borrowed here}}
   int* _Borrow p = &_Mut sp->a;
   sp = &_Mut s2;
   sp->a = 3;
-  s1.a = 2; // expected-error {{cannot assign to `s1.a` because it is borrowed}}
+  s1.a = 2; // expected-error {{cannot assign to 's1.a' because it is borrowed}}
   use_mut(p);
-  s1.a = 2; // expected-error {{cannot assign to `s1.a` because it is borrowed}}
+  s1.a = 2; // expected-error {{cannot assign to 's1.a' because it is borrowed}}
   use_mut_s(sp);
 }

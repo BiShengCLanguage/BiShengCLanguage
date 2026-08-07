@@ -9,48 +9,48 @@
 _Safe int *_Owned mk(void);
 
 _Safe void if_cond(void) {
-  if (mk()) {} // expected-error {{memory leak because temporary variable}}
+  if (mk()) {} // expected-error {{the _Owned value of}}
 }
 
 // Integration coverage with F14: once the temporary-leak helper strips wrappers,
 // the F22 control-flow entry points must diagnose wrapped discarded temporaries.
 _Safe void wrapped_if_cond(int c) {
-  if ((mk())) {} // expected-error {{memory leak because temporary variable}}
-  if (!mk()) {} // expected-error {{memory leak because temporary variable}}
-  if (++c, mk()) {} // expected-error {{memory leak because temporary variable}}
-  if (c ? mk() : mk()) {} // expected-error 2 {{memory leak because temporary variable}}
+  if ((mk())) {} // expected-error {{the _Owned value of}}
+  if (!mk()) {} // expected-error {{the _Owned value of}}
+  if (++c, mk()) {} // expected-error {{the _Owned value of}}
+  if (c ? mk() : mk()) {} // expected-error 2 {{the _Owned value of}}
 }
 
 _Safe void while_cond(void) {
-  while (mk()) {} // expected-error {{memory leak because temporary variable}}
+  while (mk()) {} // expected-error {{the _Owned value of}}
 }
 
 _Safe void wrapped_while_cond(int c) {
-  while (++c, mk()) {} // expected-error {{memory leak because temporary variable}}
+  while (++c, mk()) {} // expected-error {{the _Owned value of}}
 }
 
 _Safe void for_cond(void) {
-  for (; mk(); ) {} // expected-error {{memory leak because temporary variable}}
+  for (; mk(); ) {} // expected-error {{the _Owned value of}}
 }
 
 _Safe void wrapped_for_cond(int c) {
-  for (; c ? mk() : mk(); ) {} // expected-error 2 {{memory leak because temporary variable}}
+  for (; c ? mk() : mk(); ) {} // expected-error 2 {{the _Owned value of}}
 }
 
 _Safe void switch_cond(void) {
-  switch (mk()) {} // expected-error {{memory leak because temporary variable}}
+  switch (mk()) {} // expected-error {{the _Owned value of}}
 }
 
 _Safe void wrapped_switch_cond(void) {
-  switch ((mk())) {} // expected-error {{memory leak because temporary variable}}
+  switch ((mk())) {} // expected-error {{the _Owned value of}}
 }
 
 _Safe void for_inc(void) {
-  for (int i = 0; i < 1; mk()) {} // expected-error {{memory leak because temporary variable}}
-  for (int i = 0; i < 1; (mk())) {} // expected-error {{memory leak because temporary variable}}
+  for (int i = 0; i < 1; mk()) {} // expected-error {{the _Owned value of}}
+  for (int i = 0; i < 1; (mk())) {} // expected-error {{the _Owned value of}}
 }
 
 _Safe void do_cond(void) {
-  do {} while (mk()); // expected-error {{memory leak because temporary variable}}
-  do {} while (!mk()); // expected-error {{memory leak because temporary variable}}
+  do {} while (mk()); // expected-error {{the _Owned value of}}
+  do {} while (!mk()); // expected-error {{the _Owned value of}}
 }

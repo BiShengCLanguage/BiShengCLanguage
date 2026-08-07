@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -verify %s
+
+int *_Owned *_Owned *_Owned mk3(void);
+void sink1(int *_Owned p);
+void sink3(int *_Owned *_Owned *_Owned ppp);
+
+void test(int c) {
+  int *_Owned *_Owned *_Owned ppp = mk3();
+  if (c)
+    sink1(**ppp);
+  else
+    sink3(ppp);
+  ppp = mk3(); // expected-error {{cannot assign to 'ppp': **ppp is possibly moved out and the remaining _Owned fields would leak}}
+  sink3(ppp);
+}

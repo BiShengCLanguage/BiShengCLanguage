@@ -10,7 +10,7 @@ _Safe _Bool try_read(int *_Borrow __attribute__((ensure_init_if_ret(1))) out);
 _Safe void test_no_check(void) {
     int x;
     int ret = try_init(&_Mut x);
-    int y = x; // expected-error {{use of uninitialized value: `x`}}
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 // Wrong check value.
@@ -18,7 +18,7 @@ _Safe void test_wrong_check(void) {
     int x;
     int ret = try_init(&_Mut x);
     if (ret == 1) {
-        int y = x; // expected-error {{use of uninitialized value: `x`}}
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
     }
 }
 
@@ -29,7 +29,7 @@ _Safe void test_else_branch(void) {
     if (ret == 0) {
         int y = x; // OK
     } else {
-        int z = x; // expected-error {{use of uninitialized value: `x`}}
+        int z = x; // expected-error {{use of uninitialized value: 'x'}}
     }
 }
 
@@ -40,14 +40,14 @@ _Safe void test_after_if(void) {
     if (ret == 0) {
         // x is initialized here
     }
-    int y = x; // expected-error {{use of uninitialized value: `x`}}
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 // Bool: no check.
 _Safe void test_bool_no_check(void) {
     int x;
     _Bool ok = try_read(&_Mut x);
-    int y = x; // expected-error {{use of uninitialized value: `x`}}
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 // Bool: `if (!ok)` is NOT a recognised spec form (the four supported
@@ -57,7 +57,7 @@ _Safe void test_bool_negated(void) {
     int x;
     _Bool ok = try_read(&_Mut x);
     if (!ok) {
-        int y = x; // expected-error {{use of uninitialized value: `x`}}
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
     }
 }
 
@@ -67,7 +67,7 @@ _Safe void test_bool_bare(void) {
     int x;
     _Bool ok = try_read(&_Mut x);
     if (ok) {
-        int y = x; // expected-error {{use of uninitialized value: `x`}}
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
     }
 }
 
@@ -78,6 +78,6 @@ _Safe void test_chained_partial(void) {
     int r1 = try_init(&_Mut a);
     int r2 = try_init(&_Mut b);
     if (r1 == 0) {
-        int sum = a + b; // expected-error {{use of uninitialized value: `b`}}
+        int sum = a + b; // expected-error {{use of uninitialized value: 'b'}}
     }
 }

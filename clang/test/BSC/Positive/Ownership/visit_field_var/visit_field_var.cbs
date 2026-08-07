@@ -59,7 +59,7 @@ void struct_field_copy_test() {
   struct Foo_No_Owned foo = {.a = 1, .m = 2};
   struct Foo_No_Owned *_Owned foo_owned = safe_malloc<struct Foo_No_Owned>(foo);
   int f = foo_owned->a;
-  free_owned<struct Foo_No_Owned>(foo_owned); // error: use of all moved value: `bar_owned`
+  free_owned<struct Foo_No_Owned>(foo_owned); // error: use of 'bar_owned' after all its fields were moved
 }
 
 void struct_field_move_test() {

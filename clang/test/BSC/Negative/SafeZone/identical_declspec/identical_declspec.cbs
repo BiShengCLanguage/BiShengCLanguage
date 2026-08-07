@@ -6,11 +6,11 @@ _Safe int add(int x, int y) {  // ok: mixed mode compatible
   return x + y;
 }
 
-_Safe int g_a;   // expected-error {{'_Safe' can only appear before on function or statement or parenthesized expression}}
-_Safe struct b {  // expected-error {{'_Safe' can only appear before on function or statement or parenthesized expression}}
+_Safe int g_a;   // expected-error {{'_Safe' can only be applied to a function, function pointer, statement, or parenthesized expression}}
+_Safe struct b {  // expected-error {{'_Safe' can only be applied to a function, function pointer, statement, or parenthesized expression}}
   int a;
 };
-_Safe enum c {   // expected-error {{'_Safe' can only appear before on function or statement or parenthesized expression}}
+_Safe enum c {   // expected-error {{'_Safe' can only be applied to a function, function pointer, statement, or parenthesized expression}}
   TA,
   TB,
   TC
@@ -38,10 +38,8 @@ int main() {
   _Safe int (*qq)(int x, int y);   // expected-error {{redefinition of 'qq' with a different type: '_Safe int (*)(int, int)' vs 'int (*)(int, int)'}}
 
   sapfun = safun;
-  sapfun = unfun;  // expected-error {{conversion from type 'int (*)(int, int)' to '_Safe int (*)(int, int)' is forbidden}}
-  // expected-note@-1 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
-  sapfun = fun;    // expected-error {{conversion from type 'int (*)(int, int)' to '_Safe int (*)(int, int)' is forbidden}}
-  // expected-note@-1 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
+  sapfun = unfun;  // expected-error {{conversion from type 'int (*)(int, int)' to '_Safe int (*)(int, int)' is forbidden}} expected-note {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
+  sapfun = fun;    // expected-error {{conversion from type 'int (*)(int, int)' to '_Safe int (*)(int, int)' is forbidden}} expected-note {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
 
   unpfun = safun;  // expected-error {{conversion from type '_Safe int (*)(int, int)' to 'int (*)(int, int)' is forbidden}}
   // expected-note@-1 {{function 'safun' has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer}}

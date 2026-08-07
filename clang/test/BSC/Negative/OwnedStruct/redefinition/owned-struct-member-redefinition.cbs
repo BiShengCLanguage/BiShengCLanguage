@@ -40,7 +40,7 @@ _Owned struct G {
 // function redefinition
 _Owned struct H {
     int a(); // expected-note {{previous declaration is here}}
-    int a(); // expected-error {{struct member cannot be redeclared}}
+    int a(); // expected-error {{duplicate member 'a'}}
 };
 
 _Owned struct I {
@@ -55,27 +55,27 @@ _Owned struct J {
 
 _Owned struct K {
     int a(K* this); // expected-note {{previous declaration is here}}
-    int a(K* this); // expected-error {{struct member cannot be redeclared}}
+    int a(K* this); // expected-error {{duplicate member 'a'}}
 };
 
 _Owned struct L {
     int a();                // expected-note {{previous declaration is here}}
-    int a() { return 0; } // expected-error {{struct member cannot be redeclared}}
+    int a() { return 0; } // expected-error {{duplicate member 'a'}}
 };
 
 _Owned struct M {
     int a(M* this); // expected-note {{previous declaration is here}}
-    int a(M* this) { return 0; } // expected-error {{struct member cannot be redeclared}}
+    int a(M* this) { return 0; } // expected-error {{duplicate member 'a'}}
 };
 
 _Owned struct N {
     int a() { return 0; } // expected-note {{previous definition is here}}
-    int a() { return 0; } // expected-error {{struct member cannot be redeclared}}
+    int a() { return 0; } // expected-error {{duplicate member 'a'}}
 };
 
 _Owned struct O {
     int a(O* this) { return 0; } // expected-note {{previous definition is here}}
-    int a(O* this) { return 0; } // expected-error {{struct member cannot be redeclared}}
+    int a(O* this) { return 0; } // expected-error {{duplicate member 'a'}}
 };
 
 _Owned struct P {

@@ -23,7 +23,7 @@ void test() {
   if (a == 19) { a = 19; }
   if (a == 20) { a = 20; }
   if (a == 21) { a = 21; }
-  int *_Borrow p = &_Mut a; // expected-note {{`a` is borrowed here}}
-  a = 2; // expected-error {{cannot assign to `a` because it is borrowed}}
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  a = 2; // expected-error {{cannot assign to 'a' because it is borrowed}}
   *p = 3;
 }

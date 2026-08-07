@@ -10,8 +10,8 @@ typedef _Safe int (*PlainFn)(int *_Borrow out);
 
 _Safe void test_fnptr_no_attr(PlainFn fn) {
     int x;
-    int r = fn(&_Mut x);     // expected-error {{use of uninitialized value: `x`}}
+    int r = fn(&_Mut x);     // expected-error {{use of uninitialized value: 'x'}}
     if (r == 0) {
-        int y = x;           // expected-error {{use of uninitialized value: `x`}}
+        int y = x;           // expected-error {{use of uninitialized value: 'x'}}
     }
 }

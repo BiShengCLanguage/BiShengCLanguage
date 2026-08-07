@@ -8,8 +8,8 @@ _Owned struct A {
 };                       
 A foo(){
    A a;
-   a.x = 1; // expected-error {{assign to part of uninitialized value: `a`}}
-   return a; // expected-error {{use of uninitialized value: `a`}}
+   a.x = 1; // expected-error {{cannot assign to a field of 'a' because 'a' is uninitialized}}
+   return a; // expected-error {{use of uninitialized value: 'a'}}
 }
 
 int main() {

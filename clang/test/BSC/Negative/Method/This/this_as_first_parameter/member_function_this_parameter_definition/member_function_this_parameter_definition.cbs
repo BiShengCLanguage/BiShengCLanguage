@@ -8,19 +8,19 @@ _Public:
   int a;
 };
 
-int struct Foo::getA(This _Borrow this) { // expected-error {{_Borrow type requires a pointer or reference ('This' is invalid)}}
+int struct Foo::getA(This _Borrow this) { // expected-error {{'_Borrow' can only be applied to a pointer type; 'This' is not a pointer}}
   return 0;
 }
 
-int struct Foo::getB(struct Foo _Borrow this) { // expected-error {{_Borrow type requires a pointer or reference ('struct Foo' is invalid)}}
+int struct Foo::getB(struct Foo _Borrow this) { // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct Foo' is not a pointer}}
   return 0;
 }
 
-int struct Foo::getC(const This _Borrow this) { // expected-error {{_Borrow type requires a pointer or reference ('This' is invalid)}}
+int struct Foo::getC(const This _Borrow this) { // expected-error {{'_Borrow' can only be applied to a pointer type; 'This' is not a pointer}}
   return 0;
 }
 
-int struct Foo::getC_2(const struct Foo _Borrow this) { // expected-error {{_Borrow type requires a pointer or reference ('struct Foo' is invalid)}}
+int struct Foo::getC_2(const struct Foo _Borrow this) { // expected-error {{'_Borrow' can only be applied to a pointer type; 'struct Foo' is not a pointer}}
   return 0;
 }
 int struct Foo::getD(This _Owned this) { // expected-error {{type of 'This' cannot be qualified by '_Owned'}} 

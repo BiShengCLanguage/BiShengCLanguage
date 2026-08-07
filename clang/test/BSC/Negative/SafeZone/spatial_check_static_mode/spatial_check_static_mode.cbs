@@ -8,13 +8,13 @@ void test1(int *_Borrow p1, int **_Borrow p2, int *_Borrow *p3,
   p3[1] = nullptr;
   p3[1][2] = 2; // expected-error {{subscript of _Borrow pointer is not allowed}}
 
-  q1[2] = 3; // expected-error {{_Owned pointer type ('int *_Owned') do not support ArraySubscript operate}}
-  q2[2] = nullptr; // expected-error {{_Owned pointer type ('int **_Owned') do not support ArraySubscript operate}}
-  q2[1][3] = 2; // expected-error {{_Owned pointer type ('int **_Owned') do not support ArraySubscript operate}}
+  q1[2] = 3; // expected-error {{array subscript is not supported on 'int *_Owned'}}
+  q2[2] = nullptr; // expected-error {{array subscript is not supported on 'int **_Owned'}}
+  q2[1][3] = 2; // expected-error {{array subscript is not supported on 'int **_Owned'}}
   q3[1] = nullptr;
-  q3[1][2] = 3; // expected-error {{_Owned pointer type ('int *_Owned') do not support ArraySubscript operate}}
-  q4[2] = nullptr; // expected-error {{_Owned pointer type ('int *_Owned *_Owned') do not support ArraySubscript operate}}
-  q4[2][2] = 1; // expected-error {{_Owned pointer type ('int *_Owned *_Owned') do not support ArraySubscript operate}}
+  q3[1][2] = 3; // expected-error {{array subscript is not supported on 'int *_Owned'}}
+  q4[2] = nullptr; // expected-error {{array subscript is not supported on 'int *_Owned *_Owned'}}
+  q4[2][2] = 1; // expected-error {{array subscript is not supported on 'int *_Owned *_Owned'}}
   q5[2] = nullptr; // expected-error {{subscript of _Borrow pointer is not allowed}}
   q5[2][3] = 2; // expected-error {{subscript of _Borrow pointer is not allowed}}
 }

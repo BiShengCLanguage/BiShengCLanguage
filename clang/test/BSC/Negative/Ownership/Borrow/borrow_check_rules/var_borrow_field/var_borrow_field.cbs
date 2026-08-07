@@ -22,7 +22,7 @@ void free(void *);
 void test1() {
   S local = { .a = 1, .b = 2 };
   int *_Borrow p = &_Mut local.a; // expected-note {{first mut borrow occurs here}}
-  S *_Borrow s = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  S *_Borrow s = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   use_mutI(p);
   use_mutS(s);
 }
@@ -30,7 +30,7 @@ void test1() {
 void test2() {
   S local = { .a = 1, .b = 2 };
   const int *_Borrow p = &_Const local.a; // expected-note {{immutable borrow occurs here}}
-  S *_Borrow s = &_Mut local; // expected-error {{cannot borrow `local` as mutable because it is also borrowed as immutable}}
+  S *_Borrow s = &_Mut local; // expected-error {{cannot borrow 'local' as mutable because it is also borrowed as immutable}}
   use_constI(p);
   use_mutS(s);
 }
@@ -38,16 +38,16 @@ void test2() {
 void test3() {
   S local = { .a = 1, .b = 2 };
   int *_Borrow p = &_Mut local.a; // expected-note {{mutable borrow occurs here}}
-  const S *_Borrow s = &_Const local; // expected-error {{cannot borrow `local` as immutable because it is also borrowed as mutable}}
+  const S *_Borrow s = &_Const local; // expected-error {{cannot borrow 'local' as immutable because it is also borrowed as mutable}}
   use_mutI(p);
   use_constS(s);
 }
 
 void test4(Foo a) {
-  int *_Borrow b = &_Mut *a.field; // expected-note {{`*a.field` is borrowed here}}
+  int *_Borrow b = &_Mut *a.field; // expected-note {{'*a.field' is borrowed here}}
                                  // expected-note@-1 {{first mut borrow occurs here}}
-  Foo temp = a; // expected-error {{cannot use `a` because it was mutably borrowed}}
-                // expected-error@-1 {{cannot borrow `*a.field` as mutable more than once at a time}}
+  Foo temp = a; // expected-error {{cannot use 'a' because it was mutably borrowed}}
+                // expected-error@-1 {{cannot borrow '*a.field' as mutable more than once at a time}}
   use_mutI(b);
 }
 

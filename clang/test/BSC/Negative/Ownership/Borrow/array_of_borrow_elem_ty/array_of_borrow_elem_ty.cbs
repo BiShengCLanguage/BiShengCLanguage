@@ -2,21 +2,21 @@
 
 void test1() {
   int a = 1;
-  int *_Borrow p = &_Mut a; // expected-note {{`a` is borrowed here}}
-  a = *p; // expected-error {{cannot assign to `a` because it is borrowed}}
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  a = *p; // expected-error {{cannot assign to 'a' because it is borrowed}}
 }
 
 void test2() {
   int a = 1;
-  int *_Borrow p[] = { &_Mut a }; // expected-note {{`a` is borrowed here}}
-  a = *p[0]; // expected-error {{cannot assign to `a` because it is borrowed}}
+  int *_Borrow p[] = { &_Mut a }; // expected-note {{'a' is borrowed here}}
+  a = *p[0]; // expected-error {{cannot assign to 'a' because it is borrowed}}
 }
 
 void test3() {
   int a = 1;
   int b = 2;
-  int *_Borrow p[] = { &_Mut a, &_Mut b }; // expected-note {{`a` is borrowed here}}
-                                           // expected-note@-1 {{`b` is borrowed here}}
-  b = 2; // expected-error {{cannot assign to `b` because it is borrowed}}
-  a = *p[0]; // expected-error {{cannot assign to `a` because it is borrowed}}
+  int *_Borrow p[] = { &_Mut a, &_Mut b }; // expected-note {{'a' is borrowed here}}
+                                           // expected-note@-1 {{'b' is borrowed here}}
+  b = 2; // expected-error {{cannot assign to 'b' because it is borrowed}}
+  a = *p[0]; // expected-error {{cannot assign to 'a' because it is borrowed}}
 }

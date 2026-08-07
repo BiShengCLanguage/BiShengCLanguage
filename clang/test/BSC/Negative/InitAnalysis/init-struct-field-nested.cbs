@@ -9,5 +9,5 @@ _Safe void test_nested_partial(void) {
     struct Outer o;
     o.inner.a = 1;
     o.c = 3;
-    int val = o.inner.b; // expected-error {{use of uninitialized value: `o.inner.b`}}
+    int val = o.inner.b; // expected-error {{use of uninitialized value: 'o.inner.b'}}
 }

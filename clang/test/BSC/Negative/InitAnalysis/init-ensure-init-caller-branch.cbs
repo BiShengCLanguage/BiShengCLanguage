@@ -10,7 +10,7 @@ _Safe void test_branch_one_side(int cond) {
     if (cond) {
         _Unsafe { init_int(&x); }
     }
-    int y = x; // expected-error {{use of possibly uninitialized value: `x`}}
+    int y = x; // expected-error {{use of possibly uninitialized value: 'x'}}
 }
 
 // ensure_init on both branches: ok

@@ -19,16 +19,16 @@ void test1() {
   int *_Borrow p = &_Mut local;
   {
     int local1 = 42;
-    p = &_Mut local1; // expected-error {{`local1` does not live long enough}}
-  } // expected-note {{`local1` dropped here while still borrowed}}
+    p = &_Mut local1; // expected-error {{'local1' does not live long enough}}
+  } // expected-note {{'local1' dropped here while still borrowed}}
   use_mut(p);
 }
 
 void test2(int *_Borrow p) {
   {
     int local1 = 42;
-    p = &_Mut local1; // expected-error {{`local1` does not live long enough}}
-  } // expected-note {{`local1` dropped here while still borrowed}}
+    p = &_Mut local1; // expected-error {{'local1' does not live long enough}}
+  } // expected-note {{'local1' dropped here while still borrowed}}
   use_mut(p);
 }
 
@@ -37,8 +37,8 @@ void test3() {
   int *_Borrow p = &_Mut local;
   if (1) {
     int local1 = 42;
-    p = &_Mut local1; // expected-error {{`local1` does not live long enough}}
-  } // expected-note {{`local1` dropped here while still borrowed}}
+    p = &_Mut local1; // expected-error {{'local1' does not live long enough}}
+  } // expected-note {{'local1' dropped here while still borrowed}}
   use_mut(p);
 }
 
@@ -47,36 +47,36 @@ void test4() {
   int *_Borrow p = &_Mut local;
   if (local > 0) {
     int local1 = 42;
-    p = &_Mut local1; // expected-error {{`local1` does not live long enough}}
-  } else { // expected-note {{`local1` dropped here while still borrowed}}
+    p = &_Mut local1; // expected-error {{'local1' does not live long enough}}
+  } else { // expected-note {{'local1' dropped here while still borrowed}}
     int local2 = 42;
-    p = &_Mut local2; // expected-error {{`local2` does not live long enough}}
-  } // expected-note {{`local2` dropped here while still borrowed}}
+    p = &_Mut local2; // expected-error {{'local2' does not live long enough}}
+  } // expected-note {{'local2' dropped here while still borrowed}}
   use_mut(p);
 }
 
 void test5() {
   int *_Owned oriPtr = safe_malloc<int>(0);
-  const int *_Borrow p = &_Const *oriPtr; // expected-note {{`*oriPtr` is borrowed here}}
-  free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
+  const int *_Borrow p = &_Const *oriPtr; // expected-note {{'*oriPtr' is borrowed here}}
+  free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
   use_immut(p);
 }
 
 void test6(int *_Owned oriPtr) {
-  int *_Borrow p = &_Mut *oriPtr; // expected-note {{`*oriPtr` is borrowed here}}
-  free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
+  int *_Borrow p = &_Mut *oriPtr; // expected-note {{'*oriPtr' is borrowed here}}
+  free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
   use_mut(p);
 }
 
 void test7() {
   int a = 5;
   int *_Owned oriPtr = safe_malloc<int>(0);
-  int *_Borrow p = &_Mut *oriPtr; // expected-note {{`*oriPtr` is borrowed here}}
-                                // expected-note@-1 {{`*oriPtr` is borrowed here}}
+  int *_Borrow p = &_Mut *oriPtr; // expected-note {{'*oriPtr' is borrowed here}}
+                                // expected-note@-1 {{'*oriPtr' is borrowed here}}
   if (a > 0) {
-    free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
+    free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
   } else {
-    free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
+    free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
   }
   use_mut(p);
 }
@@ -86,8 +86,8 @@ void test8() {
   int *_Borrow p = &_Mut local;
   {
     struct S1 s = { .a = 42 };
-    p = &_Mut s.a; // expected-error {{`s.a` does not live long enough}}
-  } // expected-note {{`s.a` dropped here while still borrowed}}
+    p = &_Mut s.a; // expected-error {{'s.a' does not live long enough}}
+  } // expected-note {{'s.a' dropped here while still borrowed}}
   use_mut(p);
 }
 
@@ -96,9 +96,9 @@ void test9() {
   int *_Borrow p = &_Mut local;
   {
     struct S2 s = { .b = safe_malloc<int>(5) };
-    p = &_Mut *s.b; // expected-error {{`*s.b` does not live long enough}} expected-note {{`*s.b` is borrowed here}}
-    free_owned<int>(s.b); // expected-error {{cannot move out of `s.b` because it is borrowed}}
-  } // expected-note {{`*s.b` dropped here while still borrowed}}
+    p = &_Mut *s.b; // expected-error {{'*s.b' does not live long enough}} expected-note {{'*s.b' is borrowed here}}
+    free_owned<int>(s.b); // expected-error {{cannot move out of 's.b' because it is borrowed}}
+  } // expected-note {{'*s.b' dropped here while still borrowed}}
   use_mut(p);
 }
 
@@ -108,8 +108,8 @@ void test10() {
   {
     struct S1 s1 = { .a = 42 };
     struct S3 s2 = { .c = s1 };
-    p = &_Mut s2.c.a; // expected-error {{`s2.c.a` does not live long enough}}
-  } // expected-note {{`s2.c.a` dropped here while still borrowed}}
+    p = &_Mut s2.c.a; // expected-error {{'s2.c.a' does not live long enough}}
+  } // expected-note {{'s2.c.a' dropped here while still borrowed}}
   use_mut(p);
 }
 
@@ -118,10 +118,10 @@ void test11(int a) {
   {
     int foo = 42;
     {
-      const int *_Borrow p = &_Const foo; // expected-error {{`foo` does not live long enough}}
+      const int *_Borrow p = &_Const foo; // expected-error {{'foo' does not live long enough}}
       q = &_Const *p;
     }
-  } // expected-note {{`foo` dropped here while still borrowed}}
+  } // expected-note {{'foo' dropped here while still borrowed}}
   use_immut(q);
 }
 
@@ -130,9 +130,9 @@ void test12(int foo) {
   int local = 42;
   const int *_Borrow q = &_Const local;
   {
-    int *_Borrow p = &_Mut foo; // expected-note {{`foo` is borrowed here}}
+    int *_Borrow p = &_Mut foo; // expected-note {{'foo' is borrowed here}}
     q = &_Const *p;
   }
-  local = foo; // expected-error {{cannot use `foo` because it was mutably borrowed}}
+  local = foo; // expected-error {{cannot use 'foo' because it was mutably borrowed}}
   use_immut(q);
 }

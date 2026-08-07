@@ -9,31 +9,31 @@
 
 _Safe void braceless_case(int x) {
     int a;
-    switch (x) case 1: { int y = a; (void)y; } // expected-error {{use of uninitialized value: `a`}}
+    switch (x) case 1: { int y = a; (void)y; } // expected-error {{use of uninitialized value: 'a'}}
 }
 
 _Safe void braced_case(int x) {
     int a;
-    switch (x) { case 1: { int y = a; (void)y; } break; } // expected-error {{use of uninitialized value: `a`}}
+    switch (x) { case 1: { int y = a; (void)y; } break; } // expected-error {{use of uninitialized value: 'a'}}
 }
 
 _Safe void braceless_default(int x) {
     int a;
-    switch (x) default: { int y = a; (void)y; } // expected-error {{use of uninitialized value: `a`}}
+    switch (x) default: { int y = a; (void)y; } // expected-error {{use of uninitialized value: 'a'}}
 }
 
 _Safe void braceless_two_labels(int x) {
     int a;
-    switch (x) case 1: case 2: { int y = a; (void)y; } // expected-error {{use of uninitialized value: `a`}}
+    switch (x) case 1: case 2: { int y = a; (void)y; } // expected-error {{use of uninitialized value: 'a'}}
 }
 
 _Safe int braceless_return_uninit(int x) {
     int a;
-    switch (x) case 1: return a; // expected-error {{use of uninitialized value: `a`}}
+    switch (x) case 1: return a; // expected-error {{use of uninitialized value: 'a'}}
     return 0;
 }
 
 _Safe void braceless_nested_switch(int x, int z) {
     int a;
-    switch (x) case 1: switch (z) case 2: { int y = a; (void)y; } // expected-error {{use of uninitialized value: `a`}}
+    switch (x) case 1: switch (z) case 2: { int y = a; (void)y; } // expected-error {{use of uninitialized value: 'a'}}
 }

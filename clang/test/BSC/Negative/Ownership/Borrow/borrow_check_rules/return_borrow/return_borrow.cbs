@@ -22,62 +22,62 @@ void free(void *);
 
 int *_Borrow test1(int *_Borrow p) {
   int local = 42;
-  return &_Mut local; // expected-error {{`local` does not live long enough}}
-                     // expected-note@-1 {{`local` dropped here while still borrowed}}
+  return &_Mut local; // expected-error {{'local' does not live long enough}}
+                     // expected-note@-1 {{'local' dropped here while still borrowed}}
 }
 
 int *_Borrow test2(int *_Borrow p) {
   int local = 42;
-  p = &_Mut local; // expected-error {{`local` does not live long enough}}
-  return p; // expected-note {{`local` dropped here while still borrowed}}
+  p = &_Mut local; // expected-error {{'local' does not live long enough}}
+  return p; // expected-note {{'local' dropped here while still borrowed}}
 }
 
 // FIXME: parameters lakes CFGScopeEnd
 int *_Borrow test3(int *_Borrow p, int a) {
-  return &_Mut a; // expected-error {{`a` does not live long enough}}
-                 // expected-note@-1 {{`a` dropped here while still borrowed}}
+  return &_Mut a; // expected-error {{'a' does not live long enough}}
+                 // expected-note@-1 {{'a' dropped here while still borrowed}}
 }
 
 // FIXME: parameters lakes CFGScopeEnd
 int *_Borrow test4(int *_Borrow p, int a) {
-  p = &_Mut a; // expected-error {{`a` does not live long enough}}
-  return p; // expected-note {{`a` dropped here while still borrowed}}
+  p = &_Mut a; // expected-error {{'a' does not live long enough}}
+  return p; // expected-note {{'a' dropped here while still borrowed}}
 }
 
 int *_Borrow test5(int *_Borrow p) {
   int local = 5;
-  p = &_Mut local; // expected-error {{`local` does not live long enough}}
+  p = &_Mut local; // expected-error {{'local' does not live long enough}}
   int* _Borrow p1 = &_Mut *p;
-  return p1; // expected-note {{`local` dropped here while still borrowed}}
+  return p1; // expected-note {{'local' dropped here while still borrowed}}
 }
 
 int *_Borrow test6(int *_Borrow p) {
   int local = 5;
-  p = &_Mut local; // expected-error {{`local` does not live long enough}}
-  return &_Mut *p; // expected-note {{`local` dropped here while still borrowed}}
+  p = &_Mut local; // expected-error {{'local' does not live long enough}}
+  return &_Mut *p; // expected-note {{'local' dropped here while still borrowed}}
 }
 
 int *_Borrow test7(int *_Borrow p) {
   int *_Owned oriPtr = safe_malloc<int>(0);
-  p = &_Mut *oriPtr; // expected-error {{`*oriPtr` does not live long enough}}
-                    // expected-note@-1 {{`*oriPtr` is borrowed here}}
-  free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
-  return p; // expected-note {{`*oriPtr` dropped here while still borrowed}}
+  p = &_Mut *oriPtr; // expected-error {{'*oriPtr' does not live long enough}}
+                    // expected-note@-1 {{'*oriPtr' is borrowed here}}
+  free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
+  return p; // expected-note {{'*oriPtr' dropped here while still borrowed}}
 }
 
 // FIXME: parameters lakes CFGScopeEnd
 int *_Borrow test8(int *_Owned oriPtr, int *_Borrow p) {
-  p = &_Mut *oriPtr; // expected-note {{`*oriPtr` is borrowed here}}
-                    // expected-error@-1 {{`*oriPtr` does not live long enough}} 
-  free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
-  return p; // expected-note {{`*oriPtr` dropped here while still borrowed}}
+  p = &_Mut *oriPtr; // expected-note {{'*oriPtr' is borrowed here}}
+                    // expected-error@-1 {{'*oriPtr' does not live long enough}} 
+  free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
+  return p; // expected-note {{'*oriPtr' dropped here while still borrowed}}
 }
 
 int *_Borrow test9(int *_Borrow p) {
   int local = 42;
   if (local > 0) {
-    p = &_Mut local; // expected-error {{`local` does not live long enough}}
-    return &_Mut *p; // expected-note {{`local` dropped here while still borrowed}}
+    p = &_Mut local; // expected-error {{'local' does not live long enough}}
+    return &_Mut *p; // expected-note {{'local' dropped here while still borrowed}}
   } else
     return p;
 }
@@ -85,11 +85,11 @@ int *_Borrow test9(int *_Borrow p) {
 int *_Borrow test10(int *_Borrow p) {
   int local = 42;
   if (local > 0)
-    return &_Mut local; // expected-error {{`local` does not live long enough}}
-                       // expected-note@-1 {{`local` dropped here while still borrowed}}
+    return &_Mut local; // expected-error {{'local' does not live long enough}}
+                       // expected-note@-1 {{'local' dropped here while still borrowed}}
   else {
-    p = &_Mut local; // expected-error {{`local` does not live long enough}}
-    return p; // expected-note {{`local` dropped here while still borrowed}}
+    p = &_Mut local; // expected-error {{'local' does not live long enough}}
+    return p; // expected-note {{'local' dropped here while still borrowed}}
   }
 }
 
@@ -98,15 +98,15 @@ int *_Borrow test11(int *_Borrow p) {
   if (local > 0) {
     int local2 = 42;
     if (local2 > 0)
-      return &_Mut local2; // expected-error {{`local2` does not live long enough}}
-                          // expected-note@-1 {{`local2` dropped here while still borrowed}}
+      return &_Mut local2; // expected-error {{'local2' does not live long enough}}
+                          // expected-note@-1 {{'local2' dropped here while still borrowed}}
     else
       return p;
   } else {
     int local3 = 42;
     if (local3 > 0)
-      return &_Mut local3; // expected-error {{`local3` does not live long enough}}
-                          // expected-note@-1 {{`local3` dropped here while still borrowed}}
+      return &_Mut local3; // expected-error {{'local3' does not live long enough}}
+                          // expected-note@-1 {{'local3' dropped here while still borrowed}}
     else
       return p;
   }
@@ -117,7 +117,7 @@ int *_Borrow test12(int *_Borrow p) {
   int *_Owned oriPtr = safe_malloc<int>(0);
   if (local > 0) {
     free_owned<int>(oriPtr);
-    return &_Mut *oriPtr; // expected-error {{use of moved value: `oriPtr`}}
+    return &_Mut *oriPtr; // expected-error {{use of moved value: 'oriPtr'}}
   }
   free_owned<int>(oriPtr);
   return p;
@@ -127,43 +127,43 @@ int *_Borrow test13(int *_Borrow p) {
   int *_Owned oriPtr = safe_malloc<int>(0);
   if (1) {
     free_owned<int>(oriPtr);
-    return &_Mut *oriPtr; // expected-error {{use of moved value: `oriPtr`}}
+    return &_Mut *oriPtr; // expected-error {{use of moved value: 'oriPtr'}}
   }
   return &_Mut *oriPtr;
 }
 
 struct S test14(struct S s) {
   int local = 5;
-  s.p = &_Mut local; // expected-error {{`local` does not live long enough}}
-  return s; // expected-note {{`local` dropped here while still borrowed}}
+  s.p = &_Mut local; // expected-error {{'local' does not live long enough}}
+  return s; // expected-note {{'local' dropped here while still borrowed}}
 }
 
 struct S test15(struct G g) {
   int local = 5;
-  g.s.p = &_Mut local; // expected-error {{`local` does not live long enough}}
-  return g.s; // expected-note {{`local` dropped here while still borrowed}}
+  g.s.p = &_Mut local; // expected-error {{'local' does not live long enough}}
+  return g.s; // expected-note {{'local' dropped here while still borrowed}}
 }
 
 struct G test16(struct G g) {
   int local = 5;
-  g.s.p = &_Mut local; // expected-error {{`local` does not live long enough}}
-  return g; // expected-note {{`local` dropped here while still borrowed}}
+  g.s.p = &_Mut local; // expected-error {{'local' does not live long enough}}
+  return g; // expected-note {{'local' dropped here while still borrowed}}
 }
 
 int *_Borrow test17(int *_Borrow p, int *_Borrow q) {
   int local = 42;
-  p = &_Mut local; // expected-error {{`local` does not live long enough}}
+  p = &_Mut local; // expected-error {{'local' does not live long enough}}
   int a = 3;
-  q = &_Mut a; // expected-error {{`a` does not live long enough}}
-  return p; // expected-note {{`a` dropped here while still borrowed}}
-            // expected-note@-1 {{`local` dropped here while still borrowed}}
+  q = &_Mut a; // expected-error {{'a' does not live long enough}}
+  return p; // expected-note {{'a' dropped here while still borrowed}}
+            // expected-note@-1 {{'local' dropped here while still borrowed}}
 }
 
 int *_Borrow test18(int *_Borrow p) {
   struct Q q;
-  struct Q *_Borrow q1 = &_Mut q; // expected-error {{`q` does not live long enough}}
+  struct Q *_Borrow q1 = &_Mut q; // expected-error {{'q' does not live long enough}}
   int *_Borrow r = &_Mut *q1->g.b;
-  return r; // expected-note {{`q` dropped here while still borrowed}}
+  return r; // expected-note {{'q' dropped here while still borrowed}}
 }
 
 typedef struct {
@@ -172,24 +172,24 @@ typedef struct {
 
 Holder test19(int* _Borrow dummy) {
     int y = 10;
-    Holder res = (Holder){ .data = &_Mut y }; // expected-error {{`y` does not live long enough}}
-    return res; // expected-note {{`y` dropped here while still borrowed}}
+    Holder res = (Holder){ .data = &_Mut y }; // expected-error {{'y' does not live long enough}}
+    return res; // expected-note {{'y' dropped here while still borrowed}}
 }
 
 Holder test20(int* _Borrow dummy) {
     int y = 10;
-    return (Holder){ .data = &_Mut y }; // expected-error {{`y` does not live long enough}}
-                                       // expected-note@-1 {{`y` dropped here while still borrowed}}
+    return (Holder){ .data = &_Mut y }; // expected-error {{'y' does not live long enough}}
+                                       // expected-note@-1 {{'y' dropped here while still borrowed}}
 }
 
 int *_Borrow test21(int *_Borrow dummy) {
   int a[10] = {1};
-  return &_Mut a[4]; // expected-error {{`a[]` does not live long enough}}
-                     // expected-note@-1 {{`a[]` dropped here while still borrowed}}
+  return &_Mut a[4]; // expected-error {{'a[]' does not live long enough}}
+                     // expected-note@-1 {{'a[]' dropped here while still borrowed}}
 }
 
 const char *_Borrow test22(int *_Borrow dummy) {
   const char arr[] = "hello";
-  return &_Const arr[0]; // expected-error {{`arr[]` does not live long enough}}
-                         // expected-note@-1 {{`arr[]` dropped here while still borrowed}}
+  return &_Const arr[0]; // expected-error {{'arr[]' does not live long enough}}
+                         // expected-note@-1 {{'arr[]' dropped here while still borrowed}}
 }

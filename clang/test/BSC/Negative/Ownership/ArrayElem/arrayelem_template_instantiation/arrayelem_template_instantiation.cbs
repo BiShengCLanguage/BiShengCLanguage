@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
 struct NeedsArrayElemSafePointer<T> {
-  T *_ArrayElem p; // expected-error {{'_ArrayElem' must be used with '_Owned' or '_Borrow' together to qualify a pointer type}}
+  T *_ArrayElem p; // expected-error {{'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type}}
 };
 
 void test_arrayelem_checked_at_instantiation_time(void) {

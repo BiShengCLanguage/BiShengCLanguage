@@ -5,8 +5,8 @@ void use(int *_Borrow p);
 // A borrow created in the comma's RHS freezes its borrowee.
 void borrow_created_in_comma(void) {
   int x = 0;
-  int *_Borrow m = (0, &_Mut x); // expected-warning {{left operand of comma operator has no effect}} expected-note {{`x` is borrowed here}}
-  x = 99; // expected-error {{cannot assign to `x` because it is borrowed}}
+  int *_Borrow m = (0, &_Mut x); // expected-warning {{left operand of comma operator has no effect}} expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
   use(m);
 }
 
@@ -15,9 +15,9 @@ void borrow_created_in_comma(void) {
 void comma_value_is_rhs(void) {
   int x = 0;
   int y = 0;
-  int *_Borrow m = (&_Mut x, &_Mut y); // expected-warning {{left operand of comma operator has no effect}} expected-note {{`y` is borrowed here}}
+  int *_Borrow m = (&_Mut x, &_Mut y); // expected-warning {{left operand of comma operator has no effect}} expected-note {{'y' is borrowed here}}
   x = 1;
-  y = 99; // expected-error {{cannot assign to `y` because it is borrowed}}
+  y = 99; // expected-error {{cannot assign to 'y' because it is borrowed}}
   use(m);
 }
 
@@ -26,8 +26,8 @@ void nested_comma(void) {
   int a = 0;
   int b = 0;
   int x = 0;
-  int *_Borrow m = (a, (b, &_Mut x)); // expected-warning 2 {{left operand of comma operator has no effect}} expected-note {{`x` is borrowed here}}
-  x = 99; // expected-error {{cannot assign to `x` because it is borrowed}}
+  int *_Borrow m = (a, (b, &_Mut x)); // expected-warning 2 {{left operand of comma operator has no effect}} expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
   use(m);
 }
 
@@ -35,8 +35,8 @@ void nested_comma(void) {
 // frozen past the comma.
 void borrow_used_in_comma(void) {
   int x = 0;
-  int *_Borrow m = &_Mut x; // expected-note {{`x` is borrowed here}}
+  int *_Borrow m = &_Mut x; // expected-note {{'x' is borrowed here}}
   int t = (0, (*m)); // expected-warning {{left operand of comma operator has no effect}}
-  x = 99; // expected-error {{cannot assign to `x` because it is borrowed}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
   use(m);
 }

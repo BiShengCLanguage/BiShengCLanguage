@@ -26,7 +26,7 @@ void test1() {
   S s = {.p = p, .data = 42};
   modify(&_Mut s);
   move(s);
-  modify(&_Mut s); // expected-error {{use of moved value: `s`}}
+  modify(&_Mut s); // expected-error {{use of moved value: 's'}}
 }
 
 void test2() {
@@ -62,8 +62,8 @@ void test4() {
 void test5() {
   R* _Owned r = initR();
   R* _Owned rr = r;
-  int* a = __move_to_raw(r->a); // expected-error {{use of moved value: `r.a`}}
-  borrow_p(&_Mut *r->a); // expected-error {{use of moved value: `r.a`}}
-  borrow_p(&_Mut *r->b); // expected-error {{use of moved value: `r.b`}}
+  int* a = __move_to_raw(r->a); // expected-error {{use of moved value: 'r.a'}}
+  borrow_p(&_Mut *r->a); // expected-error {{use of moved value: 'r.a'}}
+  borrow_p(&_Mut *r->b); // expected-error {{use of moved value: 'r.b'}}
   consumeR(rr);
 }

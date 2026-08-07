@@ -4,15 +4,15 @@ _Owned struct D<T> {
 
 };
 
-_Owned struct D<int> b; // expected-error {{must ignore '_Owned struct' tag before struct name}}
+_Owned struct D<int> b; // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'D<int>' without '_Owned struct'}}
                        // expected-error@-1 {{type of global variable cannot be qualified by '_Owned'}}
-int _Owned struct D<T>::f() { // expected-error {{must ignore '_Owned struct' tag before struct name}}
+int _Owned struct D<T>::f() { // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'D<T>' without '_Owned struct'}}
                              // expected-error@-1 {{type of 'int' cannot be qualified by '_Owned'}}
     return 0;
 }
-struct F<T>; 
-_Owned struct F<T> {}; // expected-error {{inconsistent tag before struct name}}
+struct F<T>; // expected-note {{previous declaration is here}}
+_Owned struct F<T> {}; // expected-error {{declaration of 'F' as '_Owned struct' conflicts with previous declaration as 'struct'}}
 int main() {
-    _Owned struct D<float> c; // expected-error {{must ignore '_Owned struct' tag before struct name}}
+    _Owned struct D<float> c; // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'D<float>' without '_Owned struct'}}
     return 0;
 }

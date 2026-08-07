@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 
-int *_Borrow f(); // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
-int *_Borrow f1(int a) { // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+int *_Borrow f(); // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+int *_Borrow f1(int a) { // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
     static int b = 1;
     return &_Mut b;
 }
@@ -12,22 +12,22 @@ struct R {
 };
 
 int *_Borrow f3(struct R); // legal
-struct R f4 () {} // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+struct R f4 () {} // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
 
-int *_Borrow struct R::foo(int a); // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
-int *_Borrow struct R::foo(int a) { // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+int *_Borrow struct R::foo(int a); // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+int *_Borrow struct R::foo(int a) { // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
     static int b = 1;
     return &_Mut b;
 }
 
 struct MyStruct<T> {};
 struct MyStruct<int * _Borrow> s;
-struct MyStruct<int _Borrow> s1;  //expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+struct MyStruct<int _Borrow> s1;  //expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 
-typedef int* _Borrow (*PF)(); // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
-int *_Borrow (*PF1)(int a);   // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+typedef int* _Borrow (*PF)(); // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+int *_Borrow (*PF1)(int a);   // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
 typedef int* _Borrow (*PF2)(struct R); // legal
-typedef int* _Borrow (*PF3)(int a);  // expected-error {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+typedef int* _Borrow (*PF3)(int a);  // expected-error {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
 typedef int* (*PF4)(struct R); // legal
 typedef float* _Borrow (*PF5)(struct R); // legal
 void test() {

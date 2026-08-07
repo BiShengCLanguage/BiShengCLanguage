@@ -1856,12 +1856,17 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
     if (T.K == Terminator::Return && (CheckAllZones || T.SafeZone == SZ_Safe)) {
       if (!B.Locals[0].Ty->isVoidType()) {
         InitState RetState = getInitState(State, LocalId{0});
+        // The implicit fall-off return has no source location; anchor the
+        // diagnostic at the function's closing brace instead.
+        SourceLocation RetLoc = T.Loc;
+        if (RetLoc.isInvalid() && B.SourceFD)
+          RetLoc = B.SourceFD->getEndLoc();
         if (RetState == InitState::Uninitialized) {
-          Diags.emplace_back(InitDiagKind::ReturnUninit, T.Loc,
+          Diags.emplace_back(InitDiagKind::ReturnUninit, RetLoc,
                              B.SourceFD ? B.SourceFD->getNameAsString()
                                         : "<return>");
         } else if (RetState == InitState::MaybeInit) {
-          Diags.emplace_back(InitDiagKind::ReturnMaybeUninit, T.Loc,
+          Diags.emplace_back(InitDiagKind::ReturnMaybeUninit, RetLoc,
                              B.SourceFD ? B.SourceFD->getNameAsString()
                                         : "<return>");
         }

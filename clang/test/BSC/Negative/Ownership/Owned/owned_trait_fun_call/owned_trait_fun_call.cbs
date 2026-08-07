@@ -27,7 +27,7 @@ _Safe void struct S::do_it(struct S* _Owned this) {
   _Unsafe {
     int* a = __move_to_raw(this->a);
     int* b = __move_to_raw(this->b);
-    void* s = __move_to_raw(this); // expected-error {{use of all moved value: `this`}}
+    void* s = __move_to_raw(this); // expected-error {{use of 'this' after all its fields were moved}}
   }
 }
 

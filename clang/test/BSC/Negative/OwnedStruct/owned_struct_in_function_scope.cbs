@@ -19,7 +19,7 @@ void foo2() {
 int main() {
     _Owned struct B { // expected-error {{_Owned struct cannot be defined in function scope; move the definition to file scope}}
         int y;
-        int get(This this) { return this.y; } // expected-error {{memory leak because temporary variable 'this' is _Owned or indirect _Owned type}}
+        int get(This this) { return this.y; } // expected-error {{cannot use a member of 'this' in a return expression because 'this' is destroyed before the return; copy the member to a local first}}
     };
 
     _Owned struct B2 { // expected-error {{_Owned struct cannot be defined in function scope; move the definition to file scope}}

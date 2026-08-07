@@ -5,29 +5,29 @@ struct Box { int value; };
 _Safe struct Box *_Owned mk_box(void);
 
 _Safe int evaluated_deref(void) {
-  return *mk(); // expected-error {{memory leak because temporary variable}}
+  return *mk(); // expected-error {{the _Owned value of}}
 }
 
 _Safe int evaluated_member_access(void) {
-  return mk_box()->value; // expected-error {{memory leak because temporary variable}}
+  return mk_box()->value; // expected-error {{the _Owned value of}}
 }
 
 _Safe int evaluated_paren_deref(void) {
-  return *((mk())); // expected-error {{memory leak because temporary variable}}
+  return *((mk())); // expected-error {{the _Owned value of}}
 }
 
 _Safe int evaluated_conditional_deref(int c) {
-  return c ? *mk() : 0; // expected-error {{memory leak because temporary variable}}
+  return c ? *mk() : 0; // expected-error {{the _Owned value of}}
 }
 
 _Safe int evaluated_member_conditional(int c) {
-  return c ? mk_box()->value : 0; // expected-error {{memory leak because temporary variable}}
+  return c ? mk_box()->value : 0; // expected-error {{the _Owned value of}}
 }
 
 _Safe int evaluated_stmt_expr(void) {
-  return ({ mk(); 0; }); // expected-error {{memory leak because temporary variable}}
+  return ({ mk(); 0; }); // expected-error {{the _Owned value of}}
 }
 
 _Safe int evaluated_stmt_expr_condition(void) {
-  return ({ if (mk()) {} 0; }); // expected-error {{memory leak because temporary variable}}
+  return ({ if (mk()) {} 0; }); // expected-error {{the _Owned value of}}
 }

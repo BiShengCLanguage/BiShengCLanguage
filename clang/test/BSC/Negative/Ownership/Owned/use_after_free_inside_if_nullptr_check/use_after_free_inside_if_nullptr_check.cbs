@@ -9,7 +9,7 @@ void call_function_after_free(){
   int *_Owned _Nullable p = init();
   if (p != nullptr) {
     safe_free((void *_Owned) p);
-    tinker(&_Mut *p); // expected-error {{use of moved value: `p`}}
+    tinker(&_Mut *p); // expected-error {{use of moved value: 'p'}}
   }
 }
 
@@ -17,16 +17,16 @@ void use_binary_assignment_operator_after_free() {
   int *_Owned _Nullable p = init();
   if (p != nullptr) {
     safe_free((void *_Owned) p);
-    *p += 1; // expected-error {{use of moved value: `p`}}
-    *p -= 1; // expected-error {{use of moved value: `p`}}
-    *p *= 1; // expected-error {{use of moved value: `p`}}
-    *p /= 1; // expected-error {{use of moved value: `p`}}
-    *p %= 1; // expected-error {{use of moved value: `p`}}
-    *p >>= 1; // expected-error {{use of moved value: `p`}}
-    *p <<= 1; // expected-error {{use of moved value: `p`}}
-    *p &= 1; // expected-error {{use of moved value: `p`}}
-    *p |= 1; // expected-error {{use of moved value: `p`}}
-    *p ^= 1; // expected-error {{use of moved value: `p`}}
+    *p += 1; // expected-error {{use of moved value: 'p'}}
+    *p -= 1; // expected-error {{use of moved value: 'p'}}
+    *p *= 1; // expected-error {{use of moved value: 'p'}}
+    *p /= 1; // expected-error {{use of moved value: 'p'}}
+    *p %= 1; // expected-error {{use of moved value: 'p'}}
+    *p >>= 1; // expected-error {{use of moved value: 'p'}}
+    *p <<= 1; // expected-error {{use of moved value: 'p'}}
+    *p &= 1; // expected-error {{use of moved value: 'p'}}
+    *p |= 1; // expected-error {{use of moved value: 'p'}}
+    *p ^= 1; // expected-error {{use of moved value: 'p'}}
   }
 }
 
@@ -34,10 +34,10 @@ void use_increment_decrement_operator_after_free(){
   int *_Owned _Nullable p = init();
   if (p != nullptr) {
     safe_free((void *_Owned) p);
-    ++*p; // expected-error {{use of moved value: `p`}}
-    --*p; // expected-error {{use of moved value: `p`}}
-    (*p)++; // expected-error {{use of moved value: `p`}}
-    (*p)--; // expected-error {{use of moved value: `p`}}
+    ++*p; // expected-error {{use of moved value: 'p'}}
+    --*p; // expected-error {{use of moved value: 'p'}}
+    (*p)++; // expected-error {{use of moved value: 'p'}}
+    (*p)--; // expected-error {{use of moved value: 'p'}}
   }
 }
 
@@ -53,23 +53,23 @@ int assign_to_field_after_free() {
   if (p != nullptr) {
     read_data(&_Mut *p);
     safe_free((void *_Owned)p);
-    p->value += 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value -= 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value *= 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value /= 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value %= 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value >>=1; // expected-error {{assign to part of moved value: `p`}}
-    p->value <<=1; // expected-error {{assign to part of moved value: `p`}}
-    p->value &= 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value |= 1; // expected-error {{assign to part of moved value: `p`}}
-    p->value ^= 1; // expected-error {{assign to part of moved value: `p`}}
-    ++p->value; // expected-error {{assign to part of moved value: `p`}}
-    --p->value; // expected-error {{assign to part of moved value: `p`}}
-    (p->value)++; // expected-error {{assign to part of moved value: `p`}}
-    (p->value)--; // expected-error {{assign to part of moved value: `p`}}
-    tinker(&_Mut p->value); // expected-error {{use of moved value: `p.value`}}
+    p->value += 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value -= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value *= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value /= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value %= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value >>=1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value <<=1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value &= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value |= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value ^= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    ++p->value; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    --p->value; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    (p->value)++; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    (p->value)--; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    tinker(&_Mut p->value); // expected-error {{use of moved value: 'p.value'}}
   }
   _Unsafe {
-    return p->value; // expected-error {{use of moved value: `p.value`}}
+    return p->value; // expected-error {{use of moved value: 'p.value'}}
   }
 }

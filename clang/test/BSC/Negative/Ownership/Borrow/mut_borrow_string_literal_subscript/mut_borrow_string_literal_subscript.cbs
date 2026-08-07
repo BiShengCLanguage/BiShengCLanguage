@@ -7,27 +7,27 @@
 void sink(char *_Borrow p);
 
 void subscript(void) {
-  sink(&_Mut "hello"[0]); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  sink(&_Mut "hello"[0]); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void subscript_paren(void) {
-  sink(&_Mut ("world"[2])); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  sink(&_Mut ("world"[2])); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void subscript_arith(void) {
-  sink(&_Mut ("hello" + 1)[0]); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  sink(&_Mut ("hello" + 1)[0]); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void deref(void) {
-  sink(&_Mut *"hello"); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  sink(&_Mut *"hello"); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void deref_arith(void) {
-  sink(&_Mut *("hello" + 1)); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  sink(&_Mut *("hello" + 1)); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void deref_arith_index(void) {
-  sink(&_Mut *(1 + "hello")); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable}}
+  sink(&_Mut *(1 + "hello")); // expected-error {{cannot take mutable borrow into string literal storage; string literals are immutable; use '&_Const' with a 'const char *_Borrow' target, or a plain 'const char *'}}
 }
 
 void direct(void) {

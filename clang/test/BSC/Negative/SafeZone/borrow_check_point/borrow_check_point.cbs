@@ -3,9 +3,9 @@
 const int *_Borrow g_b = (const int *_Borrow)(void *)0;    // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 int * _Borrow g_d = (int *_Borrow)(void *)0;               // expected-error {{type of global variable cannot be qualified by '_Borrow'}}
 typedef int * _Borrow typeborrow;
-typeborrow g_g = (int *_Borrow)(void *)0;                 // expected-error {{type of global variable cannot be qualified by '_Borrow', 'typeborrow' (aka 'int *_Borrow') contains '_Borrow' type}}
+typeborrow g_g = (int *_Borrow)(void *)0;                 // expected-error {{type of global variable cannot be qualified by '_Borrow' because 'typeborrow' (aka 'int *_Borrow') contains a '_Borrow' type}}
 typedef const int * _Borrow consteborrow;
-consteborrow g_h = (const int *_Borrow)(void *)0;         // expected-error {{type of global variable cannot be qualified by '_Borrow', 'consteborrow' (aka 'const int *_Borrow') contains '_Borrow' type}}
+consteborrow g_h = (const int *_Borrow)(void *)0;         // expected-error {{type of global variable cannot be qualified by '_Borrow' because 'consteborrow' (aka 'const int *_Borrow') contains a '_Borrow' type}}
 
 int g_e;
 int g_f;

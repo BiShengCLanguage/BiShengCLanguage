@@ -31,11 +31,11 @@ void test1(G g1) {
                          // expected-note@-2 {{mutable borrow occurs here}}
                          // expected-note@-3 {{first mut borrow occurs here}}
                          // expected-note@-4 {{mutable borrow occurs here}}
-  const G *_Borrow p2 = &_Const g; // expected-error {{cannot borrow `g` as immutable because it is also borrowed as mutable}}
-  G *_Borrow p3 = &_Mut *g.g; // expected-error {{cannot borrow `*g.g` as mutable more than once at a time}}
-  const G *_Borrow p4 = &_Const *g.g; // expected-error {{cannot borrow `*g.g` as immutable because it is also borrowed as mutable}}
-  G *_Borrow p5 = &_Mut *g.g->g; // expected-error {{cannot borrow `*(*g.g).g` as mutable more than once at a time}}
-  const G *_Borrow p6 = &_Const *g.g->g; // expected-error {{cannot borrow `*(*g.g).g` as immutable because it is also borrowed as mutable}}
+  const G *_Borrow p2 = &_Const g; // expected-error {{cannot borrow 'g' as immutable because it is also borrowed as mutable}}
+  G *_Borrow p3 = &_Mut *g.g; // expected-error {{cannot borrow '*g.g' as mutable more than once at a time}}
+  const G *_Borrow p4 = &_Const *g.g; // expected-error {{cannot borrow '*g.g' as immutable because it is also borrowed as mutable}}
+  G *_Borrow p5 = &_Mut *g.g->g; // expected-error {{cannot borrow '*(*g.g).g' as mutable more than once at a time}}
+  const G *_Borrow p6 = &_Const *g.g->g; // expected-error {{cannot borrow '*(*g.g).g' as immutable because it is also borrowed as mutable}}
   use_G_mut(p1);
   use_G_const(p2);
   use_G_mut(p3);
@@ -48,8 +48,8 @@ void test2(G g1) {
   G g = { .g = &g1 };
   G *_Borrow p1 = &_Mut g; // expected-note {{first mut borrow occurs here}}
                          // expected-note@-1 {{first mut borrow occurs here}}
-  G *_Borrow p2 = &_Mut *g.g; // expected-error {{cannot borrow `*g.g` as mutable more than once at a time}}
-  G *_Borrow p3 = &_Mut *g.g->g; // expected-error {{cannot borrow `*(*g.g).g` as mutable more than once at a time}}
+  G *_Borrow p2 = &_Mut *g.g; // expected-error {{cannot borrow '*g.g' as mutable more than once at a time}}
+  G *_Borrow p3 = &_Mut *g.g->g; // expected-error {{cannot borrow '*(*g.g).g' as mutable more than once at a time}}
   use_G_mut(p1);
   use_G_mut(p2);
   use_G_mut(p3);
@@ -62,11 +62,11 @@ void test3(S s1) {
                          // expected-note@-2 {{mutable borrow occurs here}}
                          // expected-note@-3 {{first mut borrow occurs here}}
                          // expected-note@-4 {{mutable borrow occurs here}}
-  const K *_Borrow p2 = &_Const k; // expected-error {{cannot borrow `k` as immutable because it is also borrowed as mutable}}
-  S *_Borrow p3 = &_Mut *k.s; // expected-error {{cannot borrow `*k.s` as mutable more than once at a time}}
-  const S *_Borrow p4 = &_Const *k.s; // expected-error {{cannot borrow `*k.s` as immutable because it is also borrowed as mutable}}
-  K *_Borrow p5 = &_Mut *k.s->k; // expected-error {{cannot borrow `*(*k.s).k` as mutable more than once at a time}}
-  const K *_Borrow p6 = &_Const *k.s->k; // expected-error {{cannot borrow `*(*k.s).k` as immutable because it is also borrowed as mutable}}
+  const K *_Borrow p2 = &_Const k; // expected-error {{cannot borrow 'k' as immutable because it is also borrowed as mutable}}
+  S *_Borrow p3 = &_Mut *k.s; // expected-error {{cannot borrow '*k.s' as mutable more than once at a time}}
+  const S *_Borrow p4 = &_Const *k.s; // expected-error {{cannot borrow '*k.s' as immutable because it is also borrowed as mutable}}
+  K *_Borrow p5 = &_Mut *k.s->k; // expected-error {{cannot borrow '*(*k.s).k' as mutable more than once at a time}}
+  const K *_Borrow p6 = &_Const *k.s->k; // expected-error {{cannot borrow '*(*k.s).k' as immutable because it is also borrowed as mutable}}
   use_K_mut(p1);
   use_K_const(p2);
   use_S_mut(p3);
@@ -79,8 +79,8 @@ void test4(S s1) {
   K k = { .s = &s1 };
   K *_Borrow p1 = &_Mut k; // expected-note {{first mut borrow occurs here}}
                          // expected-note@-1 {{first mut borrow occurs here}}
-  S *_Borrow p2 = &_Mut *k.s; // expected-error {{cannot borrow `*k.s` as mutable more than once at a time}}
-  K *_Borrow p3 = &_Mut *k.s->k; // expected-error {{cannot borrow `*(*k.s).k` as mutable more than once at a time}}
+  S *_Borrow p2 = &_Mut *k.s; // expected-error {{cannot borrow '*k.s' as mutable more than once at a time}}
+  K *_Borrow p3 = &_Mut *k.s->k; // expected-error {{cannot borrow '*(*k.s).k' as mutable more than once at a time}}
   use_K_mut(p1);
   use_S_mut(p2);
   use_K_mut(p3);

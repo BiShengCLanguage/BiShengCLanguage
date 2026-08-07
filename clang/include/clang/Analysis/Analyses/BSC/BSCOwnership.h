@@ -42,7 +42,6 @@ enum OwnershipDiagKind {
   InvalidAssignFieldOfMoved,
   InvalidAssignSubFieldOwned,
   InvalidCastMoved,
-  InvalidCastOwned,
   InvalidCastUninit,
   InvalidCastFieldOwned,
   FieldMemoryLeak,
@@ -230,19 +229,18 @@ static const unsigned OwnershipDiagIdList[] = {
     diag::err_ownership_use_uninit,
     diag::err_ownership_assign_owned,
     diag::err_ownership_assign_partially_moved,
-    diag::err_ownership_assign_possibly_partially_moved,
+    diag::err_ownership_assign_partially_moved,
     diag::err_ownership_assign_all_moved,
     diag::err_ownership_assign_field_uninit,
     diag::err_ownership_assign_field_owned,
     diag::err_ownership_assign_field_moved,
     diag::err_ownership_assign_field_subfield_owned,
     diag::err_ownership_cast_moved,
-    diag::err_ownership_cast_owned,
     diag::err_ownership_cast_uninit,
     diag::err_ownership_cast_subfield_owned,
     diag::err_ownership_memory_leak_field,
     diag::err_ownership_memory_leak,
-    diag::err_ownership_owned_struct_patially_moved,
+    diag::err_ownership_owned_struct_partially_moved,
     diag::err_ownership_owned_struct_not_properly_freed,
     diag::err_ownership_cast_pass_to_arg_or_ret};
 
@@ -298,7 +296,6 @@ public:
       case InvalidAssignFieldOfOwned:
       case InvalidAssignFieldOfMoved:
       case InvalidCastMoved:
-      case InvalidCastOwned:
       case InvalidCastUninit:
       case InvalidUseOfAllMoved:
       case InvalidUseOfMoved:
@@ -309,6 +306,10 @@ public:
         break;
       case InvalidAssignOfPartiallyMoved:
       case InvalidAssignOfPossiblyPartiallyMoved:
+        S.Diag(DI.Loc, getOwnershipDiagID(DI.Kind))
+            << DI.Name << DI.Fields
+            << (DI.Kind == InvalidAssignOfPossiblyPartiallyMoved ? 1 : 0);
+        break;
       case InvalidAssignSubFieldOwned:
       case InvalidCastFieldOwned:
       case InvalidUseOfPartiallyMoved:

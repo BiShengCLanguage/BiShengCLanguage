@@ -6,9 +6,9 @@ typedef struct A {
     _Owned int num; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 }SA;
 
-SA sa1 = {.num = 10};   //expected-error {{type of global variable cannot be qualified by '_Owned'(even indirectly), 'SA' (aka 'struct A') contains '_Owned' type}}
+SA sa1 = {.num = 10};   //expected-error {{type of global variable cannot be qualified by '_Owned' (even indirectly) because 'SA' (aka 'struct A') contains a '_Owned' type}}
 
-struct A sa2 = {.num = 20};   //expected-error {{type of global variable cannot be qualified by '_Owned'(even indirectly), 'struct A' contains '_Owned' type}}
+struct A sa2 = {.num = 20};   //expected-error {{type of global variable cannot be qualified by '_Owned' (even indirectly) because 'struct A' contains a '_Owned' type}}
 
 typedef struct B {
     SA* sa;

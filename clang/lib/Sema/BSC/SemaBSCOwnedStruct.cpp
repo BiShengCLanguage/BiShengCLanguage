@@ -25,7 +25,7 @@ public:
     if (auto DRE = dyn_cast_or_null<DeclRefExpr>(ME->getBase())) {
       bool isOwned = DRE->getType().getCanonicalType()->isOwnedStructureType();
       if (isOwned) {
-        SemaRef.Diag(DRE->getBeginLoc(), diag::err_owned_temporary_memLeak)
+        SemaRef.Diag(DRE->getBeginLoc(), diag::err_owned_member_access_in_return)
             << DRE->getNameInfo().getAsString();
         return false;
       }

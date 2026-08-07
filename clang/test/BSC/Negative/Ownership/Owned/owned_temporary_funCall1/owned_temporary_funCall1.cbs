@@ -24,8 +24,8 @@ int* _Owned func2(int* _Owned a) { return a; }
 void test2(int* _Owned a, int* _Owned b) {
     int* _Owned res1 = func2(a);
     int* _Owned res2 = func2(func2(b));
-    func2(res1);   // expected-error {{memory leak because temporary variable 'func2(res1)' is _Owned or indirect _Owned type}}
-    func2(func2(res2));    // expected-error {{memory leak because temporary variable 'func2(func2(res2))' is _Owned or indirect _Owned type}}
+    func2(res1);   // expected-error {{the _Owned value of 'func2(res1)' is discarded and would leak}}
+    func2(func2(res2));    // expected-error {{the _Owned value of 'func2(func2(res2))' is discarded and would leak}}
     return;
 
 }
@@ -35,14 +35,14 @@ typedef int* _Owned MyIntPtr;
 MyIntPtr func3(MyIntPtr a) { return a; }
 
 void test3(MyIntPtr a) {
-    func3(a);   // expected-error {{memory leak because temporary variable 'func3(a)' is _Owned or indirect _Owned type}}
+    func3(a);   // expected-error {{the _Owned value of 'func3(a)' is discarded and would leak}}
     return;
 }
 
 ownedA func4(ownedA a) { return a; }
 void test4(ownedA a) {
-    func4(a);   // expected-error {{memory leak because temporary variable 'func4(a)' is _Owned or indirect _Owned type}}
-    int b; func4(a); int c;    // expected-error {{memory leak because temporary variable 'func4(a)' is _Owned or indirect _Owned type}}
+    func4(a);   // expected-error {{the _Owned value of 'func4(a)' is discarded and would leak}}
+    int b; func4(a); int c;    // expected-error {{the _Owned value of 'func4(a)' is discarded and would leak}}
     return;
 }
 
@@ -63,5 +63,5 @@ D C::createD(This* this) {
 
 
 void test5(C c1) {
-    c1.createD();   // // expected-error {{memory leak because temporary variable 'C_createD(&c1)' is _Owned or indirect _Owned type}}
+    c1.createD();   // // expected-error {{the _Owned value of 'C_createD(&c1)' is discarded and would leak}}
 }

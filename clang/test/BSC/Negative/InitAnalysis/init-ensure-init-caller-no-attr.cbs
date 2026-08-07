@@ -7,5 +7,5 @@ void no_init(int *out);
 _Safe void test_no_ensure_init(void) {
     int x;
     _Unsafe { no_init(&x); }
-    int y = x; // expected-error {{use of uninitialized value: `x`}}
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
 }

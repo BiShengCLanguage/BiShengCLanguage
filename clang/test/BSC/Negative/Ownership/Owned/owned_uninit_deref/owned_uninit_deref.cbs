@@ -5,8 +5,8 @@ int *_Owned safe_malloc_int(void);
 
 void basic() {
     int *_Owned uninit;
-    int val1 = *uninit; // expected-error {{use of uninitialized value: `uninit`}}
-    int val2 = *uninit; // expected-error {{use of uninitialized value: `uninit`}}
+    int val1 = *uninit; // expected-error {{use of uninitialized value: 'uninit'}}
+    int val2 = *uninit; // expected-error {{use of uninitialized value: 'uninit'}}
 }
 
 void basic_partial() {
@@ -14,9 +14,9 @@ void basic_partial() {
     if (rand()) {
         uninit = safe_malloc_int();
     }
-    int val1 = *uninit; // expected-error {{use of possibly uninitialized value: `uninit`}}
-    int val2 = *uninit; // expected-error {{use of possibly uninitialized value: `uninit`}}
-} // expected-error {{memory leak of value: `uninit`}}
+    int val1 = *uninit; // expected-error {{use of possibly uninitialized value: 'uninit'}}
+    int val2 = *uninit; // expected-error {{use of possibly uninitialized value: 'uninit'}}
+} // expected-error {{memory leak because 'uninit' is not freed or moved before it goes out of scope}}
 
 int main() {
     basic();

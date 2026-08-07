@@ -11,5 +11,5 @@ _Safe void test_sibling_uninit(void) {
     t.first.x = 1;
     t.first.y = 2;
     // t.second not initialized at all
-    int val = t.second.x; // expected-error {{use of uninitialized value: `t.second.x`}}
+    int val = t.second.x; // expected-error {{use of uninitialized value: 't.second.x'}}
 }

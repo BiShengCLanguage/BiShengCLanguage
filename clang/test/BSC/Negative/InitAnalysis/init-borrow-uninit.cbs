@@ -7,7 +7,7 @@ _Safe void use_borrow(int *_Borrow p);
 // _Borrow pointer used without init → error.
 _Safe void test_borrow_ptr_uninit(void) {
     int *_Borrow p;
-    use_borrow(p); // expected-error {{use of uninitialized value: `p`}}
+    use_borrow(p); // expected-error {{use of uninitialized value: 'p'}}
 }
 
 // _Borrow pointer init on one branch → maybe-uninit.
@@ -17,7 +17,7 @@ _Safe void test_borrow_branch(int cond) {
     if (cond) {
         p = &_Mut x;
     }
-    use_borrow(p); // expected-error {{use of possibly uninitialized value: `p`}}
+    use_borrow(p); // expected-error {{use of possibly uninitialized value: 'p'}}
 }
 
 // Struct with _Borrow field, field not written → error.
@@ -27,7 +27,7 @@ _Safe void use_sb(struct SB s);
 _Safe void test_borrow_struct_partial(void) {
     struct SB s;
     s.v = 1;
-    use_sb(s); // expected-error {{use of uninitialized value: `s`}}
+    use_sb(s); // expected-error {{use of uninitialized value: 's'}}
 }
 
 // Nested struct with _Borrow field.
@@ -38,5 +38,5 @@ _Safe void test_nested_borrow_uninit(void) {
     struct OuterB o;
     o.x = 1;
     o.inner.v = 2;
-    use_ob(o); // expected-error {{use of uninitialized value: `o`}}
+    use_ob(o); // expected-error {{use of uninitialized value: 'o'}}
 }

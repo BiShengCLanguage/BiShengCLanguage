@@ -5,11 +5,11 @@ _Owned struct A {
 };
 
 A A::init_a1(){
-  A d ={2}; // expected-error {{need explicit constructor because '_Owned struct A' has private field}}
+  A d ={2}; // expected-error {{'_Owned struct A' requires an explicit constructor because it has a _Private field}}
  return d;
 }
 
 int main() {
-    A b = {.a=1}; // expected-error {{need explicit constructor because '_Owned struct A' has private field}}
+    A b = {.a=1}; // expected-error {{'_Owned struct A' requires an explicit constructor because it has a _Private field}}
     return 0;
 }

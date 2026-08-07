@@ -11,7 +11,7 @@ _Safe void use_pair(struct Pair p);
 // Use before call → error.
 _Safe void test_use_before(void) {
     int x;
-    use_int(x); // expected-error {{use of uninitialized value: `x`}}
+    use_int(x); // expected-error {{use of uninitialized value: 'x'}}
     _Unsafe { __assume_initialized(&x); }
 }
 
@@ -21,19 +21,19 @@ _Safe void test_branch_one(int cond) {
     if (cond) {
         _Unsafe { __assume_initialized(&x); }
     }
-    use_int(x); // expected-error {{use of possibly uninitialized value: `x`}}
+    use_int(x); // expected-error {{use of possibly uninitialized value: 'x'}}
 }
 
 // Without the builtin: the error fires as usual.
 _Safe void test_no_builtin(void) {
     int y;
-    use_int(y); // expected-error {{use of uninitialized value: `y`}}
+    use_int(y); // expected-error {{use of uninitialized value: 'y'}}
 }
 
 // Struct without builtin → error.
 _Safe void test_struct_no_builtin(void) {
     struct Pair s;
-    use_pair(s); // expected-error {{use of uninitialized value: `s`}}
+    use_pair(s); // expected-error {{use of uninitialized value: 's'}}
 }
 
 // Array: decay (no &) doesn't mark as initialized.

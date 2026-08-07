@@ -14,7 +14,7 @@ void free(void*);
 void test1() {
   S s = { .a = 1, .b = 2 };
   S *_Borrow p = &_Mut s; // expected-note {{first mut borrow occurs here}}
-  S *_Borrow q = &_Mut s; // expected-error {{cannot borrow `s` as mutable more than once at a time}}
+  S *_Borrow q = &_Mut s; // expected-error {{cannot borrow 's' as mutable more than once at a time}}
   use_mut(p);
   use_mut(q);
 }
@@ -23,7 +23,7 @@ void test2() {
   S tmp = {.a = 1, .b = 2};
   S *_Owned oriPtr = safe_malloc<S>(tmp);
   S *_Borrow p1 = &_Mut *oriPtr; // expected-note {{first mut borrow occurs here}}
-  S *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow `*oriPtr` as mutable more than once at a time}}
+  S *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow '*oriPtr' as mutable more than once at a time}}
   use_mut(p1);
   use_mut(p2);
   free_owned<S>(oriPtr);
@@ -31,7 +31,7 @@ void test2() {
 
 void test3(S *oriPtr) {
   S *_Borrow p1 = &_Mut *oriPtr; // expected-note {{first mut borrow occurs here}}
-  S *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow `*oriPtr` as mutable more than once at a time}}
+  S *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow '*oriPtr' as mutable more than once at a time}}
   use_mut(p1);
   free(oriPtr);
 }
@@ -39,9 +39,9 @@ void test3(S *oriPtr) {
 void test4() {
   S local = { .a = 1, .b = 2 };
   S *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  S *_Borrow p1 = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  S *_Borrow p1 = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   const S *_Borrow p2 = &_Const *p; // expected-note {{immutable borrow occurs here}}
-  use_mut(p); // expected-error {{cannot borrow `*p` as mutable because it is also borrowed as immutable}}
+  use_mut(p); // expected-error {{cannot borrow '*p' as mutable because it is also borrowed as immutable}}
   use_mut(p1);
   use_const(p2);
 }
@@ -49,7 +49,7 @@ void test4() {
 void test5() {
   S local = { .a = 1, .b = 2 };
   S *_Borrow p1 = &_Mut local; // expected-note {{mutable borrow occurs here}}
-  const S *_Borrow p2 = &_Const local; // expected-error {{cannot borrow `local` as immutable because it is also borrowed as mutable}}
+  const S *_Borrow p2 = &_Const local; // expected-error {{cannot borrow 'local' as immutable because it is also borrowed as mutable}}
   use_mut(p1);
   use_const(p2);
 }
@@ -58,43 +58,43 @@ void test6(S *_Borrow p) {
   S local = { .a = 1, .b = 2 };
   p = &_Mut local;
   const S *_Borrow p1 = &_Const *p; // expected-note {{immutable borrow occurs here}}
-  use_mut(p); // expected-error {{cannot borrow `*p` as mutable because it is also borrowed as immutable}}
+  use_mut(p); // expected-error {{cannot borrow '*p' as mutable because it is also borrowed as immutable}}
   use_const(p1);
 }
 
 void test7(S *_Borrow p) {
-  S *_Borrow p1 = p; // expected-note {{`*p` is borrowed here}}
+  S *_Borrow p1 = p; // expected-note {{'*p' is borrowed here}}
                     // expected-note@-1 {{first mut borrow occurs here}}
-  use_mut(p); // expected-error {{cannot use `p` because it was mutably borrowed}}
-              // expected-error@-1 {{cannot borrow `*p` as mutable more than once at a time}}
+  use_mut(p); // expected-error {{cannot use 'p' because it was mutably borrowed}}
+              // expected-error@-1 {{cannot borrow '*p' as mutable more than once at a time}}
   use_mut(p1);
 }
 
 void test8() {
   S local = { .a = 1, .b = 2 };
-  S *_Borrow p = &_Mut local; // expected-note {{`local.b` is borrowed here}}
-  local.b = 3; // expected-error {{cannot assign to `local.b` because it is borrowed}}
+  S *_Borrow p = &_Mut local; // expected-note {{'local.b' is borrowed here}}
+  local.b = 3; // expected-error {{cannot assign to 'local.b' because it is borrowed}}
   use_mut(p);
 }
 
 void test9() {
   S local = { .a = 1, .b = 2};
-  const S *_Borrow p = &_Const local; // expected-note {{`local.b` is borrowed here}}
-  local.b = 3; // expected-error {{cannot assign to `local.b` because it is borrowed}}
+  const S *_Borrow p = &_Const local; // expected-note {{'local.b' is borrowed here}}
+  local.b = 3; // expected-error {{cannot assign to 'local.b' because it is borrowed}}
   use_const(p);
 }
 
 void test10() {
   S local = { .a = 1, .b = 2 };
-  S *_Borrow p = &_Mut local; // expected-note {{`local` is borrowed here}}
-  int x = local.b; // expected-error {{cannot use `local.b` because it was mutably borrowed}}
+  S *_Borrow p = &_Mut local; // expected-note {{'local' is borrowed here}}
+  int x = local.b; // expected-error {{cannot use 'local.b' because it was mutably borrowed}}
   use_mut(p);
 }
 
 void test11() {
   S local = { .a = 1, .b = 2 };
-  int *_Borrow p1 = &_Mut local.a; // expected-note {{`local.a` is borrowed here}}
-  local.a = 5; // expected-error {{cannot assign to `local.a` because it is borrowed}}
+  int *_Borrow p1 = &_Mut local.a; // expected-note {{'local.a' is borrowed here}}
+  local.a = 5; // expected-error {{cannot assign to 'local.a' because it is borrowed}}
   int *_Borrow p2 = p1;
 }
 

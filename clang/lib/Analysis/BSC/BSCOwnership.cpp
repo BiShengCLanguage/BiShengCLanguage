@@ -1221,7 +1221,7 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
   if ((is(VD, Moved) || has(VD, Moved)) && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignFieldOfMoved,
-                          VD->getNameAsString()));
+                          moveAsterisksToFront(VD->getNameAsString() + "." + fullFieldName)));
   }
   if ((is(VD, Uninitialized) || has(VD, Uninitialized)) && diags.empty()) {
     diags.push_back(
@@ -1477,7 +1477,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
       } else if (is(VD, Moved) || has(VD, Moved)) {
         diags.push_back(
             OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignFieldOfMoved,
-                              VD->getNameAsString()));
+                              moveAsterisksToFront(VD->getNameAsString() + "." + fullFieldName)));
       }
     }
   }

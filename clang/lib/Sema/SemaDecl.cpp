@@ -4582,13 +4582,10 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
         if (OldBSCMethod && NewBSCMethod) {
           if (NewBSCMethod->getLexicalDeclContext()->isRecord()) {
             if (!inTemplateInstantiation()) {
-              unsigned NewDiag;
               if (NewBSCMethod->isDestructor())
-                NewDiag = diag::err_destructor_redeclared;
+                Diag(New->getLocation(), diag::err_destructor_redeclared);
               else
-                NewDiag = diag::err_struct_member_redeclared;
-
-              Diag(New->getLocation(), NewDiag);
+                Diag(New->getLocation(), diag::err_duplicate_member) << New;
             } else {
               Diag(New->getLocation(),
                    diag::err_member_redeclared_in_instantiation)
@@ -7961,12 +7958,6 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     #endif
     NewVD = VarDecl::Create(Context, DC, D.getBeginLoc(), D.getIdentifierLoc(),
                             II, R, TInfo, SC);
-    #if ENABLE_BSC
-    if (IsInSafeZone() && NewVD->getStorageClass() == SC_Static
-        && !NewVD->getType().isConstQualified() && !NewVD->isStaticLocal()) {
-      Diag(D.getIdentifierLoc(), diag::err_safe_global_var);
-    }
-    #endif
     if (R->getContainedDeducedType())
       ParsingInitForAutoVars.insert(NewVD);
 
@@ -14981,7 +14972,7 @@ void Sema::FinalizeDeclaration(Decl *ThisDecl) {
     if (getLangOpts().BSC && VDType->isOwnedStructureType() &&
         getCurScope()->getParent() &&
         (getCurScope()->getParent()->getFlags() & Scope::SwitchScope)) {
-      Diag(VD->getLocation(), diag::warn_destructor_execute);
+      Diag(VD->getLocation(), diag::warn_destructor_execute) << VD;
       VD->setDefInTopLevelSwitchBlock(true);
     }
   }

@@ -5,7 +5,7 @@
 // _Safe function: errors reported.
 _Safe void test_safe_error(void) {
     int x;
-    int y = x + 1; // expected-error {{use of uninitialized value: `x`}}
+    int y = x + 1; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 // Non-safe function: no errors even though code is uninitialized.

@@ -9,7 +9,7 @@ _Safe double full_write(void) {
     parr[0] = 0;
     parr[1] = 1;
     parr[2] = 2;
-    return parr[1]; // expected-error {{use of uninitialized value: `parr`}}
+    return parr[1]; // expected-error {{use of uninitialized value: 'parr'}}
 }
 
 // Partial write — not initialized.
@@ -17,33 +17,33 @@ _Safe double partial_write(void) {
     double parr[3];
     parr[0] = 0;
     parr[2] = 2;
-    return parr[1]; // expected-error {{use of uninitialized value: `parr`}}
+    return parr[1]; // expected-error {{use of uninitialized value: 'parr'}}
 }
 
 // No elements written — not initialized.
 _Safe int no_init(void) {
     int arr[2];
-    return arr[0]; // expected-error {{use of uninitialized value: `arr`}}
+    return arr[0]; // expected-error {{use of uninitialized value: 'arr'}}
 }
 
 // Single element write — still not initialized.
 _Safe int single_elem(void) {
     int arr[1];
     arr[0] = 42;
-    return arr[0]; // expected-error {{use of uninitialized value: `arr`}}
+    return arr[0]; // expected-error {{use of uninitialized value: 'arr'}}
 }
 
 // VLA element write — not initialized.
 _Safe void vla_write(int n) {
     int arr[n];
     arr[0] = 1;
-    int x = arr[0]; // expected-error {{use of uninitialized value: `arr`}}
+    int x = arr[0]; // expected-error {{use of uninitialized value: 'arr'}}
 }
 
 // VLA no write — not initialized.
 _Safe int vla_no_init(int n) {
     int arr[n];
-    return arr[0]; // expected-error {{use of uninitialized value: `arr`}}
+    return arr[0]; // expected-error {{use of uninitialized value: 'arr'}}
 }
 
 // Struct array element write — not initialized.
@@ -61,7 +61,7 @@ _Safe void array_struct_write(void) {
     entries[0].len = 1;
     entries[1].val = x;
     entries[1].len = 2;
-    use_len(entries[0].len); // expected-error {{use of uninitialized value: `entries`}}
+    use_len(entries[0].len); // expected-error {{use of uninitialized value: 'entries'}}
 }
 
 // Struct with array field — element write does not initialize the field.
@@ -71,7 +71,7 @@ _Safe void struct_array_field(void) {
     } S;
     S ss1;
     ss1.a[0] = 1;
-    int y = ss1.a[1]; // expected-error {{use of uninitialized value: `ss1.a`}}
+    int y = ss1.a[1]; // expected-error {{use of uninitialized value: 'ss1.a'}}
 }
 
 // Struct with array field — all elements written, still not initialized.
@@ -82,7 +82,7 @@ _Safe void struct_array_field_all(void) {
     S ss1;
     ss1.a[0] = 1;
     ss1.a[1] = 2;
-    int y = ss1.a[0]; // expected-error {{use of uninitialized value: `ss1.a`}}
+    int y = ss1.a[0]; // expected-error {{use of uninitialized value: 'ss1.a'}}
 }
 
 // Workaround 1: initializer list

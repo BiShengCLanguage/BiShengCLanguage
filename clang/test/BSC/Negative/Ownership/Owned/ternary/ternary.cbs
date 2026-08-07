@@ -8,17 +8,17 @@ _Safe void reference(_Bool flag, int *_Owned _Nullable p, int *_Owned _Nullable 
     } else {
         consume(q);
     }
-} // expected-error {{memory leak of value: `p`}} 
-// expected-error@-1 {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} 
+// expected-error@-1 {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 _Safe void branch_consume(_Bool flag, int *_Owned _Nullable p, int *_Owned _Nullable q) {
     consume(flag ? p : q);
-} // expected-error {{memory leak of value: `p`}} 
-// expected-error@-1 {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} 
+// expected-error@-1 {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 _Safe void differently_treated_subexpressions(int *_Owned _Nullable p, int *_Owned _Nullable q, int *_Owned _Nullable r) {
     consume(p ? q : r);
     // p is certainly not consumed
     consume(p);
-}  // expected-error {{memory leak of value: `q`}} 
-// expected-error@-1 {{memory leak of value: `r`}}
+}  // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}} 
+// expected-error@-1 {{memory leak because 'r' is not freed or moved before it goes out of scope}}

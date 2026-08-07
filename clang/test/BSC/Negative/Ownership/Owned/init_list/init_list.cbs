@@ -47,13 +47,13 @@ typedef struct {
 int *_Owned fundamental(int *_Owned p) {
     Wrapper w = {.p = p};
     exhaust(w.p);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned move_into_nested_member(int *_Owned p) {
     OwnedAggregate a = {.inner = {.p = p}, .leaf = nullptr, .state = 7};
     exhaust(a.inner.p);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned move_into_multi_owned_with_data(int *_Owned p, int *_Owned q) {
@@ -66,7 +66,7 @@ int *_Owned move_into_multi_owned_with_data(int *_Owned p, int *_Owned q) {
     };
     exhaust(m.head);
     exhaust(m.backup);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned move_into_owned_aggregate_leaf(int *_Owned p) {
@@ -76,7 +76,7 @@ int *_Owned move_into_owned_aggregate_leaf(int *_Owned p) {
         .state = 3
     };
     exhaust(a.leaf);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned move_into_deep_owned_bundle(int *_Owned p, int *_Owned q) {
@@ -93,7 +93,7 @@ int *_Owned move_into_deep_owned_bundle(int *_Owned p, int *_Owned q) {
     };
     exhaust(b.node.head);
     exhaust(b.node.backup);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned move_into_pair_and_tail(int *_Owned p, int *_Owned q) {
@@ -105,7 +105,7 @@ int *_Owned move_into_pair_and_tail(int *_Owned p, int *_Owned q) {
     };
     exhaust(t.left.p);
     exhaust(t.right.p);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned move_into_indirect_container_slot(int *_Owned p, int *_Owned q) {
@@ -117,5 +117,5 @@ int *_Owned move_into_indirect_container_slot(int *_Owned p, int *_Owned q) {
     };
     exhaust(c.slot.p);
     exhaust(c.alt);
-    return p; // expected-error {{use of moved value: `p`}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }

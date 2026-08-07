@@ -7,5 +7,5 @@ struct Point { int x; int y; };
 _Safe void test_partial_init(void) {
     struct Point p;
     p.x = 1;
-    int val = p.y; // expected-error {{use of uninitialized value: `p.y`}}
+    int val = p.y; // expected-error {{use of uninitialized value: 'p.y'}}
 }

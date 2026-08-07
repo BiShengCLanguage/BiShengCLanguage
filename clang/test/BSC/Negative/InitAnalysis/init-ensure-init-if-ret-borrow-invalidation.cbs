@@ -29,7 +29,7 @@ _Safe void mut_borrow_breaks(void) {
     int ret = try_init(&_Mut x);
     mutate(&_Mut ret);
     if (ret == 0) {
-        int y = x; // expected-error {{use of uninitialized value: `x`}}
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
         (void)y;
     }
 }

@@ -13,7 +13,7 @@ void use_S_immut(const struct S *_Borrow a);
 void test1() {
   int a = 1;
   int *_Borrow p1 = &_Mut a; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = &_Mut a; // expected-error {{cannot borrow `a` as mutable more than once at a time}}
+  int *_Borrow p2 = &_Mut a; // expected-error {{cannot borrow 'a' as mutable more than once at a time}}
   int b = *p2;
   int c = *p1;
 }
@@ -21,7 +21,7 @@ void test1() {
 void test2() {
   int a = 1;
   int *_Borrow p1 = &_Mut a; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow p2 = &_Const a; // expected-error {{cannot borrow `a` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow p2 = &_Const a; // expected-error {{cannot borrow 'a' as immutable because it is also borrowed as mutable}}
   int b = *p2;
   int c = *p1;
 }
@@ -29,7 +29,7 @@ void test2() {
 void test3() {
   int a = 1;
   const int *_Borrow p1 = &_Const a; // expected-note {{immutable borrow occurs here}}
-  int *_Borrow p2 = &_Mut a; // expected-error {{cannot borrow `a` as mutable because it is also borrowed as immutable}}
+  int *_Borrow p2 = &_Mut a; // expected-error {{cannot borrow 'a' as mutable because it is also borrowed as immutable}}
   int b = *p2;
   int c = *p1;
 }
@@ -77,7 +77,7 @@ void test8() {
 void test9() {
   struct S s = { 1, 1 };
   struct S *_Borrow p1 = &_Mut s; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = &_Mut s.b; // expected-error {{cannot borrow `s.b` as mutable more than once at a time}}
+  int *_Borrow p2 = &_Mut s.b; // expected-error {{cannot borrow 's.b' as mutable more than once at a time}}
   int b = *p2;
   use_S_mut(p1);
 }
@@ -85,7 +85,7 @@ void test9() {
 void test10() {
   struct S s = {1, 1};
   struct S *_Borrow p1 = &_Mut s; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow p2 = &_Const s.b; // expected-error {{cannot borrow `s.b` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow p2 = &_Const s.b; // expected-error {{cannot borrow 's.b' as immutable because it is also borrowed as mutable}}
   int b = *p2;
   use_S_mut(p1);
 }
@@ -93,7 +93,7 @@ void test10() {
 void test11() {
   struct S s = {1, 1};
   const struct S *_Borrow p1 = &_Const s; // expected-note {{immutable borrow occurs here}}
-  int *_Borrow p2 = &_Mut s.b; // expected-error {{cannot borrow `s.b` as mutable because it is also borrowed as immutable}}
+  int *_Borrow p2 = &_Mut s.b; // expected-error {{cannot borrow 's.b' as mutable because it is also borrowed as immutable}}
   int b = *p2;
   use_S_immut(p1);
 }
@@ -109,7 +109,7 @@ void test12() {
 void test13() {
   struct S s = { 1, 1 };
   int *_Borrow p1 = &_Mut s.b; // expected-note {{first mut borrow occurs here}}
-  struct S *_Borrow p2 = &_Mut s; // expected-error {{cannot borrow `s` as mutable more than once at a time}}
+  struct S *_Borrow p2 = &_Mut s; // expected-error {{cannot borrow 's' as mutable more than once at a time}}
   use_S_mut(p2);
   int b = *p1;
 }
@@ -117,7 +117,7 @@ void test13() {
 void test14() {
   struct S s = { 1, 1 };
   const int *_Borrow p1 = &_Const s.b; // expected-note {{immutable borrow occurs here}}
-  struct S *_Borrow p2 = &_Mut s; // expected-error {{cannot borrow `s` as mutable because it is also borrowed as immutable}}
+  struct S *_Borrow p2 = &_Mut s; // expected-error {{cannot borrow 's' as mutable because it is also borrowed as immutable}}
   use_S_mut(p2);
   int b = *p1;
 }
@@ -125,7 +125,7 @@ void test14() {
 void test15() {
   struct S s = { 1, 1 };
   int *_Borrow p1 = &_Mut s.b; // expected-note {{mutable borrow occurs here}}
-  const struct S *_Borrow p2 = &_Const s; // expected-error {{cannot borrow `s` as immutable because it is also borrowed as mutable}}
+  const struct S *_Borrow p2 = &_Const s; // expected-error {{cannot borrow 's' as immutable because it is also borrowed as mutable}}
   use_S_immut(p2);
   int b = *p1;
 }

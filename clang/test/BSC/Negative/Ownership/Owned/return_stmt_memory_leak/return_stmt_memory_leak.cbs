@@ -11,7 +11,7 @@ _Public:
 _Safe int SafeSetVersionInfo(int id, String name, String commitId)
 {
     _Unsafe {
-         return SetVersionInfo(id, (const char*)name.as_str(), (const char*)commitId.as_str()); // expected-error {{memory leak because temporary variable 'name' is _Owned or indirect _Owned type}}
+         return SetVersionInfo(id, (const char*)name.as_str(), (const char*)commitId.as_str()); // expected-error {{cannot use a member of 'name' in a return expression because 'name' is destroyed before the return; copy the member to a local first}}
     }
 }
 

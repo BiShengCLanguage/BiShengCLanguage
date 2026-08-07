@@ -4,7 +4,7 @@ void exhaust(void *_Owned);
 
 void basic() {
     int *_Owned uninit;
-    exhaust((void *_Owned)uninit); // expected-error {{invalid cast to `void * _Owned` of uninit value: `uninit`}}
+    exhaust((void *_Owned)uninit); // expected-error {{cannot cast 'uninit' to 'void * _Owned' because it is uninitialized}}
 }
 
 struct Foo {
@@ -13,7 +13,7 @@ struct Foo {
 
 void custom() {
     struct Foo *_Owned uninit;
-    exhaust((void *_Owned)uninit); // expected-error {{invalid cast to `void * _Owned` of uninit value: `uninit`}}
+    exhaust((void *_Owned)uninit); // expected-error {{cannot cast 'uninit' to 'void * _Owned' because it is uninitialized}}
 }
 
 int main() {

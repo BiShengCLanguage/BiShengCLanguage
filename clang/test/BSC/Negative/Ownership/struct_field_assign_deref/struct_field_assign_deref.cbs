@@ -16,7 +16,7 @@ struct Box { int *_Owned p; int tag; };
 _Safe int read_owned_field_never_assigned(void) {
     struct Box b;
     b.tag = 0;
-    int r = *b.p; // expected-error {{use of uninitialized value: `b.p`}} expected-error {{use of uninitialized value: `b.p.`}} expected-error {{use of uninitialized value: `b.p*`}}
+    int r = *b.p; // expected-error {{use of uninitialized value: 'b.p'}} expected-error {{use of uninitialized value: 'b.p.'}} expected-error {{use of uninitialized value: 'b.p*'}}
     return r;
 }
 
@@ -28,7 +28,7 @@ _Safe void use_whole_after_field_moved(void) {
     b.tag = 0;
     b.p = mk();
     take((void *_Owned)b.p);
-    sink(b); // expected-error {{use of partially moved value: `b`, b.p is moved}}
+    sink(b); // expected-error {{use of partially moved value: 'b', b.p is moved}}
 }
 
 // Owned field assigned but its resource never released: memory leak.
@@ -37,7 +37,7 @@ _Safe void field_assigned_not_freed(void) {
     b.tag = 0;
     b.p = mk();
     *b.p = 5;
-} // expected-error {{field memory leak of value: `b`, b.p is leak}}
+} // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}
 
 // Two owned fields, only one assigned: the whole struct use is still rejected.
 struct Two { int *_Owned a; int *_Owned b; };
@@ -45,5 +45,5 @@ _Safe void sink_two(struct Two x) { take((void *_Owned)x.a); take((void *_Owned)
 _Safe void use_whole_with_one_field_uninit(void) {
     struct Two t;
     t.a = mk();
-    sink_two(t); // expected-error {{use of uninitialized value: `t`}} expected-error {{use of partially moved value: `t`, t.b is moved}}
+    sink_two(t); // expected-error {{use of uninitialized value: 't'}} expected-error {{use of partially moved value: 't', t.b is moved}}
 }

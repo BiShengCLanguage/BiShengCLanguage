@@ -68,7 +68,7 @@ _Safe void test_initializations(void) {
 
 _Safe void test_owned_struct_array(void) {
   // Array of structs
-  struct S arr[3] = { // expected-error {{type of array cannot be qualified by '_Owned'(even indirectly), 'struct S' contains '_Owned' type}}
+  struct S arr[3] = { // expected-error {{type of array cannot be qualified by '_Owned' (even indirectly) because 'struct S' contains a '_Owned' type}}
     {0},
     {.a = 1}
   };

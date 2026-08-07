@@ -6,7 +6,7 @@ int main() {
     double a = 1;
     unsigned b = 1;
     unsigned (*const _Borrow p)(double* this) = &_Const double::getA; // expected-error {{type of 'unsigned int (*)(double *)' cannot be qualified by '_Borrow'}} \
-                                                                       // expected-error {{'&_Const' for function pointer is not allowed}}
+                                                                       // expected-error {{'&_Const' cannot be applied to a function pointer}}
     b = p(&a);
     return (int)(a + b);
 }

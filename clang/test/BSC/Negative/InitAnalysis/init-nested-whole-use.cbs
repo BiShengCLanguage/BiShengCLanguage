@@ -10,5 +10,5 @@ _Safe void test_whole_use_partial_nested(void) {
     o.inner.a = 1;
     o.inner.b = 2;
     // o.c is NOT initialized
-    struct Outer copy = o; // expected-error {{use of uninitialized value: `o`}}
+    struct Outer copy = o; // expected-error {{use of uninitialized value: 'o'}}
 }

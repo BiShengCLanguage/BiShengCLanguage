@@ -3,9 +3,9 @@
 void func1() {
 	int * _Owned a;
 	for (int i = 0; i < 10; i++) {
-		a = __take_from_raw(&i); // expected-error {{assign to _Owned value: `a`}}
+		a = __take_from_raw(&i); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
 	}
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 int * _Owned IntPtrOwned(int * _Owned a);
 
@@ -15,9 +15,9 @@ void func2() {
 	int num = 5;
 	for (int i = 0; i < 10; i++) {
 		b = __take_from_raw(&num);
-		a = IntPtrOwned(b); // expected-error {{assign to _Owned value: `a`}}
+		a = IntPtrOwned(b); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
 	}
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func3(int num) {
 	int * _Owned b;
@@ -41,10 +41,10 @@ void func3(int num) {
 					a = __take_from_raw(&num);
 				}
 			}
-		} // expected-error {{memory leak of value: `a`}}
-		c = b; // expected-error {{assign to _Owned value: `c`}} expected-error {{use of moved value: `b`}}
+		} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+		c = b; // expected-error {{cannot assign to 'c' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'b'}}
 	}
-} // expected-error {{memory leak of value: `c`}}
+} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 
 void func4(int num) {
 	int * _Owned b;
@@ -69,11 +69,11 @@ void func4(int num) {
 					a = __take_from_raw(&num);
 				}
 			}
-		} // expected-error {{memory leak of value: `a`}}
-		c = b; // expected-error {{assign to _Owned value: `c`}} expected-error {{use of moved value: `b`}}
+		} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+		c = b; // expected-error {{cannot assign to 'c' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'b'}}
 		i++;
 	}
-} // expected-error {{memory leak of value: `c`}}
+} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 
 void func5(int num) {
 	int * _Owned b;
@@ -98,8 +98,8 @@ void func5(int num) {
 					a = __take_from_raw(&num);
 				}
 			}
-		} // expected-error {{memory leak of value: `a`}}
-		c = b; // expected-error {{assign to _Owned value: `c`}} expected-error {{use of moved value: `b`}}
+		} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+		c = b; // expected-error {{cannot assign to 'c' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'b'}}
 		i++;
 	} while (i < 10);
-} // expected-error {{memory leak of value: `c`}}
+} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}

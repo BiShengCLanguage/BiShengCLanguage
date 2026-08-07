@@ -37,13 +37,13 @@ typedef struct {
 } Outer3;
 
 void lhs_inner1_has_owned(Inner1 *_Owned p, Inner1 val) {
-    *p = val; // expected-error {{assign to _Owned value: `p`}}
+    *p = val; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
     strict_free((void *_Owned) p->p);
     strict_free((void *_Owned) p);
 }
 
 void lhs_outer1_has_owned(Outer1 *_Owned p, Outer1 val) {
-    *p = val; // expected-error {{assign to _Owned value: `p`}}
+    *p = val; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
     strict_free((void *_Owned) p->p->p);
     strict_free((void *_Owned) p->p);
     strict_free((void *_Owned) p);
@@ -51,14 +51,14 @@ void lhs_outer1_has_owned(Outer1 *_Owned p, Outer1 val) {
 
 void lhs_inner2_has_owned(Inner2 *_Owned p, Inner2 val) {
     p->a = 1;
-    *p = val; // expected-error {{assign to _Owned value: `p`}}
+    *p = val; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
     strict_free((void *_Owned) p->p);
     strict_free((void *_Owned) p);
 }
 
 void lhs_outer2_has_owned(Outer2 *_Owned p, Outer2 val) {
     p->b = 2;
-    *p = val; // expected-error {{assign to _Owned value: `p`}}
+    *p = val; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
     strict_free((void *_Owned) p->p->p);
     strict_free((void *_Owned) p->p);
     strict_free((void *_Owned) p);
@@ -66,7 +66,7 @@ void lhs_outer2_has_owned(Outer2 *_Owned p, Outer2 val) {
 
 void lhs_inner3_partial_moved(Inner3 *_Owned p, Inner3 val) {
     strict_free((void *_Owned) p->p);
-    *p = val; // expected-error {{assign to partially moved value: `p`, p.p is moved}}
+    *p = val; // expected-error {{cannot assign to 'p': p.p is moved out and the remaining _Owned fields would leak}}
     strict_free((void *_Owned) p->q);
     strict_free((void *_Owned) p);
 }
@@ -75,7 +75,7 @@ void lhs_inner3_conditional_partial_moved(Inner3 *_Owned p, Inner3 val, _Bool co
     if (cond) {
         strict_free((void *_Owned) p->p);
     }
-    *p = val; // expected-error {{assign to _Owned value: `p`}}
+    *p = val; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
     strict_free((void *_Owned) p->p);
     strict_free((void *_Owned) p->q);
     strict_free((void *_Owned) p);
@@ -83,7 +83,7 @@ void lhs_inner3_conditional_partial_moved(Inner3 *_Owned p, Inner3 val, _Bool co
 
 void lhs_outer3_partial_moved(Outer3 *_Owned p, Outer3 val) {
     strict_free((void *_Owned) p->x->p);
-    *p = val; // expected-error {{assign to partially moved value: `p`, p.x.p is moved}}
+    *p = val; // expected-error {{cannot assign to 'p': p.x.p is moved out and the remaining _Owned fields would leak}}
     strict_free((void *_Owned) p->x->q);
     strict_free((void *_Owned) p->x);
     strict_free((void *_Owned) p->y->p);
@@ -96,7 +96,7 @@ void lhs_outer3_conditional_partial_moved(Outer3 *_Owned p, Outer3 val, _Bool fl
     if (flag) {
         strict_free((void *_Owned) p->x->p);
     }
-    *p = val; // expected-error {{assign to _Owned value: `p`}}
+    *p = val; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
     strict_free((void *_Owned) p->x->p);
     strict_free((void *_Owned) p->x->q);
     strict_free((void *_Owned) p->x);
@@ -111,7 +111,7 @@ void rhs_inner3_partial_moved(Inner3 *_Owned p, Inner3 val) {
     strict_free((void *_Owned) p->q);
     strict_free((void *_Owned) val.p);
 
-    *p = val; // expected-error {{use of partially moved value: `val`, val.p is moved}}
+    *p = val; // expected-error {{use of partially moved value: 'val', val.p is moved}}
 
     strict_free((void *_Owned) p->p);
     strict_free((void *_Owned) p->q);
@@ -134,7 +134,7 @@ void rhs_outer2_partial_moved(Outer2 *_Owned p, Outer2 val) {
     strict_free((void *_Owned) p->p);
 
     strict_free((void *_Owned) val.p->p);
-    *p = val; // expected-error {{use of partially moved value: `val`, val.p.p is moved}}
+    *p = val; // expected-error {{use of partially moved value: 'val', val.p.p is moved}}
 
     strict_free((void *_Owned) p->p->p);
     strict_free((void *_Owned) p->p);
@@ -155,30 +155,30 @@ void rhs_outer2_reference(Outer2 *_Owned p, Outer2 val) {
 
 int *_Owned assign_after_free_basic(int *_Owned p, int val) {
     strict_free((void *_Owned) p);
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 int *_Owned assign_after_conditional_free_basic(int *_Owned p, int val, _Bool flag) {
     if (flag) {
         strict_free((void *_Owned) p);
     }
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 Plain *_Owned assign_after_free_custom(Plain *_Owned p, Plain val){
     strict_free((void *_Owned) p);
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 Plain *_Owned assign_after_conditional_free_custom(Plain *_Owned p, Plain val, _Bool flag){
     if (flag) {
         strict_free((void *_Owned) p);
     }
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 _Safe Plain *_Owned _Nullable assign_after_definite_null_custom(Plain *_Owned _Nullable p, Plain val){

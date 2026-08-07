@@ -2,4 +2,4 @@
 
 void param(int * _Owned x) {
 	int * _Owned a = x;
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}

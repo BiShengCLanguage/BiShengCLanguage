@@ -16,7 +16,7 @@ void test1(S* sp) {
 
 void test2(S* _Owned sp) {
   _Trait T* _Owned t = sp;
-} // expected-error {{field memory leak of value: `t`, t.data is leak}}
+} // expected-error {{memory leak because t.data is not freed or moved before 't' goes out of scope}}
 
 void test3(S* sp) {
   _Trait T* _Owned t = sp; // expected-error {{incompatible _Owned types, cannot cast '_Owned struct S *' to '_Trait T *_Owned'}}

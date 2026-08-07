@@ -31,9 +31,9 @@ int test() {
   if (_Alignof(int * _Borrow) != _Alignof(int *)) { return 1; }
 
   int (* _Borrow p8)() = &_Mut f; // expected-error {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
-                                  // expected-error@-1 {{'&_Mut' for function pointer is not allowed}}
+                                  // expected-error@-1 {{'&_Mut' cannot be applied to a function}}
   int (* const _Borrow p9)() = &_Const f; // expected-error {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
-                                  // expected-error@-1 {{'&_Const' for function pointer is not allowed}}
+                                  // expected-error@-1 {{'&_Const' cannot be applied to a function pointer}}
   a = p9();
 
   // ! && ||

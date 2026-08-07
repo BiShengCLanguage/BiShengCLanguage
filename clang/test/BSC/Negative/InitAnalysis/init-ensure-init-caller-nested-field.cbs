@@ -14,5 +14,5 @@ _Safe void test_nested_field(void) {
     }
     int a = o.inner.a;
     int c = o.c;
-    int b = o.inner.b; // expected-error {{use of uninitialized value: `o.inner.b`}}
+    int b = o.inner.b; // expected-error {{use of uninitialized value: 'o.inner.b'}}
 }

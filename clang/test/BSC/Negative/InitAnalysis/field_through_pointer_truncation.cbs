@@ -7,7 +7,7 @@ struct Outer { struct Inner *_Borrow f; struct Inner *_Borrow g; };
 
 _Safe void test(void) {
     struct Outer s;
-    s.f->g = 42; // expected-error {{use of uninitialized value: `s.f`}}
-    consume(s.f->g); // expected-error {{use of uninitialized value: `s.f`}}
-    consume(s.g->g); // expected-error {{use of uninitialized value: `s.g`}}
+    s.f->g = 42; // expected-error {{use of uninitialized value: 's.f'}}
+    consume(s.f->g); // expected-error {{use of uninitialized value: 's.f'}}
+    consume(s.g->g); // expected-error {{use of uninitialized value: 's.g'}}
 }

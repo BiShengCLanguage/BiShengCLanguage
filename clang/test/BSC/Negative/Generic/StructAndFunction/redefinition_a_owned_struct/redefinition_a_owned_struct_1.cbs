@@ -3,7 +3,7 @@
 _Owned struct Vec<T>{};
 long times(long x, const Vec<long> *_Borrow v) {     // expected-note{{previous definition is here}}
     long ret = 0;
-    Vec<long> x = *v;   // expected-error{{redefinition of 'x' with a different type: '_Owned Vec<long>' vs 'long'}}  expected-error{{_Borrow type does not allow move ownership}}
+    Vec<long> x = *v;   // expected-error{{redefinition of 'x' with a different type: '_Owned Vec<long>' vs 'long'}}  expected-error{{cannot take ownership of a borrowed value}}
 
     return x;
 }

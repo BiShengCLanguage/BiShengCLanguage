@@ -12,8 +12,8 @@ struct A {
 
 void f1(struct A * _Owned p) {
     int * _Owned pm1 = p->next->next->next->m;
-    int * _Owned pm2 = p->next->next->next->m; // expected-error {{use of moved value: `p.next.next.next.m`}}
-} // expected-error {{memory leak of value: `pm2`}}
-  // expected-error@-1 {{memory leak of value: `pm1`}}
-  // expected-error@-2 {{memory leak of value: `p`}}
-  // expected-error@-3 {{field memory leak of value: `p`, p.m, p.next, p.next.m, p.next.next, p.next.next.m, p.next.next.next, p.next.next.next.next, p.next.next.next.next.m, p.next.next.next.next.next... are leak}}
+    int * _Owned pm2 = p->next->next->next->m; // expected-error {{use of moved value: 'p.next.next.next.m'}}
+} // expected-error {{memory leak because 'pm2' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because 'pm1' is not freed or moved before it goes out of scope}}
+  // expected-error@-2 {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+  // expected-error@-3 {{memory leak because p.m, p.next, p.next.m, p.next.next, p.next.next.m, p.next.next.next, p.next.next.next.next, p.next.next.next.next.m, p.next.next.next.next.next... are not freed or moved before 'p' goes out of scope}}

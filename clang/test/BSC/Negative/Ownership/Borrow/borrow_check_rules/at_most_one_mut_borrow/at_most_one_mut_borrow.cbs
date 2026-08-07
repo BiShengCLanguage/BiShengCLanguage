@@ -23,7 +23,7 @@ void free(void *);
 void test1() {
   int local = 42;
   int *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow q = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  int *_Borrow q = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   use_mut(p);
   use_mut(q);
 }
@@ -31,7 +31,7 @@ void test1() {
 void test2() {
   int *_Owned oriPtr = safe_malloc<int>(0);
   int *_Borrow p1 = &_Mut *oriPtr; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow `*oriPtr` as mutable more than once at a time}}
+  int *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow '*oriPtr' as mutable more than once at a time}}
   use_mut(p1);
   use_mut(p2);
   free_owned<int>(oriPtr);
@@ -39,7 +39,7 @@ void test2() {
 
 void test3(int *oriPtr) {
   int *_Borrow p1 = &_Mut *oriPtr; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow `*oriPtr` as mutable more than once at a time}}
+  int *_Borrow p2 = &_Mut *oriPtr; // expected-error {{cannot borrow '*oriPtr' as mutable more than once at a time}}
   use_mut(p1);
   free(oriPtr);
 }
@@ -47,9 +47,9 @@ void test3(int *oriPtr) {
 void test4() {
   int local = 42;
   int *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p1 = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  int *_Borrow p1 = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   const int *_Borrow p2 = &_Const *p; // expected-note {{immutable borrow occurs here}}
-  use_mut(p); // expected-error {{cannot borrow `*p` as mutable because it is also borrowed as immutable}}
+  use_mut(p); // expected-error {{cannot borrow '*p' as mutable because it is also borrowed as immutable}}
   use_mut(p1);
   use_immut(p2);
 }
@@ -57,7 +57,7 @@ void test4() {
 void test5() {
   int local = 42;
   int *_Borrow p = &_Mut local; // expected-note {{mutable borrow occurs here}}
-  const int *_Borrow q = &_Const local; // expected-error {{cannot borrow `local` as immutable because it is also borrowed as mutable}}
+  const int *_Borrow q = &_Const local; // expected-error {{cannot borrow 'local' as immutable because it is also borrowed as mutable}}
   use_mut(p);
   use_immut(q);
 }
@@ -66,22 +66,22 @@ void test6(int *_Borrow p) {
   int local = 5;
   p = &_Mut local;
   const int *_Borrow p1 = &_Const *p; // expected-note {{immutable borrow occurs here}}
-  use_mut(p); // expected-error {{cannot borrow `*p` as mutable because it is also borrowed as immutable}}
+  use_mut(p); // expected-error {{cannot borrow '*p' as mutable because it is also borrowed as immutable}}
   use_immut(p1);
 }
 
 void test7(int *_Borrow p) {
-  int *_Borrow p1 = p; // expected-note {{`*p` is borrowed here}}
+  int *_Borrow p1 = p; // expected-note {{'*p' is borrowed here}}
                       // expected-note@-1 {{first mut borrow occurs here}}
-  use_mut(p); // expected-error {{cannot use `p` because it was mutably borrowed}}
-              // expected-error@-1 {{cannot borrow `*p` as mutable more than once at a time}}
+  use_mut(p); // expected-error {{cannot use 'p' because it was mutably borrowed}}
+              // expected-error@-1 {{cannot borrow '*p' as mutable more than once at a time}}
   use_mut(p1);
 }
 
 void test8() {
   int arr[5];
   int *_Borrow p = &_Mut arr[0]; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow q = &_Mut arr[1]; // expected-error {{cannot borrow `arr[]` as mutable more than once at a time}}
+  int *_Borrow q = &_Mut arr[1]; // expected-error {{cannot borrow 'arr[]' as mutable more than once at a time}}
   use_mut(p);
   use_mut(q);
 }
@@ -89,7 +89,7 @@ void test8() {
 void test9() {
   int local = 42;
   int *_Borrow p1 = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  int *_Borrow p2 = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   use_two_borrow(p1, p2);
 }
 
@@ -100,10 +100,10 @@ void test10() {
   int *_Owned oriPtr = safe_malloc<int>(0);
   if (local > 0) {
     p1 = &_Mut *oriPtr; // expected-note {{mutable borrow occurs here}}
-    p2 = &_Const *oriPtr; // expected-error {{cannot borrow `*oriPtr` as immutable because it is also borrowed as mutable}}
+    p2 = &_Const *oriPtr; // expected-error {{cannot borrow '*oriPtr' as immutable because it is also borrowed as mutable}}
   } else {
     p2 = &_Const *oriPtr; // expected-note {{immutable borrow occurs here}}
-    p1 = &_Mut *oriPtr; // expected-error {{cannot borrow `*oriPtr` as mutable because it is also borrowed as immutable}}
+    p1 = &_Mut *oriPtr; // expected-error {{cannot borrow '*oriPtr' as mutable because it is also borrowed as immutable}}
   }
   use_mut(p1);
   use_immut(p2);
@@ -117,10 +117,10 @@ void test11() {
   int *_Owned oriPtr = safe_malloc<int>(0);
   if (1) {
     p1 = &_Mut *oriPtr; // expected-note {{mutable borrow occurs here}}
-    p2 = &_Const *oriPtr; // expected-error {{cannot borrow `*oriPtr` as immutable because it is also borrowed as mutable}}
+    p2 = &_Const *oriPtr; // expected-error {{cannot borrow '*oriPtr' as immutable because it is also borrowed as mutable}}
   } else {
     p1 = &_Mut *oriPtr; // expected-note {{mutable borrow occurs here}}
-    p2 = &_Const *oriPtr; // expected-error {{cannot borrow `*oriPtr` as immutable because it is also borrowed as mutable}}
+    p2 = &_Const *oriPtr; // expected-error {{cannot borrow '*oriPtr' as immutable because it is also borrowed as mutable}}
   }
   use_mut(p1);
   use_immut(p2);
@@ -130,7 +130,7 @@ void test11() {
 void test12() {
   struct S s = { .a = 5 };
   const struct S *_Borrow p1 = &_Const s; // expected-note {{immutable borrow occurs here}}
-  struct S *_Borrow p2 = &_Mut s; // expected-error {{cannot borrow `s` as mutable because it is also borrowed as immutable}}
+  struct S *_Borrow p2 = &_Mut s; // expected-error {{cannot borrow 's' as mutable because it is also borrowed as immutable}}
   struct S s1 = *p1;
   struct S s2 = *p2;
 }
@@ -139,14 +139,14 @@ void test13() {
   int local = 1;
   M m = { .a = local };
   const M *_Borrow p1 = &_Const m; // expected-note {{immutable borrow occurs here}}
-  M *_Borrow p2 = &_Mut m; // expected-error {{cannot borrow `m` as mutable because it is also borrowed as immutable}}
+  M *_Borrow p2 = &_Mut m; // expected-error {{cannot borrow 'm' as mutable because it is also borrowed as immutable}}
   useM_immut(p1);
   useM_mut(p2);
 }
 
 void test14(int *a) {
   int *_Borrow p1 = (int *_Borrow)a; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = (int *_Borrow)a; // expected-error {{cannot borrow `*a` as mutable more than once at a time}}
+  int *_Borrow p2 = (int *_Borrow)a; // expected-error {{cannot borrow '*a' as mutable more than once at a time}}
   use_mut(p1);
   use_mut(p2);
 }
@@ -155,7 +155,7 @@ void test15(int *a) {
   int *_Borrow p1 = (int *_Borrow)NULL;
   int *_Borrow p2 = (int *_Borrow)NULL;
   p1 = (int *_Borrow)a; // expected-note {{first mut borrow occurs here}}
-  p2 = (int *_Borrow)a; // expected-error {{cannot borrow `*a` as mutable more than once at a time}}
+  p2 = (int *_Borrow)a; // expected-error {{cannot borrow '*a' as mutable more than once at a time}}
   use_mut(p1);
   use_mut(p2);
 }
@@ -174,7 +174,7 @@ void test16() {
 
 void test17(int *a) {
   int *_Borrow p1 = &_Mut *a; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow p2 = &_Mut *a; // expected-error {{cannot borrow `*a` as mutable more than once at a time}}
+  int *_Borrow p2 = &_Mut *a; // expected-error {{cannot borrow '*a' as mutable more than once at a time}}
   use_mut(p1);
   use_mut(p2);
 }
@@ -183,14 +183,14 @@ void test18(int *a) {
   int *_Borrow p1 = (int *_Borrow)NULL;
   int *_Borrow p2 = (int *_Borrow)NULL;
   p1 = &_Mut *a; // expected-note {{first mut borrow occurs here}}
-  p2 = &_Mut *a; // expected-error {{cannot borrow `*a` as mutable more than once at a time}}
+  p2 = &_Mut *a; // expected-error {{cannot borrow '*a' as mutable more than once at a time}}
   use_mut(p1);
   use_mut(p2);
 }
 
 void test19() {
   int local = 42;
-  int *_Borrow p = &_Mut local,  *_Borrow q = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  int *_Borrow p = &_Mut local,  *_Borrow q = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
                                                        // expected-note@-1 {{first mut borrow occurs here}}
   use_mut(p);
   use_mut(q);
@@ -200,16 +200,16 @@ void test20() {
   int local = 42;
   int *_Borrow p = &_Mut local;
   int *_Borrow q = p;
-  p = q; // expected-note {{`*q` is borrowed here}}
-  int temp = *q; // expected-error {{cannot use `*q` because it was mutably borrowed}}
+  p = q; // expected-note {{'*q' is borrowed here}}
+  int temp = *q; // expected-error {{cannot use '*q' because it was mutably borrowed}}
 }
 
 void test21() {
   int local = 42;
   int *_Borrow p = &_Mut local;
   int *_Borrow q = &_Mut *p;
-  p = &_Mut *q; // expected-note {{`*q` is borrowed here}}
-  int temp = *q; // expected-error {{cannot use `*q` because it was mutably borrowed}}
+  p = &_Mut *q; // expected-note {{'*q' is borrowed here}}
+  int temp = *q; // expected-error {{cannot use '*q' because it was mutably borrowed}}
 }
 
 void test22() {
@@ -217,24 +217,24 @@ void test22() {
   int temp = 2;
   int *_Borrow p1 = &_Mut local;
   int *_Borrow p2 = &_Mut temp;
-  p2 = p1; // expected-note {{`*p1` is borrowed here}}
-  *p1 = 2; // expected-error {{cannot assign to `*p1` because it is borrowed}}
+  p2 = p1; // expected-note {{'*p1' is borrowed here}}
+  *p1 = 2; // expected-error {{cannot assign to '*p1' because it is borrowed}}
   temp = *p2;
 }
 
 void test23() {
   int local = 42;
   int *_Borrow p = &_Mut local;
-  const int *_Borrow q = &_Const *p; // expected-note {{`*p` is borrowed here}}
-  *p = 3; // expected-error {{cannot assign to `*p` because it is borrowed}}
+  const int *_Borrow q = &_Const *p; // expected-note {{'*p' is borrowed here}}
+  *p = 3; // expected-error {{cannot assign to '*p' because it is borrowed}}
   use_immut(q);
 }
 
 void test24() {
   int local = 42;
   int *_Borrow p = &_Mut local;
-  int *_Borrow q = p; // expected-note {{`*p` is borrowed here}}
-  *p = 3; // expected-error {{cannot assign to `*p` because it is borrowed}}
+  int *_Borrow q = p; // expected-note {{'*p' is borrowed here}}
+  *p = 3; // expected-error {{cannot assign to '*p' because it is borrowed}}
   use_mut(q);
 }
 
@@ -242,6 +242,6 @@ void test25() {
   int local = 42;
   int *_Borrow p1 = &_Mut local;
   const int *_Borrow p2 = &_Const *p1; // expected-note {{immutable borrow occurs here}}
-  int *_Borrow p3 = p1; // expected-error {{cannot borrow `*p1` as mutable because it is also borrowed as immutable}}
+  int *_Borrow p3 = p1; // expected-error {{cannot borrow '*p1' as mutable because it is also borrowed as immutable}}
   use_immut(p2);
 }

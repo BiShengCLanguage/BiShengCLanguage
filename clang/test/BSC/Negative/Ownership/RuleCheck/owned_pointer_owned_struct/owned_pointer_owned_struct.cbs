@@ -21,32 +21,32 @@ S* _Owned initS();
 void test1(R* _Owned r) {
     S tmp1 = *r->sp;
     S tmp2 = r->s;
-} // expected-error {{memory leak of value: `r`}}
-  // expected-error@-1 {{field memory leak of value: `r`, r.sp is leak}}
+} // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because r.sp is not freed or moved before 'r' goes out of scope}}
 
 void test2(R* _Owned r) {
     S tmp1 = *r->sp;
     S tmp2 = r->s;
-    safe_free((void* _Owned)r); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `r`, r.sp is _Owned}}
+    safe_free((void* _Owned)r); // expected-error {{cannot cast 'r' to 'void * _Owned': r.sp is still _Owned; move it out first}}
 }
 
 void test3(R* _Owned r) {
     S tmp1 = *r->sp;
     S tmp2 = r->s;
     safe_free((void* _Owned)r->sp);
-} // expected-error {{memory leak of value: `r`}}
+} // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
 
 void test4(R* _Owned r) {
     S* _Owned sp = r->sp;
     S tmp2 = r->s;
     safe_free((void* _Owned)r);
-} // expected-error {{memory leak of value: `sp`}}
-  // expected-error@-1 {{field memory leak of value: `sp`, sp.a is leak}}
+} // expected-error {{memory leak because 'sp' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because sp.a is not freed or moved before 'sp' goes out of scope}}
 
 void test5(R r) {
     S tmp1 = *r.sp;
     S tmp2 = r.s;
-} // expected-error {{field memory leak of value: `r`, r.sp is leak}}
+} // expected-error {{memory leak because r.sp is not freed or moved before 'r' goes out of scope}}
 
 void test6(R r) {
     S tmp1 = *r.sp;
@@ -57,14 +57,14 @@ void test6(R r) {
 void test7(R r) {
     S* _Owned sp = r.sp;
     S tmp2 = r.s;
-} // expected-error {{memory leak of value: `sp`}}
-  // expected-error@-1 {{field memory leak of value: `sp`, sp.a is leak}}
+} // expected-error {{memory leak because 'sp' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because sp.a is not freed or moved before 'sp' goes out of scope}}
 
 void test8(R r) {
     S* _Owned sp = r.sp;
     S tmp2 = r.s;
     S tmp1 = *sp;
-} // expected-error {{memory leak of value: `sp`}}
+} // expected-error {{memory leak because 'sp' is not freed or moved before it goes out of scope}}
 
 void test9(R r) {
     S* _Owned sp = r.sp;
@@ -76,36 +76,36 @@ void test9(R r) {
 void test10(R r) {
     S tmp1 = *r.sp;
     *r.sp = tmp1;
-} // expected-error {{field memory leak of value: `r`, r.sp, r.s, r.s.a, r.sp.a, *r.sp are leak}}
+} // expected-error {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
 
 void test11(R r) {
     S tmp1 = *r.sp;
     *r.sp = tmp1;
     S tmp2 = {};
-    *r.sp = tmp2; // expected-error {{assign to subfield _Owned value: `r`, r.sp.a is _Owned}}
-                  // expected-error@-1 {{assign to part of _Owned value: `*r.sp`}}
-} // expected-error {{field memory leak of value: `r`, r.sp, r.s, r.s.a, r.sp.a, *r.sp are leak}}
+    *r.sp = tmp2; // expected-error {{cannot assign to 'r': r.sp.a is still _Owned and would leak}}
+                  // expected-error@-1 {{cannot assign to '*r.sp' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
 
 void test12(R r) {
     S tmp1 = *r.sp;
-    r.sp = initS();  // expected-error {{assign to part of _Owned value: `r.sp`}}
-} // expected-error {{field memory leak of value: `r`, r.sp, r.s, r.s.a, r.sp.a, *r.sp are leak}}
+    r.sp = initS();  // expected-error {{cannot assign to 'r.sp' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
 
 void test13(R* _Owned r) {
     R tmp = *r;
     *r = tmp;
-} // expected-error {{memory leak of value: `r`}}
-  // expected-error@-1 {{field memory leak of value: `r`, r.sp, *r.sp, r.sp.a, r.s, r.s.a are leak}}
+} // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because r.sp, *r.sp, r.sp.a, r.s, r.s.a are not freed or moved before 'r' goes out of scope}}
 
 void test14(R* _Owned r) {
     S tmp = *r->sp;
     *r->sp = tmp;
-} // expected-error {{memory leak of value: `r`}}
-  // expected-error@-1 {{field memory leak of value: `r`, r.sp, r.s, r.s.a, r.sp.a, *r.sp are leak}}
+} // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
 
 void test15(R* _Owned r) {
     S* _Owned tmp = r->sp;
-    *r->sp = *tmp; // expected-error {{assign to part of moved value: `r.sp`}}
-} // expected-error {{memory leak of value: `tmp`}}
-  // expected-error@-1 {{memory leak of value: `r`}}
-  // expected-error@-2 {{field memory leak of value: `r`, r.s, r.s.a, *r.sp are leak}}
+    *r->sp = *tmp; // expected-error {{cannot assign to 'r.sp' because the value it belongs to was moved}}
+} // expected-error {{memory leak because 'tmp' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because 'r' is not freed or moved before it goes out of scope}}
+  // expected-error@-2 {{memory leak because r.s, r.s.a, *r.sp are not freed or moved before 'r' goes out of scope}}

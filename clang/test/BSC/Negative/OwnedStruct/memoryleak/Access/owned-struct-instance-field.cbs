@@ -9,18 +9,18 @@ _Owned struct A {
 int test1() {
     A a;
     a.a = 1;
-    return (a.a - 1); // expected-error {{memory leak because temporary variable 'a' is _Owned or indirect _Owned type}}
+    return (a.a - 1); // expected-error {{cannot use a member of 'a' in a return expression because 'a' is destroyed before the return; copy the member to a local first}}
 }
 int test2() {
     A a;
     a.a = 1;
-    return a.a ; // expected-error {{memory leak because temporary variable 'a' is _Owned or indirect _Owned type}}
+    return a.a ; // expected-error {{cannot use a member of 'a' in a return expression because 'a' is destroyed before the return; copy the member to a local first}}
 }
 
 int test3() {
     A a;
     a.a = 1;
-    return a.a - 1; // expected-error {{memory leak because temporary variable 'a' is _Owned or indirect _Owned type}}
+    return a.a - 1; // expected-error {{cannot use a member of 'a' in a return expression because 'a' is destroyed before the return; copy the member to a local first}}
 }
 int main() {
 

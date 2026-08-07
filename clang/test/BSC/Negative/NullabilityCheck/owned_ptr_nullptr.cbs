@@ -20,7 +20,7 @@ _Safe void test2(void) {
         p = safe_malloc<int>(10);
         *p = 10;
     }
-    p = nullptr; // expected-error {{assign to _Owned value: `p`}}
+    p = nullptr; // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
 }
 
 _Safe int *_Owned _Nullable get_owned(int cond) {

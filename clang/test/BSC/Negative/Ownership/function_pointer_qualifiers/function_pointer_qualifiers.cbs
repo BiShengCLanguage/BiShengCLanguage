@@ -51,15 +51,15 @@ void direct_local_cases(void) {
   // expected-error@-1 {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
   (void)cast_borrow;
 
-  int (*const const_borrow_from_addrconst)(void) = &_Const plain; // expected-error {{'&_Const' for function pointer is not allowed}}
+  int (*const const_borrow_from_addrconst)(void) = &_Const plain; // expected-error {{'&_Const' cannot be applied to a function pointer}}
   (void)const_borrow_from_addrconst;
 
-  int (*const _Borrow illegal_const_borrow_from_addrconst)(void) = &_Const plain; // expected-error {{'&_Const' for function pointer is not allowed}}
+  int (*const _Borrow illegal_const_borrow_from_addrconst)(void) = &_Const plain; // expected-error {{'&_Const' cannot be applied to a function pointer}}
   // expected-error@-1 {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
   (void)illegal_const_borrow_from_addrconst;
 
   int (*from_addrmut)(void) = &_Mut plain;
-  // expected-error@-1 {{'&_Mut' for function pointer is not allowed}}
+  // expected-error@-1 {{'&_Mut' cannot be applied to a function}}
   (void)from_addrmut;
 
   int (*from_take_from_raw)(void) = __take_from_raw(&plain);
@@ -123,10 +123,10 @@ void test_function_template_instantiation(void) {
 void test_borrow_deref_func_ptr(void) {
   int (*fp)(void) = &plain;
   int (*from_addrmut_deref)(void) = &_Mut *fp;
-  // expected-error@-1 {{'&_Mut' for function pointer is not allowed}}
+  // expected-error@-1 {{'&_Mut' cannot be applied to a function pointer}}
 
   int (*from_addrconst_deref)(void) = &_Const *fp;
-  // expected-error@-1 {{'&_Const' for function pointer is not allowed}}
+  // expected-error@-1 {{'&_Const' cannot be applied to a function pointer}}
 
   // Contrast: borrowing a data pointer should still work
   int *data_ptr = 0;

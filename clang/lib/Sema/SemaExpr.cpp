@@ -5957,8 +5957,9 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
       bool IsAllowArraySubscript = BaseType.isArrayElemQualified() ||
           (getLangOpts().getSpatialCheck() == LangOptions::SC_USER);
       if (BaseType.isOwnedQualified() && !IsAllowArraySubscript) {
-        return ExprError(Diag(LLoc, diag::err_typecheck_invalid_owned_arrsub)
-                         << BaseType << Base->getSourceRange());
+        return ExprError(Diag(LLoc, diag::err_bsc_op_not_supported)
+                         << "array subscript" << BaseType
+                         << Base->getSourceRange());
       }
       if (BaseType.isBorrowQualified() && !IsAllowArraySubscript) {
         return ExprError(Diag(LLoc, diag::err_typecheck_borrow_subscript));
@@ -5970,8 +5971,9 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
     if (BaseType->isPointerType() &&
         (BaseType.isOwnedQualified() || BaseType.isBorrowQualified()) &&
         BaseType->hasOwnedFields()) {
-      return ExprError(Diag(LLoc, diag::err_typecheck_invalid_owned_arrsub)
-                       << BaseType << Base->getSourceRange());
+      return ExprError(Diag(LLoc, diag::err_bsc_op_not_supported)
+                       << "array subscript" << BaseType
+                       << Base->getSourceRange());
     }
   }
 #endif
@@ -15389,7 +15391,7 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
       }
       if (Input.get()->getType()->isFunctionPointerType()) {
         Diag(OpLoc, diag::err_mut_or_const_expr_func)
-            << "&_Mut" << InputExpr->getSourceRange();
+            << "'&_Mut'" << 1 << InputExpr->getSourceRange();
         Input = ExprError();
       }
     } else {
@@ -15401,7 +15403,7 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
             << InputExpr->getSourceRange();
       if (InputExpr->getType()->isFunctionProtoType()) {
         Diag(OpLoc, diag::err_mut_or_const_expr_func)
-            << "&_Mut" << InputExpr->getSourceRange();
+            << "'&_Mut'" << 0 << InputExpr->getSourceRange();
         Input = ExprError();
       }
       if (IsInSafeZone()) {
@@ -15432,7 +15434,7 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
     if (!resultType.isNull()) {
       if (resultType->isFunctionPointerType()) {
         Diag(OpLoc, diag::err_mut_or_const_expr_func)
-            << "&_Const" << InputExpr->getSourceRange();
+            << "'&_Const'" << 1 << InputExpr->getSourceRange();
         Input = ExprError();
       } else if (resultType->isPointerType()) {
         resultType = resultType.getUnqualifiedType();
@@ -16515,9 +16517,12 @@ static void DiagnoseOwnedPointerBinaryOp(Sema &Self, BinaryOperatorKind Opc,
   case BO_Comma:
     return;
   default:
-    Self.Diag(OpLoc, diag::err_typecheck_invalid_owned_binOp)
-        << LHSExpr->getType() << RHSExpr->getType() << LHSExpr->getSourceRange()
-        << RHSExpr->getSourceRange();
+    Self.Diag(OpLoc, diag::err_bsc_op_not_supported)
+        << (llvm::Twine("'") + BinaryOperator::getOpcodeStr(Opc) + "'").str()
+        << (LHSExpr->getType().getCanonicalType().isOwnedQualified()
+                ? LHSExpr->getType()
+                : RHSExpr->getType())
+        << LHSExpr->getSourceRange() << RHSExpr->getSourceRange();
     return;
   }
 }
@@ -17215,7 +17220,8 @@ ExprResult Sema::BuildUnaryOp(Scope *S, SourceLocation OpLoc,
     }
     if (StorageBase && isPointerRootedInStringLiteral(StorageBase)) {
       Diag(OpLoc, diag::err_mut_borrow_string_literal_indirect)
-        << Input->getSourceRange();
+          << InputIgnored->getType().getUnqualifiedType().getAsString()
+          << Input->getSourceRange();
       return ExprError();
     }
   }

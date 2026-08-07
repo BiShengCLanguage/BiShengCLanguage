@@ -5,15 +5,15 @@ void test1() {
   int temp = 2;
   int *_Borrow p1 = &_Mut local;
   int *_Borrow p2 = &_Mut temp;
-  p2 = p1; // expected-note {{`*p1` is borrowed here}}
-  *p1 = 2; // expected-error {{cannot assign to `*p1` because it is borrowed}}
+  p2 = p1; // expected-note {{'*p1' is borrowed here}}
+  *p1 = 2; // expected-error {{cannot assign to '*p1' because it is borrowed}}
   temp = *p2;
 }
 
 void use_mut(int *_Borrow p);
 void free_owned<T>(T* _Owned p);
 void test2(int* _Owned oriPtr) {
-  int *_Borrow p = &_Mut *oriPtr; // expected-note {{`*oriPtr` is borrowed here}}
-  free_owned<int>(oriPtr); // expected-error {{cannot move out of `oriPtr` because it is borrowed}}
+  int *_Borrow p = &_Mut *oriPtr; // expected-note {{'*oriPtr' is borrowed here}}
+  free_owned<int>(oriPtr); // expected-error {{cannot move out of 'oriPtr' because it is borrowed}}
   use_mut(p);
 }

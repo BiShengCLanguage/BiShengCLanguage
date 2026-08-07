@@ -11,7 +11,7 @@ void use_float(float f);
 // Reading uninitialized union.
 void test_union_uninit(void) {
     union U u;
-    use_int(u.a); // expected-error {{use of uninitialized value: `u.a`}}
+    use_int(u.a); // expected-error {{use of uninitialized value: 'u.a'}}
 }
 
 // --- Union with struct inside: uninit ---
@@ -21,14 +21,14 @@ union UWithStruct { struct Inner s; float f; };
 
 void test_union_struct_uninit(void) {
     union UWithStruct u;
-    use_int(u.s.x); // expected-error {{use of uninitialized value: `u.s.x`}}
+    use_int(u.s.x); // expected-error {{use of uninitialized value: 'u.s.x'}}
 }
 
 // Partial struct init within union: u.s.y not written.
 void test_union_struct_partial(void) {
     union UWithStruct u;
     u.s.x = 1;
-    use_int(u.s.y); // expected-error {{use of uninitialized value: `u.s.y`}}
+    use_int(u.s.y); // expected-error {{use of uninitialized value: 'u.s.y'}}
 }
 
 // --- Struct with union inside: uninit ---
@@ -39,7 +39,7 @@ struct SWithUnion { union InnerU u; int v; };
 // Struct fully uninit: reading any field errors.
 void test_struct_union_uninit(void) {
     struct SWithUnion s;
-    use_int(s.v); // expected-error {{use of uninitialized value: `s.v`}}
+    use_int(s.v); // expected-error {{use of uninitialized value: 's.v'}}
 }
 
 // Struct partial init: only v set, union field still uninit.
@@ -47,7 +47,7 @@ void test_struct_union_partial(void) {
     struct SWithUnion s;
     s.v = 1;
     use_int(s.v);
-    use_int(s.u.a); // expected-error {{use of uninitialized value: `s.u.a`}}
+    use_int(s.u.a); // expected-error {{use of uninitialized value: 's.u.a'}}
 }
 
 // --- Union with union with struct inside ---
@@ -58,14 +58,14 @@ union Outer { union Mid m; float of; };
 // Deep uninit read.
 void test_deep_uninit(void) {
     union Outer u;
-    use_int(u.m.ms.x); // expected-error {{use of uninitialized value: `u.m.ms.x`}}
+    use_int(u.m.ms.x); // expected-error {{use of uninitialized value: 'u.m.ms.x'}}
 }
 
 // Deep partial struct init: u.m.ms.y not written.
 void test_deep_partial(void) {
     union Outer u;
     u.m.ms.x = 1;
-    use_int(u.m.ms.y); // expected-error {{use of uninitialized value: `u.m.ms.y`}}
+    use_int(u.m.ms.y); // expected-error {{use of uninitialized value: 'u.m.ms.y'}}
 }
 
 // --- Struct with union inside (nested) ---
@@ -76,12 +76,12 @@ struct Wrap { union UWithStruct uw; int v; };
 void test_wrap_partial(void) {
     struct Wrap w;
     w.uw.s.x = 1;
-    use_int(w.uw.s.y); // expected-error {{use of uninitialized value: `w.uw.s.y`}}
+    use_int(w.uw.s.y); // expected-error {{use of uninitialized value: 'w.uw.s.y'}}
 }
 
 // Writing union field only: v still uninit.
 void test_wrap_v_uninit(void) {
     struct Wrap w;
     w.uw.s.x = 1;
-    use_int(w.v); // expected-error {{use of uninitialized value: `w.v`}}
+    use_int(w.v); // expected-error {{use of uninitialized value: 'w.v'}}
 }

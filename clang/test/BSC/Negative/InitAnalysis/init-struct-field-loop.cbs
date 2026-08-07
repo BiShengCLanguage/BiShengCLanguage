@@ -13,7 +13,7 @@ _Safe void test_field_loop_partial(int n) {
         n = n - 1;
     }
     int a = p.a;  // ok: p.a initialized before loop
-    int b = p.b;  // expected-error {{use of possibly uninitialized value: `p.b`}}
+    int b = p.b;  // expected-error {{use of possibly uninitialized value: 'p.b'}}
 }
 
 // Both fields initialized before loop

@@ -15,8 +15,8 @@ _Safe unsigned int do_break_uninit(int n) {
         }
         bar("%u", ret);
     } while (ret != 1);
-    bar("%u", ret); // expected-error {{use of possibly uninitialized value: `ret`}}
-    return ret; // expected-error {{use of possibly uninitialized value: `ret`}}
+    bar("%u", ret); // expected-error {{use of possibly uninitialized value: 'ret'}}
+    return ret; // expected-error {{use of possibly uninitialized value: 'ret'}}
 }
 
 // All paths init ret — no error.

@@ -9,7 +9,7 @@ _Safe void test_unsafe_no_init(void) {
     _Unsafe {
         int y = 42;  // _Unsafe block doesn't touch x
     }
-    int z = x; // expected-error {{use of uninitialized value: `x`}}
+    int z = x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 // Variable conditionally initialized in _Unsafe block
@@ -19,5 +19,5 @@ _Safe void test_unsafe_conditional(int cond) {
         if (cond)
             x = 1;
     }
-    int y = x; // expected-error {{use of possibly uninitialized value: `x`}}
+    int y = x; // expected-error {{use of possibly uninitialized value: 'x'}}
 }

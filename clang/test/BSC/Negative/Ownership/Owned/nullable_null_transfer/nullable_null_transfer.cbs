@@ -26,7 +26,7 @@ void init_nonnull_to_nullable_leak(void) {
     int x = 0;
     int *_Owned _Nonnull p = __take_from_raw(&x);
     int *_Owned _Nullable q = p;
-} // expected-error {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 // Contrast: init from may-be-null owned → leak (owns-if-not-null).
 void init_maybe_to_nullable_leak(int cond) {
@@ -34,7 +34,7 @@ void init_maybe_to_nullable_leak(int cond) {
     int *_Owned _Nullable p = 0;
     if (cond) { p = __take_from_raw(&x); }
     int *_Owned _Nullable q = p;
-} // expected-error {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 // ---------------------------------------------------------------------------
 // Owned pointer to struct (OPS) tests
@@ -57,7 +57,7 @@ void ops_init_nonnull_to_nullable_leak(void) {
     struct S s;
     struct S *_Owned _Nonnull p = __take_from_raw(&s);
     struct S *_Owned _Nullable q = p;
-} // expected-error {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 // ---------------------------------------------------------------------------
 // Null-branch multi-use: p is must-be-null and can be reused in the
@@ -84,21 +84,21 @@ void nonnull_source_cast_leak(void) {
     int x = 0;
     int *_Owned _Nonnull p = __take_from_raw(&x);
     int *_Owned _Nullable q = (int *_Owned _Nullable)p;
-} // expected-error {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 void maybe_source_ternary_leak(int cond) {
     int x = 0;
     int *_Owned _Nullable p = 0;
     if (cond) { p = __take_from_raw(&x); }
     int *_Owned _Nullable q = cond ? p : p;
-} // expected-error {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 // Non-null source through a void* cast still leaks.
 void nonnull_source_via_void_leak(void) {
     int x = 0;
     int *_Owned _Nonnull p = __take_from_raw(&x);
     int *_Owned _Nullable q = (int *_Owned _Nullable)(void *_Owned _Nullable)p;
-} // expected-error {{memory leak of value: `q`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 // Maybe-null source in a ternary with a null-expr arm still leaks.
 void maybe_source_ternary_null_arm_leak(int cond) {
@@ -106,7 +106,7 @@ void maybe_source_ternary_null_arm_leak(int cond) {
     int *_Owned _Nullable p = 0;
     if (cond) { p = __take_from_raw(&x); }
     int *_Owned _Nullable q = cond ? (int *_Owned _Nullable)nullptr : p;
-} // expected-error {{memory leak of value: `q`}} expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 // ---------------------------------------------------------------------------
 // Dereferencing a must-be-null _Owned _Nullable struct pointer: `p->f` and
@@ -120,15 +120,15 @@ struct O { int *_Owned f; };
 
 void arrow_deref_null_ops(void) {
     struct O *_Owned _Nullable p = 0;
-    int *_Owned _Nullable q = p->f; // expected-error {{use of moved value: `p.f`}}
+    int *_Owned _Nullable q = p->f; // expected-error {{use of moved value: 'p.f'}}
     (void)q;
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void paren_deref_null_ops(void) {
     struct O *_Owned _Nullable p = 0;
-    int *_Owned _Nullable q = (*p).f; // expected-error {{use of moved value: `p.f`}}
+    int *_Owned _Nullable q = (*p).f; // expected-error {{use of moved value: 'p.f'}}
     (void)q;
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe void arrow_deref_null_ops_safe(void) {
     struct O *_Owned _Nullable p = nullptr;

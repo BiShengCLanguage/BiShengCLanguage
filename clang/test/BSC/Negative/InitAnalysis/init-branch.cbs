@@ -7,5 +7,5 @@ _Safe void test_uninit_one_branch(int cond) {
     int x;
     if (cond)
         x = 1;
-    int y = x + 1; // expected-error {{use of possibly uninitialized value: `x`}}
+    int y = x + 1; // expected-error {{use of possibly uninitialized value: 'x'}}
 }

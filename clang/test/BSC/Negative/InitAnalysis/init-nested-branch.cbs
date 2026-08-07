@@ -11,5 +11,5 @@ _Safe void test_nested_branch_partial(int cond) {
     o.c = 3;
     if (cond)
         o.inner.b = 2;
-    int val = o.inner.b; // expected-error {{use of possibly uninitialized value: `o.inner.b`}}
+    int val = o.inner.b; // expected-error {{use of possibly uninitialized value: 'o.inner.b'}}
 }

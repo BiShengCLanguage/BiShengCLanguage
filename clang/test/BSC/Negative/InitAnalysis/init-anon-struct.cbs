@@ -19,7 +19,7 @@ _Safe void test_anon_struct_partial(void) {
     a.before = 1;
     a.x = 2;
     a.after = 4;
-    int val = a.y; // expected-error {{use of uninitialized value: `a.y`}}
+    int val = a.y; // expected-error {{use of uninitialized value: 'a.y'}}
 }
 
 // --- Anonymous union inside a struct ---
@@ -45,7 +45,7 @@ _Safe void test_anon_union_partial(void) {
     struct AnonUnion u;
     u.tag = 1;
     u.i = 42;
-    int val = u.extra; // expected-error {{use of uninitialized value: `u.extra`}}
+    int val = u.extra; // expected-error {{use of uninitialized value: 'u.extra'}}
 }
 
 // --- Nested anonymous struct (two levels) ---
@@ -68,7 +68,7 @@ _Safe void test_deep_anon_partial(void) {
     v.b = 2;
     v.c = 3;
     v.e = 5;
-    int val = v.d; // expected-error {{use of uninitialized value: `v.d`}}
+    int val = v.d; // expected-error {{use of uninitialized value: 'v.d'}}
 }
 
 // --- Anonymous struct with pointer fields ---
@@ -121,5 +121,5 @@ _Safe void test_multi_anon_partial(void) {
     m.b = 2;
     m.c = 3;
     m.e = 5;
-    int val = m.d; // expected-error {{use of uninitialized value: `m.d`}}
+    int val = m.d; // expected-error {{use of uninitialized value: 'm.d'}}
 }

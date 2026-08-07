@@ -8,8 +8,7 @@ _Unsafe void unsafe_func(void);
 void test_safe_pointer_requires_safe_function(void) {
   // Error: Assigning _Unsafe function to _Safe pointer is forbidden (narrowing)
   _Safe void (*safe_ptr)(void) = nullptr;
-  safe_ptr = unsafe_func; // expected-error {{conversion from type 'void (*)(void)' to '_Safe void (*)(void)' is forbidden}}
-  // expected-note@-1 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
+  safe_ptr = unsafe_func; // expected-error {{conversion from type 'void (*)(void)' to '_Safe void (*)(void)' is forbidden}} expected-note {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
 }
 
 _Safe void test_typedef_function_pointer_assign(void) {

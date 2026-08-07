@@ -4,6 +4,6 @@ void test1() {
   int local = 42;
   int *_Borrow p = &_Mut local;
   int *_Borrow q = p;
-  p = q; // expected-note {{`*q` is borrowed here}}
-  int temp = *q;  // expected-error {{cannot use `*q` because it was mutably borrowed}}
+  p = q; // expected-note {{'*q' is borrowed here}}
+  int temp = *q;  // expected-error {{cannot use '*q' because it was mutably borrowed}}
 }

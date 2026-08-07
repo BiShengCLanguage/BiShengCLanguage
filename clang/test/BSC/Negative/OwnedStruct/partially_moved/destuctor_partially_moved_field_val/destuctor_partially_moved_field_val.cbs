@@ -11,4 +11,4 @@ void test() {
     Weak weak = { };
 	W w1 = { .p = weak };  
 	W w2 = { .p = w1.p };  
-} //expected-error {{partially moved _Owned struct:`w1` at scope end, w1.p is moved}}
+} //expected-error {{partially moved _Owned struct: 'w1' at scope end, w1.p is moved}}

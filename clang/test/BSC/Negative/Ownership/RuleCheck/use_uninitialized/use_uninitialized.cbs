@@ -19,65 +19,65 @@ struct Baz {
 void member() {
     struct Foo foo;
 
-    int *_Owned *_Borrow q = &_Mut foo.ptr; // expected-error {{use of uninitialized value: `foo.ptr`}}
-    int *_Borrow r = &_Mut *foo.ptr; // expected-error {{use of uninitialized value: `foo.ptr`}}
+    int *_Owned *_Borrow q = &_Mut foo.ptr; // expected-error {{use of uninitialized value: 'foo.ptr'}}
+    int *_Borrow r = &_Mut *foo.ptr; // expected-error {{use of uninitialized value: 'foo.ptr'}}
 
-    exhaust((void *_Owned)foo.ptr); // expected-error {{invalid cast to `void * _Owned` of uninit value: `foo.ptr`}}
+    exhaust((void *_Owned)foo.ptr); // expected-error {{cannot cast 'foo.ptr' to 'void * _Owned' because it is uninitialized}}
 }
 
 void member_ptr() {
     struct Foo *_Owned foo; 
 
-    int *_Owned *_Borrow q = &_Mut foo->ptr; // expected-error {{use of uninitialized value: `foo.ptr`}}
-    int *_Borrow r = &_Mut *foo->ptr; // expected-error {{use of uninitialized value: `foo.ptr`}}
+    int *_Owned *_Borrow q = &_Mut foo->ptr; // expected-error {{use of uninitialized value: 'foo.ptr'}}
+    int *_Borrow r = &_Mut *foo->ptr; // expected-error {{use of uninitialized value: 'foo.ptr'}}
 
-    exhaust((void *_Owned)foo->ptr); // expected-error {{invalid cast to `void * _Owned` of uninit value: `foo.ptr`}}
+    exhaust((void *_Owned)foo->ptr); // expected-error {{cannot cast 'foo.ptr' to 'void * _Owned' because it is uninitialized}}
     exhaust((void *_Owned)foo);
 }
 
 void nested() {
     struct Bar bar;
 
-    int *_Owned *_Borrow q = &_Mut (bar.inner->ptr); // expected-error {{use of uninitialized value: `bar.inner.ptr`}}
+    int *_Owned *_Borrow q = &_Mut (bar.inner->ptr); // expected-error {{use of uninitialized value: 'bar.inner.ptr'}}
 
-    exhaust((void *_Owned)bar.inner->ptr); // expected-error {{invalid cast to `void * _Owned` of uninit value: `bar.inner.ptr`}}
+    exhaust((void *_Owned)bar.inner->ptr); // expected-error {{cannot cast 'bar.inner.ptr' to 'void * _Owned' because it is uninitialized}}
 
-    exhaust((void *_Owned)bar.inner); // expected-error {{invalid cast to `void * _Owned` of uninit value: `bar.inner`}}
+    exhaust((void *_Owned)bar.inner); // expected-error {{cannot cast 'bar.inner' to 'void * _Owned' because it is uninitialized}}
 }
 
 void nested_ptr() {
     struct Bar *_Owned bar;
 
-    int *_Owned *_Borrow q = &_Mut (bar->inner->ptr); // expected-error {{use of uninitialized value: `bar.inner`}}
+    int *_Owned *_Borrow q = &_Mut (bar->inner->ptr); // expected-error {{use of uninitialized value: 'bar.inner'}}
 
-    exhaust((void *_Owned)bar->inner->ptr); // expected-error {{invalid cast to `void * _Owned` of uninit value: `bar.inner.ptr`}}
+    exhaust((void *_Owned)bar->inner->ptr); // expected-error {{cannot cast 'bar.inner.ptr' to 'void * _Owned' because it is uninitialized}}
 
-    exhaust((void *_Owned)bar->inner); // expected-error {{invalid cast to `void * _Owned` of moved or uninitialized value: `bar.inner`}}
+    exhaust((void *_Owned)bar->inner); // expected-error {{cannot cast 'bar.inner' to 'void * _Owned' because it was moved}}
     exhaust((void *_Owned)bar);
 }
 
 void member2() {
     struct Baz baz;
 
-    int *_Owned *_Borrow ref_p = &_Mut baz.p; // expected-error {{use of uninitialized value: `baz.p`}}
-    double *_Owned *_Borrow ref_q = &_Mut baz.q; // expected-error {{use of uninitialized value: `baz.q`}}
-    int *_Borrow ref_p_v = &_Mut *baz.p; // expected-error {{use of uninitialized value: `baz.p`}}
-    double *_Borrow ref_q_v = &_Mut *baz.q; // expected-error {{use of uninitialized value: `baz.q`}}
+    int *_Owned *_Borrow ref_p = &_Mut baz.p; // expected-error {{use of uninitialized value: 'baz.p'}}
+    double *_Owned *_Borrow ref_q = &_Mut baz.q; // expected-error {{use of uninitialized value: 'baz.q'}}
+    int *_Borrow ref_p_v = &_Mut *baz.p; // expected-error {{use of uninitialized value: 'baz.p'}}
+    double *_Borrow ref_q_v = &_Mut *baz.q; // expected-error {{use of uninitialized value: 'baz.q'}}
 
-    exhaust((void *_Owned)baz.p); // expected-error {{invalid cast to `void * _Owned` of uninit value: `baz.p`}}
-    exhaust((void *_Owned)baz.q); // expected-error {{invalid cast to `void * _Owned` of uninit value: `baz.q`}}
+    exhaust((void *_Owned)baz.p); // expected-error {{cannot cast 'baz.p' to 'void * _Owned' because it is uninitialized}}
+    exhaust((void *_Owned)baz.q); // expected-error {{cannot cast 'baz.q' to 'void * _Owned' because it is uninitialized}}
 }
 
 void member2_ptr() {
     struct Baz *_Owned baz;
 
-    int *_Owned *_Borrow ref_p = &_Mut baz->p; // expected-error {{use of uninitialized value: `baz.p`}}
-    double *_Owned *_Borrow ref_q = &_Mut baz->q; // expected-error {{use of uninitialized value: `baz.q`}}
-    int *_Borrow ref_p_v = &_Mut *baz->p; // expected-error {{use of uninitialized value: `baz.p`}}
-    double *_Borrow ref_q_v = &_Mut *baz->q; // expected-error {{use of uninitialized value: `baz.q`}}
+    int *_Owned *_Borrow ref_p = &_Mut baz->p; // expected-error {{use of uninitialized value: 'baz.p'}}
+    double *_Owned *_Borrow ref_q = &_Mut baz->q; // expected-error {{use of uninitialized value: 'baz.q'}}
+    int *_Borrow ref_p_v = &_Mut *baz->p; // expected-error {{use of uninitialized value: 'baz.p'}}
+    double *_Borrow ref_q_v = &_Mut *baz->q; // expected-error {{use of uninitialized value: 'baz.q'}}
 
-    exhaust((void *_Owned)baz->p); // expected-error {{invalid cast to `void * _Owned` of uninit value: `baz.p`}}
-    exhaust((void *_Owned)baz->q); // expected-error {{invalid cast to `void * _Owned` of moved or uninitialized value: `baz.q`}}
+    exhaust((void *_Owned)baz->p); // expected-error {{cannot cast 'baz.p' to 'void * _Owned' because it is uninitialized}}
+    exhaust((void *_Owned)baz->q); // expected-error {{cannot cast 'baz.q' to 'void * _Owned' because it was moved}}
     exhaust((void *_Owned)baz);
 }
 
@@ -85,18 +85,18 @@ void partial_uninitialized() {
     struct Baz baz;
     baz.p = create();
 
-    double *_Owned *_Borrow ref_q = &_Mut baz.q; // expected-error {{use of uninitialized value: `baz.q`}}
-    double *_Borrow ref_q_v = &_Mut *baz.q; // expected-error {{use of uninitialized value: `baz.q`}}
+    double *_Owned *_Borrow ref_q = &_Mut baz.q; // expected-error {{use of uninitialized value: 'baz.q'}}
+    double *_Borrow ref_q_v = &_Mut *baz.q; // expected-error {{use of uninitialized value: 'baz.q'}}
     exhaust((void *_Owned)baz.p);
-    exhaust((void *_Owned)baz.q); // expected-error {{invalid cast to `void * _Owned` of uninit value: `baz.q`}}
+    exhaust((void *_Owned)baz.q); // expected-error {{cannot cast 'baz.q' to 'void * _Owned' because it is uninitialized}}
 }
 
 void partial_moved(struct Baz baz) {
     exhaust((void *_Owned)baz.p);
 
-    int *_Owned *_Borrow ref_p = &_Mut baz.p; // expected-error {{use of moved value: `baz.p`}}
+    int *_Owned *_Borrow ref_p = &_Mut baz.p; // expected-error {{use of moved value: 'baz.p'}}
     double *_Owned *_Borrow ref_q = &_Mut baz.q;
-    int *_Borrow ref_p_v = &_Mut *baz.p; // expected-error {{use of moved value: `baz.p`}}
+    int *_Borrow ref_p_v = &_Mut *baz.p; // expected-error {{use of moved value: 'baz.p'}}
     double *_Borrow ref_q_v = &_Mut *baz.q;
     exhaust((void *_Owned)baz.q);
 }

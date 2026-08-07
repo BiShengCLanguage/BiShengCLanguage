@@ -2,7 +2,7 @@
 
 _Owned struct A {
     int a;
-    int f(A this) { return this.a; } // expected-error {{memory leak because temporary variable 'this' is _Owned or indirect _Owned type}}
+    int f(A this) { return this.a; } // expected-error {{cannot use a member of 'this' in a return expression because 'this' is destroyed before the return; copy the member to a local first}}
     int g(A this);
 };
 

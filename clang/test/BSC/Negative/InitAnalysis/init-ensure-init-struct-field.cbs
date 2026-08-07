@@ -23,7 +23,7 @@ _Safe void test_partial_field_assume(void) {
     }
     int a = t.a;  // ok
     int b = t.b;  // ok
-    int c = t.c;  // expected-error {{use of uninitialized value: `t.c`}}
+    int c = t.c;  // expected-error {{use of uninitialized value: 't.c'}}
 }
 
 // Mix of direct init and ensure_init

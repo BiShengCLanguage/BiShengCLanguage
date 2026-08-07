@@ -4,22 +4,22 @@
 
 _Safe void test_cast_uninit(void) {
     int x;
-    long y = (long)x; // expected-error {{use of uninitialized value: `x`}}
+    long y = (long)x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 _Safe void test_unary_uninit(void) {
     int x;
-    int y = -x; // expected-error {{use of uninitialized value: `x`}}
+    int y = -x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 _Safe void test_binary_lhs_uninit(void) {
     int a;
     int b = 1;
-    int c = a + b; // expected-error {{use of uninitialized value: `a`}}
+    int c = a + b; // expected-error {{use of uninitialized value: 'a'}}
 }
 
 _Safe void test_binary_rhs_uninit(void) {
     int a = 1;
     int b;
-    int c = a + b; // expected-error {{use of uninitialized value: `b`}}
+    int c = a + b; // expected-error {{use of uninitialized value: 'b'}}
 }

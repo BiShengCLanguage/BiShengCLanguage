@@ -1,19 +1,19 @@
 // RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 struct R {
    int num;
-   int _Borrow p1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-   const int _Borrow p2; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+   int _Borrow p1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+   const int _Borrow p2; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 };
-void f(int _Borrow a); // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-void f1<T>(const int _Borrow a) {} // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+void f(int _Borrow a); // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+void f1<T>(const int _Borrow a) {} // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 void f2<T>(T * _Borrow a) {}; // legal
 
 void test() {
   int a = 1;
-  int _Borrow b1; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  const int _Borrow b2 = 10; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  int _Borrow * b3; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
-  const int _Borrow * b4; // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}}
+  int _Borrow b1; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  const int _Borrow b2 = 10; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  int _Borrow * b3; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+  const int _Borrow * b4; // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
   f2<int>(&_Mut a);
 }
 

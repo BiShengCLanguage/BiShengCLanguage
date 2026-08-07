@@ -34,41 +34,41 @@ struct Inner *_Owned mkInner(void) {
 }
 
 void test_call_nested(void) {
-  safe_free((void *_Owned)mkNested()); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `int *_Owned *_Owned`, int *_Owned is _Owned}}
+  safe_free((void *_Owned)mkNested()); // expected-error {{cannot cast 'int *_Owned *_Owned' to 'void * _Owned': int *_Owned is still _Owned; move it out first}}
 }
 
 void test_call_deep(void) {
-  safe_free((void *_Owned)mkDeep()); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `int *_Owned *_Owned *_Owned`, int *_Owned *_Owned is _Owned}}
+  safe_free((void *_Owned)mkDeep()); // expected-error {{cannot cast 'int *_Owned *_Owned *_Owned' to 'void * _Owned': int *_Owned *_Owned is still _Owned; move it out first}}
 }
 
 void test_call_struct(void) {
-  safe_free((void *_Owned)mkInner()); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `struct Inner *_Owned`, struct Inner is _Owned}}
+  safe_free((void *_Owned)mkInner()); // expected-error {{cannot cast 'struct Inner *_Owned' to 'void * _Owned': struct Inner is still _Owned; move it out first}}
 }
 
 void test_comma_named(void) {
   int *_Owned inner = safe_malloc(5);
   int *_Owned *_Owned outer = safe_malloc(inner);
-  safe_free((void *_Owned)(0, outer)); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  safe_free((void *_Owned)(0, outer)); // expected-error {{cannot cast 'outer' to 'void * _Owned': *outer is still _Owned; move it out first}}
   // expected-warning@-1 {{left operand of comma operator has no effect}}
 }
 
 void test_comma_nested_rhs_named(void) {
   int *_Owned inner = safe_malloc(5);
   int *_Owned *_Owned outer = safe_malloc(inner);
-  safe_free((void *_Owned)(0, (1, outer))); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  safe_free((void *_Owned)(0, (1, outer))); // expected-error {{cannot cast 'outer' to 'void * _Owned': *outer is still _Owned; move it out first}}
   // expected-warning@-1 2 {{left operand of comma operator has no effect}}
 }
 
 void test_safe_expr_named(void) {
   int *_Owned inner = safe_malloc(5);
   int *_Owned *_Owned outer = safe_malloc(inner);
-  safe_free((void *_Owned)_Safe(outer)); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  safe_free((void *_Owned)_Safe(outer)); // expected-error {{cannot cast 'outer' to 'void * _Owned': *outer is still _Owned; move it out first}}
 }
 
 void test_comma_safe_expr_named(void) {
   int *_Owned inner = safe_malloc(5);
   int *_Owned *_Owned outer = safe_malloc(inner);
-  safe_free((void *_Owned)(0, _Safe(outer))); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `outer`, *outer is _Owned}}
+  safe_free((void *_Owned)(0, _Safe(outer))); // expected-error {{cannot cast 'outer' to 'void * _Owned': *outer is still _Owned; move it out first}}
   // expected-warning@-1 {{left operand of comma operator has no effect}}
 }
 
@@ -77,8 +77,8 @@ void test_conditional(int c) {
   int *_Owned *_Owned a = safe_malloc(ia);
   int *_Owned ib = safe_malloc(5);
   int *_Owned *_Owned b = safe_malloc(ib);
-  safe_free((void *_Owned)(c ? a : b)); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `int *_Owned *_Owned`, int *_Owned is _Owned}}
-} // expected-error {{memory leak of value: `b`}}
-  // expected-error@-1 {{field memory leak of value: `b`, *b is leak}}
-  // expected-error@-2 {{memory leak of value: `a`}}
-  // expected-error@-3 {{field memory leak of value: `a`, *a is leak}}
+  safe_free((void *_Owned)(c ? a : b)); // expected-error {{cannot cast 'int *_Owned *_Owned' to 'void * _Owned': int *_Owned is still _Owned; move it out first}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because *b is not freed or moved before 'b' goes out of scope}}
+  // expected-error@-2 {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+  // expected-error@-3 {{memory leak because *a is not freed or moved before 'a' goes out of scope}}

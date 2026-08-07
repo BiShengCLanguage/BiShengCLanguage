@@ -12,11 +12,11 @@ struct S { int *_Borrow _ArrayElem p; int q; };
 _Safe void via_index(int c) {
   struct S s;
   s.q = 0;
-  s.p[c] = 5; // expected-error {{use of uninitialized value: `s.p`}}
+  s.p[c] = 5; // expected-error {{use of uninitialized value: 's.p'}}
 }
 
 _Safe void via_const_index(void) {
   struct S s;
   s.q = 0;
-  s.p[0] = 5; // expected-error {{use of uninitialized value: `s.p`}}
+  s.p[0] = 5; // expected-error {{use of uninitialized value: 's.p'}}
 }

@@ -2,7 +2,7 @@
 
 void write_error_1(int * _Owned * _Owned * _Owned a) {
     ***a = 5;
-}// expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, *a, **a are leak}}
+}// expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a, **a are not freed or moved before 'a' goes out of scope}}
 
 void write_error_2(_Owned int * _Owned * _Owned * _Owned a) { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     _Owned int * _Owned * _Owned * _Owned b = a; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}

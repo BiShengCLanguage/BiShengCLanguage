@@ -8,4 +8,4 @@ _Public:
 };
 void test(A a) {
     B b = a.b;
-} // expected-error {{partially moved _Owned struct:`a` at scope end, a.b is moved}}
+} // expected-error {{partially moved _Owned struct: 'a' at scope end, a.b is moved}}

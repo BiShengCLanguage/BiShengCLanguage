@@ -23,7 +23,7 @@ void use_two_mut_borrows(DATA_S *_Borrow a, DATA_S *_Borrow b) {
 
 void test_simultaneous_use() {
   DATA_S data = {42};
-  use_two_mut_borrows(&_Mut data, &_Mut data); // expected-error {{cannot borrow `data` as mutable more than once at a time}}
+  use_two_mut_borrows(&_Mut data, &_Mut data); // expected-error {{cannot borrow 'data' as mutable more than once at a time}}
                                                // expected-note@-1 {{first mut borrow occurs here}}
 }
 
@@ -31,7 +31,7 @@ void test_simultaneous_use() {
 void test_overlapping_lifetimes() {
   DATA_S data = {42};
   DATA_S *_Borrow p1 = &_Mut data; // expected-note {{first mut borrow occurs here}}
-  DATA_S *_Borrow p2 = &_Mut data; // expected-error {{cannot borrow `data` as mutable more than once at a time}}
+  DATA_S *_Borrow p2 = &_Mut data; // expected-error {{cannot borrow 'data' as mutable more than once at a time}}
   p1->value = 10;
   p2->value = 20;
 }

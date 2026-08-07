@@ -10,7 +10,7 @@ int * _Owned foo(int * _Owned a) {
 int _Owned foo1() { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     int _Owned a = 1; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     int _Owned * _Borrow b = &_Mut a;  // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-    return *b; // expected-error {{_Borrow type does not allow move ownership}}
+    return *b; // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 void foo2() {
@@ -27,7 +27,7 @@ int _Owned test_use(int _Owned a){ // expected-error {{type of 'int' cannot be q
 int foo3() {
     int _Owned a = 1; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     int _Owned * _Borrow b = &_Mut a;  // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-    int _Owned c = test_use(*b);     // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{_Borrow type does not allow move ownership}}
+    int _Owned c = test_use(*b);     // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{cannot take ownership of a borrowed value}}
     int d = (int)a;
     return 0;
 }
@@ -40,7 +40,7 @@ int foo4() {
     int _Owned m = 1; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     int n = 1;
     struct S1 k = {&_Mut m, &n};
-    int _Owned a = *(k.a);          // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{_Borrow type does not allow move ownership}}
+    int _Owned a = *(k.a);          // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{cannot take ownership of a borrowed value}}
     int b = *(k.b);
 }
 
@@ -52,7 +52,7 @@ int foo5() {
     int m = 1;
     int n = 1;
     struct S2 _Owned * _Borrow k = &_Mut(struct S2 _Owned){&m, &n};  // expected-error {{type of 'struct S2' cannot be qualified by '_Owned'}}
-    struct S2 _Owned a = *(k);   // expected-error {{type of 'struct S2' cannot be qualified by '_Owned'}} expected-error {{_Borrow type does not allow move ownership}}
+    struct S2 _Owned a = *(k);   // expected-error {{type of 'struct S2' cannot be qualified by '_Owned'}} expected-error {{cannot take ownership of a borrowed value}}
 }
 
 
@@ -100,12 +100,12 @@ void test() {
     int a2 = *b1; // legal
     *b1 = a2; // legal
     // T 是 move 语义，p 是 immut 借用
-    int * _Owned a3 = *b8; // expected-error {{_Borrow type does not allow move ownership}}
-    int * _Owned a4 = ((int * _Owned)*b8); // expected-error {{_Borrow type does not allow move ownership}}
+    int * _Owned a3 = *b8; // expected-error {{cannot take ownership of a borrowed value}}
+    int * _Owned a4 = ((int * _Owned)*b8); // expected-error {{cannot take ownership of a borrowed value}}
     *b8 = p3; // expected-error {{read-only variable is not assignable}}
     // T 是 move 语义，p 是 mut 借用
-    a3 = *b7; // expected-error {{_Borrow type does not allow move ownership}}
-    a3 = ((int * _Owned)*b7); // expected-error {{_Borrow type does not allow move ownership}}
+    a3 = *b7; // expected-error {{cannot take ownership of a borrowed value}}
+    a3 = ((int * _Owned)*b7); // expected-error {{cannot take ownership of a borrowed value}}
     *b7; // expected-warning {{expression result unused}}
     *b7 = a3; // legal
 
@@ -118,10 +118,10 @@ void test() {
     struct R * _Borrow b9 = &_Mut r;
     struct R r1 = *b9; // legal
     int * _Owned *_Borrow b10 = &_Mut r.p;
-    a4 = *b10; // expected-error {{_Borrow type does not allow move ownership}}
+    a4 = *b10; // expected-error {{cannot take ownership of a borrowed value}}
 
-    foo(*b8); // expected-error {{memory leak because temporary variable 'foo(*b8)' is _Owned or indirect _Owned type}}
-              // expected-error@-1 {{_Borrow type does not allow move ownership}}
+    foo(*b8); // expected-error {{the _Owned value of 'foo(*b8)' is discarded and would leak}}
+              // expected-error@-1 {{cannot take ownership of a borrowed value}}
     test1<int>();
     test2<int>(); // expected-note {{in instantiation of function template specialization 'test2<int>' requested here}}
     test3<int>();

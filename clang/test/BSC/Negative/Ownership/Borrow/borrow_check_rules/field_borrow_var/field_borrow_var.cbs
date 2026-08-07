@@ -15,18 +15,18 @@ void use_const(const R *_Borrow);
 
 void test1() {
   R local_r = { .a = 1, .b = 2 };
-  S s = { .r = &_Mut local_r, .num = 3 }; // expected-note {{`local_r.a` is borrowed here}}
+  S s = { .r = &_Mut local_r, .num = 3 }; // expected-note {{'local_r.a' is borrowed here}}
                                          // expected-note@-1 {{mutable borrow occurs here}}
-  const R *_Borrow const_r = &_Const local_r; // expected-error {{cannot borrow `local_r` as immutable because it is also borrowed as mutable}}
-  local_r.a = 4; // expected-error {{cannot assign to `local_r.a` because it is borrowed}}
+  const R *_Borrow const_r = &_Const local_r; // expected-error {{cannot borrow 'local_r' as immutable because it is also borrowed as mutable}}
+  local_r.a = 4; // expected-error {{cannot assign to 'local_r.a' because it is borrowed}}
   use_mut(s.r);
 }
 
 void test2() {
   R local_r = { .a = 1, .b = 2 };
   S s = { .r = &_Mut local_r, .num = 3 };
-  const R *_Borrow const_r = &_Const local_r; // expected-note {{`local_r.a` is borrowed here}}
-  local_r.a = 4; // expected-error {{cannot assign to `local_r.a` because it is borrowed}}
+  const R *_Borrow const_r = &_Const local_r; // expected-note {{'local_r.a' is borrowed here}}
+  local_r.a = 4; // expected-error {{cannot assign to 'local_r.a' because it is borrowed}}
   use_const(const_r);
 }
 

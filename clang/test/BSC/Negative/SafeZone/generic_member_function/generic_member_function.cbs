@@ -30,7 +30,7 @@ void genericMemberFun() {
   int *n = struct MyStruct<int*>::foo_b(q);
   unsafeFun fun_c;
   struct MyStruct<unsafeFun>::foo_c(fun_c);  // expected-note{{in instantiation of member function 'MyStruct<void (*)(void)>::foo_c' requested here}}
-}// expected-error {{memory leak of value: `m`}}
+}// expected-error {{memory leak because 'm' is not freed or moved before it goes out of scope}}
 
 _Trait F<T> {
   _Safe int foo(This* _Owned this, T b);
@@ -38,7 +38,7 @@ _Trait F<T> {
 
 _Safe int int::foo(int* _Owned this, int *b) {
   return 0;
-} // expected-error {{memory leak of value: `this`}}
+} // expected-error {{memory leak because 'this' is not freed or moved before it goes out of scope}}
 
 _Impl _Trait F<int *> for int;
 

@@ -5,8 +5,8 @@
 _Safe void test_multiple_uninit(void) {
     int a;
     int b;
-    int c = a; // expected-error {{use of uninitialized value: `a`}}
-    int d = b; // expected-error {{use of uninitialized value: `b`}}
+    int c = a; // expected-error {{use of uninitialized value: 'a'}}
+    int d = b; // expected-error {{use of uninitialized value: 'b'}}
 }
 
 _Safe void test_mixed_init(int cond) {
@@ -14,5 +14,5 @@ _Safe void test_mixed_init(int cond) {
     int b;
     if (cond)
         b = 2;
-    int c = b; // expected-error {{use of possibly uninitialized value: `b`}}
+    int c = b; // expected-error {{use of possibly uninitialized value: 'b'}}
 }

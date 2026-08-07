@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -verify %s
+
+struct B { int x; };
+struct A { struct B *_Owned f; struct B *_Owned g; };
+struct A *_Owned mkA(void);
+struct A mkAv(void);
+void sinkA(struct A *_Owned p);
+void sinkB(struct B *_Owned b);
+
+void test(int c) {
+  struct A *_Owned p = mkA();
+  if (c) {
+    sinkB(p->f);
+  } else {
+    sinkB(p->f);
+    sinkB(p->g);
+  }
+  *p = mkAv(); // expected-error {{cannot assign to 'p': p.f is possibly moved out and the remaining _Owned fields would leak}}
+  sinkA(p);
+}

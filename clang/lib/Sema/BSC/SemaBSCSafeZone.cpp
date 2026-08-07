@@ -1329,7 +1329,8 @@ void Sema::DiagnoseRawPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op) {
 }
 
 void Sema::DiagnoseBSCPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op) {
-  Diag(OpLoc, diag::err_bsc_ptr_inc_dec) << (IsInc ? 0 : 1) << Op->getType();
+  Diag(OpLoc, diag::err_bsc_op_not_supported)
+      << (IsInc ? "'++'" : "'--'") << Op->getType();
   const auto *DRE = dyn_cast<DeclRefExpr>(Op->IgnoreParenImpCasts());
   if (!DRE) {
     Diag(OpLoc, diag::note_bsc_ptr_inc_dec_fix_anon);

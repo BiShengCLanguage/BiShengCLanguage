@@ -4,10 +4,10 @@ int* _Owned func1(int* _Owned p) { return p; }
 int _Owned func2(int _Owned a) { return a; } // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 int* func3(int* p) { return p; }
 void test1(int* _Owned p, int _Owned a, int* p2) { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-    func1(p);   // expected-error {{memory leak because temporary variable 'func1(p)' is _Owned or indirect _Owned type}}
-    *func1(p);  // expected-error {{memory leak because temporary variable 'func1(p)' is _Owned or indirect _Owned type}}
-    int res1 = *func1(p);   // expected-error {{memory leak because temporary variable 'func1(p)' is _Owned or indirect _Owned type}}
-    func2(a);   // expected-error {{memory leak because temporary variable 'func2(a)' is _Owned or indirect _Owned type}}
+    func1(p);   // expected-error {{the _Owned value of 'func1(p)' is discarded and would leak}}
+    *func1(p);  // expected-error {{the _Owned value of 'func1(p)' is discarded and would leak}}
+    int res1 = *func1(p);   // expected-error {{the _Owned value of 'func1(p)' is discarded and would leak}}
+    func2(a);   // expected-error {{the _Owned value of 'func2(a)' is discarded and would leak}}
     *func2(a);  // expected-error {{indirection requires pointer operand ('_Owned int' invalid)}}
     func3(p2);
     *func3(p2); // expected-warning {{expression result unused}}
@@ -18,28 +18,28 @@ void test2(int* _Owned p1, int* _Owned p2) {
     if (p1 == p2) {
         return;
     }
-    if (func1(p1) == p2) {  // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}}
+    if (func1(p1) == p2) {  // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}}
         return;
     }
-    if (p1 == func1(p2)) {  // expected-error {{memory leak because temporary variable 'func1(p2)' is _Owned or indirect _Owned type}}
+    if (p1 == func1(p2)) {  // expected-error {{the _Owned value of 'func1(p2)' is discarded and would leak}}
         return;
     }
-    if (func1(p1) == func1(p2)) {   // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}} // expected-error {{memory leak because temporary variable 'func1(p2)' is _Owned or indirect _Owned type}}
+    if (func1(p1) == func1(p2)) {   // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}} // expected-error {{the _Owned value of 'func1(p2)' is discarded and would leak}}
         return;
     }
-    if (func1(p1) >= p2) {  // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}}
+    if (func1(p1) >= p2) {  // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}}
         return;
     }
-    if (func1(p1) > p2) {   // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}}
+    if (func1(p1) > p2) {   // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}}
         return;
     }
-    if (func1(p1) <= p2) {  // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}}
+    if (func1(p1) <= p2) {  // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}}
         return;
     }
-    if (func1(p1) < p2) {   // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}}
+    if (func1(p1) < p2) {   // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}}
         return;
     }
-    if (func1(p1) != p2) {  // expected-error {{memory leak because temporary variable 'func1(p1)' is _Owned or indirect _Owned type}}
+    if (func1(p1) != p2) {  // expected-error {{the _Owned value of 'func1(p1)' is discarded and would leak}}
         return;
     }
 }

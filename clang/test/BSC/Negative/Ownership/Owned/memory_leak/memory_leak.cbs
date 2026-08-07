@@ -6,7 +6,7 @@ void test1() {
     int x = 10;
     int* p = &x;
     myInt p1 = __take_from_raw(p);
-} // expected-error {{memory leak of value: `p1`}}
+} // expected-error {{memory leak because 'p1' is not freed or moved before it goes out of scope}}
 
 _Owned struct S { 
 _Public:
@@ -19,4 +19,4 @@ _Trait T {
 _Impl _Trait T for S;
 void test2(S* _Owned sp) {
   _Trait T* _Owned t = sp;
-} // expected-error{{field memory leak of value: `t`, t.data is leak}}
+} // expected-error{{memory leak because t.data is not freed or moved before 't' goes out of scope}}

@@ -20,8 +20,8 @@ ownedA func1(ownedA sa) {
 }
 void test1(ownedA sa) {
     int res1 = sa.a;
-    func1(sa).a;    // expected-error {{memory leak because temporary variable 'func1(sa)' is _Owned or indirect _Owned type}}
-    int res2 = func1(sa).a; // expected-error {{memory leak because temporary variable 'func1(sa)' is _Owned or indirect _Owned type}}
+    func1(sa).a;    // expected-error {{the _Owned value of 'func1(sa)' is discarded and would leak}}
+    int res2 = func1(sa).a; // expected-error {{the _Owned value of 'func1(sa)' is discarded and would leak}}
     return;
 }
 
@@ -39,8 +39,8 @@ void test2(ownedA* sa) {
 
 
 void test3(ownedA sa) {
-    B* res1 = func1(sa).getB(); // expected-error {{memory leak because temporary variable 'func1(sa)' is _Owned or indirect _Owned type}}
-    int res2 = func1(sa).getB()->a; // expected-error {{memory leak because temporary variable 'func1(sa)' is _Owned or indirect _Owned type}}
+    B* res1 = func1(sa).getB(); // expected-error {{the _Owned value of 'func1(sa)' is discarded and would leak}}
+    int res2 = func1(sa).getB()->a; // expected-error {{the _Owned value of 'func1(sa)' is discarded and would leak}}
     return;
 }
 

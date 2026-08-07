@@ -6,33 +6,33 @@
 // --- _Safe function tests ---
 
 _Safe void test_exact_overflow(void) {
-  char arr[3] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[3] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_severe_overflow(void) {
-  char arr[2] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[2] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_long_string(void) {
-  char arr[4] = "hello"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 4 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[4] = "hello"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 4 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_one_char_too_short(void) {
-  char arr[1] = "ab"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 1 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[1] = "ab"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 1 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 // --- _Safe block tests ---
 
 void test_safe_block_overflow(void) {
   _Safe {
-    char arr[3] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+    char arr[3] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
   }
 }
 
 void test_safe_block_multi(void) {
   _Safe {
-    char arr[5] = "hello"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 5 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
-    char arr2[1] = "xy"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 1 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+    char arr[5] = "hello"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 5 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
+    char arr2[1] = "xy"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 1 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
   }
 }
 
@@ -40,7 +40,7 @@ void test_safe_block_multi(void) {
 
 _Safe void test_nested_safe(void) {
   _Safe {
-    char arr[2] = "xy"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+    char arr[2] = "xy"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
   }
 }
 
@@ -52,11 +52,11 @@ typedef struct Small {
 } Small;
 
 _Safe void test_struct_member_overflow(void) {
-  Small s = { 1, "abc" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  Small s = { 1, "abc" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_struct_member_severe(void) {
-  Small s = { 2, "hello" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  Small s = { 2, "hello" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 // --- Nested struct overflow ---
@@ -71,7 +71,7 @@ typedef struct Outer2 {
 } Outer2;
 
 _Safe void test_nested_struct_overflow(void) {
-  Outer2 o = { 1, { "abc" } }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  Outer2 o = { 1, { "abc" } }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 // --- Array of structs overflow ---
@@ -79,36 +79,36 @@ _Safe void test_nested_struct_overflow(void) {
 _Safe void test_struct_array_overflow(void) {
   Small arr[] = {
     { 1, "ab" },
-    { 2, "abcdef" }, // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 7 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+    { 2, "abcdef" }, // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 7 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
   };
 }
 
 // --- Multi-dimensional array overflow ---
 
 _Safe void test_multi_dim_overflow(void) {
-  char arr[][3] = { "ab", "abcd" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 5 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[][3] = { "ab", "abcd" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 5 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_multi_dim_all_overflow(void) {
-  char arr[][2] = { "abcdef", "ghijkl" }; // expected-error 2 {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 7 (including null terminator)}} expected-note 2 {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[][2] = { "abcdef", "ghijkl" }; // expected-error 2 {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 7 (including null terminator)}} expected-note 2 {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_mixed_overflow(void) {
-  char arr[][4] = { "abc", "hello", "xyz" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 4 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char arr[][4] = { "abc", "hello", "xyz" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 4 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 // --- _Unsafe function with _Safe block overflow ---
 
 _Unsafe void test_unsafe_fn_safe_block_overflow(void) {
   _Safe {
-    char arr[3] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+    char arr[3] = "abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
   }
 }
 
 _Unsafe void test_unsafe_fn_safe_block_struct_overflow(void) {
   _Safe {
     typedef struct { char buf[2]; } S;
-    S s = { "abc" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+    S s = { "abc" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
   }
 }
 
@@ -117,7 +117,7 @@ _Unsafe void test_unsafe_fn_safe_block_struct_overflow(void) {
 _Safe void test_deep_nesting_overflow(void) {
   _Unsafe {
     _Safe {
-      char arr[2] = "xy"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+      char arr[2] = "xy"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
     }
   }
 }
@@ -126,7 +126,7 @@ _Unsafe void test_deep_nesting_safe_inner_overflow(void) {
   _Safe {
     _Unsafe {
       _Safe {
-        char arr[1] = "ab"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 1 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+        char arr[1] = "ab"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 1 cannot hold string of length 3 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
       }
     }
   }
@@ -139,22 +139,22 @@ typedef unsigned short char16_t;
 typedef unsigned int char32_t;
 
 _Safe void test_wide_overflow(void) {
-  wchar_t arr[3] = L"abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  wchar_t arr[3] = L"abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_wide_severe(void) {
-  wchar_t arr[2] = L"hello"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  wchar_t arr[2] = L"hello"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 6 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_char16_overflow(void) {
-  char16_t arr[3] = u"abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char16_t arr[3] = u"abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_char32_overflow(void) {
-  char32_t arr[3] = U"abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  char32_t arr[3] = U"abc"; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 3 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }
 
 _Safe void test_wide_struct_member_overflow(void) {
   typedef struct { wchar_t buf[2]; } WS;
-  WS s = { L"abc" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with `_Unsafe`}}
+  WS s = { L"abc" }; // expected-error {{too-long initializer-string for char array is forbidden in safe zone; array size 2 cannot hold string of length 4 (including null terminator)}} expected-note {{adjust the length of the array or string, or wrap it with '_Unsafe'}}
 }

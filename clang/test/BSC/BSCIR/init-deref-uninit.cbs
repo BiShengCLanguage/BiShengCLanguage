@@ -14,25 +14,25 @@ typedef struct {
 // Simple: deref read of uninit struct field.
 _Safe int test_simple_deref_uninit(void) {
   S s;
-  return *(s.p); // expected-error {{use of uninitialized value: `s.p`}}
+  return *(s.p); // expected-error {{use of uninitialized value: 's.p'}}
 }
 
 // Simple: deref write through uninit struct field.
 _Safe void test_deref_write_uninit(void) {
   S s;
-  *(s.p) = 2; // expected-error {{use of uninitialized value: `s.p`}}
+  *(s.p) = 2; // expected-error {{use of uninitialized value: 's.p'}}
 }
 
 // Nested: deref read through uninit nested struct field.
 _Safe int test_nested_deref_uninit(void) {
   Outer o;
-  return *(o.inner.p); // expected-error {{use of uninitialized value: `o.inner.p`}}
+  return *(o.inner.p); // expected-error {{use of uninitialized value: 'o.inner.p'}}
 }
 
 // Nested: deref write through uninit nested struct field.
 _Safe void test_nested_deref_write_uninit(void) {
   Outer o;
-  *(o.inner.p) = 2; // expected-error {{use of uninitialized value: `o.inner.p`}}
+  *(o.inner.p) = 2; // expected-error {{use of uninitialized value: 'o.inner.p'}}
 }
 
 // Bare local: deref of uninitialized pointer.

@@ -15,5 +15,5 @@ int main() {
     S s = {.p = safe_malloc(42)};
     int* _Owned p = s.p; 
     safe_free((void* _Owned)p);
-    return 0; // expected-error {{partially moved _Owned struct:`s` at scope end, s.p is moved}}
+    return 0; // expected-error {{partially moved _Owned struct: 's' at scope end, s.p is moved}}
 }

@@ -82,8 +82,8 @@ void test_nested_mixed() {
 
     // OK: positional
     struct OuterMixed o7 = {1, {&_Mut x, nullptr}, nullptr};
-} // expected-error {{field memory leak of value: `o3`, o3.inner.o is leak}}
-  // expected-error@-1 {{field memory leak of value: `o2`, o2.inner.o is leak}}
+} // expected-error {{memory leak because o3.inner.o is not freed or moved before 'o3' goes out of scope}}
+  // expected-error@-1 {{memory leak because o2.inner.o is not freed or moved before 'o2' goes out of scope}}
 
 struct Level3Mixed {
     int *_Borrow b;
@@ -116,8 +116,8 @@ void test_deep_mixed() {
 
     // OK: all fields initialized
     struct Level1Mixed v6 = {.b = &_Mut x, .l2 = {.o = nullptr, .l3 = {.b = &_Mut y, .o = nullptr}}};
-} // expected-error {{field memory leak of value: `v3`, v3.l2.l3.o is leak}}
-  // expected-error@-1 {{field memory leak of value: `v2`, v2.l2.o, v2.l2.l3.o are leak}}
+} // expected-error {{memory leak because v3.l2.l3.o is not freed or moved before 'v3' goes out of scope}}
+  // expected-error@-1 {{memory leak because v2.l2.o, v2.l2.l3.o are not freed or moved before 'v2' goes out of scope}}
 
 struct Interleaved {
     int *_Owned o1;

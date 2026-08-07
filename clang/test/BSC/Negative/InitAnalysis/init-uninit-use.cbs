@@ -4,5 +4,5 @@
 
 _Safe void test_uninit(void) {
     int x;
-    int y = x + 1; // expected-error {{use of uninitialized value: `x`}}
+    int y = x + 1; // expected-error {{use of uninitialized value: 'x'}}
 }

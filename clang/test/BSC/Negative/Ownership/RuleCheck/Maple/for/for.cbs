@@ -6,18 +6,18 @@ int * _Owned assign();
 void func1() {
     int * _Owned a;
     for (int i = 0; i < 10; i++) {
-        a = assign(); // expected-error {{assign to _Owned value: `a`}}
+        a = assign(); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func2() {
     int * _Owned a;
     int * _Owned b;
     for (int i = 0; i < 10; i++) {
         b = assign();
-        a = b; // expected-error {{assign to _Owned value: `a`}}
+        a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func3() {
     int * _Owned a;
@@ -31,8 +31,8 @@ void func3() {
             continue;
         }
         b = assign();
-        a = b; // expected-error {{assign to _Owned value: `a`}}
+        a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 int main() { return 0; }

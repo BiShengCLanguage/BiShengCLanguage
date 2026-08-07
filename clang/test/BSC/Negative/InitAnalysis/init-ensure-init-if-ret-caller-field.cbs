@@ -18,7 +18,7 @@ _Safe void test_field_partial(void) {
     int r = try_init(&_Mut p.a);
     if (r == 0) {
         int y = p.a;             // OK
-        int z = p.b;             // expected-error {{use of uninitialized value: `p.b`}}
+        int z = p.b;             // expected-error {{use of uninitialized value: 'p.b'}}
     }
 }
 
@@ -38,7 +38,7 @@ _Safe void test_nested_field(void) {
         if (r2 == 0) {
             int a = o.inner.a;   // OK
             int c = o.c;         // OK
-            int b = o.inner.b;   // expected-error {{use of uninitialized value: `o.inner.b`}}
+            int b = o.inner.b;   // expected-error {{use of uninitialized value: 'o.inner.b'}}
         }
     }
 }
@@ -66,7 +66,7 @@ _Safe void test_mixed_wrong_branch(void) {
     int r = try_init(&_Mut t.b);
     t.c = 3;
     if (r != 0) {
-        int sum = t.a + t.b + t.c;   // expected-error {{use of uninitialized value: `t.b`}}
+        int sum = t.a + t.b + t.c;   // expected-error {{use of uninitialized value: 't.b'}}
     }
 }
 
@@ -77,8 +77,8 @@ _Safe int plain_call(int *_Borrow out);
 
 _Safe void test_no_attr_no_init(void) {
     int x;
-    int r = plain_call(&_Mut x);     // expected-error {{use of uninitialized value: `x`}}
+    int r = plain_call(&_Mut x);     // expected-error {{use of uninitialized value: 'x'}}
     if (r == 0) {
-        int y = x;                   // expected-error {{use of uninitialized value: `x`}}
+        int y = x;                   // expected-error {{use of uninitialized value: 'x'}}
     }
 }

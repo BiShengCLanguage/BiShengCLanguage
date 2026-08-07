@@ -2169,7 +2169,9 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
       bool Flag = RD->isOwnedDecl();
       while (RD->getPreviousDecl() != nullptr) {
         if (Flag != RD->getPreviousDecl()->isOwnedDecl()) {
-          Diag(StartLoc, diag::err_inconsistent_tag_name);
+          Diag(StartLoc, diag::err_inconsistent_tag_name) << RD << Flag;
+          Diag(RD->getPreviousDecl()->getLocation(),
+               diag::note_previous_declaration);
           break;
         }
         RD = RD->getPreviousDecl();
@@ -2179,7 +2181,9 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
       bool Flag = CTD->getBSCTemplatedDecl()->isOwnedDecl();
       while (CTD->getPreviousDecl() != nullptr) {
         if (Flag != CTD->getPreviousDecl()->getBSCTemplatedDecl()->isOwnedDecl()) {
-          Diag(StartLoc, diag::err_inconsistent_tag_name);
+          Diag(StartLoc, diag::err_inconsistent_tag_name) << CTD << Flag;
+          Diag(CTD->getPreviousDecl()->getLocation(),
+               diag::note_previous_declaration);
           break;
         }
         CTD = CTD->getPreviousDecl();
@@ -2192,7 +2196,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
     Decl *D = TagOrTempResult.get();
     if (RecordDecl *RD = dyn_cast<RecordDecl>(D))
       if (RD->isOwnedDecl()) {
-        Diag(StartLoc, diag::err_tag_name);
+        Diag(StartLoc, diag::err_tag_name) << RD;
       }
   }
 #endif

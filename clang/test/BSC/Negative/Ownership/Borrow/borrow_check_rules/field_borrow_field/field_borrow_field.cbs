@@ -23,7 +23,7 @@ void test1() {
 void test2() {
   R r = { .a = 1, .b = 2 };
   S s = { .p = &_Mut r.a, .q = &_Mut r.b }; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow pp = &_Mut r.a; // expected-error {{cannot borrow `r.a` as mutable more than once at a time}}
+  int *_Borrow pp = &_Mut r.a; // expected-error {{cannot borrow 'r.a' as mutable more than once at a time}}
   use_mutI(s.p);
   use_mutI(pp);
 }
@@ -31,22 +31,22 @@ void test2() {
 void test3() {
   R r = { .a = 1, .b = 2 };
   S s = { .p = &_Mut r.a, .q = &_Mut r.b };
-  int *_Borrow p1 = s.p; // expected-note {{`*s.p` is borrowed here}}
-  int temp = *s.p; // expected-error {{cannot use `*s.p` because it was mutably borrowed}}
+  int *_Borrow p1 = s.p; // expected-note {{'*s.p' is borrowed here}}
+  int temp = *s.p; // expected-error {{cannot use '*s.p' because it was mutably borrowed}}
   int *_Borrow p2 = p1;
 }
 
 void test4() {
   R r = { .a = 1, .b = 2 };
-  S s = { .p = &_Mut r.a, .q = &_Mut r.b }; // expected-note {{`r.a` is borrowed here}}
-  r.a = 5; // expected-error {{cannot assign to `r.a` because it is borrowed}}
+  S s = { .p = &_Mut r.a, .q = &_Mut r.b }; // expected-note {{'r.a' is borrowed here}}
+  r.a = 5; // expected-error {{cannot assign to 'r.a' because it is borrowed}}
   s.q = s.p;
 }
 
 void test5() {
   R r = { .a = 1, .b = 2 };
-  S s = { .p = &_Mut r.a, .q = &_Mut r.b }; // expected-note {{`r.a` is borrowed here}}
-  r.a = 5; // expected-error {{cannot assign to `r.a` because it is borrowed}}
+  S s = { .p = &_Mut r.a, .q = &_Mut r.b }; // expected-note {{'r.a' is borrowed here}}
+  r.a = 5; // expected-error {{cannot assign to 'r.a' because it is borrowed}}
   s.q = s.p;
   r.a = 5;
   int *_Borrow p = s.q;

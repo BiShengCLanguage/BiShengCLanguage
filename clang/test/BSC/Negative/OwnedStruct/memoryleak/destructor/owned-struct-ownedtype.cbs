@@ -13,5 +13,5 @@ _Public:
         struct A y;
         ~S(S this) {
                 free(__move_to_raw(this.x));
-        } // expected-error {{destructor for`_Owned struct S` incorrect, this.y.b is of _Owned type and needs to be handled manually}}
+        } // expected-error {{this.y.b is not freed in the destructor of '_Owned struct S'; _Owned fields must be freed or moved manually}}
 };

@@ -7,4 +7,4 @@ int *_Owned _Borrow get_resource() { //#1
 }
 
 // expected-error@#1 {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
-// expected-error@#1 {{no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+// expected-error@#1 {{return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}

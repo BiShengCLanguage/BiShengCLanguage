@@ -8,8 +8,8 @@ int *_Borrow *_Owned test1(int *_Borrow *_Owned qq) {
   int value = 0;
   int *_Borrow b = &_Mut value;
   int *_Borrow *p = &b;
-  int *_Borrow b2 = &_Mut **qq; // expected-note {{`**qq` is borrowed here}}
-  **qq = 2; // expected-error {{cannot assign to `**qq` because it is borrowed}}
+  int *_Borrow b2 = &_Mut **qq; // expected-note {{'**qq' is borrowed here}}
+  **qq = 2; // expected-error {{cannot assign to '**qq' because it is borrowed}}
   *b = 5;
   *b2 = 10;
   return qq;
@@ -25,8 +25,8 @@ void test2() {
 }
 
 struct S *_Owned test3(struct S *_Owned qq) {
-  int *_Borrow b2 = &_Mut *(qq->p); // expected-note {{`*(*qq).p` is borrowed here}}
-  *(qq->p) = 4; // expected-error {{cannot assign to `*(*qq).p` because it is borrowed}}
+  int *_Borrow b2 = &_Mut *(qq->p); // expected-note {{'*(*qq).p' is borrowed here}}
+  *(qq->p) = 4; // expected-error {{cannot assign to '*(*qq).p' because it is borrowed}}
   *b2 = 3;
   return qq;
 }

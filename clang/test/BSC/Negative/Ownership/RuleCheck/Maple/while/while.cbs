@@ -6,18 +6,18 @@ int * _Owned assign();
 void func1() {
     int * _Owned a;
     while (rand()) {
-        a = assign(); // expected-error {{assign to _Owned value: `a`}}
+        a = assign(); // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func2() {
     int * _Owned a;
     int * _Owned b;
     while (rand()) {
         b = assign();
-        a = b; // expected-error {{assign to _Owned value: `a`}}
+        a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func3() {
     int * _Owned a;
@@ -31,9 +31,9 @@ void func3() {
             continue;
         }
         b = assign();
-        a = b; // expected-error {{assign to _Owned value: `a`}}
+        a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func4() {
     int * _Owned a;
@@ -51,10 +51,10 @@ label1:
             continue;
         }
         while (rand()) {
-            b = assign(); // expected-error {{assign to _Owned value: `b`}}
+            b = assign(); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
         }
     }
-} // expected-error {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func5() {
     int * _Owned a;
@@ -72,10 +72,10 @@ label1:
             continue;
         }
         while (rand()) {
-            a = b; // expected-error {{assign to _Owned value: `a`}} expected-error {{use of uninitialized value: `b`}}
+            a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}} expected-error {{use of uninitialized value: 'b'}}
         }
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func6() {
     int * _Owned a;
@@ -94,10 +94,10 @@ label1:
         }
         while (rand()) {
             b = assign();
-            a = b; // expected-error {{assign to _Owned value: `a`}}
+            a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
         }
     }
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func7() {
     int * _Owned a;
@@ -115,9 +115,9 @@ label1:
             continue;
         }
         while (rand()) {
-            b = assign(); // expected-error {{assign to _Owned value: `b`}}
+            b = assign(); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
         }
     }
-} // expected-error {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 int main() { return 0; }

@@ -10,21 +10,21 @@
 struct S { int *_Owned f; };
 
 int * _Owned take_unsafe(struct S * _Borrow s) {
-    return _Unsafe(s->f);  // expected-error {{_Borrow type does not allow move ownership}}
+    return _Unsafe(s->f);  // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 int * _Owned take_safe(struct S * _Borrow s) {
-    return _Safe(s->f);    // expected-error {{_Borrow type does not allow move ownership}}
+    return _Safe(s->f);    // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 int * _Owned take_paren(struct S * _Borrow s) {
-    return _Unsafe(((s))->f);  // expected-error {{_Borrow type does not allow move ownership}}
+    return _Unsafe(((s))->f);  // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 int * _Owned take_double_wrap(struct S * _Borrow s) {
-    return _Unsafe(_Safe(s->f));  // expected-error {{_Borrow type does not allow move ownership}}
+    return _Unsafe(_Safe(s->f));  // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 int * _Owned take_deref_borrow(int * _Owned * _Borrow pp) {
-    return _Unsafe(*pp);   // expected-error {{_Borrow type does not allow move ownership}}
+    return _Unsafe(*pp);   // expected-error {{cannot take ownership of a borrowed value}}
 }

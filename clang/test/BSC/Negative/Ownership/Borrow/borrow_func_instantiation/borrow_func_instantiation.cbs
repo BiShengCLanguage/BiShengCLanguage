@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -verify %s
 
-T _Borrow foo<T>(void); // expected-note {{candidate template ignored: substitution failure [with T = int *]: no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
-T baz<T>(void); // expected-note {{candidate template ignored: substitution failure [with T = int *_Borrow]: no _Borrow qualified type found in the function parameters, the return type is not allowed to be _Borrow qualified}}
+T _Borrow foo<T>(void); // expected-note {{candidate template ignored: substitution failure [with T = int *]: return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
+T baz<T>(void); // expected-note {{candidate template ignored: substitution failure [with T = int *_Borrow]: return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified}}
 
 void bar() {
   foo<int *>(); // expected-error {{no matching function for call to 'foo'}}

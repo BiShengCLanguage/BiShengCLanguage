@@ -1,0 +1,17 @@
+// RUN: %clang_cc1 -verify %s
+
+_Safe int never_stored(void) {
+} // expected-error {{non-void function 'never_stored' does not return a value}}
+
+_Safe int sometimes_stored(int c) {
+  if (c)
+    return 1;
+} // expected-error {{non-void function 'sometimes_stored' does not return a value in all control paths}}
+
+// The contract failure is diagnosed at the callee; a caller consuming the
+// result is not re-diagnosed.
+_Safe int never_stored_use(void) {
+  int c = never_stored();
+  int b = c;
+  return b;
+}

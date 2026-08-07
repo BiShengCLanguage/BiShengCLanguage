@@ -3,7 +3,7 @@ _Owned struct A {
     _Public:
     int * _Owned a;
     ~A(A this) {
-    } // expected-error {{destructor for`_Owned struct A` incorrect, this.a is of _Owned type and needs to be handled manually}}
+    } // expected-error {{this.a is not freed in the destructor of '_Owned struct A'; _Owned fields must be freed or moved manually}}
 };
 int main() {
     int local = 1;

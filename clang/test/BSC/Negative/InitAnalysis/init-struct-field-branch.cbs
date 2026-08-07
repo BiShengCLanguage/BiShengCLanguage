@@ -10,5 +10,5 @@ _Safe void test_branch_field(int cond) {
     p.x = 1;
     if (cond)
         p.y = 2;
-    int val = p.y; // expected-error {{use of possibly uninitialized value: `p.y`}}
+    int val = p.y; // expected-error {{use of possibly uninitialized value: 'p.y'}}
 }

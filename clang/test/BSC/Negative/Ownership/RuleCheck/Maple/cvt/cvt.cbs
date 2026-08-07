@@ -31,11 +31,11 @@ struct A {
 
 void case7() {
     struct A * _Owned aaa = __take_from_raw((struct A *)malloc(sizeof(struct A)));
-    aaa->b = __take_from_raw((struct B *)malloc(sizeof(struct B))); // expected-error {{assign to part of _Owned value: `aaa.b`}}
+    aaa->b = __take_from_raw((struct B *)malloc(sizeof(struct B))); // expected-error {{cannot assign to 'aaa.b' because it still holds an _Owned value; move or free it first}}
     free(__move_to_raw(aaa->b));
-} // expected-error {{memory leak of value: `aaa`}}
+} // expected-error {{memory leak because 'aaa' is not freed or moved before it goes out of scope}}
 
 void case8() {
     struct A * _Owned aaa = __take_from_raw((struct A *)malloc(sizeof(struct A)));
-    aaa->b = __take_from_raw((struct B *)malloc(sizeof(struct B))); // expected-error {{assign to part of _Owned value: `aaa.b`}}
-} // expected-error {{memory leak of value: `aaa`}} expected-error {{field memory leak of value: `aaa`, aaa.b is leak}}
+    aaa->b = __take_from_raw((struct B *)malloc(sizeof(struct B))); // expected-error {{cannot assign to 'aaa.b' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because 'aaa' is not freed or moved before it goes out of scope}} expected-error {{memory leak because aaa.b is not freed or moved before 'aaa' goes out of scope}}

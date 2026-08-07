@@ -26,7 +26,7 @@ void use_deref_through_moved_level() {
   int *_Owned inner = safe_malloc(7);
   int *_Owned *_Owned bop = safe_malloc(inner);
   consume(*bop);
-  int x = **bop; // expected-error {{use of moved value: `**bop`}}
+  int x = **bop; // expected-error {{use of moved value: '**bop'}}
   (void)x;
   safe_free((void *_Owned)bop);
 }
@@ -35,7 +35,7 @@ void assign_deref_through_moved_level() {
   int *_Owned inner = safe_malloc(7);
   int *_Owned *_Owned bop = safe_malloc(inner);
   consume(*bop);
-  **bop = 5; // expected-error {{assign to part of moved value: `**bop`}}
+  **bop = 5; // expected-error {{cannot assign to '**bop' because the value it belongs to was moved}}
   safe_free((void *_Owned)bop);
 }
 
@@ -44,7 +44,7 @@ void deref_through_moved_level_three() {
   int *_Owned *_Owned b = safe_malloc(a);
   int *_Owned *_Owned *_Owned c = safe_malloc(b);
   consume2(*c);
-  int x = ***c; // expected-error {{use of moved value: `***c`}}
+  int x = ***c; // expected-error {{use of moved value: '***c'}}
   (void)x;
   safe_free((void *_Owned)c);
 }
@@ -54,7 +54,7 @@ void deref_through_only_middle_moved() {
   int *_Owned *_Owned b = safe_malloc(a);
   int *_Owned *_Owned *_Owned c = safe_malloc(b);
   consume(**c);
-  int x = ***c; // expected-error {{use of moved value: `***c`}}
+  int x = ***c; // expected-error {{use of moved value: '***c'}}
   (void)x;
   safe_free((void *_Owned)*c);
   safe_free((void *_Owned)c);
@@ -66,7 +66,7 @@ void assign_through_only_middle_moved() {
   int *_Owned *_Owned b = safe_malloc(a);
   int *_Owned *_Owned *_Owned c = safe_malloc(b);
   consume(**c);
-  ***c = 5; // expected-error {{assign to part of moved value: `***c`}}
+  ***c = 5; // expected-error {{cannot assign to '***c' because the value it belongs to was moved}}
   safe_free((void *_Owned)*c);
   safe_free((void *_Owned)c);
 }
@@ -75,7 +75,7 @@ void deref_after_whole_var_moved() {
   int *_Owned inner = safe_malloc(7);
   int *_Owned *_Owned bop = safe_malloc(inner);
   consume2(bop);
-  int x = **bop; // expected-error {{use of moved value: `**bop`}}
+  int x = **bop; // expected-error {{use of moved value: '**bop'}}
   (void)x;
 }
 

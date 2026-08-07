@@ -18,8 +18,8 @@ void struct A::use(struct A *this) {
 
 void test1() {
   int a = 1;
-  int *_Borrow p = &_Mut a; // expected-note {{`a` is borrowed here}}
-  a.setA(); // expected-error {{cannot use `a` because it was mutably borrowed}}
+  int *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  a.setA(); // expected-error {{cannot use 'a' because it was mutably borrowed}}
   use_mut(p);
 }
 
@@ -32,7 +32,7 @@ void test2() {
 }
 
 void test3(struct A a) {
-  struct A *_Borrow p = &_Mut a; // expected-note {{`a` is borrowed here}}
-  a.use(); // expected-error {{cannot use `a` because it was mutably borrowed}}
+  struct A *_Borrow p = &_Mut a; // expected-note {{'a' is borrowed here}}
+  a.use(); // expected-error {{cannot use 'a' because it was mutably borrowed}}
   use_mut_A(p);
 }

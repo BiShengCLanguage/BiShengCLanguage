@@ -8,8 +8,8 @@ _Safe T max_a<T>(T a, T b) {
 
 _Safe T max_b<T>(T a, T b) {
   return a > b ? a : b;
-} // expected-error {{memory leak of value: `a`}} 
-// expected-error@-1 {{memory leak of value: `b`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} 
+// expected-error@-1 {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 _Safe T max_c<T>(T a, T b) {
   return a > b ? a : b;
@@ -24,7 +24,7 @@ void genericFun(){
   int* _Owned m = max_b<int* _Owned>(p, q); // expected-note{{in instantiation of function template specialization 'max_b<int *_Owned>' requested here}}
   int *n = max_c<void *>((void*)0, (void *)0);
 
-}// expected-error {{memory leak of value: `m`}}
+}// expected-error {{memory leak because 'm' is not freed or moved before it goes out of scope}}
 
 _Safe int* foo_a<T>(int* a, T b) {
   return a > b ? a : b;
@@ -106,7 +106,7 @@ int test_generic_type_point() {
   int* _Owned q = __take_from_raw(&a);
   int* m = poo_b(p);         // expected-note{{in instantiation of function template specialization 'poo_b<int *>' requested here}}
   int* _Owned n = poo_c(q);
-  return 0; // expected-error {{memory leak of value: `n`}}
+  return 0; // expected-error {{memory leak because 'n' is not freed or moved before it goes out of scope}}
 }
 
 void diffPointCastConver<T>(void) {

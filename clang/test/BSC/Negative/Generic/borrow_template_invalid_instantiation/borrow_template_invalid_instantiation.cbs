@@ -3,7 +3,7 @@
 // Test that _Borrow qualifier on template type parameters is validated at instantiation
 // When instantiated with non-pointer types, it should produce an error
 
-T2 _Borrow cast<T1, T2>(T1 _Borrow p) { // expected-note {{candidate template ignored: substitution failure [with T1 = int, T2 = int]: _Borrow type requires a pointer or reference ('int' is invalid)}}
+T2 _Borrow cast<T1, T2>(T1 _Borrow p) { // expected-note {{candidate template ignored: substitution failure [with T1 = int, T2 = int]: '_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
 
   return (T2 _Borrow)(T2)(T1)p;
 }
@@ -20,6 +20,6 @@ void test_invalid() {
   int x = 42;
 
   // This should fail - int is not a pointer type
-  int _Borrow p2 = cast<int, int>(x); // expected-error {{_Borrow type requires a pointer or reference ('int' is invalid)}} // expected-error {{no matching function for call to 'cast'}}
+  int _Borrow p2 = cast<int, int>(x); // expected-error {{'_Borrow' can only be applied to a pointer type; 'int' is not a pointer}} // expected-error {{no matching function for call to 'cast'}}
 
 }

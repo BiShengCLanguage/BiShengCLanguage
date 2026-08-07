@@ -2,23 +2,23 @@
 
 void raw_ptr_increment_decrement(int *p) { // expected-note 4 {{pointer 'p' declared here}}
     _Safe {
-        p++; // expected-error {{use of '++' on raw pointer not supported in safe zone; consider wrap in '_Unsafe { ... }'}}
-        ++p; // expected-error {{use of '++' on raw pointer not supported in safe zone; consider wrap in '_Unsafe { ... }'}}
-        p--; // expected-error {{use of '--' on raw pointer not supported in safe zone; consider wrap in '_Unsafe { ... }'}}
-        --p; // expected-error {{use of '--' on raw pointer not supported in safe zone; consider wrap in '_Unsafe { ... }'}}
+        p++; // expected-error {{use of '++' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
+        ++p; // expected-error {{use of '++' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
+        p--; // expected-error {{use of '--' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
+        --p; // expected-error {{use of '--' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
     }
 }
 
 // only the BSC error should fire — no -Wgnu-pointer-arith pile-on
 void void_ptr_inc_dec(void *p) { // expected-note {{pointer 'p' declared here}}
     _Safe {
-        p++; // expected-error {{use of '++' on raw pointer not supported in safe zone; consider wrap in '_Unsafe { ... }'}}
+        p++; // expected-error {{use of '++' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
     }
 }
 
 typedef void (*FnP)(void);
 void fn_ptr_inc_dec(FnP fp) { // expected-note {{pointer 'fp' declared here}}
     _Safe {
-        fp++; // expected-error {{use of '++' on raw pointer not supported in safe zone; consider wrap in '_Unsafe { ... }'}}
+        fp++; // expected-error {{use of '++' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
     }
 }

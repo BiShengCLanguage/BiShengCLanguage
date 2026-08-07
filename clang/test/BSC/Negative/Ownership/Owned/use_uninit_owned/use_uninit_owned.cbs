@@ -2,5 +2,5 @@
 
 int * _Owned test() {
 	int * _Owned a;
-	return a;        // expected-error {{use of uninitialized value: `a`}}
+	return a;        // expected-error {{use of uninitialized value: 'a'}}
 }

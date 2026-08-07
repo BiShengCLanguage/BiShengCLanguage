@@ -2,8 +2,8 @@
 
 void test1() {
     int* _Owned p1;
-    int* _Owned p2 = p1 + 1; //expected-error {{invalid operands to binary expression ('int *_Owned' and 'int')}}
-    int* _Owned p3 = 1 + p1; //expected-error {{invalid operands to binary expression ('int' and 'int *_Owned')}}
+    int* _Owned p2 = p1 + 1; //expected-error {{'+' is not supported on 'int *_Owned'}}
+    int* _Owned p3 = 1 + p1; //expected-error {{'+' is not supported on 'int *_Owned'}}
     int* _Owned p4;
 
     if (p1 == p4) {
@@ -14,7 +14,7 @@ void test1() {
 void test2() {
     int* _Owned p1; // expected-note {{pointer 'p1' declared here}}
     p1++;           // expected-error {{'++' is not supported on 'int *_Owned'}} expected-note {{declare 'p1' as a raw pointer for pointer arithmetic}}
-    int* _Owned p2 = p1[0];  //expected-error {{_Owned pointer type ('int *_Owned') do not support ArraySubscript operate}}
+    int* _Owned p2 = p1[0];  //expected-error {{array subscript is not supported on 'int *_Owned'}}
     int x = *p1;
     int* _Owned* p3 = &p1;
 }

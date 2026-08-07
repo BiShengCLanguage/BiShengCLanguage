@@ -29,28 +29,28 @@ _Public:
 void baseline_reuse_as_arg(void) {
   struct Inner s = { safe_malloc<int>(1) };
   sink(s.p);
-  sink(s.p); // expected-error {{use of moved value: `s.p`}}
+  sink(s.p); // expected-error {{use of moved value: 's.p'}}
 }
 
 // F67: the deref READ of the moved field must be caught too.
 int deref_read_after_move(void) {
   struct Inner s = { safe_malloc<int>(1) };
   sink(s.p);
-  return *s.p; // expected-error {{use of moved value: `s.p`}}
+  return *s.p; // expected-error {{use of moved value: 's.p'}}
 }
 
 // deref of the moved field inside a larger expression.
 int deref_in_expr_after_move(void) {
   struct Inner s = { safe_malloc<int>(1) };
   sink(s.p);
-  return *s.p + 1; // expected-error {{use of moved value: `s.p`}}
+  return *s.p + 1; // expected-error {{use of moved value: 's.p'}}
 }
 
 // nested field path.
 int deref_nested_after_move(void) {
   struct Outer o = { { safe_malloc<int>(1) } };
   sink(o.inner.p);
-  return *o.inner.p; // expected-error {{use of moved value: `o.inner.p`}}
+  return *o.inner.p; // expected-error {{use of moved value: 'o.inner.p'}}
 }
 
 // multi-level dereference: HandleDREUse accumulates one `*` marker per deref,
@@ -58,7 +58,7 @@ int deref_nested_after_move(void) {
 int deref_multilevel_after_move(void) {
   struct DoublePtr q = { safe_malloc<int *_Owned>(safe_malloc<int>(1)) };
   sink_pp(q.pp);
-  return **q.pp; // expected-error {{use of moved value: `q.pp`}}
+  return **q.pp; // expected-error {{use of moved value: 'q.pp'}}
 }
 
 // The inner owned pointer field is tracked as `pp*`; normalization must not
@@ -75,4 +75,4 @@ int deref_inner_field_after_move(void) {
 int deref_ops_field_after_move(OwnedInner *_Owned s) {
   sink(s->p);
   return *s->p; // expected-error {{use of moved value}}
-} // expected-error {{memory leak of value: `s`}}
+} // expected-error {{memory leak because 's' is not freed or moved before it goes out of scope}}

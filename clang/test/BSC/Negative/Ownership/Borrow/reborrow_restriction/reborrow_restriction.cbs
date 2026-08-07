@@ -5,17 +5,17 @@ void read_by_borrow(const int *_Borrow);
 
 void non_lexical_lifetime(int x) {
     int *_Borrow ref = &_Mut x;
-    const int *_Borrow cref = ref; // expected-note {{`*ref` is borrowed here}}
-    ++*ref; // expected-error {{cannot assign to `*ref` because it is borrowed}}
+    const int *_Borrow cref = ref; // expected-note {{'*ref' is borrowed here}}
+    ++*ref; // expected-error {{cannot assign to '*ref' because it is borrowed}}
     read_by_value(*cref); 
 }
 
 void non_lexical_lifetime_limitation(int x) {
-    int *_Borrow ref = &_Mut x; // expected-note {{`x` is borrowed here}}
+    int *_Borrow ref = &_Mut x; // expected-note {{'x' is borrowed here}}
     // explicitly define an immutable reference
     const int *_Borrow cref = ref;
     // ref does not expire here, even without any modification operations below
-    read_by_value(x); // expected-error {{cannot use `x` because it was mutably borrowed}}
+    read_by_value(x); // expected-error {{cannot use 'x' because it was mutably borrowed}}
     read_by_value(*cref);
 }
 

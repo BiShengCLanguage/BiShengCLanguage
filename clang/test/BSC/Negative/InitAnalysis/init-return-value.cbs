@@ -6,10 +6,10 @@ _Safe int test_return_uninit(int cond) {
     int x;
     if (cond)
         x = 42;
-    return x; // expected-error {{use of possibly uninitialized value: `x`}}
+    return x; // expected-error {{use of possibly uninitialized value: 'x'}}
 }
 
 _Safe int test_return_never_init(void) {
     int x;
-    return x; // expected-error {{use of uninitialized value: `x`}}
+    return x; // expected-error {{use of uninitialized value: 'x'}}
 }

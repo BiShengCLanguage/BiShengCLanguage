@@ -9,7 +9,7 @@ void func1(int * _Owned argA, int * _Owned argB) {
     } else {
         a = argB;
     }
-} // expected-error {{memory leak of value: `argA`}} expected-error {{memory leak of value: `argB`}} expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'argA' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'argB' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func2(int * _Owned argA, int * _Owned argB) {
     int * _Owned a;
@@ -17,8 +17,8 @@ void func2(int * _Owned argA, int * _Owned argB) {
         a = argA;
     } else {
     }
-    int * _Owned b = a; // expected-error {{use of possibly uninitialized value: `a`}}
-} // expected-error {{memory leak of value: `argA`}} expected-error {{memory leak of value: `argB`}} expected-error {{memory leak of value: `b`}}
+    int * _Owned b = a; // expected-error {{use of possibly uninitialized value: 'a'}}
+} // expected-error {{memory leak because 'argA' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'argB' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func3(int * _Owned argA, int * _Owned argB) {
     int * _Owned a;
@@ -26,8 +26,8 @@ void func3(int * _Owned argA, int * _Owned argB) {
         a = argA;
     } else {
     }
-    int * _Owned b = argA; // expected-error {{use of moved value: `argA`}}
-} // expected-error {{memory leak of value: `b`}} expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `argB`}}
+    int * _Owned b = argA; // expected-error {{use of moved value: 'argA'}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'argB' is not freed or moved before it goes out of scope}}
 
 void func4(int local) {
     int * _Owned a = __take_from_raw(&local);
@@ -50,8 +50,8 @@ void func4(int local) {
         default:
             break;
     }
-    b = __take_from_raw(&local); // expected-error {{assign to _Owned value: `b`}}
-} // expected-error {{memory leak of value: `b`}} expected-error {{memory leak of value: `a`}}
+    b = __take_from_raw(&local); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func5(int * _Owned argA, int * _Owned argB) {
     int * _Owned a;
@@ -64,5 +64,5 @@ void func5(int * _Owned argA, int * _Owned argB) {
     } else {
         b = argB;
     }
-    b = a; // expected-error {{assign to _Owned value: `b`}} expected-error {{use of moved value: `a`}}
-} // expected-error {{memory leak of value: `b`}} expected-error {{memory leak of value: `argA`}} expected-error {{memory leak of value: `argB`}}
+    b = a; // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}} expected-error {{use of moved value: 'a'}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'argA' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'argB' is not freed or moved before it goes out of scope}}

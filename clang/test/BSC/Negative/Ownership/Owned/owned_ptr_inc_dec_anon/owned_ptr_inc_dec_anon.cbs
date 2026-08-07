@@ -1,0 +1,10 @@
+// RUN: %clang_cc1 -verify %s
+// '++'/'--' on an _Owned pointer that is not a plain variable: the fix-it
+// note has no declaration to point at, so the anonymous variant is used.
+
+struct S { int *_Owned p; };
+
+void f(struct S *s) {
+  ++s->p; // expected-error {{'++' is not supported on 'int *_Owned'}} expected-note {{use a raw pointer for pointer arithmetic}}
+  s->p--; // expected-error {{'--' is not supported on 'int *_Owned'}} expected-note {{use a raw pointer for pointer arithmetic}}
+}

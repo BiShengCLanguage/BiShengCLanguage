@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
 // Invalid qualifier combinations in API-like declarations.
-_Safe int *_ArrayElem bad_ret1(unsigned long size, int init); // expected-error {{'_ArrayElem' must be used with '_Owned' or '_Borrow' together to qualify a pointer type}}
+_Safe int *_ArrayElem bad_ret1(unsigned long size, int init); // expected-error {{'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type}}
 _Safe int _Owned _ArrayElem bad_ret2(unsigned long size, int init); // expected-error {{type of 'int' cannot be qualified by '_ArrayElem'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 _Safe void bad_free1(int _Owned _ArrayElem p); // expected-error {{type of 'int' cannot be qualified by '_ArrayElem'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 

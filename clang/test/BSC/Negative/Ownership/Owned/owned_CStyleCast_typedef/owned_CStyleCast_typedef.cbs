@@ -6,4 +6,4 @@ void test () {
     int x = 10;
     int* p = &x;
     myInt p1 = __take_from_raw(p);
-} // expected-error {{memory leak of value: `p1`}}
+} // expected-error {{memory leak because 'p1' is not freed or moved before it goes out of scope}}

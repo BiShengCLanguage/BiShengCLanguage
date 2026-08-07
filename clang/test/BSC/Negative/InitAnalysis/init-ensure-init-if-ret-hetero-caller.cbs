@@ -23,14 +23,14 @@ _Unsafe int g(int *_Borrow out) { return 0; }
 _Safe int safe_unguarded(void) {
   int x;
   int ret = g(&_Mut x);
-  return x; // expected-error {{use of uninitialized value: `x`}}
+  return x; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 // _Safe caller: reading on the failure branch.
 _Safe int safe_wrong_branch(void) {
   int x;
   if (g(&_Mut x) != 0)
-    return x; // expected-error {{use of uninitialized value: `x`}}
+    return x; // expected-error {{use of uninitialized value: 'x'}}
   return -1;
 }
 
@@ -38,7 +38,7 @@ _Safe int safe_wrong_branch(void) {
 _Unsafe int unsafe_safe_block(void) {
   int x;
   g(&_Mut x);
-  _Safe { return x; } // expected-error {{use of uninitialized value: `x`}}
+  _Safe { return x; } // expected-error {{use of uninitialized value: 'x'}}
 }
 
 
@@ -47,11 +47,11 @@ _Unsafe int unsafe_safe_block(void) {
 _Unsafe int unsafe_unguarded(void) {
   int x;
   g(&_Mut x);
-  return x; // all-error {{use of uninitialized value: `x`}}
+  return x; // all-error {{use of uninitialized value: 'x'}}
 }
 
 int plain_unguarded(void) {
   int x;
   g(&_Mut x);
-  return x; // all-error {{use of uninitialized value: `x`}}
+  return x; // all-error {{use of uninitialized value: 'x'}}
 }

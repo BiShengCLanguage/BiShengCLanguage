@@ -7,18 +7,18 @@ _Safe void consume2(int x, int y);
 
 _Safe void test_call_uninit_arg(void) {
     int x;
-    consume(x); // expected-error {{use of uninitialized value: `x`}}
+    consume(x); // expected-error {{use of uninitialized value: 'x'}}
 }
 
 _Safe void test_call_mixed_args(void) {
     int a = 1;
     int b;
-    consume2(a, b); // expected-error {{use of uninitialized value: `b`}}
+    consume2(a, b); // expected-error {{use of uninitialized value: 'b'}}
 }
 
 _Safe void test_call_maybe_init_arg(int cond) {
     int x;
     if (cond)
         x = 42;
-    consume(x); // expected-error {{use of possibly uninitialized value: `x`}}
+    consume(x); // expected-error {{use of possibly uninitialized value: 'x'}}
 }

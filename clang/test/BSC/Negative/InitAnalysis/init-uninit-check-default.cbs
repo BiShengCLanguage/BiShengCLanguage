@@ -4,7 +4,7 @@
 
 _Safe void test_safe_error(void) {
     int x;
-    int y = x + 1; // expected-error {{use of uninitialized value: `x`}}
+    int y = x + 1; // expected-error {{use of uninitialized value: 'x'}}
 }
 
 void test_no_safe_no_error(void) {

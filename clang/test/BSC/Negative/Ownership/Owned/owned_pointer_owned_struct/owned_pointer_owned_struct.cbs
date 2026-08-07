@@ -14,7 +14,7 @@ _Public:
 
 _Safe void test_normal_struct_move1(Test* _Owned pt) {
     safe_free((void *_Owned)pt->t);
-    safe_free((void *_Owned)pt); // expected-error {{invalid cast to `void * _Owned` of not all moved value: `pt`, *pt is _Owned}}
+    safe_free((void *_Owned)pt); // expected-error {{cannot cast 'pt' to 'void * _Owned': *pt is still _Owned; move it out first}}
 }
 
 _Safe void test_normal_struct_move2(Test* _Owned pt) {
@@ -28,7 +28,7 @@ _Safe void test_normal_struct(void) {
 
     int *_Owned elem = pt->t;
 
-    test_normal_struct_move1(pt); // expected-error {{use of partially moved value: `pt`, pt.t is moved}}
+    test_normal_struct_move1(pt); // expected-error {{use of partially moved value: 'pt', pt.t is moved}}
     safe_free((void* _Owned)elem);
 }
 

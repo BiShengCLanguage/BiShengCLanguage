@@ -4541,7 +4541,7 @@ _Safe int test(void) {
     safe_free((void * _Owned)a);
     return 1;
   }
-  return 0; // ok 不会有 error: memory leak of value: `a`
+  return 0; // ok 不会有 error: memory leak of value: 'a'
 }
 
 int main() {
@@ -4969,9 +4969,9 @@ int main() {
 + `_Owned struct` 及其内部的成员变量，在作用域结束时，必须处于以下两种状态之一
   + `_Owned` 状态：`_Owned struct` 及其内部所有`_Owned`修饰的成员（1.`_Owned struct` 也属于`_Owned` 修饰的成员 2.递归包含）均未被移动
   + `moved` 状态：`_Owned struct` 作为一个整体已被显式移动
-+ `_Owned struct` 及其内部的成员变量，在作用域结束时，如若处于如下状态，则报错。 报错信息模板为 partially moved `_Owned struct`:`%0` at scope end, `%1` moved"（`%0` 为`_Owned struct` 变量名，`%1` 为被移动的成员变量名）
++ `_Owned struct` 及其内部的成员变量，在作用域结束时，如若处于如下状态，则报错。 报错信息模板为 `partially moved _Owned struct: '%0' at scope end, %1 moved`（`%0` 为`_Owned struct` 变量名，`%1` 为被移动的成员变量名）
   1. 有成员变量被转移所有权的状态： `_Owned struct`（递归包含嵌套成员）至少有一个`_Owned` 修饰的成员被移动。结构体本身未被整体移动。
-+ `_Owned struct`内 `_Owned` 修饰的指针需要在析构函数内被手动释放。如未被手动释放，则报错。 报错模板信息为 destructor for`%0` incorrect, %1 of _Owned type and needs to be handled manually（ `%0` 为 `_Owned struct` 变量名）
++ `_Owned struct`内 `_Owned` 修饰的指针需要在析构函数内被手动释放。如未被手动释放，则报错。 报错模板信息为 `destructor for '%0' incorrect, %1 of _Owned type and needs to be handled manually`（ `%0` 为 `_Owned struct` 变量名）
 
 ##### 3.5.1.3. 成员函数
 
@@ -5836,7 +5836,7 @@ _Safe void example(int cond) {
     if (cond) {
         x = 42;
     }
-    int y = x; // error: use of possibly uninitialized value: `x`
+    int y = x; // error: use of possibly uninitialized value: 'x'
 }
 
 _Safe void example_ok(int cond) {
@@ -5857,7 +5857,7 @@ _Safe void example_ok(int cond) {
 ```c
 _Safe void rule1(void) {
     int x;
-    int y = x; // error: use of uninitialized value: `x`
+    int y = x; // error: use of uninitialized value: 'x'
 }
 
 _Safe void rule1_ok(void) {
@@ -5875,7 +5875,7 @@ _Safe void rule2_partial(void) {
     struct Pair p;
     p.a = 1;
     // p.b 未初始化
-    struct Pair q = p; // error: use of uninitialized value: `p`
+    struct Pair q = p; // error: use of uninitialized value: 'p'
 }
 
 _Safe void rule2_full(void) {
@@ -5904,7 +5904,7 @@ struct Bits { unsigned : 3; };
 
 _Safe void rule2_bitfield(void) {
     struct Bits b;
-    struct Bits c = b;      // error: use of uninitialized value: `b`
+    struct Bits c = b;      // error: use of uninitialized value: 'b'
 }
 ```
 
@@ -5917,7 +5917,7 @@ _Safe void rule3(int cond) {
         x = 1;
     }
     // else 分支未初始化 x
-    int y = x; // error: use of possibly uninitialized value: `x`
+    int y = x; // error: use of possibly uninitialized value: 'x'
 }
 
 _Safe void rule3_ok(int cond) {
@@ -5936,7 +5936,7 @@ _Safe void rule3_ok(int cond) {
 ```c
 _Safe void rule4(void) {
     int x;
-    int *_Borrow p = &_Mut x; // error: use of uninitialized value: `x`
+    int *_Borrow p = &_Mut x; // error: use of uninitialized value: 'x'
 }
 
 _Safe void rule4_ok(void) {
@@ -5964,7 +5964,7 @@ _Safe void rule6_error(void) {
     arr[0] = 1;
     arr[1] = 2;
     arr[2] = 3;
-    int x = arr[0]; // error: use of uninitialized value: `arr`
+    int x = arr[0]; // error: use of uninitialized value: 'arr'
 }
 
 _Safe void rule6_ok_init_list(void) {
@@ -5989,7 +5989,7 @@ _Safe void rule6_struct_error(void) {
     s.a[0] = 1;
     s.a[1] = 2;
     s.b = 3;
-    ArrStruct t = s; // error: use of uninitialized value: `s.a`
+    ArrStruct t = s; // error: use of uninitialized value: 's.a'
 }
 
 _Safe void rule6_struct_ok(void) {
@@ -6441,7 +6441,7 @@ _Safe void path_sensitive(int cond) {
     if (cond) {
         _Unsafe { __assume_initialized(&x); }
     }
-    int y = x; // error: use of possibly uninitialized value: `x`
+    int y = x; // error: use of possibly uninitialized value: 'x'
 }
 
 // 对结构体使用：所有字段都被标记为已初始化
@@ -7634,8 +7634,8 @@ _Safe void example(void) {
 }
 ```
 
-在使用 BiShengC 语言改写后的代码中，如果我们在函数退出前什么都不做，则会出现编译错误`"memory leak of value: `q`"`，避免了内存泄漏问题的发生；
-如果我们在函数退出前同时调用`safe_free((void * _Owned)p)`和`safe_free((void * _Owned)q)`，则会出现编译错误`"use of moved value: `p`"`，避免了重复释放问题的发生。
+在使用 BiShengC 语言改写后的代码中，如果我们在函数退出前什么都不做，则会出现编译错误`memory leak of value: 'q'`，避免了内存泄漏问题的发生；
+如果我们在函数退出前同时调用`safe_free((void * _Owned)p)`和`safe_free((void * _Owned)q)`，则会出现编译错误`use of moved value: 'p'`，避免了重复释放问题的发生。
 
 那么对于更为复杂的结构体类型，该如何正确使用`safe_malloc`进行内存分配呢？
 对于结构体类型，需要首先在栈上构造出相应的变量，然后传给`safe_malloc`在堆上完成相应内存的分配，以下代码为具体示例：

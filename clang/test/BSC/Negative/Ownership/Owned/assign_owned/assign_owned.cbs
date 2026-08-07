@@ -10,13 +10,13 @@ _Safe void test1(void) {
         p = safe_malloc<int>(10);
         *p = 10;
     }
-    p = nullptr; // expected-error{{assign to _Owned value: `p`}}
+    p = nullptr; // expected-error{{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
 }
 
 _Safe int *_Owned basic(int *_Owned p, int val) {
     safe_free((void *_Owned) p);
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 typedef struct {
@@ -25,8 +25,8 @@ typedef struct {
 
 _Safe Plain *_Owned custom(Plain *_Owned p, Plain val){
     safe_free((void *_Owned) p);
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 typedef struct {
@@ -74,14 +74,14 @@ _Safe MixedTop *_Owned custom_nested(MixedTop *_Owned p, MixedTop val) {
     }
 
     safe_free((void *_Owned) p);
-    *p = val; // expected-error {{use of moved value: `p`}}
-    return p; // expected-error {{use of moved value: `p`}}
+    *p = val; // expected-error {{use of moved value: 'p'}}
+    return p; // expected-error {{use of moved value: 'p'}}
 }
 
 _Safe MixedTop *_Owned custom_star_assign_uninit(MixedTop val) {
     MixedTop *_Owned p;
-    *p = val; // expected-error {{use of uninitialized value: `p`}}
-    return p; // expected-error {{use of uninitialized value: `p`}}
+    *p = val; // expected-error {{use of uninitialized value: 'p'}}
+    return p; // expected-error {{use of uninitialized value: 'p'}}
 }
 
 _Safe void custom_star_assign_possibly_uninit(int cond, MixedTop val) {
@@ -90,7 +90,7 @@ _Safe void custom_star_assign_possibly_uninit(int cond, MixedTop val) {
         p = nullptr;
     }
     *p = val; // expected-error {{nullable pointer cannot be dereferenced}}
-    // expected-error@-1 {{use of possibly uninitialized value: `p`}}
+    // expected-error@-1 {{use of possibly uninitialized value: 'p'}}
 }
 
 typedef struct {

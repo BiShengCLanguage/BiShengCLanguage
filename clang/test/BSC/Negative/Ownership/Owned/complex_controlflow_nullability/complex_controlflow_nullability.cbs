@@ -9,10 +9,10 @@ void test1(int *_Owned _Nullable p) {
     }
     p = take();
   }
-}// expected-error {{memory leak of value: `p`}}
+}// expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void test2(int *_Owned _Nullable p) {
   do {
-    release(p); // expected-error {{use of moved value: `p`}}
+    release(p); // expected-error {{use of moved value: 'p'}}
   } while(p != nullptr);
 }

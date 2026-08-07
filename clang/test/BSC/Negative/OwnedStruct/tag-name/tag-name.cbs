@@ -3,35 +3,35 @@
 _Owned struct A;
 
 _Owned struct A {};
-_Owned struct A a; // expected-error {{must ignore '_Owned struct' tag before struct name}}
+_Owned struct A a; // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
                   // expected-error@-1 {{type of global variable cannot be qualified by '_Owned'}}
 struct B{
-    _Owned struct A b;// expected-error {{must ignore '_Owned struct' tag before struct name}}
+    _Owned struct A b;// expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
 };
 
 _Owned struct C {
-    _Owned struct A b; // expected-error {{must ignore '_Owned struct' tag before struct name}}
+    _Owned struct A b; // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
 };
 
-_Owned struct A ff() { // expected-error {{must ignore '_Owned struct' tag before struct name}}
+_Owned struct A ff() { // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
     A b; // ok
     return b;
 }
 
-int _Owned struct A::f() { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}  expected-error {{must ignore '_Owned struct' tag before struct name}}
+int _Owned struct A::f() { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}  expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
     return 0;
 }
 
-int A::g(_Owned struct A* this) { // expected-error {{must ignore '_Owned struct' tag before struct name}}
+int A::g(_Owned struct A* this) { // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
     return 0;
 }
 
-struct D;
+struct D; // expected-note {{previous declaration is here}}
 
-_Owned struct D {};// expected-error {{inconsistent tag before struct name}}
+_Owned struct D {};// expected-error {{declaration of 'D' as '_Owned struct' conflicts with previous declaration as 'struct'}}
 
 int main() {
-    _Owned struct A b; // expected-error {{must ignore '_Owned struct' tag before struct name}}
+    _Owned struct A b; // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
     _Owned struct B bb; // expected-error {{type of 'struct B' cannot be qualified by '_Owned'}}
     return 0;
 }

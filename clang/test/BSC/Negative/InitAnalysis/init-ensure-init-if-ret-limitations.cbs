@@ -36,6 +36,6 @@ _Safe void short_circuit_check(void) {
     int r1 = try_init(&_Mut x);
     int r2 = try_init(&_Mut y);
     if (r1 == 0 && r2 == 0) {
-        int sx = x; // expected-error {{use of possibly uninitialized value: `x`}}
+        int sx = x; // expected-error {{use of possibly uninitialized value: 'x'}}
     }
 }

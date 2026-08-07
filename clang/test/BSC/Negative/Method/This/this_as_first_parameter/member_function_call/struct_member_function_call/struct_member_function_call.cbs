@@ -48,7 +48,7 @@ void test_This_actual_param() {
   int b4 = foo2.getB_2();
   int c = foo.getC();  // expect ok, run ok
   int c2 = foo.getC_2();  // expect ok, run ok
-  foo.getD();  // expected-error {{incompatible conversion from non _Owned type 'struct Foo' to _Owned type 'struct Foo *_Owned' in member function call}}
+  foo.getD();  // expected-error {{incompatible conversion from non-_Owned type 'struct Foo' to _Owned type 'struct Foo *_Owned' in member function call}}
 }
 
 void test_This_pointer_actual_param() {
@@ -59,7 +59,7 @@ void test_This_pointer_actual_param() {
   int b2 = foo_p->getB_2(); //expect ok, run ok
   int c = foo_p->getC();  // expect ok, run ok
   int c2 = foo_p->getC_2();  // expect ok, run ok
-  foo_p->getD();  // expected-error {{incompatible conversion from non _Owned type 'struct Foo *' to _Owned type 'struct Foo *_Owned' in member function call}}
+  foo_p->getD();  // expected-error {{incompatible conversion from non-_Owned type 'struct Foo *' to _Owned type 'struct Foo *_Owned' in member function call}}
 }
 
 void test_const_This_pointer_actual_param() {
@@ -70,7 +70,7 @@ void test_const_This_pointer_actual_param() {
   int b2 = c_foo_p->getB_2(); //expect ok, run ok
   int c = c_foo_p->getC();  // expected-error {{incompatible conversion from const type 'const struct Foo *' to non-const type 'struct Foo *_Borrow' in member function call}}
   int c2 = c_foo_p->getC_2();  // expect ok, run ok
-  c_foo_p->getD();  // expected-error {{incompatible conversion from non _Owned type 'const struct Foo *' to _Owned type 'struct Foo *_Owned' in member function call}}
+  c_foo_p->getD();  // expected-error {{incompatible conversion from non-_Owned type 'const struct Foo *' to _Owned type 'struct Foo *_Owned' in member function call}}
 }
 
 void test_This_pointer_borrow_actual_param(void) {
@@ -81,7 +81,7 @@ void test_This_pointer_borrow_actual_param(void) {
   int b2 = foo_mut->getB_2(); //expect ok, run ok
   int c = foo_mut->getC();  // expect ok, run ok
   int c2 = foo_mut->getC_2();  // expect ok, run ok
-  foo_mut->getD();  // expected-error {{incompatible conversion from non _Owned type 'struct Foo *_Borrow' to _Owned type 'struct Foo *_Owned' in member function call}}
+  foo_mut->getD();  // expected-error {{incompatible conversion from non-_Owned type 'struct Foo *_Borrow' to _Owned type 'struct Foo *_Owned' in member function call}}
 }
 
 void test_const_This_pointer_borrow_actual_param(void) {
@@ -92,7 +92,7 @@ void test_const_This_pointer_borrow_actual_param(void) {
   int b2 = c_foo_mut->getB_2(); //expect ok, run ok
   int c = c_foo_mut->getC();  // expected-error {{incompatible conversion from const type 'const struct Foo *_Borrow' to non-const type 'struct Foo *_Borrow' in member function call}}
   int c2 = c_foo_mut->getC_2();  // expect ok, run ok
-  c_foo_mut->getD();  // expected-error {{incompatible conversion from non _Owned type 'const struct Foo *_Borrow' to _Owned type 'struct Foo *_Owned' in member function call}}
+  c_foo_mut->getD();  // expected-error {{incompatible conversion from non-_Owned type 'const struct Foo *_Borrow' to _Owned type 'struct Foo *_Owned' in member function call}}
 }
 
 void test_This_pointer_owned_actual_param(void) {

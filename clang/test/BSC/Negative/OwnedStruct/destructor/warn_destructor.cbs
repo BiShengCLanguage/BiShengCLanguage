@@ -18,7 +18,7 @@ _Public:
     A a ={};
     int xx = 1;
     switch(xx) {
-        A b = {}; // expected-warning {{the destructor may be not executed}}
+        A b = {}; // expected-warning {{destructor of 'b' may not run because the switch can jump over its initialization}}
         case 1: {
            A c ={};
            break;
@@ -31,7 +31,7 @@ int test_switch1<T>() {
     A a ={};
     int xx = 1;
     switch(xx) {
-        A b1 = {}; // expected-warning {{the destructor may be not executed}}
+        A b1 = {}; // expected-warning {{destructor of 'b1' may not run because the switch can jump over its initialization}}
         case 1: {
            A c ={};
            return 1;

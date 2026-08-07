@@ -47,7 +47,7 @@ struct CPB {
 };
 
 __attribute__((operator ->))
-struct A *_Borrow memberDerefC(struct CPB * _Borrow s) { // expected-error {{type of 'struct CPB' cannot be qualified by '_Borrow'(even indirectly), 'struct CPB' contains '_Borrow' type}}
+struct A *_Borrow memberDerefC(struct CPB * _Borrow s) { // expected-error {{type of 'struct CPB' cannot be qualified by '_Borrow' (even indirectly) because 'struct CPB' contains a '_Borrow' type}}
     return s->a;
 }
 
@@ -71,7 +71,7 @@ struct DP {
 };
 
 __attribute__((operator ->))
- struct A *_Borrow memberDerefD(const struct DP * _Borrow s) { // expected-error {{type of 'const struct DP' cannot be qualified by '_Borrow'(even indirectly), 'const struct DP' contains '_Borrow' type}}
+ struct A *_Borrow memberDerefD(const struct DP * _Borrow s) { // expected-error {{type of 'const struct DP' cannot be qualified by '_Borrow' (even indirectly) because 'const struct DP' contains a '_Borrow' type}}
     return s->a;
 }
 

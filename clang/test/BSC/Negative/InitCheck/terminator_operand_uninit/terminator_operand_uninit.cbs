@@ -10,13 +10,13 @@ struct S { int tag; int other; };
 
 _Safe int call_uninit_fnptr(void) {
   _Safe int (*fp)(int, int);
-  return fp(2, 3); // expected-error {{use of uninitialized value: `fp`}}
+  return fp(2, 3); // expected-error {{use of uninitialized value: 'fp'}}
 }
 
 _Safe int switch_uninit_discriminant(void) {
   struct S s;
   s.other = 7;
-  switch (s.tag) { // expected-error {{use of uninitialized value: `s.tag`}}
+  switch (s.tag) { // expected-error {{use of uninitialized value: 's.tag'}}
   case 0:
     return 1;
   default:

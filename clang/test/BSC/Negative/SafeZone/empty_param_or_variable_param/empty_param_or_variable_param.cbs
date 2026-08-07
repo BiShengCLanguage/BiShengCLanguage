@@ -1,25 +1,25 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
-_Safe void fun1() {}  // expected-error {{need void parameter declaration, empty parameter is forbidden in the _Safe function}}
+_Safe void fun1() {}  // expected-error {{need void parameter declaration, empty parameter is forbidden in a _Safe function}}
 _Unsafe void fun2() {} 
 
-_Safe void fun1();    // expected-error {{need void parameter declaration, empty parameter is forbidden in the _Safe function}}
+_Safe void fun1();    // expected-error {{need void parameter declaration, empty parameter is forbidden in a _Safe function}}
 _Unsafe void fun2();
 
-_Safe void (*p)();    // expected-error {{need void parameter declaration, empty parameter is forbidden in the _Safe function}}
+_Safe void (*p)();    // expected-error {{need void parameter declaration, empty parameter is forbidden in a _Safe function}}
 _Unsafe void (*q)();
 
 _Safe void fun3(void) {}
 _Safe void fun4(void);
 _Safe void (*p)(void); 
 
-_Safe void fun5(int a, ...) {}  // expected-error {{variadic parameter is forbidden in the _Safe function}}
+_Safe void fun5(int a, ...) {}  // expected-error {{variadic parameter is forbidden in a _Safe function}}
 _Unsafe void fun6(int a, ...) {}
 
-_Safe void fun5(int a, ...);    // expected-error {{variadic parameter is forbidden in the _Safe function}}
+_Safe void fun5(int a, ...);    // expected-error {{variadic parameter is forbidden in a _Safe function}}
 _Unsafe void fun6(int a, ...);
 
-_Safe void (*m)(int a, ...);   // expected-error {{variadic parameter is forbidden in the _Safe function}}
+_Safe void (*m)(int a, ...);   // expected-error {{variadic parameter is forbidden in a _Safe function}}
 _Unsafe void (*n)(int a, ...);
 
 // Variadic WITH format attribute - should be allowed (no error expected)
@@ -33,4 +33,4 @@ __attribute__((format(printf, 1, 2)))
 _Safe void (*o)(const char * _Borrow fmt, ...);
 
 // Variadic WITHOUT format attribute - should still error
-_Safe void fun8(int a, const char * _Borrow fmt, ...) {}  // expected-error {{variadic parameter is forbidden in the _Safe function}}
+_Safe void fun8(int a, const char * _Borrow fmt, ...) {}  // expected-error {{variadic parameter is forbidden in a _Safe function}}

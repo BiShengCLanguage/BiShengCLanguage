@@ -8,7 +8,7 @@ struct R {
     int *_Borrow p;
 };
 union U2 {
-    struct R r;  // expected-error {{type of union field cannot be qualified by '_Borrow'(even indirectly), 'struct R' contains '_Borrow' type}}
+    struct R r;  // expected-error {{type of union field cannot be qualified by '_Borrow' (even indirectly) because 'struct R' contains a '_Borrow' type}}
     int *_Borrow p; // expected-error {{type of union field cannot be qualified by '_Borrow'}}
 };
 
@@ -23,7 +23,7 @@ int * _Owned foo(int * _Owned a) {
 int * _Owned foo1() {
     struct S s;
     const struct S * _Borrow p1 = &_Const s;
-    return p1->p;                // expected-error {{_Borrow type does not allow move ownership}}
+    return p1->p;                // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 int * _Owned foo2(){
@@ -32,8 +32,8 @@ int * _Owned foo2(){
   struct S * _Owned b = __take_from_raw(&s);
   struct S * _Borrow p1 = &_Mut *b;
   int k = p1->num;
-  int * _Owned l = p1->p;         // expected-error {{_Borrow type does not allow move ownership}}
-  return p1->p;                  // expected-error {{_Borrow type does not allow move ownership}}
+  int * _Owned l = p1->p;         // expected-error {{cannot take ownership of a borrowed value}}
+  return p1->p;                  // expected-error {{cannot take ownership of a borrowed value}}
 }
 
 void struct S::f1(const This * _Borrow this) {}
@@ -47,17 +47,17 @@ void test() {
   a = p2->num; // legal
 
   p2->p = __take_from_raw(&a); // expected-error {{cannot assign to variable 'p2' with const-qualified type 'const struct S *_Borrow'}}
-  int * _Owned b = p2->p; // expected-error {{_Borrow type does not allow move ownership}}
-  b = p2->p; // expected-error {{_Borrow type does not allow move ownership}}
+  int * _Owned b = p2->p; // expected-error {{cannot take ownership of a borrowed value}}
+  b = p2->p; // expected-error {{cannot take ownership of a borrowed value}}
 
   p1->num = 1; // legal
   a = p1->num; // legal
 
   p1->p = __take_from_raw(&a); // legal
-  b = p1->p; // expected-error {{_Borrow type does not allow move ownership}}
+  b = p1->p; // expected-error {{cannot take ownership of a borrowed value}}
 
-  foo(p1->p); // expected-error {{memory leak because temporary variable 'foo(p1->p)' is _Owned or indirect _Owned type}}
-              // expected-error@-1 {{_Borrow type does not allow move ownership}}
+  foo(p1->p); // expected-error {{the _Owned value of 'foo(p1->p)' is discarded and would leak}}
+              // expected-error@-1 {{cannot take ownership of a borrowed value}}
   p2->f1(); // legal
   p2->f2(); // expected-error {{incompatible conversion from const type 'const struct S *_Borrow' to non-const type 'struct S *_Borrow' in member function call}}
   p1->f1(); // legal

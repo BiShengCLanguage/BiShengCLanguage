@@ -20,7 +20,6 @@ int main(){
     B b1 ={.a=a1};
     B b2 ={.a=a2};
     C c1 = {.a=a3,.b=b1};
-    c1.b = b2;// expected-error {{assign to part of _Owned value: `c1.b`}}
+    c1.b = b2;// expected-error {{cannot assign to 'c1.b' because it still holds an _Owned value; move or free it first}}
     return 0;
 }
-

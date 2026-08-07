@@ -12,6 +12,6 @@ int f(A a){ return 1;}
 int main() {
    A a = {1, 2};
    A b  = a;
-   f(a); // expected-error {{use of moved value: `a`}}
+   f(a); // expected-error {{use of moved value: 'a'}}
    return 0;
 }

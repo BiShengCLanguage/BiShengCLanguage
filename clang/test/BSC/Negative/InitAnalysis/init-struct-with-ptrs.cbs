@@ -12,7 +12,7 @@ _Safe void test_field_partial(void) {
     t.a = 1;
     t.b = 2;
     // t.c not initialized
-    int val = t.c; // expected-error {{use of uninitialized value: `t.c`}}
+    int val = t.c; // expected-error {{use of uninitialized value: 't.c'}}
 }
 
 // Full field init
@@ -29,5 +29,5 @@ _Safe void test_use_init_field(void) {
     struct Triple t;
     t.a = 1;
     int val = t.a; // ok: t.a is initialized
-    int bad = t.b; // expected-error {{use of uninitialized value: `t.b`}}
+    int bad = t.b; // expected-error {{use of uninitialized value: 't.b'}}
 }

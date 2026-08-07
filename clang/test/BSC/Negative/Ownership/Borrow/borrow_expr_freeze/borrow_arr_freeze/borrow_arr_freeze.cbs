@@ -4,10 +4,10 @@ void test1(int *p) {}
 
 void test_freeze_arrow_var1() {
     int arr[10] = {0};
-    int * _Borrow c = &_Mut arr[1]; // expected-note 3 {{`arr[]` is borrowed here}}
-    int a = arr[1]; // expected-error {{cannot use `arr[]` because it was mutably borrowed}}
-    int b = arr[2]; // expected-error {{cannot use `arr[]` because it was mutably borrowed}}
-    arr[1] = 2; // expected-error {{cannot assign to `arr[]` because it is borrowed}}
+    int * _Borrow c = &_Mut arr[1]; // expected-note 3 {{'arr[]' is borrowed here}}
+    int a = arr[1]; // expected-error {{cannot use 'arr[]' because it was mutably borrowed}}
+    int b = arr[2]; // expected-error {{cannot use 'arr[]' because it was mutably borrowed}}
+    arr[1] = 2; // expected-error {{cannot assign to 'arr[]' because it is borrowed}}
     arr[2] = 2;
     test1(arr);
     int arr2[10] = {};
@@ -19,12 +19,12 @@ void test2(int p[10][10]) {}
 
 void test_freeze_arrow_var2() {
     int arr[10][10] = {0};
-    int * _Borrow k = &_Mut arr[1][1]; // expected-note 5 {{`arr[][]` is borrowed here}}
-    int a = arr[1][1]; // expected-error {{cannot use `arr[][]` because it was mutably borrowed}}
-    int b = arr[1][2]; // expected-error {{cannot use `arr[][]` because it was mutably borrowed}}
-    int c = arr[2][2]; // expected-error {{cannot use `arr[][]` because it was mutably borrowed}}
-    test1(arr[1]); // expected-error {{cannot use `arr[]` because it was mutably borrowed}}
-    arr[1][1] = 2; // expected-error {{cannot assign to `arr[][]` because it is borrowed}}
+    int * _Borrow k = &_Mut arr[1][1]; // expected-note 5 {{'arr[][]' is borrowed here}}
+    int a = arr[1][1]; // expected-error {{cannot use 'arr[][]' because it was mutably borrowed}}
+    int b = arr[1][2]; // expected-error {{cannot use 'arr[][]' because it was mutably borrowed}}
+    int c = arr[2][2]; // expected-error {{cannot use 'arr[][]' because it was mutably borrowed}}
+    test1(arr[1]); // expected-error {{cannot use 'arr[]' because it was mutably borrowed}}
+    arr[1][1] = 2; // expected-error {{cannot assign to 'arr[][]' because it is borrowed}}
     arr[1][2] = 2;
     arr[2][2] = 2;
     test2(arr);

@@ -16,7 +16,7 @@ int goo() {
     A a = {};
     a.a = 1;
     A::a = 2;
-    return a.a; // expected-error {{memory leak because temporary variable 'a' is _Owned or indirect _Owned type}}
+    return a.a; // expected-error {{cannot use a member of 'a' in a return expression because 'a' is destroyed before the return; copy the member to a local first}}
 }
 
 int foo() {
@@ -25,7 +25,7 @@ int foo() {
     A::a = 2;
     B b = {};
     b.aa= a;
-    return b.aa.a; // expected-error {{memory leak because temporary variable 'b' is _Owned or indirect _Owned type}}
+    return b.aa.a; // expected-error {{cannot use a member of 'b' in a return expression because 'b' is destroyed before the return; copy the member to a local first}}
 }
 int koo() {
     A a = {};
@@ -33,7 +33,7 @@ int koo() {
     A::a = 2;
     B b = {};
     b.aa= a;
-    return -b.aa.a; // expected-error {{memory leak because temporary variable 'b' is _Owned or indirect _Owned type}}
+    return -b.aa.a; // expected-error {{cannot use a member of 'b' in a return expression because 'b' is destroyed before the return; copy the member to a local first}}
 }
 
 A zoo() {
@@ -60,7 +60,7 @@ int foo_G() {
     C<int>::a = 2;
     D<int> b = {};
     b.aa= a;
-    return b.aa.a; // expected-error {{memory leak because temporary variable 'b' is _Owned or indirect _Owned type}}
+    return b.aa.a; // expected-error {{cannot use a member of 'b' in a return expression because 'b' is destroyed before the return; copy the member to a local first}}
 }
 int main() {
     return 0; 

@@ -14,40 +14,40 @@ int * _Owned func1(int * _Owned b) {
 
 void func2() {
     int * _Owned a;
-    int * _Owned b = a; // expected-error {{use of uninitialized value: `a`}}
-} // expected-error {{memory leak of value: `b`}}
+    int * _Owned b = a; // expected-error {{use of uninitialized value: 'a'}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func3() {
     struct A * _Owned a;
-    struct A b = *a; // expected-error {{use of uninitialized value: `a`}}
-} // expected-error {{field memory leak of value: `b`, b.a, b.b are leak}} expected-error {{memory leak of value: `a`}}
+    struct A b = *a; // expected-error {{use of uninitialized value: 'a'}}
+} // expected-error {{memory leak because b.a, b.b are not freed or moved before 'b' goes out of scope}} expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func4() {
     struct A a;
-    int * _Owned b = a.a; // expected-error {{use of uninitialized value: `a.a`}}
-} // expected-error {{memory leak of value: `b`}}
+    int * _Owned b = a.a; // expected-error {{use of uninitialized value: 'a.a'}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 
 void func12(int * _Owned a, int * _Owned b) {
-    a = b; // expected-error {{assign to _Owned value: `a`}}
-} // expected-error {{memory leak of value: `a`}}
+    a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func15(int * _Owned * _Owned a) {
     int * _Owned b = *a;
     int * c = __move_to_raw(b);
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func16(struct A a) {
     int* b = __move_to_raw(a.a);
-} // expected-error {{field memory leak of value: `a`, a.b is leak}}
+} // expected-error {{memory leak because a.b is not freed or moved before 'a' goes out of scope}}
 
 void func17(struct A a) {
     struct A b = a;
-} // expected-error {{field memory leak of value: `b`, b.a, b.b are leak}}
+} // expected-error {{memory leak because b.a, b.b are not freed or moved before 'b' goes out of scope}}
 
 void * _Owned func20(struct A * _Owned a) {
     int* _Owned b = a->a;
     int* _Owned c = a->b;
-    return (void * _Owned)a; // expected-error {{memory leak of value: `c`}} expected-error {{memory leak of value: `b`}}
+    return (void * _Owned)a; // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 struct B {
@@ -59,61 +59,61 @@ struct B {
 void func21(struct B a) {
     int* b = __move_to_raw(a.a);
     int* c = __move_to_raw(a.b);
-} // expected-error {{field memory leak of value: `a`, a.c is leak}}
+} // expected-error {{memory leak because a.c is not freed or moved before 'a' goes out of scope}}
 
 void func22(struct A a) {
     int* b = __move_to_raw(a.a);
     a.a = __take_from_raw(b);
     struct A c = a;
-} // expected-error {{field memory leak of value: `c`, c.a, c.b are leak}}
+} // expected-error {{memory leak because c.a, c.b are not freed or moved before 'c' goes out of scope}}
 
 void func23(struct A a) {
     struct A b;
-    a = b; // expected-error {{assign to _Owned value: `a`}} expected-error {{use of partially moved value: `b`, b.a, b.b are moved}}
-} // expected-error {{field memory leak of value: `a`, a.a, a.b are leak}}
+    a = b; // expected-error {{cannot assign to 'a' because it still holds an _Owned value; move or free it first}} expected-error {{use of partially moved value: 'b', b.a, b.b are moved}}
+} // expected-error {{memory leak because a.a, a.b are not freed or moved before 'a' goes out of scope}}
 
 void func25(int * _Owned a, int * _Owned b) {
     int* c = __move_to_raw(a);
     a = b;
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func26(struct A a, struct A b) {
     struct A c = a;
     a.a = b.a;
-} // expected-error {{field memory leak of value: `c`, c.a, c.b are leak}} expected-error {{field memory leak of value: `a`, a.a is leak}} expected-error {{field memory leak of value: `b`, b.b is leak}}
+} // expected-error {{memory leak because c.a, c.b are not freed or moved before 'c' goes out of scope}} expected-error {{memory leak because a.a is not freed or moved before 'a' goes out of scope}} expected-error {{memory leak because b.b is not freed or moved before 'b' goes out of scope}}
 
 void func27(struct A a) {
     struct A b = a;
-    struct A c = a; // expected-error {{use of partially moved value: `a`, a.a, a.b are moved}}
-} // expected-error {{field memory leak of value: `c`, c.a, c.b are leak}} expected-error {{field memory leak of value: `b`, b.a, b.b are leak}}
+    struct A c = a; // expected-error {{use of partially moved value: 'a', a.a, a.b are moved}}
+} // expected-error {{memory leak because c.a, c.b are not freed or moved before 'c' goes out of scope}} expected-error {{memory leak because b.a, b.b are not freed or moved before 'b' goes out of scope}}
 
 void func28(struct A a, struct A b) {
     int* _Owned c = b.a;
     int* _Owned d = b.b;
     struct A e = a;
-    a = b; // expected-error {{use of partially moved value: `b`, b.a, b.b are moved}}
-} // expected-error {{field memory leak of value: `e`, e.a, e.b are leak}} expected-error {{memory leak of value: `d`}} expected-error {{memory leak of value: `c`}} expected-error {{field memory leak of value: `a`, a.a, a.b are leak}}
+    a = b; // expected-error {{use of partially moved value: 'b', b.a, b.b are moved}}
+} // expected-error {{memory leak because e.a, e.b are not freed or moved before 'e' goes out of scope}} expected-error {{memory leak because 'd' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}} expected-error {{memory leak because a.a, a.b are not freed or moved before 'a' goes out of scope}}
 
 void func29(int * _Owned * _Owned a) {
     int * _Owned c = *a;
     int * _Owned * _Owned b;
-    a = b; // expected-error {{assign to all moved value: `a`}} expected-error {{use of uninitialized value: `b`}}
-} // expected-error {{memory leak of value: `a`}} expected-error {{memory leak of value: `c`}} expected-error {{field memory leak of value: `a`, *a is leak}}
+    a = b; // expected-error {{cannot assign to 'a': all fields were moved but 'a' still owns its allocation}} expected-error {{use of uninitialized value: 'b'}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *a is not freed or moved before 'a' goes out of scope}}
 
 void func31(struct A * _Owned a) {
     int* b = __move_to_raw(a->a);
     int* c = __move_to_raw(a->b);
     a->a = __take_from_raw(b);
-} // expected-error {{memory leak of value: `a`}} expected-error {{field memory leak of value: `a`, a.a is leak}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}} expected-error {{memory leak because a.a is not freed or moved before 'a' goes out of scope}}
 
 void func32(int * _Owned * _Owned a, int * _Owned * _Owned b) {
     int * _Owned c = *a;
-    int * _Owned * _Owned e = a; // expected-error {{use of all moved value: `a`}}
-} // expected-error {{memory leak of value: `b`}} expected-error {{field memory leak of value: `b`, *b is leak}} expected-error {{memory leak of value: `c`}} expected-error {{memory leak of value: `e`}} expected-error {{field memory leak of value: `e`, *e is leak}}
+    int * _Owned * _Owned e = a; // expected-error {{use of 'a' after all its fields were moved}}
+} // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *b is not freed or moved before 'b' goes out of scope}} expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'e' is not freed or moved before it goes out of scope}} expected-error {{memory leak because *e is not freed or moved before 'e' goes out of scope}}
 
 void * _Owned func33(int * _Owned * _Owned a) {
     int * _Owned b = *a;
-    return (void * _Owned)a; // expected-error {{memory leak of value: `b`}}
+    return (void * _Owned)a; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 void * _Owned func34(struct A a) {
@@ -121,4 +121,4 @@ void * _Owned func34(struct A a) {
     int* d = __move_to_raw(a.b);
     int * _Owned x = __take_from_raw(d);
     a.a = x;
-} // expected-error {{field memory leak of value: `a`, a.a is leak}}
+} // expected-error {{memory leak because a.a is not freed or moved before 'a' goes out of scope}}

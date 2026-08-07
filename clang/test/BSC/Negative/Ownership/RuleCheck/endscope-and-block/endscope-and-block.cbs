@@ -4,7 +4,7 @@ void func1() {
     int num = 1;
     int * _Owned a;
     a = __take_from_raw(&num);
-} // expected-error {{memory leak of value: `a`}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 
 void func2(int * _Owned a) {
     {
@@ -17,8 +17,8 @@ void func3(int * _Owned a) {
         int * p = __move_to_raw(a);
     }
     {
-        int * _Owned q = a; // expected-error {{use of moved value: `a`}}
-    } // expected-error {{memory leak of value: `q`}}
+        int * _Owned q = a; // expected-error {{use of moved value: 'a'}}
+    } // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 }
 
 void func4(int * _Owned a) {
@@ -26,7 +26,7 @@ void func4(int * _Owned a) {
         int * p = __move_to_raw(a);
         {
             int * _Owned q = __take_from_raw(p);
-        } // expected-error {{memory leak of value: `q`}}
+        } // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
     }
 }
 
@@ -36,6 +36,6 @@ void func5(int * _Owned a) {
         {
             int * _Owned q = __take_from_raw(p);
             {}
-        } // expected-error {{memory leak of value: `q`}}
+        } // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
     }
 }

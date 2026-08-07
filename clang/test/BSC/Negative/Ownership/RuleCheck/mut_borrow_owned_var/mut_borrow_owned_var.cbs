@@ -23,45 +23,45 @@ _Safe void safe_generic_consume<T>(T *_Owned _Nullable);
 void test1() {
   int *_Owned p = nullptr;
   foo1(&_Mut p);
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void test2() {
   int *_Owned p = nullptr;
   int *_Owned *_Borrow q = &_Mut p;
   foo1(q);
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void test3() {
   S *_Owned p = nullptr;
   foo2(&_Mut p);
-} // expected-error {{memory leak of value: `p`}}
-// expected-error@-1 {{field memory leak of value: `p`, p.a, p.b are leak}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+// expected-error@-1 {{memory leak because p.a, p.b are not freed or moved before 'p' goes out of scope}}
 
 void test4() {
   S s;
-  foo3(&_Mut s); // expected-error {{use of partially moved value: `s`, s.a, s.b are moved}}
+  foo3(&_Mut s); // expected-error {{use of partially moved value: 's', s.a, s.b are moved}}
 }
 
 void test5(S *_Owned p) {
   foo2(&_Mut p);
-} // expected-error {{memory leak of value: `p`}}
-  // expected-error@-1 {{field memory leak of value: `p`, p.a, p.b are leak}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because p.a, p.b are not freed or moved before 'p' goes out of scope}}
 
 void test6(S *_Owned p) {
   int *_Owned q = p->a;
   consume(q);
-  foo2(&_Mut p); // expected-error {{use of partially moved value: `p`, p.a is moved}}
-} // expected-error {{memory leak of value: `p`}}
-  // expected-error@-1 {{field memory leak of value: `p`, p.b is leak}}
+  foo2(&_Mut p); // expected-error {{use of partially moved value: 'p', p.a is moved}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because p.b is not freed or moved before 'p' goes out of scope}}
 
 void test7(U *_Owned p) {
   foo4(&_Mut p);
-} // expected-error {{memory leak of value: `p`}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 void test8() {
   U *_Owned sp = nullptr;
   foo4(&_Mut sp);
-} // expected-error {{memory leak of value: `sp`}}
+} // expected-error {{memory leak because 'sp' is not freed or moved before it goes out of scope}}
 
 void test9() {
   U u;
@@ -71,15 +71,15 @@ void test9() {
 void test10(int *_Owned p) {
   S s;
   s.a = p;
-  foo3(&_Mut s); // expected-error {{use of partially moved value: `s`, s.b is moved}}
-} // expected-error {{field memory leak of value: `s`, s.a is leak}}
+  foo3(&_Mut s); // expected-error {{use of partially moved value: 's', s.b is moved}}
+} // expected-error {{memory leak because s.a is not freed or moved before 's' goes out of scope}}
 
 void test11(int *_Owned p, int *_Owned q) {
   S s;
   s.a = p;
   s.b = q;
   foo3(&_Mut s);
-} // expected-error {{field memory leak of value: `s`, s.a, s.b are leak}}
+} // expected-error {{memory leak because s.a, s.b are not freed or moved before 's' goes out of scope}}
 
 void test12(int *_Owned p, int *_Owned q) {
   S s;
@@ -87,9 +87,9 @@ void test12(int *_Owned p, int *_Owned q) {
   s.b = q;
   if (s.a == nullptr) {
     foo3(&_Mut s);
-    s.a = nullptr; // expected-error {{assign to part of _Owned value: `s.a`}}
+    s.a = nullptr; // expected-error {{cannot assign to 's.a' because it still holds an _Owned value; move or free it first}}
   }
-} // expected-error {{field memory leak of value: `s`, s.b, s.a are leak}}
+} // expected-error {{memory leak because s.b, s.a are not freed or moved before 's' goes out of scope}}
 
 void test13(int *_Owned p, int *_Owned q) {
   S s;
@@ -97,17 +97,17 @@ void test13(int *_Owned p, int *_Owned q) {
   s.b = q;
   if (s.a == nullptr) {
     foo3(&_Mut s);
-    return; // expected-error {{field memory leak of value: `s`, s.b, s.a are leak}}
+    return; // expected-error {{memory leak because s.b, s.a are not freed or moved before 's' goes out of scope}}
   }
-} // expected-error {{field memory leak of value: `s`, s.a, s.b are leak}}
+} // expected-error {{memory leak because s.a, s.b are not freed or moved before 's' goes out of scope}}
 
 void test14(int *_Owned p) {
   S s;
   s.a = p;
   if (s.a == nullptr) {
-    foo3(&_Mut s); // expected-error {{use of partially moved value: `s`, s.a, s.b are moved}}
+    foo3(&_Mut s); // expected-error {{use of partially moved value: 's', s.a, s.b are moved}}
   }
-} // expected-error {{field memory leak of value: `s`, s.a is leak}}
+} // expected-error {{memory leak because s.a is not freed or moved before 's' goes out of scope}}
 
 void test15(int *_Owned q) {
   int *_Owned p = q;

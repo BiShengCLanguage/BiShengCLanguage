@@ -22,26 +22,26 @@ void useM(struct M m) {}
 
 void test1() {
   G g = { .a = 1 };
-  int *_Borrow p1 = &_Mut g.a; // expected-note {{`g.a` is borrowed here}}
-  g.a = 5; // expected-error {{cannot assign to `g.a` because it is borrowed}}
+  int *_Borrow p1 = &_Mut g.a; // expected-note {{'g.a' is borrowed here}}
+  g.a = 5; // expected-error {{cannot assign to 'g.a' because it is borrowed}}
   use(p1);
 }
 
 void test2() {
   G g;
   G *pg = &g;
-  int *_Borrow p2 = &_Mut pg->a; // expected-note {{`(*pg).a` is borrowed here}}
-  pg->a = 5; // expected-error {{cannot assign to `(*pg).a` because it is borrowed}}
+  int *_Borrow p2 = &_Mut pg->a; // expected-note {{'(*pg).a' is borrowed here}}
+  pg->a = 5; // expected-error {{cannot assign to '(*pg).a' because it is borrowed}}
   use(p2); 
 }
 
 void test3() {
   G g;
   G *pg = &g;
-  int *_Borrow p1 = &_Mut g.a; // expected-note {{`g.a` is borrowed here}}
-  int *_Borrow p2 = &_Mut pg->a; // expected-note {{`(*pg).a` is borrowed here}}
-  g.a = 5; // expected-error {{cannot assign to `g.a` because it is borrowed}}
-  pg->a = 5; // expected-error {{cannot assign to `(*pg).a` because it is borrowed}}
+  int *_Borrow p1 = &_Mut g.a; // expected-note {{'g.a' is borrowed here}}
+  int *_Borrow p2 = &_Mut pg->a; // expected-note {{'(*pg).a' is borrowed here}}
+  g.a = 5; // expected-error {{cannot assign to 'g.a' because it is borrowed}}
+  pg->a = 5; // expected-error {{cannot assign to '(*pg).a' because it is borrowed}}
   use(p1);
   use(p2);
 }
@@ -49,19 +49,19 @@ void test3() {
 void test4() {
   struct S s1;
   struct S* s = &s1;
-  int *_Borrow p1 = &_Mut s->g.a; // expected-note {{`(*s).g.a` is borrowed here}}
-  int *_Borrow p2 = &_Mut s1.g.a; // expected-note {{`s1.g.a` is borrowed here}}
-  s->g.a = 5; // expected-error {{cannot assign to `(*s).g.a` because it is borrowed}}
-  s1.g.a = 5; // expected-error {{cannot assign to `s1.g.a` because it is borrowed}}
+  int *_Borrow p1 = &_Mut s->g.a; // expected-note {{'(*s).g.a' is borrowed here}}
+  int *_Borrow p2 = &_Mut s1.g.a; // expected-note {{'s1.g.a' is borrowed here}}
+  s->g.a = 5; // expected-error {{cannot assign to '(*s).g.a' because it is borrowed}}
+  s1.g.a = 5; // expected-error {{cannot assign to 's1.g.a' because it is borrowed}}
   use(p1);
   use(p2);
 
   struct K k1;
   struct K *k = &k1;
-  int *_Borrow q1 = &_Mut k->g->a; // expected-note {{`(*(*k).g).a` is borrowed here}}
-  int *_Borrow q2 = &_Mut k1.g->a; // expected-note {{`(*k1.g).a` is borrowed here}}
-  k->g->a = 5; // expected-error {{cannot assign to `(*(*k).g).a` because it is borrowed}}
-  k1.g->a = 5; // expected-error {{cannot assign to `(*k1.g).a` because it is borrowed}}
+  int *_Borrow q1 = &_Mut k->g->a; // expected-note {{'(*(*k).g).a' is borrowed here}}
+  int *_Borrow q2 = &_Mut k1.g->a; // expected-note {{'(*k1.g).a' is borrowed here}}
+  k->g->a = 5; // expected-error {{cannot assign to '(*(*k).g).a' because it is borrowed}}
+  k1.g->a = 5; // expected-error {{cannot assign to '(*k1.g).a' because it is borrowed}}
   use(q1);
   use(q2);
 }
@@ -69,9 +69,9 @@ void test4() {
 void test5() {
   struct S s1; 
   struct K k1;
-  struct M m = { .ps = &_Mut s1, .pk = &_Mut k1 }; // expected-note {{`s1.g.a` is borrowed here}}
-                                                 // expected-note@-1 {{`(*k1.g).a` is borrowed here}}
-  s1.g.a = 5; // expected-error {{cannot assign to `s1.g.a` because it is borrowed}}
-  k1.g->a = 5; // expected-error {{cannot assign to `(*k1.g).a` because it is borrowed}}
+  struct M m = { .ps = &_Mut s1, .pk = &_Mut k1 }; // expected-note {{'s1.g.a' is borrowed here}}
+                                                 // expected-note@-1 {{'(*k1.g).a' is borrowed here}}
+  s1.g.a = 5; // expected-error {{cannot assign to 's1.g.a' because it is borrowed}}
+  k1.g->a = 5; // expected-error {{cannot assign to '(*k1.g).a' because it is borrowed}}
   useM(m);
 }

@@ -39,9 +39,8 @@ int* _Owned int::koo(int* _Owned this) {
 
 _Impl _Trait F for int; 
 
-_Impl _Trait G for int; // expected-error {{conversion from type 'int *_Owned (*)(void *_Owned)' to '_Safe int *_Owned (*)(void *_Owned)' is forbidden}}
-                      // expected-error@-1 {{conversion from type 'int *_Owned (*)(void *_Owned)' to '_Safe int *_Owned (*)(void *_Owned)' is forbidden}}
-                      // expected-note@-2 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}} expected-note@-2 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
+_Impl _Trait G for int; // expected-error {{conversion from type 'int *_Owned (*)(void *_Owned)' to '_Safe int *_Owned (*)(void *_Owned)' is forbidden}} expected-note {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
+                      // expected-error@-1 {{conversion from type 'int *_Owned (*)(void *_Owned)' to '_Safe int *_Owned (*)(void *_Owned)' is forbidden}} expected-note@-1 {{assigning an unsafe function pointer to a safe function pointer type is not allowed}}
 int main() {
   int a = 1;
   int *p = &a;

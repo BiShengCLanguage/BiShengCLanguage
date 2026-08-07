@@ -9,22 +9,22 @@ struct S {
 
 void test_move_whole_var_1(int *_Owned p) {
   consume_raw(__move_to_raw(p));
-  consume_owned(p); // expected-error {{use of moved value: `p`}}
+  consume_owned(p); // expected-error {{use of moved value: 'p'}}
 }
 
 void test_move_whole_var_2(int *_Owned p) {
   consume_owned(p);
-  consume_raw(__move_to_raw(p)); // expected-error {{use of moved value: `p`}}
+  consume_raw(__move_to_raw(p)); // expected-error {{use of moved value: 'p'}}
 }
 
 void test_move_field_1(int *_Owned p) {
   struct S s = {.p = p};
   consume_raw(__move_to_raw(s.p));
-  consume_owned(s.p); // expected-error {{use of moved value: `s.p`}}
+  consume_owned(s.p); // expected-error {{use of moved value: 's.p'}}
 }
 
 void test_move_field_2(int *_Owned p) {
   struct S s = {.p = p};
   consume_owned(s.p);
-  consume_raw(__move_to_raw(s.p)); // expected-error {{use of moved value: `s.p`}}
+  consume_raw(__move_to_raw(s.p)); // expected-error {{use of moved value: 's.p'}}
 }

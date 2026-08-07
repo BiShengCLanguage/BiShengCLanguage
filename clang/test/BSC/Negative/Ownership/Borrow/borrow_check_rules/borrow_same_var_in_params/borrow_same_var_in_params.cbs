@@ -5,24 +5,24 @@ void foo2(int, int *_Borrow);
 void foo3(int *_Borrow, int);
 
 void test1(int local) {
-  foo1(&_Mut local, &_Mut local); // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  foo1(&_Mut local, &_Mut local); // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
                                 // expected-note@-1 {{first mut borrow occurs here}}
 }
 
 void test2(int local) {
   int *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  int *_Borrow q = &_Mut local; // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  int *_Borrow q = &_Mut local; // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
   foo1(p, q);
 }
 
 void test3(int local) {
   int *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  foo1(p, &_Mut local); // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  foo1(p, &_Mut local); // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
 }
 
 void test4(int local) {
   int *_Borrow p = &_Mut local; // expected-note {{first mut borrow occurs here}}
-  foo1(&_Mut local, p); // expected-error {{cannot borrow `local` as mutable more than once at a time}}
+  foo1(&_Mut local, p); // expected-error {{cannot borrow 'local' as mutable more than once at a time}}
 }
 
 void test5(int local) {
@@ -30,16 +30,16 @@ void test5(int local) {
 }
 
 void test6(int local) {
-  int *_Borrow p = &_Mut local; // expected-note {{`local` is borrowed here}}
-  foo2(local, p); // expected-error {{cannot use `local` because it was mutably borrowed}}
+  int *_Borrow p = &_Mut local; // expected-note {{'local' is borrowed here}}
+  foo2(local, p); // expected-error {{cannot use 'local' because it was mutably borrowed}}
 }
 
 void test7(int local) {
-  foo3(&_Mut local, local); // expected-error {{cannot use `local` because it was mutably borrowed}}
-                           // expected-note@-1 {{`local` is borrowed here}}
+  foo3(&_Mut local, local); // expected-error {{cannot use 'local' because it was mutably borrowed}}
+                           // expected-note@-1 {{'local' is borrowed here}}
 }
 
 void test8(int local) {
-  int *_Borrow p = &_Mut local; // expected-note {{`local` is borrowed here}}
-  foo3(p, local); // expected-error {{cannot use `local` because it was mutably borrowed}}
+  int *_Borrow p = &_Mut local; // expected-note {{'local' is borrowed here}}
+  foo3(p, local); // expected-error {{cannot use 'local' because it was mutably borrowed}}
 }
