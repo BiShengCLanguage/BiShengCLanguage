@@ -679,16 +679,16 @@ bool Sema::CheckBorrowQualTypeCStyleCast(QualType LHSType, QualType RHSType) {
   }
   if (!IsPointer)
     return IsUnqualifiedTypeMatch;
-  if (LHSCanType->isVoidPointerType())
-    return true;
-  if (RHSCanType->isVoidPointerType() && !IsInSafeZone())
-    return true;
   // Check borrow qualifier compatibility first - prevent casting between
   // mutable and const borrows to avoid aliasing (must run before hasSameType
   // which may treat types as equivalent)
   if (RHSCanType.isBorrowQualified() && LHSCanType.isBorrowQualified() &&
       (RHSCanType.isConstBorrow() != LHSCanType.isConstBorrow()))
     return false;
+  if (LHSCanType->isVoidPointerType())
+    return true;
+  if (RHSCanType->isVoidPointerType() && !IsInSafeZone())
+    return true;
   if (RHSCanType.isBorrowQualified() && LHSCanType.isBorrowQualified() &&
       (RHSType.isArrayElemQualified() != LHSType.isArrayElemQualified())) {
     if (!LHSType.isArrayElemQualified() && RHSType.isArrayElemQualified()) {
@@ -843,7 +843,9 @@ bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS) {
       QualType RHSPointee = RHSCanType->getPointeeType();
       if (LHSPointee.isConstQualified() && !RHSPointee.isConstQualified()) {
         LHSPointee.removeLocalConst();
-        if (LHSPointee == RHSPointee) {
+        if ((LHSPointee == RHSPointee) || // T*_Borrow -> const T*_Borrow
+            (LHSPointee->isVoidType() &&  // T*_Borrow -> const void*_Borrow
+                (!IsInSafeZone() || RHSPointee->isTrivialDataType()))) {
           ExprResult ReBorrowExpr =
               CreateBuiltinUnaryOp(ExprLoc, UO_AddrConstDeref, RHSExpr);
           if (!ReBorrowExpr.isInvalid()) {

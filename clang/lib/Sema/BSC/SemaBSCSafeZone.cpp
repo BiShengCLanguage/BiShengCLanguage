@@ -859,8 +859,12 @@ bool IsBooleanEvaluation(const Expr *E) {
 /// Returns whether conversions from `SrcCanPtr` to `DstCanPtr` is allowed
 /// in safezone.
 /// Assumes both `SrcCanPtr` and `DstCanPtr` are canonical pointer types.
+/// `IsExplicitCast` distinguishes implicit conversions (auto reborrow, which
+/// may add `const` to the pointee) from explicit C-style casts (which may not
+/// convert a mutable borrow into a read-only borrow).
 bool IsSafePointerConversion(const QualType SrcCanPtr,
-                             const QualType DstCanPtr) {
+                             const QualType DstCanPtr,
+                             bool IsExplicitCast) {
   QualType SrcPointee = SrcCanPtr->getPointeeType();
   QualType DstPointee = DstCanPtr->getPointeeType();
   bool SrcPointeeIsConst = SrcPointee.isConstQualified();
@@ -868,7 +872,9 @@ bool IsSafePointerConversion(const QualType SrcCanPtr,
   // for casts between borrow pointers:
   // 1. allow `T *borrow` <- `T *borrow _ArrayElem`
   // 2. allow `const T *borrow` <- `T *borrow`
-  // 3. if converting to void *borrow, allow when the element type is trivial
+  // 3. if converting to void *borrow, allow when the element type is trivial;
+  //    the const-adding variant `T *borrow` -> `const void *borrow` is only
+  //    allowed for implicit conversions (auto reborrow), not explicit casts
   if (SrcCanPtr.isBorrowQualified() && DstCanPtr.isBorrowQualified()) {
     bool IsAddingArrayElem = !SrcCanPtr.isArrayElemQualified() &&
                              DstCanPtr.isArrayElemQualified();
@@ -879,8 +885,10 @@ bool IsSafePointerConversion(const QualType SrcCanPtr,
     if (!IsAddingArrayElem && !IsDroppingConst) {
       if (SrcPointee == DstPointee)
         return true;
+      bool IsAddingConstToVoid =
+          DstPointeeIsConst && !SrcPointeeIsConst && DstPointee->isVoidType();
       if (SrcPointee->isTrivialDataType() && DstPointee->isVoidType() &&
-          DstPointeeIsConst == SrcPointeeIsConst)
+          !(IsExplicitCast && IsAddingConstToVoid))
         return true;
     }
   }
@@ -950,7 +958,7 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
         SrcType.getCanonicalType(), Context);
     QualType DestCanType = getOnlyBSCQualifiedTypeWithoutNullability(
         DestType.getCanonicalType(), Context);
-    IsSafeBehavior = IsSafePointerConversion(SrcCanType, DestCanType);
+    IsSafeBehavior = IsSafePointerConversion(SrcCanType, DestCanType, IsExplicitCast);
   } else if (SrcType->isArrayType() && DestType->isPointerType()) {
     // Array-to-pointer decay: check compatibility after canonical decay.
     QualType SrcDecayedCanType = getOnlyBSCQualifiedTypeWithoutNullability(
@@ -958,7 +966,8 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
         Context);
     QualType DestCanType = getOnlyBSCQualifiedTypeWithoutNullability(
         DestType.getCanonicalType(), Context);
-    IsSafeBehavior = IsSafePointerConversion(SrcDecayedCanType, DestCanType);
+    IsSafeBehavior =
+        IsSafePointerConversion(SrcDecayedCanType, DestCanType, IsExplicitCast);
   } else if ((SrcType->isPointerType() || DestType->isPointerType()) &&
              !E->isNullPointerConstant(Context,
                                        Expr::NPC_ValueDependentIsNull)) {

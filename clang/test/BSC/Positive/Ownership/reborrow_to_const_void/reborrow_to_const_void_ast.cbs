@@ -1,0 +1,52 @@
+// RUN: %clang_cc1 -triple x86_64-unknown-unknown -ast-dump %s \
+// RUN: | FileCheck --strict-whitespace %s
+// expected-no-diagnostics
+
+// Test that `T *_Borrow -> const void *_Borrow` (and the `_ArrayElem`
+// variants) implicitly insert the `&_Const *` reborrow operator.
+
+_Safe void mycopy(void *_Borrow dst, const void *_Borrow src, unsigned long count);
+
+_Safe void safe_call(int *_Borrow dst, int *_Borrow src) {
+  mycopy(dst, src, sizeof(*dst));
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} safe_call
+// CHECK: CallExpr {{.*}} 'void'
+// CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow' <BitCast>
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow
+// CHECK-NEXT: ImplicitCastExpr {{.*}} 'int *_Borrow' <LValueToRValue>
+
+_Safe void safe_assign(int *_Borrow src) {
+  const void *_Borrow v = src;
+  (void)v;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} safe_assign
+// CHECK: VarDecl {{.*}} v 'const void *_Borrow' cinit
+// CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow' <BitCast>
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow
+
+_Safe const void *_Borrow safe_return(int *_Borrow src) {
+  return src;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} safe_return
+// CHECK: ReturnStmt {{.*}}
+// CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow' <BitCast>
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow
+
+_Safe void safe_assign_ae(int *_Borrow _ArrayElem src) {
+  const void *_Borrow _ArrayElem v = src;
+  (void)v;
+  const void *_Borrow v2 = src;
+  (void)v2;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} safe_assign_ae
+// CHECK: VarDecl {{.*}} v 'const void *_Borrow _ArrayElem' cinit
+// CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow _ArrayElem' <BitCast>
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow
+// CHECK: VarDecl {{.*}} v2 'const void *_Borrow' cinit
+// CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow' <BitCast>
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow

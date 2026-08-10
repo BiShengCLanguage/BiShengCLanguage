@@ -1,0 +1,128 @@
+// RUN: %clang_cc1 -verify %s
+
+// U zone: const T *_Borrow -> void *_Borrow (const stripped, T non-void), explicit cast
+void t1(void) {
+  int a[10] = {0};
+  const int *_Borrow c = &_Const a[0];
+  void *_Borrow v = (void *_Borrow)c;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const int *_Borrow' to 'void *_Borrow'}}
+}
+
+// U zone: const T *_Borrow -> void *_Borrow, implicit conversion
+void t1i(void) {
+  int a[10] = {0};
+  const int *_Borrow c = &_Const a[0];
+  void *_Borrow v = c;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const int *_Borrow' to 'void *_Borrow'}}
+}
+
+// U zone: const void *_Borrow -> void *_Borrow, explicit cast
+void t2(void) {
+  int a[10] = {0};
+  const int *_Borrow c = &_Const a[0];
+  const void *_Borrow cv = c;
+  void *_Borrow v = (void *_Borrow)cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow' to 'void *_Borrow'}}
+}
+
+// U zone: const void *_Borrow -> void *_Borrow, implicit conversion
+void t3(void) {
+  int a[10] = {0};
+  const int *_Borrow c = &_Const a[0];
+  const void *_Borrow cv = c;
+  void *_Borrow v = cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow' to 'void *_Borrow'}}
+}
+
+// U zone: const void *_Borrow _ArrayElem -> void *_Borrow _ArrayElem, explicit cast
+void t5(void) {
+  int a[10] = {0};
+  const int *_Borrow _ArrayElem c = &_Const a[0];
+  const void *_Borrow _ArrayElem cv = c;
+  void *_Borrow _ArrayElem v = (void *_Borrow _ArrayElem)cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow _ArrayElem' to 'void *_Borrow _ArrayElem'}}
+}
+
+// U zone: const void *_Borrow _ArrayElem -> void *_Borrow (AE downgrade +
+// const strip), explicit cast
+void t8(void) {
+  int a[10] = {0};
+  const void *_Borrow _ArrayElem cv = &_Const a[0];
+  void *_Borrow v = (void *_Borrow)cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow _ArrayElem' to 'void *_Borrow'}}
+}
+
+// U zone: const T *_Borrow _ArrayElem -> void *_Borrow _ArrayElem (const
+// stripped, T non-void), explicit cast
+void t4(void) {
+  int a[10] = {0};
+  const int *_Borrow _ArrayElem c = &_Const a[0];
+  void *_Borrow _ArrayElem v = (void *_Borrow _ArrayElem)c;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const int *_Borrow _ArrayElem' to 'void *_Borrow _ArrayElem'}}
+}
+
+// U zone: const T *_Borrow _ArrayElem -> void *_Borrow (AE downgrade + const
+// strip), explicit cast
+void t7(void) {
+  int a[10] = {0};
+  const int *_Borrow _ArrayElem c = &_Const a[0];
+  void *_Borrow v = (void *_Borrow)c;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const int *_Borrow _ArrayElem' to 'void *_Borrow'}}
+}
+
+// S zone: const void *_Borrow -> void *_Borrow, explicit cast (already forbidden)
+void t6(void) {
+  int a[10] = {0};
+  _Safe {
+    const void *_Borrow cv = &_Const a[0];
+    void *_Borrow v = (void *_Borrow)cv;
+    // expected-error@-1 {{conversion from type 'const void *_Borrow' to 'void *_Borrow' is forbidden in the safe zone}}
+    // expected-note@-2 {{source pointee type 'const void' is not a trivial data type}}
+  }
+}
+
+void t_escape(void) {
+  int a[10] = {0};
+  int *_Borrow m = &_Mut a[0];
+  const void *_Borrow ro = m; // ok: implicit auto-reborrow
+  void *_Borrow v = (void *_Borrow)ro;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow' to 'void *_Borrow'}}
+}
+
+// U zone: const void *_Borrow -> T *_Borrow (const dropped through void),
+// explicit cast (RHS-void path must be tightened symmetrically)
+void t9(void) {
+  int a[10] = {0};
+  const int *_Borrow c = &_Const a[0];
+  const void *_Borrow cv = c;
+  int *_Borrow v = (int *_Borrow)cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow' to 'int *_Borrow'}}
+}
+
+// U zone: const void *_Borrow _ArrayElem -> T *_Borrow _ArrayElem (const
+// dropped through void), explicit cast
+void t10(void) {
+  int a[10] = {0};
+  const void *_Borrow _ArrayElem cv = &_Const a[0];
+  int *_Borrow _ArrayElem v = (int *_Borrow _ArrayElem)cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow _ArrayElem' to 'int *_Borrow _ArrayElem'}}
+}
+
+// U zone: const void *_Borrow _ArrayElem -> T *_Borrow (AE downgrade + const
+// drop), explicit cast
+void t11(void) {
+  int a[10] = {0};
+  const void *_Borrow _ArrayElem cv = &_Const a[0];
+  int *_Borrow v = (int *_Borrow)cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow _ArrayElem' to 'int *_Borrow'}}
+}
+
+// U zone: void *_Borrow -> const T *_Borrow (mutable -> immutable borrow),
+// explicit cast (only the implicit auto-reborrow may add const)
+void t12(void) {
+  int a[10] = {0};
+  int *_Borrow m = &_Mut a[0];
+  void *_Borrow v = m;
+  const int *_Borrow cv = (const int *_Borrow)v;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'void *_Borrow' to 'const int *_Borrow'}}
+}

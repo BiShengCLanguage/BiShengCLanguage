@@ -8,10 +8,10 @@ void test() {
   // T --> void
   void * _Borrow v1 = p1; // legal
   void * _Borrow v2 = (void * _Borrow)p1; // legal
-  (const void * _Borrow)p1; // expected-warning {{expression result unused}}
+  (const void * _Borrow)p1; // expected-error {{incompatible _Borrow types, cannot cast 'int *_Borrow' to 'const void *_Borrow'}}
   const void * _Borrow v3 = p2; // legal
   const void * _Borrow v4 = (const void * _Borrow)p2; // legal
-  (void * _Borrow)p2; // expected-warning {{expression result unused}}
+  (void * _Borrow)p2; // expected-error {{incompatible _Borrow types, cannot cast 'const int *_Borrow' to 'void *_Borrow'}}
   v1 = v3; // expected-error {{incompatible _Borrow types, cannot cast 'const void *_Borrow' to 'void *_Borrow'}}
   v3 = v1; // allow re-borrowing
 
@@ -35,7 +35,7 @@ void test() {
      v5 = p1;
      v6 = p2;
      v5 = p2; // expected-error {{conversion from type 'const int *_Borrow' to 'void *_Borrow' is forbidden in the safe zone}}
-     v6 = p1; // expected-error {{conversion from type 'int *_Borrow' to 'const void *_Borrow' is forbidden in the safe zone}}
+     v6 = p1; // ok: T *_Borrow -> const void *_Borrow via auto reborrow (T = int is trivial data)
 
      // void --> T
      (int * _Borrow)v5; // expected-error {{conversion from type 'void *_Borrow' to 'int *_Borrow' is forbidden in the safe zone}}

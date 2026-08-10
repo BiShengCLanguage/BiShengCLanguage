@@ -1,0 +1,40 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// T *_Borrow -> void *_Borrow (implicit / explicit)
+void c1(void) { int a = 1; int *_Borrow p = &_Mut a; void *_Borrow v = p; }
+void c2(void) { int a = 1; int *_Borrow p = &_Mut a; void *_Borrow v = (void *_Borrow)p; }
+
+// void *_Borrow -> T *_Borrow (explicit, unsafe zone)
+void c4(void) { int a = 1; int *_Borrow p = &_Mut a; void *_Borrow v = p; int *_Borrow q = (int *_Borrow)v; }
+
+// void *_Borrow -> const void *_Borrow (automatic reborrow)
+void c5(void) { int a = 1; int *_Borrow p = &_Mut a; void *_Borrow v = p; const void *_Borrow q = v; }
+
+// const T *_Borrow -> const void *_Borrow (implicit / explicit)
+void c6(void) { int a = 1; const int *_Borrow p = &_Const a; const void *_Borrow v = p; }
+void c7(void) { int a = 1; const int *_Borrow p = &_Const a; const void *_Borrow v = (const void *_Borrow)p; }
+
+// const void *_Borrow -> const T *_Borrow (explicit, unsafe zone)
+void c8(void) { int a = 1; const int *_Borrow p = &_Const a; const void *_Borrow v = p; const int *_Borrow q = (const int *_Borrow)v; }
+
+// const T *_Borrow -> raw void * (explicit, unsafe zone; libcbs pattern)
+void c10(void) { int a = 1; const int *_Borrow p = &_Const a; void *q = (void *)p; }
+
+// const void *_Borrow -> raw void * (explicit, unsafe zone)
+void c11(void) { int a = 1; const int *_Borrow p = &_Const a; const void *_Borrow v = p; void *q = (void *)v; }
+
+// libcbs multi-step cast: const T*_Borrow -> void* -> T* -> T*_Borrow
+void c12(void) { int a = 1; const int *_Borrow p = &_Const a; void *raw = (void *)p; int *_Borrow q = (int *_Borrow)(int *)raw; }
+
+// const T *_Borrow _ArrayElem -> raw void * (explicit, unsafe zone)
+void c13(void) { int a[4] = {0}; const int *_Borrow _ArrayElem p = &_Const a[0]; void *q = (void *)p; }
+
+// _Borrow _ArrayElem variants
+void c14(void) { int a[4] = {0}; int *_Borrow _ArrayElem p = &_Mut a[0]; void *_Borrow _ArrayElem v = p; }
+void c15(void) { int a[4] = {0}; int *_Borrow _ArrayElem p = &_Mut a[0]; void *_Borrow _ArrayElem v = (void *_Borrow _ArrayElem)p; }
+void c17(void) { int a[4] = {0}; int *_Borrow _ArrayElem p = &_Mut a[0]; void *_Borrow v = p; }
+void c18(void) { int a[4] = {0}; int *_Borrow _ArrayElem p = &_Mut a[0]; void *_Borrow _ArrayElem v = p; void *_Borrow q = v; }
+void c19(void) { int a[4] = {0}; int *_Borrow _ArrayElem p = &_Mut a[0]; void *_Borrow _ArrayElem v = p; const void *_Borrow q = v; }
+void c20(void) { int a[4] = {0}; const int *_Borrow _ArrayElem p = &_Const a[0]; const void *_Borrow _ArrayElem v = p; }
+void c21(void) { int a[4] = {0}; const int *_Borrow _ArrayElem p = &_Const a[0]; const void *_Borrow _ArrayElem v = (const void *_Borrow _ArrayElem)p; }

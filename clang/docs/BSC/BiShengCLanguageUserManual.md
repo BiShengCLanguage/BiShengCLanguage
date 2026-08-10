@@ -3800,7 +3800,7 @@ int main() {
 }
 ```
 
-2. 允许指向 T 的借用隐式转换为指向 void 类型的借用（非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`），反过来从类型 void 的借用往类型 T 借用的转换只能在非安全区显式进行。其他指向类型不同的借用指针之间的类型转换均不允许。
+2. 允许指向 T 的可变借用隐式转换为指向 void 类型的可变借用，以及指向 T 的不可变借用隐式转换为指向 void 类型的不可变借用（非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`），反过来从类型 void 的借用往类型 T 借用的转换只能在非安全区显式进行。其他指向类型不同的借用指针之间的类型转换均不允许。
 
 ```C
 void test() {
@@ -3837,7 +3837,7 @@ int *_Owned test(int *_Owned p) {
 }
 ```
 
-5. 可变借用 `T *_Borrow` 类型可隐式转换为不可变借用 `const T *_Borrow` 类型，由编译器自动插入 `&_Const *` 操作符。不允许在可变借用和只读借用之间进行强制类型转换
+5. 可变借用 `T *_Borrow` 类型可隐式转换为不可变借用 `const T *_Borrow` 类型或 `const void *_Borrow` 类型（转为 `const void *_Borrow` 时，非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`），由编译器自动插入 `&_Const *` 操作符。不允许在可变借用和只读借用之间进行强制类型转换。
 
 以下场景可发生可变借用到不可变借用的隐式转换：
   1. 变量的初始化与赋值
@@ -3846,6 +3846,7 @@ int *_Owned test(int *_Owned p) {
 
 ```C
 void foo(const int *_Borrow);
+void bar(const void *_Borrow);
 
 void test1() {
   int a = 1;
@@ -3853,6 +3854,8 @@ void test1() {
   const int *_Borrow q = p; // ok
   q = p; // ok
   foo(p); // ok
+  const void *_Borrow v = p; // ok
+  bar(p); // ok
 }
 
 const int *_Borrow test2(int *_Borrow p) {
@@ -4224,7 +4227,7 @@ int foo(void) {
 
 1. `_Borrow _ArrayElem` 指针可以隐式转换为 `_Borrow` 指针，除此之外 `_Borrow _ArrayElem` 指针不能转换为其他安全指针类型。其他安全指针类型（包括 `_Borrow` 指针）不能转换为 `_Borrow _ArrayElem` 指针。
 2. 可以在非安全区将 `_Borrow _ArrayElem` 指针显式转换为裸指针，或是从裸指针显式转换为 `_Borrow _ArrayElem` 指针。
-3. 安全区支持 `T * _Borrow _ArrayElem` 隐式转为 `void * _Borrow _ArrayElem`，不支持指向类型不同的 `_Borrow _ArrayElem` 指针间的类型转换。非安全区支持任意指向类型不同的 `_Borrow _ArrayElem` 指针之间的显式类型转换，以及  `T * _Borrow _ArrayElem` 隐式转为 `void * _Borrow _ArrayElem`。
+3. 支持 `T * _Borrow _ArrayElem` 隐式转为 `void * _Borrow _ArrayElem`、`const void * _Borrow _ArrayElem` 与 `void * _Borrow`、`const void * _Borrow`（安全区要求 `T` 满足 `is_trivial_data`，非安全区总是允许），转为不可变借用时编译器自动插入 `&_Const *` 操作符。除此之外，安全区与非安全区均不支持其他指向类型不同的 `_Borrow _ArrayElem` 指针间的类型转换。
 
 #### 3.3.2. 数组退化规则拓展
 

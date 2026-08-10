@@ -1,0 +1,147 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+_Safe void mycopy(void *_Borrow dst, const void *_Borrow src, unsigned long count) {
+  // Body intentionally empty: this test only checks that the implicit
+  // `T *_Borrow -> const void *_Borrow` conversion is accepted.
+  (void)dst;
+  (void)src;
+  (void)count;
+}
+
+// ---------------------------------------------------------------------------
+// Safe zone: T *_Borrow -> const void *_Borrow
+// ---------------------------------------------------------------------------
+
+_Safe int safe_call(int *_Borrow dst, int *_Borrow src) {
+  // proposal example: no need to write `&_Const *src` any more
+  mycopy(dst, src, sizeof(*dst));
+  return *dst;
+}
+
+_Safe void safe_assign(int *_Borrow src) {
+  const void *_Borrow v = src; // auto reborrow
+  (void)v;
+}
+
+_Safe const void *_Borrow safe_return(int *_Borrow src) {
+  return src; // auto reborrow
+}
+
+// ---------------------------------------------------------------------------
+// Unsafe zone: T *_Borrow -> const void *_Borrow (always allowed)
+// ---------------------------------------------------------------------------
+
+int unsafe_call(int *_Borrow dst, int *_Borrow src) {
+  mycopy(dst, src, sizeof(*dst));
+  return *dst;
+}
+
+void unsafe_assign(int *_Borrow src) {
+  const void *_Borrow v = src;
+  (void)v;
+}
+
+const void *_Borrow unsafe_return(int *_Borrow src) {
+  return src;
+}
+
+// ---------------------------------------------------------------------------
+// Safe zone: T *_Borrow _ArrayElem -> const void *_Borrow _ArrayElem
+// ---------------------------------------------------------------------------
+
+_Safe int safe_ae_to_const_void_ae(int *_Borrow _ArrayElem dst,
+                                   int *_Borrow _ArrayElem src) {
+  mycopy(dst, src, sizeof(*dst));
+  return *dst;
+}
+
+_Safe void safe_assign_ae_to_const_void_ae(int *_Borrow _ArrayElem src) {
+  const void *_Borrow _ArrayElem v = src;
+  (void)v;
+}
+
+_Safe const void *_Borrow _ArrayElem
+safe_return_ae_to_const_void_ae(int *_Borrow _ArrayElem src) {
+  return src;
+}
+
+// ---------------------------------------------------------------------------
+// Safe zone: T *_Borrow _ArrayElem -> const void *_Borrow (downgrade + reborrow)
+// ---------------------------------------------------------------------------
+
+_Safe void safe_assign_ae_to_const_void(int *_Borrow _ArrayElem src) {
+  const void *_Borrow v = src;
+  (void)v;
+}
+
+_Safe const void *_Borrow safe_return_ae_to_const_void(int *_Borrow _ArrayElem src) {
+  return src;
+}
+
+// ---------------------------------------------------------------------------
+// Unsafe zone: `_ArrayElem` variants (always allowed)
+// ---------------------------------------------------------------------------
+
+int unsafe_ae_call(int *_Borrow _ArrayElem dst, int *_Borrow _ArrayElem src) {
+  mycopy(dst, src, sizeof(*dst));
+  return *dst;
+}
+
+void unsafe_ae_assign(int *_Borrow _ArrayElem src) {
+  const void *_Borrow _ArrayElem v = src;
+  (void)v;
+  const void *_Borrow v2 = src;
+  (void)v2;
+}
+
+const void *_Borrow _ArrayElem unsafe_ae_return(int *_Borrow _ArrayElem src) {
+  return src;
+}
+
+// ---------------------------------------------------------------------------
+// `_Nullable` variants (nullability is preserved through the reborrow)
+// ---------------------------------------------------------------------------
+
+_Safe void safe_nullable(int *_Borrow _Nullable src) {
+  const void *_Borrow _Nullable v = src;
+  (void)v;
+}
+
+_Safe void take_nullable(const void *_Borrow _Nullable p) {
+  (void)p;
+}
+_Safe void safe_nullable_call(int *_Borrow _Nullable src) {
+  take_nullable(src);
+}
+
+_Safe void safe_nullable_ae(int *_Borrow _Nullable _ArrayElem src) {
+  const void *_Borrow _Nullable _ArrayElem v = src;
+  (void)v;
+}
+
+int main() {
+  int a[4] = {1, 2, 3, 4};
+  int b[4] = {5, 6, 7, 8};
+  _Safe {
+    safe_call(&_Mut a[0], &_Mut b[0]);
+    safe_assign(&_Mut a[0]);
+    safe_return(&_Mut a[0]);
+    safe_ae_to_const_void_ae(&_Mut a[0], &_Mut b[0]);
+    safe_assign_ae_to_const_void_ae(&_Mut a[0]);
+    safe_return_ae_to_const_void_ae(&_Mut a[0]);
+    safe_assign_ae_to_const_void(&_Mut a[0]);
+    safe_return_ae_to_const_void(&_Mut a[0]);
+    safe_nullable(&_Mut a[0]);
+    safe_nullable_call(&_Mut a[0]);
+    safe_nullable_ae(&_Mut a[0]);
+  }
+  unsafe_call(&_Mut a[0], &_Mut b[0]);
+  unsafe_assign(&_Mut a[0]);
+  unsafe_return(&_Mut a[0]);
+  unsafe_ae_call(&_Mut a[0], &_Mut b[0]);
+  unsafe_ae_assign(&_Mut a[0]);
+  unsafe_ae_return(&_Mut a[0]);
+  return 0;
+}

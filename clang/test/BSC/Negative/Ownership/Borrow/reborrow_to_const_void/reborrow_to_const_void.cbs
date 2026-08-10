@@ -1,0 +1,86 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct S {
+  int *p;
+};
+
+// Safe zone: non-trivial T, implicit conversion -> forbidden.
+_Safe void t1(struct S *_Borrow p) {
+  const void *_Borrow v = p;
+  // expected-error@-1 {{conversion from type 'struct S *_Borrow' to 'const void *_Borrow' is forbidden in the safe zone}}
+  // expected-note@-2 {{source pointee type 'struct S' is not a trivial data type}}
+}
+
+// Safe zone: non-trivial T, explicit cast -> forbidden.
+_Safe void t2(struct S *_Borrow p) {
+  const void *_Borrow v = (const void *_Borrow)p;
+  // expected-error@-1 {{conversion from type 'struct S *_Borrow' to 'const void *_Borrow' is forbidden in the safe zone}}
+  // expected-note@-2 {{source pointee type 'struct S' is not a trivial data type}}
+}
+
+// Safe zone: non-trivial T, `_ArrayElem` variant -> forbidden.
+_Safe void t3(struct S *_Borrow _ArrayElem p) {
+  const void *_Borrow _ArrayElem v = p;
+  // expected-error@-1 {{conversion from type 'struct S *_Borrow _ArrayElem' to 'const void *_Borrow _ArrayElem' is forbidden in the safe zone}}
+  // expected-note@-2 {{source pointee type 'struct S' is not a trivial data type}}
+}
+
+// Safe zone: non-trivial T, `_ArrayElem` -> plain `_Borrow` variant -> forbidden.
+_Safe void t4(struct S *_Borrow _ArrayElem p) {
+  const void *_Borrow v = p;
+  // expected-error@-1 {{conversion from type 'struct S *_Borrow _ArrayElem' to 'const void *_Borrow' is forbidden in the safe zone}}
+  // expected-note@-2 {{source pointee type 'struct S' is not a trivial data type}}
+}
+
+// Safe zone: trivial T but explicit cast between mutable and read-only
+// borrows -> forbidden (only implicit auto-reborrow is allowed).
+_Safe void t5(int *_Borrow p) {
+  const void *_Borrow v = (const void *_Borrow)p;
+  // expected-error@-1 {{conversion from type 'int *_Borrow' to 'const void *_Borrow' is forbidden in the safe zone}}
+}
+
+_Safe void t6(int *_Borrow _ArrayElem p) {
+  const void *_Borrow _ArrayElem v = (const void *_Borrow _ArrayElem)p;
+  // expected-error@-1 {{conversion from type 'int *_Borrow _ArrayElem' to 'const void *_Borrow _ArrayElem' is forbidden in the safe zone}}
+}
+
+// Dropping `const` while erasing to `void` stays forbidden in both zones.
+void t7(void) {
+  int a = 1;
+  const int *_Borrow p = &_Const a;
+  void *_Borrow v = p;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const int *_Borrow' to 'void *_Borrow'}}
+}
+
+_Safe void t8(void) {
+  int a = 1;
+  const int *_Borrow p = &_Const a;
+  void *_Borrow v = p;
+  // expected-error@-1 {{conversion from type 'const int *_Borrow' to 'void *_Borrow' is forbidden in the safe zone}}
+}
+
+// `void *_Borrow -> const void *_Borrow` is a reborrow (not a cast), and
+// `const void *_Borrow -> void *_Borrow` must not go through the new rule.
+void t9(void) {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  const void *_Borrow cv = p; // ok: auto reborrow
+  void *_Borrow v = cv;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'const void *_Borrow' to 'void *_Borrow'}}
+  (void)v;
+}
+
+// Unsafe zone: explicit mutable -> const void borrow cast must be rejected
+// (same rule as explicit mutable -> const T borrow; only the implicit
+// auto-reborrow may add const, via `&_Const *`).
+void t10(int *_Borrow p) {
+  const void *_Borrow v = (const void *_Borrow)p;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'int *_Borrow' to 'const void *_Borrow'}}
+  (void)v;
+}
+
+void t11(int *_Borrow _ArrayElem p) {
+  const void *_Borrow _ArrayElem v = (const void *_Borrow _ArrayElem)p;
+  // expected-error@-1 {{incompatible _Borrow types, cannot cast 'int *_Borrow _ArrayElem' to 'const void *_Borrow _ArrayElem'}}
+  (void)v;
+}
