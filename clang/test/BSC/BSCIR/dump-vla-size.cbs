@@ -1,0 +1,60 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// Test BSCIR lowering of VLA size expressions: each size is read into a
+// temp when the declaration is reached, before the array's StorageLive.
+
+
+// CHECK-LABEL: fn test_direct_vla
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = copy(_1)
+// CHECK-NEXT:   StorageLive(_3)
+// CHECK-NEXT:   StorageDead(_3)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_direct_vla(int n) {
+    int arr[n];
+}
+
+// The size is evaluated at the typedef itself, not at the variable
+// declared with the typedef'd type.
+// CHECK-LABEL: fn test_typedef_vla
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = copy(_1)
+// CHECK-NEXT:   StorageLive(_3)
+// CHECK-NEXT:   StorageDead(_3)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_typedef_vla(int n) {
+    typedef int b[n];
+    b b1;
+}
+
+// Local variable as size: the read follows the local's own assignment.
+// CHECK-LABEL: fn test_typedef_vla_local
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 4
+// CHECK-NEXT:   _2 = copy(_1)
+// CHECK-NEXT:   StorageLive(_3)
+// CHECK-NEXT:   StorageDead(_3)
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_typedef_vla_local(void) {
+    int n = 4;
+    typedef int b[n];
+    b b1;
+}
+
+// Multi-dimensional: one temp per size expression, outer size first.
+// CHECK-LABEL: fn test_multidim_vla
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _3 = copy(_1)
+// CHECK-NEXT:   _4 = copy(_2)
+// CHECK-NEXT:   StorageLive(_5)
+// CHECK-NEXT:   StorageDead(_5)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_multidim_vla(int n, int m) {
+    int arr[n][m];
+}

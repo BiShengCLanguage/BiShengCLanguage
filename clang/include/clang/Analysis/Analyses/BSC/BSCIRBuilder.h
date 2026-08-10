@@ -180,6 +180,10 @@ private:
   // Lower an expression to an Operand (for rvalues)
   Operand lowerToOperand(const Expr *E);
 
+  // Lower the size expressions of variable-length array types nested in T,
+  // so reads of the size variables are visible to dataflow analyses
+  void lowerVLASizeExprs(QualType T, const Stmt *S);
+
   // Determine if an expression should be moved (based on _Owned qualifier)
   bool shouldMove(const Expr *E) const;
 

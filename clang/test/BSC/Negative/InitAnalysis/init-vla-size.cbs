@@ -1,0 +1,60 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// VLA size expressions are evaluated when the declaration is reached —
+// using an uninitialized variable as an array size is an error.
+
+// Direct VLA declaration.
+_Safe void direct_vla(void) {
+    int n;
+    int arr[n]; // expected-error {{use of uninitialized value: 'n'}}
+}
+
+// VLA typedef: the size is evaluated at the typedef itself.
+_Safe void typedef_vla(void) {
+    int n;
+    typedef int b[n]; // expected-error {{use of uninitialized value: 'n'}}
+    b b1;             // size already bound at the typedef — no second error
+}
+
+// Multi-dimensional: every size expression is checked.
+_Safe void multidim(void) {
+    int n = 2;
+    int m;
+    int arr[n][m]; // expected-error {{use of uninitialized value: 'm'}}
+}
+
+// Size initialized on only one path.
+_Safe void branch(int cond) {
+    int n;
+    if (cond) { n = 1; }
+    int arr[n]; // expected-error {{use of possibly uninitialized value: 'n'}}
+}
+
+// Size initialized on all paths is fine.
+_Safe void branch_ok(int cond) {
+    int n;
+    if (cond) { n = 1; } else { n = 2; }
+    int arr[n];
+}
+
+// Initialized sizes are fine.
+_Safe void sizes_ok(int p) {
+    int n = 4;
+    typedef int b[n];
+    b b1;
+    int arr[n][p];
+}
+
+// Size initialized earlier in the same declaration statement.
+_Safe void mixed_decl_ok(void) {
+    int n = 5, arr[n];
+}
+
+// [*] — VLA of unspecified size, valid only in prototypes: there is no
+// size expression to evaluate at the declaration. The definition's sizes
+// are reads of parameters, which are always initialized.
+_Safe int star_prototype(int rows, int cols, int m[*][*]);
+
+_Safe int star_prototype(int rows, int cols, int m[rows][cols]) {
+    return rows + cols;
+}

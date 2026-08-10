@@ -1093,9 +1093,35 @@ Operand BSCIRBuilder::VisitImplicitCastExpr(ImplicitCastExpr *CE) {
   return VisitCastExpr(CE);
 }
 
+// Walk array-of-array chains looking for a variable-length array with a
+// size expression, the same way CFG construction does.
+static const VariableArrayType *findVLA(const Type *T) {
+  while (const auto *AT = dyn_cast<ArrayType>(T)) {
+    if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
+      if (VAT->getSizeExpr())
+        return VAT;
+    T = AT->getElementType().getTypePtr();
+  }
+  return nullptr;
+}
+
+void BSCIRBuilder::lowerVLASizeExprs(QualType T, const Stmt *S) {
+  for (const VariableArrayType *VA = findVLA(T.getTypePtr()); VA;
+       VA = findVLA(VA->getElementType().getTypePtr())) {
+    const Expr *Size = VA->getSizeExpr();
+    Operand SizeOp = lowerToOperand(Size);
+    LocalId Tmp = TheBody->addTemp(Size->getType(), Size->getExprLoc());
+    Place TmpPlace(Tmp, Size->getType(), Size->getExprLoc());
+    emit(Statement::createAssign(TmpPlace, Rvalue::createUse(SizeOp),
+                                 currentSafeZone(), S, Size->getExprLoc()));
+  }
+}
+
 Operand BSCIRBuilder::VisitDeclStmt(DeclStmt *DS) {
   for (auto *D : DS->decls()) {
     if (auto *VD = dyn_cast<VarDecl>(D)) {
+      // VLA size expressions are evaluated when the declaration is reached
+      lowerVLASizeExprs(VD->getType(), DS);
       LocalId Id = getOrCreateLocal(VD);
       emit(Statement::createStorageLive(Id, currentSafeZone(),
                                         VD->getLocation()));
@@ -1112,6 +1138,9 @@ Operand BSCIRBuilder::VisitDeclStmt(DeclStmt *DS) {
                                      currentSafeZone(), DS,
                                      VD->getLocation()));
       }
+    } else if (auto *TND = dyn_cast<TypedefNameDecl>(D)) {
+      // typedef int b[n]; — the size expression is evaluated here
+      lowerVLASizeExprs(TND->getUnderlyingType(), DS);
     }
   }
   return Operand::createConstant(APValue(), Ctx.VoidTy);
