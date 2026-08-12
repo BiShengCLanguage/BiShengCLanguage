@@ -269,6 +269,8 @@ void DeclPrinter::prettyPrintAttributes(Decl *D
         break;
 #if ENABLE_BSC
       case attr::Operator:
+      case attr::EnsureInit:
+      case attr::EnsureInitIfRet:
         if (Policy.RewriteBSC) {
           continue;
         }

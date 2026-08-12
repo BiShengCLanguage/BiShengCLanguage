@@ -27,6 +27,7 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeOrdering.h"
 #include "clang/AST/TypeVisitor.h"
+#include "clang/Basic/Builtins.h"
 
 namespace clang {
 class ASTContext;
@@ -77,6 +78,14 @@ public:
       for (auto &P : FPT->getParamTypes()) {
         if (VisitQualType(P)) {
           return true;
+        }
+      }
+      if (FPT->hasExtParameterInfos()) {
+        for (unsigned I = 0, N = FPT->getNumParams(); I != N; ++I) {
+          FunctionProtoType::ExtParameterInfo EPI = FPT->getExtParameterInfo(I);
+          if (EPI.isEnsureInit() || EPI.isEnsureInitIfRet()) {
+            return true;
+          }
         }
       }
     }
@@ -313,6 +322,16 @@ public:
       if (FD->isTemplateInstantiation() || FD->isConstexpr() ||
           FD->hasAttr<OperatorAttr>()) {
         return true;
+      }
+      switch (FD->getBuiltinID()) {
+      case Builtin::BI__move_to_raw:
+      case Builtin::BI__take_from_raw:
+      case Builtin::BI__move_array_to_raw:
+      case Builtin::BI__take_array_from_raw:
+      case Builtin::BI__assume_initialized:
+        return true;
+      default:
+        break;
       }
     }
     return false;

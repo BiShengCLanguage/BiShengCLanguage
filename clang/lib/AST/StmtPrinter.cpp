@@ -1688,7 +1688,8 @@ void StmtPrinter::VisitCallExpr(CallExpr *Call) {
     if (BuiltinID == Builtin::BI__move_to_raw ||
         BuiltinID == Builtin::BI__take_from_raw ||
         BuiltinID == Builtin::BI__move_array_to_raw ||
-        BuiltinID == Builtin::BI__take_array_from_raw) {
+        BuiltinID == Builtin::BI__take_array_from_raw ||
+        BuiltinID == Builtin::BI__assume_initialized) {
       OS << '(';
       Call->getType().print(OS, Policy);
       OS << ')';

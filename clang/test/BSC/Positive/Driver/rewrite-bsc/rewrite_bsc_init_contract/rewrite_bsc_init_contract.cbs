@@ -1,0 +1,97 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// The initialization contracts are compile-time only: a C compiler does not
+// know them, so the rewriter must not emit them. The attributes are dropped
+// from the parameters, and __assume_initialized -- which codegen emits nothing
+// for -- becomes a void no-op instead of a call to an undeclared function.
+
+// CHECK-NOT: ensure_init
+// CHECK-NOT: assume_initialized
+// CHECK-NOT: _raw
+
+_Safe void fill_in(__attribute__((ensure_init)) int *_Borrow p) {
+    *p = 42;
+}
+
+_Safe void fill_in_type_pos(int *_Borrow __attribute__((ensure_init)) p) {
+    *p = 7;
+}
+
+_Safe int maybe_fill(int *_Borrow __attribute__((ensure_init_if_ret(1))) p,
+                     int cond) {
+    if (cond) {
+        *p = 1;
+        return 1;
+    }
+    return 0;
+}
+
+_Safe int sum_assumed(void) {
+    int arr[3];
+    arr[0] = 1;
+    arr[1] = 2;
+    arr[2] = 3;
+    _Unsafe { __assume_initialized(&arr); }
+    return arr[0] + arr[1] + arr[2];
+}
+
+// The builtin is a void expression, so it also reaches positions where an
+// empty replacement would leave a syntax hole in the emitted C.
+_Safe int assumed_in_comma(void) {
+    int arr[3];
+    arr[0] = 4;
+    arr[1] = 5;
+    arr[2] = 6;
+    int v;
+    _Unsafe { v = (__assume_initialized(&arr), arr[0]); }
+    return v;
+}
+
+_Safe int assumed_in_for_increment(void) {
+    int arr[3];
+    arr[0] = 7;
+    arr[1] = 8;
+    arr[2] = 9;
+    int s = 0;
+    _Unsafe {
+        for (int i = 0; i < 1; i++, __assume_initialized(&arr))
+            s += arr[i];
+    }
+    return s;
+}
+
+// A declaration whose only BSC content is an init contract or one of the
+// builtins the rewriter transforms still has to be re-printed; otherwise it is
+// copied from the source and the construct reaches the emitted C untouched.
+void plain_fill(__attribute__((ensure_init)) int *p) {
+    *p = 3;
+}
+
+int plain_assumed(void) {
+    int arr[2];
+    arr[0] = 1;
+    arr[1] = 2;
+    __assume_initialized(&arr);
+    return arr[0] + arr[1];
+}
+
+int *plain_roundtrip(int *p) {
+    return __move_to_raw(__take_from_raw(p));
+}
+
+int main(void) {
+    int x = 0;
+    int y = 0;
+    fill_in(&_Mut x);
+    fill_in_type_pos(&_Mut y);
+    int r = maybe_fill(&_Mut x, 1);
+    int z = 0;
+    plain_fill(&z);
+    int w = 11;
+    int *pw = plain_roundtrip(&w);
+    return (r + x + y + sum_assumed() + assumed_in_comma() +
+            assumed_in_for_increment() + z + *pw + plain_assumed()) - 43;
+}
