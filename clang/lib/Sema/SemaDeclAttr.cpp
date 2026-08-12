@@ -8303,13 +8303,28 @@ static void handleOperatorAttr(Sema &S, Decl *D, const ParsedAttr &Attrs) {
       S.Context, Attrs, Attrs.getOperatorTypeBuffer().Kind));
 }
 
-static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+static ParmVarDecl *checkInitContractParam(Sema &S, Decl *D,
+                                           const ParsedAttr &AL) {
   auto *PVD = dyn_cast<ParmVarDecl>(D);
   if (!PVD || !PVD->getType()->isPointerType()) {
     S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
         << AL << "pointer parameters";
-    return;
+    return nullptr;
   }
+  QualType ParamTy = PVD->getType();
+  if (ParamTy.isOwnedQualified() ||
+      ParamTy->getPointeeType().isConstQualified()) {
+    S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
+        << AL << "raw pointer or mutable borrow parameters to a non-const type";
+    return nullptr;
+  }
+  return PVD;
+}
+
+static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  ParmVarDecl *PVD = checkInitContractParam(S, D, AL);
+  if (!PVD)
+    return;
   if (PVD->hasAttr<EnsureInitIfRetAttr>()) {
     S.Diag(AL.getLoc(), diag::err_ensure_init_if_ret_conflicts_ensure_init);
     return;
@@ -8318,14 +8333,9 @@ static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 }
 
 static void handleEnsureInitIfRetAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
-  // Same pointer-parameter precondition as ensure_init (array params decay to
-  // pointers and are accepted); a genuine non-pointer scalar is a hard error.
-  auto *PVD = dyn_cast<ParmVarDecl>(D);
-  if (!PVD || !PVD->getType()->isPointerType()) {
-    S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
-        << AL << "pointer parameters";
+  ParmVarDecl *PVD = checkInitContractParam(S, D, AL);
+  if (!PVD)
     return;
-  }
 
   if (PVD->hasAttr<EnsureInitAttr>()) {
     S.Diag(AL.getLoc(), diag::err_ensure_init_if_ret_conflicts_ensure_init);

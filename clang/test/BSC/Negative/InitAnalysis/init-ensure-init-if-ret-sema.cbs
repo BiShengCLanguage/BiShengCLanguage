@@ -27,6 +27,18 @@ int arr_param(int __attribute__((ensure_init_if_ret(0))) p[2]);
 
 int arr_param_unsized(int __attribute__((ensure_init_if_ret(0))) p[]);
 
+// The manual restricts the subject further: a raw pointer or a mutable borrow
+// to a non-const type. The callee writes through the parameter to fulfil the
+// contract, and an _Owned parameter is released by the callee instead of being
+// returned to the caller.
+
+int const_pointee(const int *__attribute__((ensure_init_if_ret(0))) p); // expected-error {{attribute only applies to raw pointer or mutable borrow parameters to a non-const type}}
+int const_borrow(const int *_Borrow __attribute__((ensure_init_if_ret(0))) p); // expected-error {{attribute only applies to raw pointer or mutable borrow parameters to a non-const type}}
+int owned_param(int *_Owned __attribute__((ensure_init_if_ret(0))) p); // expected-error {{attribute only applies to raw pointer or mutable borrow parameters to a non-const type}}
+
+int raw_ok(int *__attribute__((ensure_init_if_ret(0))) p);
+int borrow_ok(int *_Borrow __attribute__((ensure_init_if_ret(0))) p);
+
 
 // --- Function return type ---------------------------------------------------
 

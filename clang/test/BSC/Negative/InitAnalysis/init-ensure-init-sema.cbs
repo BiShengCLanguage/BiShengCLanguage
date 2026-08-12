@@ -24,6 +24,18 @@ void local_attr(void) {
 
 void bad_attr(int __attribute__((ensure_init)) x); // expected-error {{attribute only applies to pointer parameters}}
 
+// --- Pointee must be writable and not owned ---------------------------------
+// The callee fulfils the contract by writing through the parameter, which a
+// const pointee forbids. An _Owned parameter is released by the callee rather
+// than handed back, so it cannot carry a value out to the caller either.
+
+void const_pointee(const int *__attribute__((ensure_init)) p); // expected-error {{attribute only applies to raw pointer or mutable borrow parameters to a non-const type}}
+void const_borrow(const int *_Borrow __attribute__((ensure_init)) p); // expected-error {{attribute only applies to raw pointer or mutable borrow parameters to a non-const type}}
+void owned_param(int *_Owned __attribute__((ensure_init)) p); // expected-error {{attribute only applies to raw pointer or mutable borrow parameters to a non-const type}}
+
+void raw_ok(int *__attribute__((ensure_init)) p);
+void borrow_ok(int *_Borrow __attribute__((ensure_init)) p);
+
 // --- Array parameter is a pointer parameter ---------------------------------
 // An array parameter decays to a pointer (the size is discarded), so it is a
 // valid pointer parameter and the attribute is accepted with no diagnostic.
