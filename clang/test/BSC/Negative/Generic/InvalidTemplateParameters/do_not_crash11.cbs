@@ -1,0 +1,10 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct W<T { T x; };
+// expected-error@-1 {{expected ',' or '>' in template-parameter-list}}
+
+struct W<T1, T2 { T1 x; };
+// expected-error@-1 {{expected ',' or '>' in template-parameter-list}}
+
+struct V<T { int x; };
+// expected-error@-1 {{expected ',' or '>' in template-parameter-list}}

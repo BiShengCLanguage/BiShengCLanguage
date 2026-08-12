@@ -1710,6 +1710,10 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         ConsumeToken();
       } else {
         Diag(Tok.getLocation(), diag::err_expected_comma_greater);
+        // The template-parameter-list is malformed; skip the rest of the
+        // declaration (balanced braces up to the ';') so that neither the
+        // ClassTemplateDecl cast below nor body parsing runs on the bad input.
+        SkipUntil(tok::semi, StopAtSemi | StopBeforeMatch);
       }
     }
 #endif
