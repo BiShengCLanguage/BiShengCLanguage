@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// The conditional operator's pointer-qualifier merge only requires the
+// _Owned/_Borrow/_ArrayElem sets to match; nullability (_Nullable/_Nonnull)
+// is intentionally ignored at merge time and left to the nullability
+// checker. When a _Nullable branch feeds a _Nonnull (default) destination,
+// the narrowing is diagnosed on the initialization, not on the conditional.
+
+// _Borrow: one branch _Nullable -> destination _Borrow (_Nonnull by default).
+_Safe void borrow_nullable_to_nonnull(_Bool b, void *_Borrow _Nullable p1,
+                                       void *_Borrow _Nonnull p2) {
+  void *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+// _Borrow _ArrayElem variant.
+_Safe void arrayelem_nullable_to_nonnull(
+    _Bool b, void *_Borrow _ArrayElem _Nullable p1,
+    void *_Borrow _ArrayElem _Nonnull p2) {
+  void *_Borrow _ArrayElem p = b ? p1 : p2;
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}

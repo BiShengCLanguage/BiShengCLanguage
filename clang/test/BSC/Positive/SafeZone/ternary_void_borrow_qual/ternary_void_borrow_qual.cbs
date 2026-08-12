@@ -1,0 +1,82 @@
+// RUN: %clang_cc1 -ast-dump -verify %s
+// expected-no-diagnostics
+
+// Regression: the conditional operator must preserve BSC pointer qualifiers
+// on the result pointers. Previously the void-merge path rebuilt the result
+// from the pointee only, dropping _Borrow/_Owned/_ArrayElem and producing a
+// false "conversion from 'void *' to 'void *_Borrow' is forbidden in the
+// safe zone" diagnostic.
+
+// --- _Borrow (void pointee) ---
+_Safe void borrow_void(_Bool b, void *_Borrow p1, void *_Borrow p2) {
+  void *_Borrow p = b ? p1 : p2;
+  // ConditionalOperator must be 'void *_Borrow'
+}
+
+// --- _Borrow _ArrayElem (void pointee) ---
+_Safe void borrow_arrayelem_void(_Bool b, void *_Borrow _ArrayElem p1,
+                                 void *_Borrow _ArrayElem p2) {
+  void *_Borrow _ArrayElem p = b ? p1 : p2;
+}
+
+// --- _Borrow (non-void pointee), identical types (early-exit path) ---
+_Safe void borrow_int(_Bool b, int *_Borrow p1, int *_Borrow p2) {
+  int *_Borrow p = b ? p1 : p2;
+}
+
+// --- _Borrow _ArrayElem (non-void pointee) ---
+_Safe void borrow_arrayelem_int(_Bool b, int *_Borrow _ArrayElem p1,
+                                int *_Borrow _ArrayElem p2) {
+  int *_Borrow _ArrayElem p = b ? p1 : p2;
+}
+
+// --- cross-type void merge keeps _Borrow: int* _Borrow <-> void* _Borrow ---
+_Safe void borrow_crossover(_Bool b, int *_Borrow p1, void *_Borrow p2) {
+  void *_Borrow p = b ? p1 : p2;
+}
+
+// --- cross-type void merge keeps _Borrow _ArrayElem ---
+_Safe void borrow_arrayelem_crossover(_Bool b, int *_Borrow _ArrayElem p1,
+                                      void *_Borrow _ArrayElem p2) {
+  void *_Borrow _ArrayElem p = b ? p1 : p2;
+}
+
+// --- nullability differs but the pointer qualifier set matches: the
+//     conditional still merges; assigning the (nullable-typed) result into a
+//     _Nullable destination stays clean. The nullable->nonnull narrowing
+//     case is covered by the Negative suite. ---
+_Safe void borrow_nullable_merge(_Bool b, void *_Borrow _Nullable p1,
+                                 void *_Borrow _Nonnull p2) {
+  void *_Borrow _Nullable p = b ? p1 : p2;
+}
+
+// --- CVR-qualifier differences are a legal C99 6.5.15p6 merge (result takes
+//     the union of CVR qualifiers); they must NOT be diagnosed as
+//     incompatible, even in the safe zone. ---
+
+// const int* vs int* -> const int*
+_Safe void cvr_const_merge(_Bool b, const int *p1, int *p2) {
+  const int *p = b ? p1 : p2;
+}
+
+// int* vs const int* (operand order swapped) -> const int*
+_Safe void cvr_const_merge_swapped(_Bool b, int *p1, const int *p2) {
+  const int *p = b ? p1 : p2;
+}
+
+// volatile int* vs int* -> volatile int*
+_Safe void cvr_volatile_merge(_Bool b, volatile int *p1, int *p2) {
+  volatile int *p = b ? p1 : p2;
+}
+
+// const int* _Borrow vs int* _Borrow -> const int* _Borrow
+_Safe void cvr_borrow_const_merge(_Bool b, const int *_Borrow p1,
+                                  int *_Borrow p2) {
+  const int *_Borrow p = b ? p1 : p2;
+}
+
+// int* _Borrow vs const int* _Borrow (swapped) -> const int* _Borrow
+_Safe void cvr_borrow_const_merge_swapped(_Bool b, int *_Borrow p1,
+                                          const int *_Borrow p2) {
+  const int *_Borrow p = b ? p1 : p2;
+}

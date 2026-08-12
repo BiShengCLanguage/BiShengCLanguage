@@ -1,0 +1,11 @@
+// RUN: %clang_cc1 -x c -fsyntax-only -verify %s
+
+// In plain C (not compiled as BSC), incompatible pointer pointee types in a
+// conditional operator keep the GCC-compatible behavior (warn + merge to
+// void*), matching the baseline C compiler. The direct incompatible-operand
+// error applies only inside the BSC safe zone.
+
+void nonsafe_incompatible_pointee(_Bool b, int *p1, long *p2) {
+  int *p = b ? p1 : p2;
+  // expected-warning@-1 {{pointer type mismatch ('int *' and 'long *')}}
+}

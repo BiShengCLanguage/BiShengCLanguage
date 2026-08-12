@@ -8988,6 +8988,29 @@ static bool checkConditionalNullPointer(Sema &S, ExprResult &NullExpr,
   return false;
 }
 
+#if ENABLE_BSC
+/// Carry over the BSC pointer qualifiers (_Owned/_Borrow/_ArrayElem) that are
+/// common to both pointer operands onto a result pointer type that was rebuilt
+/// from the pointee only (e.g. by the void-merge paths or by mergeTypes +
+/// getPointerType). Nullability is left to the nullability checker, matching
+/// mergeTypes. Returns \p DestPtrTy unchanged when BSC is not enabled.
+static QualType withCommonBSCPtrQuals(Sema &S, QualType DestPtrTy,
+                                       QualType LHSPtrTy, QualType RHSPtrTy) {
+  if (!S.getLangOpts().BSC)
+    return DestPtrTy;
+  Qualifiers LQs = LHSPtrTy.getQualifiers();
+  Qualifiers RQs = RHSPtrTy.getQualifiers();
+  Qualifiers Qs = DestPtrTy.getQualifiers();
+  if (LQs.hasOwned() && RQs.hasOwned())
+    Qs.addOwned();
+  if (LQs.hasBorrow() && RQs.hasBorrow())
+    Qs.addBorrow();
+  if (LQs.hasArrayElem() && RQs.hasArrayElem())
+    Qs.addArrayElem();
+  return S.Context.getQualifiedType(DestPtrTy, Qs);
+}
+#endif
+
 /// Checks compatibility between two pointers and return the resulting
 /// type.
 static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
@@ -9085,6 +9108,27 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
   QualType CompositeTy = S.Context.mergeTypes(lhptee, rhptee);
 
   if (CompositeTy.isNull()) {
+#if ENABLE_BSC
+    // In a BSC safe zone, incompatible pointer pointee types have no sound
+    // common type, and the GCC-style void* fallback would only surface later
+    // as a confusing "conversion from 'void *' to 'T *_Borrow' is forbidden"
+    // error (the safe zone forbids that implicit void* result). Diagnose the
+    // operands directly instead. Outside the safe zone we keep the
+    // GCC-compatible void* + warning behavior. This only fires after
+    // mergeTypes has actually failed to find a composite type, so legal CVR
+    // merges (e.g. 'const int *' <-> 'int *') are unaffected.
+    if (S.getLangOpts().BSC) {
+      if (LHSTy.isBorrowQualified() ||
+          LHSTy.isOwnedQualified() ||
+          LHSTy.isArrayElemQualified() ||
+          S.IsInSafeZone()) {
+        S.Diag(Loc, diag::err_typecheck_cond_incompatible_operands)
+            << LHSTy << RHSTy << LHS.get()->getSourceRange()
+            << RHS.get()->getSourceRange();
+        return QualType();
+      }
+    }
+#endif
     // In this situation, we assume void* type. No especially good
     // reason, but this is what gcc does, and we do have to pick
     // to get a consistent AST.
@@ -9126,6 +9170,9 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
     ResultTy = S.Context.getBlockPointerType(ResultTy);
   else
     ResultTy = S.Context.getPointerType(ResultTy);
+#if ENABLE_BSC
+  ResultTy = withCommonBSCPtrQuals(S, ResultTy, LHSTy, RHSTy);
+#endif
 
   LHS = S.ImpCastExprToType(LHS.get(), ResultTy, LHSCastKind);
   RHS = S.ImpCastExprToType(RHS.get(), ResultTy, RHSCastKind);
@@ -9170,12 +9217,32 @@ checkConditionalObjectPointersCompatibility(Sema &S, ExprResult &LHS,
   QualType lhptee = LHSTy->castAs<PointerType>()->getPointeeType();
   QualType rhptee = RHSTy->castAs<PointerType>()->getPointeeType();
 
+#if ENABLE_BSC
+  if (S.getLangOpts().BSC) {
+    // check compatibility of BSC pointer qualifiers (_Owned/_Borrow/_ArrayElem)
+    Qualifiers LQs = LHSTy.getQualifiers();
+    Qualifiers RQs = RHSTy.getQualifiers();
+    bool QualsMatch =
+        (LQs.hasOwned() == RQs.hasOwned()) &&
+        (LQs.hasBorrow() == RQs.hasBorrow()) &&
+        (LQs.hasArrayElem() == RQs.hasArrayElem());
+    if (!QualsMatch) {
+      S.Diag(Loc, diag::err_typecheck_cond_incompatible_operands)
+          << LHSTy << RHSTy << LHS.get()->getSourceRange()
+          << RHS.get()->getSourceRange();
+      return QualType();
+    }
+  }
+#endif
   // ignore qualifiers on void (C99 6.5.15p3, clause 6)
   if (lhptee->isVoidType() && rhptee->isIncompleteOrObjectType()) {
     // Figure out necessary qualifiers (C99 6.5.15p6)
     QualType destPointee
       = S.Context.getQualifiedType(lhptee, rhptee.getQualifiers());
     QualType destType = S.Context.getPointerType(destPointee);
+#if ENABLE_BSC
+    destType = withCommonBSCPtrQuals(S, destType, LHSTy, RHSTy);
+#endif
     // Add qualifiers if necessary.
     LHS = S.ImpCastExprToType(LHS.get(), destType, CK_NoOp);
     // Promote to void*.
@@ -9186,6 +9253,9 @@ checkConditionalObjectPointersCompatibility(Sema &S, ExprResult &LHS,
     QualType destPointee
       = S.Context.getQualifiedType(rhptee, lhptee.getQualifiers());
     QualType destType = S.Context.getPointerType(destPointee);
+#if ENABLE_BSC
+    destType = withCommonBSCPtrQuals(S, destType, LHSTy, RHSTy);
+#endif
     // Add qualifiers if necessary.
     RHS = S.ImpCastExprToType(RHS.get(), destType, CK_NoOp);
     // Promote to void*.

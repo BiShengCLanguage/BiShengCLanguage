@@ -1,0 +1,109 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Mixing different BSC pointer qualifiers in a conditional operator has no
+// sound common type; it is diagnosed directly rather than collapsing to a
+// bare pointer and surfacing later as a confusing safe-zone conversion error.
+
+// === ownership-kind mismatch (_Owned vs _Borrow) ===
+
+// void pointee
+_Safe void owned_vs_borrow_void(_Bool b, void *_Borrow p1, void *_Owned p2) {
+  void *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Borrow' and 'void *_Owned')}}
+}
+
+// non-void pointee
+_Safe void owned_vs_borrow_int(_Bool b, int *_Borrow p1, int *_Owned p2) {
+  int *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('int *_Borrow' and 'int *_Owned')}}
+}
+
+// === qualified pointer vs raw pointer ===
+
+_Safe void borrow_vs_raw_void(_Bool b, void *_Borrow p1, void *p2) {
+  void *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Borrow' and 'void *')}}
+}
+
+_Safe void owned_vs_raw_void(_Bool b, void *_Owned p1, void *p2) {
+  void *_Owned p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Owned' and 'void *')}}
+}
+
+_Safe void borrow_vs_raw_int(_Bool b, int *_Borrow p1, int *p2) {
+  int *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('int *_Borrow' and 'int *')}}
+}
+
+// === _ArrayElem mismatch ===
+
+// _Borrow _ArrayElem vs _Borrow (drop ArrayElem)
+_Safe void arrayelem_drop_void(_Bool b, void *_Borrow _ArrayElem p1,
+                               void *_Borrow p2) {
+  void *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Borrow _ArrayElem' and 'void *_Borrow')}}
+}
+
+// _Borrow _ArrayElem vs _Borrow (non-void pointee)
+_Safe void arrayelem_drop_int(_Bool b, int *_Borrow _ArrayElem p1,
+                              int *_Borrow p2) {
+  int *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('int *_Borrow _ArrayElem' and 'int *_Borrow')}}
+}
+
+// _Borrow _ArrayElem vs _Owned _ArrayElem (ArrayElem matches, ownership differs)
+_Safe void arrayelem_ownership_void(_Bool b, void *_Borrow _ArrayElem p1,
+                                    void *_Owned _ArrayElem p2) {
+  void *_Borrow _ArrayElem p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Borrow _ArrayElem' and 'void *_Owned _ArrayElem')}}
+}
+
+// _Borrow _ArrayElem vs raw
+_Safe void arrayelem_vs_raw_void(_Bool b, void *_Borrow _ArrayElem p1,
+                                 void *p2) {
+  void *_Borrow _ArrayElem p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Borrow _ArrayElem' and 'void *')}}
+}
+
+// _Owned _ArrayElem vs raw
+_Safe void owned_arrayelem_vs_raw_void(_Bool b, void *_Owned _ArrayElem p1,
+                                       void *p2) {
+  void *_Owned _ArrayElem p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('void *_Owned _ArrayElem' and 'void *')}}
+}
+
+// === incompatible pointee types (qualifiers match) ===
+// In the safe zone these have no sound common type: previously the GCC-style
+// void* fallback produced a confusing
+// "conversion from 'void *' to 'int *_Borrow' is forbidden" error.
+
+// _Borrow, int vs long
+_Safe void borrow_incompatible_pointee(_Bool b, int *_Borrow p1,
+                                        long *_Borrow p2) {
+  int *_Borrow p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('int *_Borrow' and 'long *_Borrow')}}
+}
+
+// _Borrow _ArrayElem, int vs long
+_Safe void arrayelem_incompatible_pointee(_Bool b, int *_Borrow _ArrayElem p1,
+                                          long *_Borrow _ArrayElem p2) {
+  int *_Borrow _ArrayElem p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('int *_Borrow _ArrayElem' and 'long *_Borrow _ArrayElem')}}
+}
+
+// === incompatible pointee types, raw pointers (no BSC qualifier) ===
+// In the safe zone these collapse just like the qualified cases: previously
+// the GCC-style void* fallback produced a confusing
+// "conversion from 'void *' to 'int *' is forbidden" error.
+
+// raw, int vs long
+_Safe void raw_incompatible_pointee(_Bool b, int *p1, long *p2) {
+  int *p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('int *' and 'long *')}}
+}
+
+// raw, int vs long (operand order swapped)
+_Safe void raw_incompatible_pointee_swapped(_Bool b, long *p1, int *p2) {
+  int *p = b ? p1 : p2;
+  // expected-error@-1 {{incompatible operand types ('long *' and 'int *')}}
+}
