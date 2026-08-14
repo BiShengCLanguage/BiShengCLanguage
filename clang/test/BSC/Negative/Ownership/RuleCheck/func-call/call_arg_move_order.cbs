@@ -1,0 +1,63 @@
+// RUN: %clang_cc1 -verify %s
+
+// Call arguments are analyzed left-to-right. A move performed by an earlier
+// argument must still be reported when a later argument uses the moved
+// value.
+
+int *_Owned foo(int *_Owned);
+void bar2(int *_Owned, int);
+void take2(int *_Owned, int *_Owned);
+
+void move_before_read_in_later_arg(int *_Owned p) {
+  bar2(foo(p), *p); // expected-error {{use of moved value: 'p'}}
+}
+
+void move_twice_in_args(int *_Owned p) {
+  take2(foo(p), foo(p)); // expected-error {{use of moved value: 'p'}}
+}
+
+void use_in_first_arg_then_move(int *_Owned p) {
+  take2(p, foo(p)); // expected-error {{use of moved value: 'p'}}
+}
+
+int *_Owned passthrough(int *_Owned);
+void take3(int *_Owned, int *_Owned, int *_Owned);
+
+// A deep chain in the first argument moves p; the second argument moves it
+// again.
+void deep_double_move(int *_Owned p) {
+  take2(passthrough(foo(foo(p))), foo(p)); // expected-error {{use of moved value: 'p'}}
+}
+
+// A deep chain moves p; the later argument reads through it.
+void move_then_read_deep(int *_Owned p) {
+  bar2(passthrough(foo(foo(p))), *p); // expected-error {{use of moved value: 'p'}}
+}
+
+// Even deeper (four levels) chain, then read.
+void four_level_then_read(int *_Owned p) {
+  bar2(passthrough(foo(passthrough(foo(p)))), *p); // expected-error {{use of moved value: 'p'}}
+}
+
+// Multi-pointer: the first statement moves p/q/r through deep chains, the
+// second statement uses all of them again.
+void deep_multi_misuse(int *_Owned p, int *_Owned q, int *_Owned r) {
+  take3(passthrough(foo(p)), foo(foo(q)), passthrough(foo(passthrough(foo(r)))));
+  take3(foo(p), foo(q), foo(r)); // expected-error {{use of moved value: 'p'}} expected-error {{use of moved value: 'q'}} expected-error {{use of moved value: 'r'}}
+}
+
+// Cross misuse: each pointer is moved in the first argument of its own call
+// and read afterwards.
+void cross_multi_misuse(int *_Owned p, int *_Owned q) {
+  bar2(passthrough(foo(p)), *p); // expected-error {{use of moved value: 'p'}}
+  bar2(passthrough(foo(q)), *q); // expected-error {{use of moved value: 'q'}}
+}
+
+// Struct owned fields: the first statement moves both fields (q through a
+// deep chain), the second statement uses them again.
+struct S { int *_Owned p; int *_Owned q; };
+
+void struct_misuse(struct S s) {
+  take2(s.p, passthrough(foo(s.q)));
+  take2(foo(s.p), foo(s.q)); // expected-error {{use of moved value: 's.p'}} expected-error {{use of moved value: 's.q'}}
+}

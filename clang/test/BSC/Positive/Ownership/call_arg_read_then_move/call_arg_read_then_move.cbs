@@ -1,0 +1,62 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Nested calls inside a call's argument list should be analyzed left-to-right
+// CFG may hoist nested call into its own statement element that precedes the
+// enclosing call; the ownership analysis must not follow that order.
+
+int *_Owned foo(int *_Owned);
+void bar(int, int *_Owned);
+int *_Owned passthrough(int *_Owned);
+
+void read_before_move_in_same_call(int *_Owned p) {
+  bar(*p, foo(p));
+}
+
+void read_before_two_level_move_in_same_call(int *_Owned p) {
+  bar(*p, passthrough(foo(p)));
+}
+
+int *_Owned read_then_forward(int *_Owned p) {
+  int x = *p;
+  (void)x;
+  return passthrough(foo(p));
+}
+
+void bar2(int *_Owned, int);
+void take2(int *_Owned, int *_Owned);
+void take3(int *_Owned, int *_Owned, int *_Owned);
+
+// Four levels of nesting: *p is read first, p is moved at the innermost call
+// and the result is handed down the chain.
+void deep_read_then_move(int *_Owned p) {
+  bar(*p, passthrough(foo(passthrough(foo(p)))));
+}
+
+// Two independent deep chains, moving p and q exactly once each.
+void deep_two_chains(int *_Owned p, int *_Owned q) {
+  take2(passthrough(foo(foo(p))), foo(passthrough(foo(q))));
+}
+
+// Three pointers, each transferred through a chain of a different depth.
+void deep_three_chains(int *_Owned p, int *_Owned q, int *_Owned r) {
+  take3(passthrough(foo(p)), foo(foo(q)), passthrough(foo(passthrough(foo(r)))));
+}
+
+// Each pointer is read and then moved inside the same call.
+void read_then_move_multi(int *_Owned p, int *_Owned q) {
+  bar(*p, foo(p));
+  bar(*q, passthrough(foo(q)));
+}
+
+// A deep chain result is returned directly.
+int *_Owned deep_return(int *_Owned p) {
+  return passthrough(foo(passthrough(foo(p))));
+}
+
+// Struct owned fields are each moved once; q goes through a deep chain.
+struct S { int *_Owned p; int *_Owned q; };
+
+void struct_members(struct S s) {
+  take2(s.p, passthrough(foo(s.q)));
+}

@@ -17,6 +17,7 @@
 #include "clang/Analysis/Analyses/BSC/BSCNullCheckInfo.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
+#include "llvm/ADT/DenseSet.h"
 
 using namespace clang;
 using namespace std;
@@ -29,6 +30,10 @@ public:
   llvm::DenseMap<const CFGBlock *, Ownership::OwnershipStatus>
       blocksBeginStatus;
   llvm::DenseMap<const CFGBlock *, Ownership::OwnershipStatus> blocksEndStatus;
+
+  // Used to force left-to-right evaluation order on arguments.
+  // See CollectArgumentCalls() comments for details.
+  llvm::DenseSet<const Stmt *> ArgCalls;
 
   Ownership::OwnershipStatus merge(Ownership::OwnershipStatus statsA,
                                    Ownership::OwnershipStatus statsB);
@@ -66,6 +71,32 @@ static bool IsTrackedType(QualType type) {
     return true;
 
   return false;
+}
+
+// Collect every CallExpr that appears as a (possibly parenthesized/cast)
+// argument of an enclosing CallExpr. The CFG built with setAllAlwaysAdd()
+// emits such nested calls as standalone CFGStmt elements that precede the
+// enclosing call statement; if the ownership analysis followed that order,
+// `f(*p, g(p))` would move `p` (via `g(p)`) before `*p` is checked, which
+// is a false "use of moved value" report. These calls are instead analyzed
+// inline, left-to-right, by the enclosing call, and their hoisted CFGStmt
+// elements are skipped in runOnBlock().
+static void CollectArgumentCalls(Stmt *S, bool InCallArg,
+                                 llvm::DenseSet<const Stmt *> &ArgCalls) {
+  if (!S)
+    return;
+  if (CallExpr *CE = dyn_cast<CallExpr>(S)) {
+    if (InCallArg)
+      ArgCalls.insert(CE);
+    for (Expr *Arg : CE->arguments())
+      CollectArgumentCalls(Arg, true, ArgCalls);
+    // The callee is not an argument: `f()(p)` still analyzes `f()` as its
+    // own top-level call.
+    CollectArgumentCalls(CE->getCallee(), false, ArgCalls);
+    return;
+  }
+  for (Stmt *Child : S->children())
+    CollectArgumentCalls(Child, InCallArg, ArgCalls);
 }
 
 static llvm::SmallSet<string, 10>
@@ -2343,7 +2374,7 @@ void TransferFunctions::VisitAbstractConditionalOperator(
 }
 
 void TransferFunctions::VisitCallExpr(CallExpr *CE) {
-  if (!isHandlingCallExpr)
+  if (!isHandlingCallExpr && !OS.ArgCalls.count(CE))
     return;
 
   isHandlingCallExpr = false;
@@ -2805,6 +2836,11 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
           isa<ReturnStmt>(S)) {
         // Handling CallExpr iff it is a CFG stmt.
         if (isa<CallExpr>(S)) {
+          // Nested calls inside an enclosing call's argument list are
+          // analyzed inline by that enclosing call (see CollectArgumentCalls)
+          // skip their hoisted CFGStmt elements.
+          if (ArgCalls.count(S))
+            continue;
           TF.SetHandlingCallExpr();
         }
         TF.Visit(const_cast<Stmt *>(S));
@@ -2832,6 +2868,9 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
     return;
 
   OwnershipImpl *OS = new OwnershipImpl(ac, ctx);
+
+  if (const Stmt *Body = fd.getBody())
+    CollectArgumentCalls(const_cast<Stmt *>(Body), false, OS->ArgCalls);
 
   // Proceed with the worklist.
   ForwardDataflowWorklist worklist(cfg, ac);
