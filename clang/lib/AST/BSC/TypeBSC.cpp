@@ -496,6 +496,9 @@ bool Type::isMoveSemanticType() const {
 
 namespace {
 bool isTrivialDataTypeImpl(QualType QT, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
+  if (QT->isFunctionType()) {
+    return false;
+  }
   if (QT->isPointerType()) {
     return false;
   }

@@ -41,6 +41,10 @@ int test_is_trivial_data() {
     _Static_assert(is_trivial_data<Enum>() == true, "fail");
     _Static_assert(is_trivial_data<Union>() == true, "fail");
 
+    _Static_assert(is_trivial_data<void()>() == false, "fail");
+    _Static_assert(is_trivial_data<int()>() == false, "fail");
+    _Static_assert(is_trivial_data<int (*)(int)>() == false, "fail");
+
     _Static_assert(is_trivial_data<struct TS<int>>() == true, "fail");
     _Static_assert(is_trivial_data<struct TS<int*>>() == false, "fail");
 

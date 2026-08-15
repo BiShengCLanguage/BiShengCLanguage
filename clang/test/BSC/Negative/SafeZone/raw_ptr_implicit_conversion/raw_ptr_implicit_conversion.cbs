@@ -54,3 +54,19 @@ void test_explicit_const_drop(void) {
     int *pi = (int *)pci; // expected-error{{conversion from type 'const int *' to 'int *' is forbidden in the safe zone}}
   }
 }
+
+typedef int (*unary_f)(int);
+
+void test_function_pointer_to_void(void) {
+  unary_f f = 0;
+  _Safe {
+    // A function pointer's pointee is a function type, which is not trivial
+    // data; it must not be laundered through `void *`.
+    void *v = f; // expected-error{{conversion from type 'unary_f' (aka 'int (*)(int)') to 'void *' is forbidden in the safe zone}} \
+                 // expected-note{{source pointee type 'int (int)' is not a trivial data type}}
+    void *v2 = (void *)f; // expected-error{{conversion from type 'unary_f' (aka 'int (*)(int)') to 'void *' is forbidden in the safe zone}} \
+                          // expected-note{{source pointee type 'int (int)' is not a trivial data type}}
+    const void *v3 = (const void *)f; // expected-error{{conversion from type 'unary_f' (aka 'int (*)(int)') to 'const void *' is forbidden in the safe zone}} \
+                                      // expected-note{{source pointee type 'int (int)' is not a trivial data type}}
+  }
+}
