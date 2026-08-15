@@ -1,0 +1,56 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct NonTrivial {
+  int *p;
+};
+
+void test_non_trivial_to_void(void) {
+  struct NonTrivial *pnt = 0;
+  _Safe {
+    void *v = pnt; // expected-error{{conversion from type 'struct NonTrivial *' to 'void *' is forbidden in the safe zone}} \
+                   // expected-note{{source pointee type 'struct NonTrivial' is not a trivial data type}}
+  }
+}
+
+void test_reverse_void(void) {
+  void *pv = 0;
+  _Safe {
+    int *pi = pv; // expected-error{{conversion from type 'void *' to 'int *' is forbidden in the safe zone}}
+  }
+}
+
+void test_const_dropping(void) {
+  const int *pci = 0;
+  _Safe {
+    int *pi = pci; // expected-error{{conversion from type 'const int *' to 'int *' is forbidden in the safe zone}}
+  }
+}
+
+void test_const_void_dropping(void) {
+  const void *pcv = 0;
+  _Safe {
+    void *pv = pcv; // expected-error{{conversion from type 'const void *' to 'void *' is forbidden in the safe zone}} \
+                    // expected-note{{source pointee type 'const void' is not a trivial data type}}
+  }
+}
+
+void test_different_pointee(void) {
+  int *pi = 0;
+  _Safe {
+    double *pd = pi; // expected-error{{conversion from type 'int *' to 'double *' is forbidden in the safe zone}}
+  }
+}
+
+void test_explicit_reverse(void) {
+  void *pv = 0;
+  _Safe {
+    int *pi = (int *)pv; // expected-error{{conversion from type 'void *' to 'int *' is forbidden in the safe zone}}
+  }
+}
+
+void test_explicit_const_drop(void) {
+  const int *pci = 0;
+  _Safe {
+    int *pi = (int *)pci; // expected-error{{conversion from type 'const int *' to 'int *' is forbidden in the safe zone}}
+  }
+}

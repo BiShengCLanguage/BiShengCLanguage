@@ -1,9 +1,13 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
+struct NonTrivial { int *p; };
+
 _Safe void take_void(void *p) { (void)p; } // expected-note {{passing argument to parameter 'p' here}}
 _Safe void pass_array_to_void(void) {
-  int a[2];
-  take_void(a); // expected-error {{conversion from type 'int[2]' to 'void *' is forbidden in the safe zone}}
+  int a[2] = {0};
+  take_void(a); // ok
+  struct NonTrivial b[2] = {{0}};
+  take_void(b); // expected-error {{conversion from type 'struct NonTrivial[2]' to 'void *' is forbidden in the safe zone}}
 }
 
 _Safe void take_void_borrow(void *_Borrow p) { (void)p; } // expected-note {{passing argument to parameter 'p' here}}

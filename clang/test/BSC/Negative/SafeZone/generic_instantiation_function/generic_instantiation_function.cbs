@@ -113,7 +113,7 @@ void diffPointCastConver<T>(void) {
   _Unsafe {
     T *a = NULL;
     _Safe {
-      void *b = a;  // expected-error{{conversion from type 'int *' to 'void *' is forbidden in the safe zone}}
+      void *b = a;  // ok: T * -> void * when T is a trivial data type (int)
       T *c = b;   // expected-error{{conversion from type 'void *' to 'int *' is forbidden in the safe zone}}
     }
   }

@@ -9,10 +9,10 @@ _Impl _Trait G for int;
 
 void diffPointCastConver(void) {
   _Unsafe {
-    // int * <-> void *
+    // int * -> void * is allowed (trivial pointee); void * -> int * stays forbidden
     int *a = NULL;
     _Safe {
-      void *b = a;  // expected-error{{conversion from type 'int *' to 'void *' is forbidden in the safe zone}}
+      void *b = a;  // ok: int * -> void * (int is a trivial data type)
       int *c = b;   // expected-error{{conversion from type 'void *' to 'int *' is forbidden in the safe zone}}
     }
   }

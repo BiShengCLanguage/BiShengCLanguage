@@ -1,0 +1,50 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+struct Trivial {
+  int x;
+};
+
+_Safe void take_void(void *p);
+_Safe void take_const_int(const int *p);
+_Safe void take_const_void(const void *p);
+
+void test_implicit(void) {
+  int *pi = 0;
+  const int *pci = 0;
+  struct Trivial *pts = 0;
+  int arr[4] = {0};
+  _Safe {
+    void *v1 = pi;                          // T* -> void*
+    const int *v2 = pi;                     // T* -> const T*
+    const void *v3 = pi;                    // T* -> const void*
+    const void *v4 = pci;                   // const T* -> const void*
+    const struct Trivial *v5 = pts;         // T* -> const T* (struct pointee)
+
+    void *v6 = arr;                         // array decay int* -> void*
+    const void *v7 = arr;                   // array decay int* -> const void*
+
+    take_void(pi);                          // call arg: T* -> void*
+    take_const_int(pi);                     // call arg: T* -> const T*
+    take_const_void(pi);                    // call arg: T* -> const void*
+  }
+}
+
+_Safe void *test_return(int *pi) {
+  return pi;                                // return: T* -> void*
+}
+
+_Safe const int *test_return_const(int *pi) {
+  return pi;                                // return: T* -> const T*
+}
+
+void test_explicit(void) {
+  int *pi = 0;
+  const int *pci = 0;
+  _Safe {
+    void *v1 = (void *)pi;                  // explicit T* -> void* is allowed
+    const int *v2 = (const int *)pi;        // explicit T* -> const T* is allowed
+    const void *v3 = (const void *)pi;      // explicit T* -> const void* is allowed
+    const void *v4 = (const void *)pci;     // explicit const T* -> const void* is allowed
+  }
+}

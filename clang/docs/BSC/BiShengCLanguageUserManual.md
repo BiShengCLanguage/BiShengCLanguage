@@ -5304,9 +5304,10 @@ _Safe int test2(unary_f f) {
 
 1. 安全区内不允许指向类型不同的指针类型之间转换，但有以下例外：
     1. 允许指向其他类型的owned指针显式转换为指向void类型的owned指针，该转换需要符合 [3.1.4.3 owned指针强制类型转换](#3143-强制类型转换) 的规则。
-    2. 允许指向其他类型的borrow指针隐式转换为指向void类型的borrow指针，但原类型必须满足 is_trivial_data 的条件（不含指针和 _Owned struct），否则不允许转换。
+    2. 允许指向其他类型的borrow指针隐式或显式转换为指向void类型的borrow指针，但原类型必须满足 is_trivial_data 的条件（不含指针和 _Owned struct），否则不允许转换。允许可变借用隐式转换为不可变借用，不能使用C风格强制类型转换。从 `T*_Borrow` 一步转为 `const void*_Borrow` 时需同时满足两种转换各自的条件。
+    3. 允许裸指针`T*`隐式或显式转换为`void*`、`const T*`和`const void*`，转换为`void*`和`const void*`时原类型必须满足 is_trivial_data 的条件，显式转换与隐式转换规则一致。
 
-    安全区内不允许指针和非指针类型之间的转换。关于数组退化到指针的完整规则，详见 [3.3.2 数组退化规则拓展](#332-数组退化规则拓展)。除数组退化规则外，安全区内不允许`_Owned/_Borrow/raw`指针之间的转换；另外，允许 `T *_Borrow _ArrayElem` 转换为 `T *_Borrow`。
+    安全区内不允许指针和非指针类型之间的转换。关于数组退化到指针的完整规则，详见 [3.3.2 数组退化规则拓展](#332-数组退化规则拓展)。除数组退化规则和上述例外外，安全区内不允许`_Owned/_Borrow/raw`指针之间的转换；另外，允许 `T *_Borrow _ArrayElem` 转换为 `T *_Borrow`。
 
 ```c
 void test() {
@@ -5337,6 +5338,13 @@ void test() {
     void *_Borrow p2 = p1; // ok: int 满足 is_trivial_data 约束，允许 int *_Borrow 隐式转换到 void *_Borrow
     struct S *_Borrow p3 = &_Mut s;
     void *_Borrow p4 = (void *_Borrow)p3; // error: struct S 不满足 is_trivial_data，不允许 struct S *_Borrow 转换到 void *_Borrow
+
+    void *r1 = pa;             // ok: int 满足 is_trivial_data 约束，允许 int* 隐式转换到 void*
+    const int *r2 = pa;        // ok: 允许 int* 隐式转换到 const int*
+    const void *r3 = pa;       // ok: int 满足 is_trivial_data 约束，允许 int* 隐式转换到 const void*
+    int *r4 = (int *)r1;       // error: 不允许 void* 转换到 int*
+    int *r5 = (int *)r2;       // error: 不允许 const int* 转换到 int*（不能丢弃const）
+    const void *r6 = (const void *)pa; // ok: 裸指针显式转换到 const void* 允许（与隐式转换规则一致）
   }
 }
 

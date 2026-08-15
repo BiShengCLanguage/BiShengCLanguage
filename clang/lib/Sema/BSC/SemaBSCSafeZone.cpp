@@ -861,7 +861,8 @@ bool IsBooleanEvaluation(const Expr *E) {
 /// Assumes both `SrcCanPtr` and `DstCanPtr` are canonical pointer types.
 /// `IsExplicitCast` distinguishes implicit conversions (auto reborrow, which
 /// may add `const` to the pointee) from explicit C-style casts (which may not
-/// convert a mutable borrow into a read-only borrow).
+/// convert a mutable borrow into a read-only borrow). Raw pointers ignore this
+/// distinction: explicit casts behave like implicit ones.
 bool IsSafePointerConversion(const QualType SrcCanPtr,
                              const QualType DstCanPtr,
                              bool IsExplicitCast) {
@@ -869,15 +870,23 @@ bool IsSafePointerConversion(const QualType SrcCanPtr,
   QualType DstPointee = DstCanPtr->getPointeeType();
   bool SrcPointeeIsConst = SrcPointee.isConstQualified();
   bool DstPointeeIsConst = DstPointee.isConstQualified();
-  // for casts between borrow pointers:
+  // for casts between borrow pointers, and between raw pointers:
   // 1. allow `T *borrow` <- `T *borrow _ArrayElem`
-  // 2. allow `const T *borrow` <- `T *borrow`
-  // 3. if converting to void *borrow, allow when the element type is trivial;
-  //    the const-adding variant `T *borrow` -> `const void *borrow` is only
-  //    allowed for implicit conversions (auto reborrow), not explicit casts
-  if (SrcCanPtr.isBorrowQualified() && DstCanPtr.isBorrowQualified()) {
-    bool IsAddingArrayElem = !SrcCanPtr.isArrayElemQualified() &&
-                             DstCanPtr.isArrayElemQualified();
+  // 2. allow `const T *[_Borrow]` <- `T *[_Borrow]` (implicit or explicit)
+  // 3. if converting to void *[_Borrow], allow when the element type is trivial;
+  //    for borrow pointers the const-adding variant `T *_Borrow` ->
+  //    `const void *_Borrow` is only allowed for implicit conversions (auto
+  //    reborrow), not explicit casts; raw pointers ignore the implicit/explicit
+  //    distinction and allow both
+  bool SrcIsBorrow = SrcCanPtr.isBorrowQualified();
+  bool DstIsBorrow = DstCanPtr.isBorrowQualified();
+  bool SrcIsRaw = !SrcCanPtr.isOwnedQualified() && !SrcIsBorrow;
+  bool DstIsRaw = !DstCanPtr.isOwnedQualified() && !DstIsBorrow;
+  if ((SrcIsBorrow && DstIsBorrow) || (SrcIsRaw && DstIsRaw)) {
+    // Only borrow pointers can add/drop `_ArrayElem`.
+    bool IsAddingArrayElem =
+        SrcIsBorrow && DstIsBorrow && !SrcCanPtr.isArrayElemQualified() &&
+        DstCanPtr.isArrayElemQualified();
     bool IsDroppingConst = !DstPointeeIsConst && SrcPointeeIsConst;
     if (DstPointeeIsConst)
       SrcPointee.removeLocalConst();
@@ -888,7 +897,8 @@ bool IsSafePointerConversion(const QualType SrcCanPtr,
       bool IsAddingConstToVoid =
           DstPointeeIsConst && !SrcPointeeIsConst && DstPointee->isVoidType();
       if (SrcPointee->isTrivialDataType() && DstPointee->isVoidType() &&
-          !(IsExplicitCast && IsAddingConstToVoid))
+          !(SrcIsBorrow && DstIsBorrow && IsExplicitCast &&
+            IsAddingConstToVoid))
         return true;
     }
   }
@@ -1139,9 +1149,15 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
         QualType SrcCanType = SrcType.getCanonicalType();
         QualType DestCanType = DestType.getCanonicalType();
         QualType SrcPointee = SrcCanType->getPointeeType();
-        // "T* borrow -> void* borrow" conversion is not allowed if T is a non-trivial data type
-        if (SrcCanType.isBorrowQualified() && !SrcPointee->isTrivialDataType() &&
-            DestCanType.isBorrowQualified() && DestCanType->isVoidPointerType()) {
+        // "T* [_Borrow] -> void* [_Borrow]" conversion is not allowed if T is a
+        // non-trivial data type
+        bool SrcIsBorrow = SrcCanType.isBorrowQualified();
+        bool DstIsBorrow = DestCanType.isBorrowQualified();
+        bool SrcIsRaw = !SrcCanType.isOwnedQualified() && !SrcIsBorrow;
+        bool DstIsRaw = !DestCanType.isOwnedQualified() && !DstIsBorrow;
+        if (!SrcPointee->isTrivialDataType() &&
+            DestCanType->isVoidPointerType() &&
+            ((SrcIsBorrow && DstIsBorrow) || (SrcIsRaw && DstIsRaw))) {
           Diag(E->getExprLoc(), diag::note_unsafe_cast_non_trivial_pointee_type) << SrcPointee;
         }
       }
