@@ -2388,8 +2388,9 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
                                         Arg->getType()));
       reporter.addDiags(diags);
     }
-    // Passing to _Bool parameter should not consume ownership
-    op = Arg->getType()->isBooleanType() ? GetAddr : Move;
+    // Passing an argument consumes ownership only when the argument's type
+    // carries ownership itself, otherwise is a copy and must not move the arg
+    op = IsTrackedType(Arg->getType()) ? Move : GetAddr;
     Visit(Arg);
     op = None;
   }
@@ -2611,7 +2612,7 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
 
 void TransferFunctions::VisitInitListExpr(InitListExpr *ILE) {
   for (auto *Init : ILE->inits()) {
-    op = Move;
+    op = IsTrackedType(Init->getType()) ? Move : GetAddr;
     Visit(Init);
     op = None;
   }
@@ -2626,12 +2627,7 @@ void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
                                         RV->getType()));
       reporter.addDiags(diags);
     }
-    const FunctionDecl *FD =
-        dyn_cast<FunctionDecl>(OS.analysisContext.getDecl());
-    // Functions returning integers(including _Bool) cannot consume ownership
-    bool ReturningInteger =
-        FD != nullptr && FD->getReturnType()->isIntegerType();
-    op = ReturningInteger ? GetAddr : Move;
+    op = IsTrackedType(RV->getType()) ? Move : GetAddr;
     Visit(RV);
     op = None;
   }

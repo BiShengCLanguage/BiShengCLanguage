@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+// By-value copies do not consume ownership
+
+void free(void *);
+
+struct Vec3 { int x, y, z; };
+
+int take_by_val(struct Vec3 a) { return a.x; }
+
+void consume(struct Vec3 *_Owned p);
+
+void move_to_raw_then_byval(struct Vec3 *_Owned v1) {
+  struct Vec3 *tmp = __move_to_raw(v1);
+  free(tmp);
+  int r = take_by_val(*v1); // expected-error {{use of moved value: 'v1'}}
+  (void)r;
+}
+
+void move_by_arg_then_byval(struct Vec3 *_Owned v1) {
+  consume(v1);
+  int r = take_by_val(*v1); // expected-error {{use of moved value: 'v1'}}
+  (void)r;
+}

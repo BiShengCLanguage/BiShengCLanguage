@@ -1,0 +1,51 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void free(void *);
+
+struct Vec3 { int x, y, z; };
+
+int take_by_val(struct Vec3 a) { return a.x; }
+
+void byval_arg_then_move(struct Vec3 *_Owned v1) {
+  int r = take_by_val(*v1);
+  r += v1->x;
+  struct Vec3 *tmp = __move_to_raw(v1);
+  free(tmp);
+  (void)r;
+}
+
+struct Wrap { struct Vec3 inner; };
+
+void initlist_copy_then_move(struct Vec3 *_Owned v1) {
+  struct Wrap w = { .inner = *v1 };
+  struct Vec3 *tmp = __move_to_raw(v1);
+  free(tmp);
+  (void)w;
+}
+
+// Two by-value copies do not consume ownership either.
+void two_byval_copies(struct Vec3 *_Owned v1) {
+  int r1 = take_by_val(*v1);
+  int r2 = take_by_val(*v1);
+  struct Vec3 *tmp = __move_to_raw(v1);
+  free(tmp);
+  (void)r1;
+  (void)r2;
+}
+
+// Returning a by-value copy of the pointed-to struct does not move the
+// pointer; ownership is transferred afterwards inside the callee.
+struct Vec3 return_copy(struct Vec3 *_Owned v1) {
+  struct Vec3 t = *v1;
+  struct Vec3 *tmp = __move_to_raw(v1);
+  free(tmp);
+  return t;
+}
+
+void call_return_copy(void) {
+  struct Vec3 init = {1, 2, 3};
+  struct Vec3 *_Owned v1 = __take_from_raw(&init);
+  struct Vec3 r = return_copy(v1);
+  (void)r;
+}
