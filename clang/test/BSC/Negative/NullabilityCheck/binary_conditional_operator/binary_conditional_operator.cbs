@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// GNU binary conditional q ?: b yields q only when q is non-null, so the
+// result's nullability is decided by the false arm alone.
+
+void binary_cond_init(int *_Nullable q) {
+  int a = 10;
+  int *_Nonnull p1 = q ?: (int *)0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = q ?: nullptr;  // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p3 = q ?: &a;
+  int *_Nullable p4 = q ?: (int *)0;
+}
+
+void binary_cond_assign(int *_Nullable q) {
+  int a = 10;
+  int *_Nonnull p = &a;
+  p = q ?: (int *)0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  p = q ?: &a;
+}
+
+void binary_cond_nested(int *_Nullable q, int *_Nullable r) {
+  int a = 10;
+  int *_Nonnull p1 = q ?: (r ?: &a);
+  int *_Nonnull p2 = q ?: (r ?: nullptr); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+int *_Nonnull binary_cond_return(int *_Nullable q) {
+  return q ?: nullptr; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}

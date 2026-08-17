@@ -314,6 +314,7 @@ Expr *NormalizeInitExpr(Expr *E) {
 //   4. int *p = p1;        // p1 is VarDecl
 //   5. int *p = s.p;       // s.p is MemberExpr
 //   6. int *p = a == 1 ? nullptr : &a; // ConditionOperator
+//   7. int *p = p1 ?: &a;    // GNU BinaryConditionalOperator
 NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
   if (E->isNullExpr(Ctx))
     return NullabilityKind::Nullable;
@@ -353,6 +354,16 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       else if (LHSNK == NullabilityKind::NonNull &&
                RHSNK == NullabilityKind::NonNull)
         return NullabilityKind::NonNull;
+      break;
+    }
+    case Expr::BinaryConditionalOperatorClass: {
+      // GNU ?: — the true arm reuses the condition value, which is known
+      // non-null whenever it is chosen, so the false arm alone decides.
+      NullabilityKind FalseNK = getExprPathNullability(
+          cast<BinaryConditionalOperator>(E)->getFalseExpr());
+      if (FalseNK == NullabilityKind::Nullable ||
+          FalseNK == NullabilityKind::NonNull)
+        return FalseNK;
       break;
     }
     case Expr::CStyleCastExprClass: {
