@@ -299,6 +299,10 @@ Expr *Sema::ConvertParmTraitToStructTrait(Expr *UO, QualType ProtoArgType,
     VoidPT.addBorrow();
   QualType VtablePT = QualType();
   RecordDecl *RD = ProtoArgType->getAsRecordDecl();
+  if (!RD) {
+    Diag(DSLoc, diag::err_type_has_not_impl_trait) << QT << T;
+    return nullptr;
+  }
   for (auto Field : RD->fields()) {
     if (Field->getNameAsString() == "vtable")
       VtablePT = Field->getType();

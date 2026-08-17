@@ -1,0 +1,11 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: expected a pointer type which has implemented '_Trait a *', found 'struct S'
+// CHECK-NOT: Segmentation fault
+
+_Trait a<>{}
+struct S { int x; };
+void baz(_Trait a<>int *_Borrow*) {
+    struct S s;
+    baz(&s);
+}

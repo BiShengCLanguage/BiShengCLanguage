@@ -1,0 +1,8 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: expected a pointer type which has implemented '_Trait a *', found 'int'
+// CHECK-NOT: Segmentation fault
+
+_Trait a<>{}_Impl _Trait a<>for ind baz(_Trait a<>int*_Borrow*){int b;baz(&b)
+
+
