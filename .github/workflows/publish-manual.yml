@@ -2,19 +2,14 @@ name: Publish BiSheng C Manual
 
 # Builds the 4 manual editions (zh + en, release + preview) and deploys to GitHub
 # Pages. Chinese content is the compiler manual fetched directly from gitcode
-# (v5 REST API, then split with split_manual.py); English is the overlay on this
-# branch, updated manually. Fully remote — no local machine involved.
-
-# SCHEDULING: GitHub only fires `schedule:` for workflow files on the DEFAULT branch.
-# The daily mirror (mirror-compiler.yml) therefore carries a copy of this file onto
-# the default branch in its overlay commit — that copy is what the schedule runs,
-# which is why the checkout below pins ref: book-ci.
+# (v5 REST API, then split with split_manual.py); English is the overlay on
+# bishengc_release, updated manually. Fully remote — no local machine involved.
 
 on:
   schedule:
     - cron: "0 20 * * *"   # 04:00 Beijing, an hour after the compiler mirror
   push:
-    branches: [book-ci]    # rebuild when the overlay/script/workflow changes
+    branches: [bishengc_release]    # rebuild when the overlay/script/workflow changes
   workflow_dispatch: {}    # manual "Run workflow" button
 
 permissions:
@@ -32,10 +27,10 @@ jobs:
     env:
       MDBOOK_VERSION: "0.4.40"
     steps:
-      - name: Checkout book-ci (overlay + build script)
+      - name: Checkout bishengc_release (overlay + build script)
         uses: actions/checkout@v4
         with:
-          ref: book-ci     # scheduled runs execute from the default branch — always build book-ci content
+          ref: bishengc_release
 
       - name: Install mdBook
         run: |

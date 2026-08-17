@@ -1,33 +1,27 @@
 name: Mirror BiSheng C compiler
 
-# Daily mirror of the compiler branch from gitcode -> this repo, with the project
-# README overlaid on top (replaces the retired local-machine cron
-# sync-bishengc-github.sh). Fully remote — no local machine involved.
+# Daily mirror of the compiler branch from gitcode -> this repo. Force-pushes
+# bishengc/15.0.4 to match the gitcode tip exactly — no overlay, no GitHub-side
+# commits. The branch stays a pristine copy of gitcode's history.
 #
-#   source : https://gitcode.com/bisheng_c_language_dep/llvm-project.git  (source of truth)
-#   target : this repo, branch bishengc/15.0.4 (force-pushed: gitcode tip + 1 overlay commit)
+#   source : https://gitcode.com/bisheng_c_language_dep/llvm-project.git (source of truth)
+#   target : this repo, branch bishengc/15.0.4 (force-pushed: gitcode tip, verbatim)
 #
-# SCHEDULING: GitHub only fires `schedule:` for workflow files on the DEFAULT branch,
-# and the default branch is this mirror itself. So the overlay commit carries
-# .github/workflows/{mirror-compiler,publish-manual}.yml (copied from book-ci) onto
-# the default branch — that registers both schedules natively. Scheduled runs execute
-# the default-branch copy, which is why the checkout below pins ref: book-ci.
+# This workflow lives on bishengc_release (the default branch), so its schedule
+# fires natively — no need to copy it onto bishengc/15.0.4 to register the cron.
 #
-# PUSH AUTH: the overlay touches workflow files, which GITHUB_TOKEN is forbidden to
-# push and org policy disables deploy keys — so the push goes over SSH with the
-# MIRROR_SSH_KEY secret (a dedicated user key, revocable at github.com/settings/keys).
+# PUSH AUTH: pushes go over SSH with the MIRROR_SSH_KEY secret (a dedicated
+# user key, revocable at github.com/settings/keys).
 #
 # The repo history is ~6.6M objects, so we keep a bare pack in the Actions cache
-# (rolling key): the first run pays the full ~5 min clone, later runs fetch only the
-# daily delta (~1 min total). The overlay commit is built with git plumbing (temp
-# index, no checkout). Fetch order matters: gitcode first, so the follow-up fetch of
-# our own branch only negotiates the tiny overlay delta.
+# (rolling key): the first run pays the full ~5 min fetch, later runs fetch only
+# the daily delta (~1 min total).
 
 on:
   schedule:
-    - cron: "0 19 * * *"   # 03:00 Beijing, same slot as the old local cron
+    - cron: "0 19 * * *"   # 03:00 Beijing
   push:
-    branches: [book-ci]
+    branches: [bishengc_release]
     paths: ['.github/workflows/mirror-compiler.yml']
   workflow_dispatch: {}
 
@@ -47,11 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - name: Checkout book-ci (overlay files + workflow copies)
-        uses: actions/checkout@v4
-        with:
-          ref: book-ci
-
       - name: Restore mirror pack cache
         uses: actions/cache/restore@v4
         with:
@@ -69,6 +58,10 @@ jobs:
           time git --git-dir=mirror.git fetch --no-tags "$SRC" "+refs/heads/$BRANCH:refs/heads/src"
           echo "[INFO] gitcode tip: $(git --git-dir=mirror.git rev-parse refs/heads/src)"
 
+      # Fetch the current GitHub tip into mirror.git so the push step knows
+      # which objects GitHub already has. Without this, push negotiates from
+      # scratch and tries to upload everything reachable from the new tip —
+      # for a ~6.6M-object repo that times out the SSH sideband mid-push.
       - name: Fetch current GitHub tip (thin negotiation)
         run: |
           git --git-dir=mirror.git fetch --no-tags \
@@ -83,43 +76,28 @@ jobs:
           printf '%s\n' "$KEY" > ~/.ssh/mirror_key
           chmod 600 ~/.ssh/mirror_key
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # SSH keepalive — large pushes were getting cut mid-sideband.
+          printf 'Host github.com\n  ServerAliveInterval 30\n  ServerAliveCountMax 10\n' >> ~/.ssh/config
 
-      - name: Build overlay commit (README + workflows) and push
-        env:
-          GIT_AUTHOR_NAME: BiSheng C Team
-          GIT_AUTHOR_EMAIL: qq1105258717@gmail.com
-          GIT_COMMITTER_NAME: BiSheng C Team
-          GIT_COMMITTER_EMAIL: qq1105258717@gmail.com
+      - name: Force-push bishengc/15.0.4 to match gitcode tip
         run: |
           set -euo pipefail
-          export GIT_DIR="$PWD/mirror.git"
-          BASE=$(git rev-parse refs/heads/src)
-          export GIT_INDEX_FILE=$(mktemp -u)   # name only; git creates a fresh index
-          git read-tree "$BASE"
-          add_file() {  # $1 = workspace path, $2 = path in the mirrored tree
-            local blob; blob=$(git hash-object -w "$1")
-            git update-index --add --cacheinfo 100644,"$blob","$2"
-          }
-          add_file overlay/compiler-readme/README.md       README.md
-          add_file overlay/compiler-readme/README-LLVM.md  README-LLVM.md
-          add_file .github/workflows/mirror-compiler.yml   .github/workflows/mirror-compiler.yml
-          add_file .github/workflows/publish-manual.yml    .github/workflows/publish-manual.yml
-          TREE=$(git write-tree)
-          rm -f "$GIT_INDEX_FILE"; unset GIT_INDEX_FILE
-          DST=$(git rev-parse --verify --quiet refs/heads/dst || true)
-          if [ -n "$DST" ] && [ "$(git rev-parse "$DST^{tree}")" = "$TREE" ]; then
-            echo "[INFO] target already up to date (same tree) — nothing to push"
-          else
-            OUT=$(git commit-tree "$TREE" -p "$BASE" -m "docs: BiSheng C project README + pipeline workflows
-
-          Overlay applied by the GitHub mirror on top of the gitcode tip: homepage
-          README (upstream LLVM README preserved as README-LLVM.md) and the manual
-          pipeline workflows, which must live on the default branch for GitHub to
-          run their schedules. Source of both: the book-ci branch.")
-            echo "[INFO] pushing: $OUT"
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/mirror_key -o IdentitiesOnly=yes" \
-              git push -f "git@github.com:${{ github.repository }}.git" "$OUT:refs/heads/$BRANCH"
-          fi
+          SRC_TIP=$(git --git-dir=mirror.git rev-parse refs/heads/src)
+          echo "[INFO] pushing gitcode tip $SRC_TIP to refs/heads/$BRANCH"
+          # Retry on transient SSH disconnects.
+          for attempt in 1 2 3; do
+            if GIT_SSH_COMMAND="ssh -i ~/.ssh/mirror_key -o IdentitiesOnly=yes" \
+                 git --git-dir=mirror.git push -f --progress \
+                 "git@github.com:${{ github.repository }}.git" \
+                 "$SRC_TIP:refs/heads/$BRANCH" 2>&1; then
+              echo "[INFO] push succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "[WARN] push attempt $attempt failed; retrying in 15s"
+            sleep 15
+          done
+          echo "[ERROR] all 3 push attempts failed"
+          exit 1
 
       - name: Compact loose objects
         run: git --git-dir=mirror.git repack -d -q || true
