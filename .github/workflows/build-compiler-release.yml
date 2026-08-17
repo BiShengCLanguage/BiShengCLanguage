@@ -1,0 +1,159 @@
+name: build-compiler-release
+
+# Manual workflow_dispatch only. Lives on the orphan ci/release branch
+# (only this file + release-build.sh) to stay out of the daily
+# mirror-compiler.yml overlay's blast radius on the default branch.
+# `ref` input accepts branch or tag; bishengc/15.0.4 is kept in sync
+# with the gitcode tip by mirror-compiler.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/tag/SHA on this repo to build from (e.g. bishengc/15.0.4 or bsc-v1.0.0)"
+        required: false
+        default: "bishengc/15.0.4"
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REF: ${{ inputs.ref || 'bishengc/15.0.4' }}
+  # Absolute path; HOME is overridden during checkout so ~/.ccache breaks.
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 600
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Checkout build script (ci/release)
+        uses: actions/checkout@v4
+        with:
+          ref: ci/release
+          fetch-depth: 1
+          sparse-checkout: |
+            release-build.sh
+
+      - name: Checkout compiler source (${{ env.SOURCE_REF }})
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          fetch-depth: 1
+          fetch-tags: true
+          path: src
+
+      # Naming: bishengc-<llvm_version>-<host>-<target>.tar.gz, inner dir
+      # = asset name minus .tar.gz. LLVM version parsed from source so it
+      # tracks the actual checkout. host_target fixed to linux-x64 for
+      # now; update when adding aarch64/macos.
+      - name: Compute release version
+        id: ver
+        working-directory: src
+        run: |
+          ref="${SOURCE_REF}"
+          sha8=$(git rev-parse --short=8 HEAD)
+          date=$(date -u +%Y%m%d)
+
+          llvm_major=$(grep -m1 'set(LLVM_VERSION_MAJOR' llvm/CMakeLists.txt | grep -oE '[0-9]+')
+          llvm_minor=$(grep -m1 'set(LLVM_VERSION_MINOR' llvm/CMakeLists.txt | grep -oE '[0-9]+')
+          llvm_patch=$(grep -m1 'set(LLVM_VERSION_PATCH' llvm/CMakeLists.txt | grep -oE '[0-9]+')
+          llvm_version="${llvm_major}.${llvm_minor}.${llvm_patch}"
+          host_target="linux-x64"
+
+          if git rev-parse --verify --quiet "refs/tags/${ref}" >/dev/null; then
+            release="${ref}"
+            title="BiSheng C toolchain ${ref} (${host_target})"
+          else
+            branch_clean=$(echo "${ref}" | tr '/' '-')
+            release="bsc-nightly"
+            title="BiSheng C toolchain (${branch_clean} @ ${date}, ${host_target})"
+          fi
+          version="${ref} @ ${sha8} (${date})"
+          asset="bishengc-${llvm_version}-${host_target}.tar.gz"
+          inner_dir="${asset%.tar.gz}"
+          echo "release_tag=${release}"      >> "$GITHUB_OUTPUT"
+          echo "asset=${asset}"              >> "$GITHUB_OUTPUT"
+          echo "inner_dir=${inner_dir}"      >> "$GITHUB_OUTPUT"
+          echo "version=${version}"          >> "$GITHUB_OUTPUT"
+          echo "title=${title}"               >> "$GITHUB_OUTPUT"
+          echo "sha8=${sha8}"                 >> "$GITHUB_OUTPUT"
+          echo "llvm_version=${llvm_version}" >> "$GITHUB_OUTPUT"
+          echo "host_target=${host_target}"   >> "$GITHUB_OUTPUT"
+
+      # g++-13: LLVM 15.0.4 needs transitive <cstdint> includes dropped
+      # by GCC 14+. lld: faster final link. ccache: incremental builds.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-13 lld ccache
+
+      # Cache key on source SHA — same SHA hits fully, restore-keys lets a
+      # newer SHA reuse the bulk (only changed .cpp recompile).
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-llvm15-${{ steps.ver.outputs.sha8 }}
+          restore-keys: |
+            ccache-llvm15-
+
+      - name: Build toolchain
+        env:
+          CCACHE_DIR: ${{ env.CCACHE_DIR }}
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          bash release-build.sh "$PWD/src" "$PWD/bsc-install"
+
+      # Only save on the main ref so PR-triggered runs don't pollute cache.
+      - name: Save ccache
+        if: ${{ github.ref == 'refs/heads/ci/release' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-llvm15-${{ steps.ver.outputs.sha8 }}
+
+      - name: Package
+        env:
+          ASSET: ${{ steps.ver.outputs.asset }}
+          INNER_DIR: ${{ steps.ver.outputs.inner_dir }}
+        run: |
+          mv "$GITHUB_WORKSPACE/bsc-install" "$GITHUB_WORKSPACE/$INNER_DIR"
+          tar -C "$GITHUB_WORKSPACE" -czf "$ASSET" "$INNER_DIR"
+          ls -lh "$ASSET"
+          tar -tzf "$ASSET" | head -5
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.ver.outputs.release_tag }}
+          ASSET: ${{ steps.ver.outputs.asset }}
+          TITLE: ${{ steps.ver.outputs.title }}
+          INNER_DIR: ${{ steps.ver.outputs.inner_dir }}
+          LLVM_VERSION: ${{ steps.ver.outputs.llvm_version }}
+          HOST_TARGET: ${{ steps.ver.outputs.host_target }}
+        run: |
+          notes="BiSheng C toolchain build.
+          source: ${{ env.SOURCE_REF }} @ ${{ github.sha }} ($(date -u +%F))
+          version: ${{ steps.ver.outputs.version }}
+          LLVM version: ${LLVM_VERSION}
+          host-target: ${HOST_TARGET}
+
+          Asset: ${ASSET} (extracts to ${INNER_DIR}/)
+          Contains: clang, libcbs (built per ci.sh build_and_test_llvm).
+          Targets: X86.
+          Built with release-build.sh on the ci/release branch."
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ASSET" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --title "$TITLE" --notes "$notes" --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" "$ASSET" --prerelease \
+              --title "$TITLE" \
+              --notes "$notes" --repo "$GITHUB_REPOSITORY"
+          fi
