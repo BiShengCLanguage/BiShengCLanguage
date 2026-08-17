@@ -361,8 +361,7 @@ static bool IsImplTraitDeclIllegal(Sema &S, QualType TraitQT, QualType &ImplQT,
     void *InsertPos = nullptr;
     TemplateArgumentListInfo Args(TypeLoc, TypeLoc);
     for (auto T : TST->template_arguments())
-      Args.addArgument(TemplateArgumentLoc(
-          T, S.Context.getTrivialTypeSourceInfo(T.getAsType(), TypeLoc)));
+      Args.addArgument(S.getTrivialTemplateArgumentLoc(T, QualType(), TypeLoc));
     SmallVector<TemplateArgument, 4> Converted;
     S.CheckTemplateArgumentList(CTD, CTD->getBeginLoc(), Args, false, Converted,
                                 /*UpdateArgsWithConversions=*/true);
@@ -440,9 +439,8 @@ QualType Sema::CompleteTraitType(QualType QT) {
     if (!TST)
       return QT;
     for (auto T : TST->template_arguments())
-      Args.addArgument(TemplateArgumentLoc(
-          T,
-          Context.getTrivialTypeSourceInfo(T.getAsType(), TTD->getBeginLoc())));
+      Args.addArgument(
+          getTrivialTemplateArgumentLoc(T, QualType(), TTD->getBeginLoc()));
     TraitQT = CheckTemplateIdType(TemplateName(TTD), TTD->getBeginLoc(), Args);
     if (!TraitQT.isNull())
       TraitQT = Context.getElaboratedType(ETK_Trait, nullptr, TraitQT);
@@ -487,8 +485,7 @@ QualType Sema::CompleteRecordType(RecordDecl *RD, SourceLocation BL,
   if (!TST)
     return QualType();
   for (auto T : TST->template_arguments())
-    Args.addArgument(TemplateArgumentLoc(
-        T, Context.getTrivialTypeSourceInfo(T.getAsType(), BL)));
+    Args.addArgument(getTrivialTemplateArgumentLoc(T, QualType(), BL));
   QualType TraitQT = CheckTemplateIdType(TemplateName(CTD), BL, Args);
   if (TraitQT.isNull())
     return QualType();

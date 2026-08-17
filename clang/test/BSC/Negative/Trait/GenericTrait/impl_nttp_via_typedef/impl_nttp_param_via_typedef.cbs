@@ -1,0 +1,16 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// Exercises the CompleteTraitType path with an NTTP-bearing generic trait
+// referenced through a parameter list. Must not crash.
+// CHECK: error: expected a pointer type which has implemented '_Trait F<int, float, 5>'
+// CHECK-NOT: Segmentation fault
+
+_Trait F<T, U, int N> {
+    T f(This* this, U x);
+};
+typedef _Trait F<int, float, 5> MyF;
+void g(MyF *_Borrow x) {}
+void caller() {
+    int v = 0;
+    g(&v);
+}

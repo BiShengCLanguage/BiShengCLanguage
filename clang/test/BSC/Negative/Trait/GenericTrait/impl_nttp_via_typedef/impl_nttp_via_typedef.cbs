@@ -1,0 +1,11 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: type of 'f' conflicts with that of 'MyF' (aka 'F<int, float, 5>')
+// CHECK-NOT: Segmentation fault
+
+_Trait F<T, U, int N> {
+    T f(This* this);
+};
+typedef _Trait F<int, float, 5> MyF;
+void int::f(int* this) { return; }
+_Impl MyF for int;
