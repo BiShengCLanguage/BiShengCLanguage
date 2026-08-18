@@ -6615,7 +6615,15 @@ bool Sema::IsStringLiteralExpr(Expr *E) {
     return true;
   // Check ternary where both branches are string literals
   if (auto *Cond = dyn_cast<ConditionalOperator>(E))
-    return IsStringLiteralExpr(Cond->getTrueExpr()) && IsStringLiteralExpr(Cond->getFalseExpr());
+    return IsStringLiteralExpr(Cond->getTrueExpr()) &&
+           IsStringLiteralExpr(Cond->getFalseExpr());
+  if (auto *BinCond = dyn_cast<BinaryConditionalOperator>(E))
+    return IsStringLiteralExpr(BinCond->getCommon()) &&
+           IsStringLiteralExpr(BinCond->getFalseExpr());
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma)
+      return IsStringLiteralExpr(BO->getRHS());
+  }
   return false;
 }
 
@@ -6631,6 +6639,15 @@ Expr *Sema::InsertConstBorrowForStringLiteral(Expr *E, SourceLocation Loc) {
         Cond->getCond(), Cond->getQuestionLoc(), True,
         Cond->getColonLoc(), False, True->getType(),
         Cond->getValueKind(), Cond->getObjectKind());
+  }
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma) {
+      Expr *RHS = InsertConstBorrowForStringLiteral(BO->getRHS(), Loc);
+      return BinaryOperator::Create(Context, BO->getLHS(), RHS, BO_Comma,
+                                    RHS->getType(), RHS->getValueKind(),
+                                    BO->getObjectKind(), BO->getOperatorLoc(),
+                                    FPOptionsOverride());
+    }
   }
 
   // String literal has type const char[N]

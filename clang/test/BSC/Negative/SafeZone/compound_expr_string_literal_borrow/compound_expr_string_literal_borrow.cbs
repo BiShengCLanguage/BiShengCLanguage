@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Expressions whose arms are not string literals must still be rejected for a
+// `const char *_Borrow` target — the fix that accepts genuine string-literal
+// arms must not loosen the non-string case.
+
+_Safe void bincond_common_non_string(int x) {
+    const char *_Borrow p = (x ?: "world"); // expected-warning {{pointer/integer type mismatch in conditional expression ('int' and 'char *')}} expected-error {{conversion from type 'char *' to 'const char *_Borrow' is forbidden in the safe zone}}
+    (void)p;
+}
+
+_Safe void bincond_false_non_string(void) {
+    const char *_Borrow p = ("hello" ?: 42); // expected-warning {{pointer/integer type mismatch in conditional expression ('char *' and 'int')}} expected-error {{conversion from type 'char *' to 'const char *_Borrow' is forbidden in the safe zone}}
+    (void)p;
+}
