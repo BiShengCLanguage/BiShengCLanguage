@@ -1,0 +1,47 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// The value of va_arg(ap, T) is untracked, so its nullability comes from the
+// written type T; a raw pointer type defaults to Nullable.
+
+typedef __builtin_va_list va_list;
+#define va_start(ap, param) __builtin_va_start(ap, param)
+#define va_arg(ap, type) __builtin_va_arg(ap, type)
+#define va_end(ap) __builtin_va_end(ap)
+
+void take_nonnull(int *_Nonnull q);
+
+void va_arg_init(int n, ...) {
+  va_list ap;
+  va_start(ap, n);
+  int *_Nonnull p1 = va_arg(ap, int *_Nullable); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = va_arg(ap, int *);          // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p3 = va_arg(ap, int *_Nonnull);
+  int *_Nullable p4 = va_arg(ap, int *_Nullable);
+  va_end(ap);
+}
+
+void va_arg_assign(int n, ...) {
+  va_list ap;
+  va_start(ap, n);
+  int a = 10;
+  int *_Nonnull p = &a;
+  p = va_arg(ap, int *_Nullable); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  p = va_arg(ap, int *_Nonnull);
+  va_end(ap);
+}
+
+void va_arg_call_arg(int n, ...) {
+  va_list ap;
+  va_start(ap, n);
+  take_nonnull(va_arg(ap, int *_Nullable)); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  take_nonnull(va_arg(ap, int *_Nonnull));
+  va_end(ap);
+}
+
+int *_Nonnull va_arg_return(int n, ...) {
+  va_list ap;
+  va_start(ap, n);
+  int *_Nullable p = va_arg(ap, int *_Nullable);
+  va_end(ap);
+  return va_arg(ap, int *_Nullable); // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}

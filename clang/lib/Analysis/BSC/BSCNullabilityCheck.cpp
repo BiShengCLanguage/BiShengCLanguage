@@ -315,6 +315,7 @@ Expr *NormalizeInitExpr(Expr *E) {
 //   5. int *p = s.p;       // s.p is MemberExpr
 //   6. int *p = a == 1 ? nullptr : &a; // ConditionOperator
 //   7. int *p = p1 ?: &a;    // GNU BinaryConditionalOperator
+//   8. int *p = va_arg(ap, int *_Nullable); // VAArgExpr
 NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
   if (E->isNullExpr(Ctx))
     return NullabilityKind::Nullable;
@@ -366,6 +367,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         return FalseNK;
       break;
     }
+    case Expr::VAArgExprClass:
+      return E->getType().getDefNullability();
     case Expr::CStyleCastExprClass: {
       // A pointer cast from a non-zero integer constant expression
       // (e.g. (int*)0x1234, (int*)(123 - 2)) produces a well-known
