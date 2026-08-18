@@ -1,0 +1,80 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+// expected-no-diagnostics
+
+// Positive controls for the Bug 13 family: cases where the trailing
+// dereference must NOT be reported after an outer reassignment.
+
+// When the dereference chain has no level whose static DefNullability is
+// Nullable, an outer reassignment must not trigger a false positive.
+// Here `*p` is statically Nonnull, so UpdateDerefStatusFromRHS writes
+// Nonnull at (p, 1) and the trailing **p is allowed after the merge.
+int outer_reassign_to_nonnull(int *_Nonnull *_Nonnull p, int c) {
+  int x = 0;
+  int *_Nonnull fresh = &x;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c)
+    p = &fresh;
+
+  return **p;
+}
+
+// RHS is a function call whose return type's pointee is Nonnull. After the
+// reassignment, *p stays Nonnull and the trailing **p is safe.
+int *_Nonnull *_Nonnull foo_nonnull_inner(void);
+
+int outer_reassign_to_nonnull_call(int *_Nonnull *_Nonnull p, int c) {
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c)
+    p = foo_nonnull_inner();
+
+  return **p;
+}
+
+// After an outer reassignment to a Nullable source, a subsequent null-check
+// must re-narrow *p to Nonnull on the continue path, so the trailing **p
+// is safe. Exercises that the seed planted by the reassignment does not
+// suppress later refinements.
+int outer_reassign_then_narrow(int *_Nullable *_Nonnull p, int c) {
+  int *fresh = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c) {
+    p = &fresh;
+    if (*p == nullptr)
+      return -1;
+  }
+
+  return **p;
+}
+
+// A ternary whose both branches reassign to a Nonnull source keeps *p
+// Nonnull; the trailing **p is safe.
+int outer_reassign_via_ternary_both_nonnull(int *_Nonnull *_Nonnull p,
+                                              int c) {
+  int x = 0, y = 0;
+  int *_Nonnull fresh1 = &x;
+  int *_Nonnull fresh2 = &y;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  p = c ? &fresh1 : &fresh2;
+
+  return **p;
+}

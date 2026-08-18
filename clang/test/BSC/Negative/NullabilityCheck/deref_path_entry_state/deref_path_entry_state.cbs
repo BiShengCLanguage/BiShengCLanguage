@@ -71,3 +71,157 @@ int loop_may_execute_zero_times(int *_Nullable *_Nonnull p, int count) {
 
   return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
 }
+
+// Outer reassignment of `p` (e.g. `p = &fresh`) invalidates the NonNull
+// refinement on `*p` but must not drop the static Nullable entry seeded at
+// CFG entry. Otherwise the trailing merge lets the Nonnull refinement from
+// the c==0 path survive, and the trailing **p on the c==1 path is silently
+// mis-classified as Nonnull. Bug 13 family.
+int outer_reassign_kills_refinement(int *_Nullable *_Nonnull p, int c) {
+  int *fresh = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c)
+    p = &fresh;
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// Symmetric to the case above: outer reassignment on the c==0 branch, while
+// the c==1 branch keeps the original Nonnull refinement. The merge must
+// still downgrade *p to Nullable.
+int outer_reassign_on_other_branch(int *_Nullable *_Nonnull p, int c) {
+  int *fresh = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (!c)
+    p = &fresh;
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// Outer reassignment is itself inside a deeper branch; the refinement kill
+// must propagate through the inner merge to the outer merge.
+int outer_reassign_nested(int *_Nullable *_Nonnull p, int c, int d) {
+  int *fresh = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c) {
+    if (d)
+      p = &fresh;
+  }
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// RHS is a function call whose return type's pointee is Nullable. After
+// `p = foo_nullable_inner()`, *p must reflect the new (Nullable) state.
+int *_Nullable *_Nonnull foo_nullable_inner(void);
+
+int outer_reassign_to_nullable_call(int *_Nullable *_Nonnull p, int c) {
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c)
+    p = foo_nullable_inner();
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// Sequential reassignments: the second one must re-erase and re-seed on top
+// of the first, so the trailing state matches the most recent source.
+int outer_reassign_sequential(int *_Nullable *_Nonnull p, int c) {
+  int *fresh1 = nullptr;
+  int *fresh2 = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  if (c) {
+    p = &fresh1;
+    p = &fresh2;
+  }
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// Outer reassignment inside a loop body: the loop-exit path carries the
+// most recent refinement state, which is Nullable after the reassignment.
+void consume_int(int);
+int outer_reassign_in_loop(int *_Nullable *_Nonnull p, int count) {
+  int *fresh = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  while (count-- > 0) {
+    p = &fresh;
+    consume_int(**p); // expected-error {{cannot dereference a possibly-null status pointer}}
+  }
+  return 0;
+}
+
+// The RHS is a ternary whose result type carries a Nullable-def pointee
+// level. After `p = c ? &fresh : p`, *p must reflect the new Nullable state.
+int outer_reassign_via_ternary(int *_Nullable *_Nonnull p, int c) {
+  int *fresh = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  p = c ? &fresh : p;
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// Both branches of the ternary reassign to a Nullable source; the merged
+// result type is still Nullable-def and the trailing **p must report.
+int outer_reassign_via_ternary_both_nullable(int *_Nullable *_Nonnull p,
+                                              int c) {
+  int *fresh1 = nullptr;
+  int *fresh2 = nullptr;
+  if (*p == nullptr)
+    return -1;
+
+  int value = **p;
+  (void)value;
+
+  p = c ? &fresh1 : &fresh2;
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+// Reassignment to another tracked pointer whose pointee is Nullable. On the
+// c==0 path, *p now aliases *q (Nullable), so the trailing **p must report.
+int outer_reassign_to_tracked_nullable(
+    int *_Nullable *_Nonnull p, int *_Nullable *_Nonnull q, int c) {
+  if (c != 0) {
+    if (*p == nullptr)
+      return -1;
+  } else {
+    p = q;
+  }
+
+  return **p; // expected-error {{cannot dereference a possibly-null status pointer}}
+}

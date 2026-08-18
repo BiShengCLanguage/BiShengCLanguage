@@ -146,7 +146,8 @@ public:
   void SetCFGBlocksByExpr(Expr *PtrE, const CFGBlock *NonNullBlock,
                           const CFGBlock *NullableBlock);
   void PassConditionStatusToSuccBlocks(Expr *CondExpr);
-  void InvalidateDerefStatusForVar(VarDecl *VD);
+  void EraseDerefStatusForVar(VarDecl *VD);
+  void UpdateDerefStatusFromRHS(VarDecl *VD, QualType RHSType);
 };
 
 void VisitMEForFieldPath(Expr *E, FieldPath &FP) {
@@ -249,17 +250,17 @@ bool getDerefPathVDFromExpr(Expr *E, DerefPathVD &DP) {
   return false;
 }
 
-// Invalidate dereference-chain facts rooted at DP.first with depth greater than
+// Erase dereference-chain facts rooted at DP.first with depth greater than
 // DP.second. For example:
 //   DP = (p, 0): clear *p, **p, ...
 //   DP = (p, 1): clear **p, ***, ... while preserving *p.
-void InvalidateDeeperDerefStatusForPath(StatusDPVD &Status, DerefPathVD DP) {
+void EraseDeeperDerefStatusForPath(StatusDPVD &Status, DerefPathVD DP) {
   auto It = Status.begin();
   while (It != Status.end()) {
-    if (It ->first.first == DP.first && It->first.second > DP.second) 
+    if (It ->first.first == DP.first && It->first.second > DP.second)
       It = Status.erase(It);
-     else 
-      ++It;    
+     else
+      ++It;
   }
 }
 } // namespace
@@ -646,7 +647,8 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       // Example:
       //   if (*p) { /* (*p) is NonNull on this path */ }
       //   int **p = q; // root pointer changes, old (*p) fact must be dropped.
-      InvalidateDerefStatusForVar(VD);
+      EraseDerefStatusForVar(VD);
+      UpdateDerefStatusFromRHS(VD, Init->IgnoreParenImpCasts()->getType());
     }
 
     // --- Inner-pointer check for init expressions ---
@@ -724,9 +726,26 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
   }
 }
 
-void TransferFunctions::InvalidateDerefStatusForVar(VarDecl *VD) {
-  // Use (VD, 0) as a dummy deref-path to invalidate all facts rooted at VD.
-  InvalidateDeeperDerefStatusForPath(CurrStatusDPVD, std::make_pair(VD, 0));
+/// Erase every dereference-chain fact rooted at VD: (*p, **p, ...). Used
+/// after VD is rebound (declaration-time or assignment-time) so that stale
+/// runtime refinements cannot survive the rebinding.
+void TransferFunctions::EraseDerefStatusForVar(VarDecl *VD) {
+  // Use (VD, 0) as a dummy deref-path: EraseDeeperDerefStatusForPath clears
+  // every (VD, depth) entry with depth > 0.
+  EraseDeeperDerefStatusForPath(CurrStatusDPVD, std::make_pair(VD, 0));
+}
+
+/// After `VD = RHS`, the dereference chain rooted at VD must reflect the
+/// nullability of RHS's pointee levels rather than VD's declared type — the
+/// runtime target of `*p`, `**p`, ... is whatever RHS pointed at.
+void TransferFunctions::UpdateDerefStatusFromRHS(VarDecl *VD,
+                                                  QualType RHSType) {
+  unsigned Depth = 0;
+  for (QualType QT = RHSType.getCanonicalType(); QT->isPointerType();
+       ++Depth) {
+    QT = QT->getPointeeType().getCanonicalType();
+    CurrStatusDPVD[std::make_pair(VD, Depth + 1)] = QT.getDefNullability();
+  }
 }
 
 void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
@@ -752,7 +771,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
         } else {
           CurrStatusDPVD[LHSDP] = RHSKind;
         }
-        InvalidateDeeperDerefStatusForPath(CurrStatusDPVD, LHSDP);
+        EraseDeeperDerefStatusForPath(CurrStatusDPVD, LHSDP);
       }
 
       if (VarDecl *VD = getVarDeclFromExpr(LHS)) {
@@ -774,7 +793,9 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
         //   if (*p) { /* (*p) is NonNull on true branch */ }
         //   p = r;
         //   // The old (*p) refinement no longer applies after p is reassigned.
-        InvalidateDerefStatusForVar(VD);
+        EraseDerefStatusForVar(VD);
+        UpdateDerefStatusFromRHS(
+            VD, BO->getRHS()->IgnoreParenImpCasts()->getType());
       } else if (MemberExpr *ME = getMemberExprFromExpr(LHS)) {
         if (FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
           NullabilityKind MemberLHSKind = FD->getType().getDefNullability();
