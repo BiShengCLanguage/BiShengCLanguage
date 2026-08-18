@@ -1,0 +1,65 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Regression: a _Nullable pointer must not be laundered to _Nonnull
+// by wrapping it in a compound literal. Five trigger surfaces:
+//   1. CheckInit scalar decl    : int *_Nonnull x = (int *_Nonnull){q};
+//   2. VisitReturnStmt          : return (int *_Nonnull[]){q, nullptr}[0];
+//   3. VisitCallExpr arg        : take_nonnull((int *_Nonnull[]){q,nullptr}[0]);
+//   4. VisitBinaryOperator RHS  : p = (int *_Nonnull){q};
+//   5. struct member           : return ((struct S){.p = q}).p;
+
+struct S { int *_Nonnull p; };
+
+_Unsafe void take_nonnull(int *_Nonnull p);
+
+// --- Trigger 1: scalar decl init via compound literal ---
+_Unsafe int *_Nonnull decl_init_scalar(int *_Nullable q) {
+  int *_Nonnull x = (int *_Nonnull){q};
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  return x;
+}
+
+// --- Trigger 2: return via compound-literal array subscript ---
+_Unsafe int *_Nonnull return_via_compound_array(int *_Nullable q) {
+  return (int *_Nonnull[]){q, nullptr}[0];
+  // expected-error@-1 {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+// --- Trigger 3: call argument via compound-literal array subscript ---
+_Unsafe void call_arg_compound(int *_Nullable q) {
+  take_nonnull((int *_Nonnull[]){q, nullptr}[0]);
+  // expected-error@-1 {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+// --- Trigger 4: assignment RHS via compound literal ---
+_Unsafe int assign_via_compound(int *_Nullable q) {
+  int *_Nonnull p;
+  _Unsafe { p = (int *_Nonnull){nullptr}; }
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  p = (int *_Nonnull){q};
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  return *p;
+}
+
+// --- Trigger 5: struct member via compound literal ---
+_Unsafe int *_Nonnull return_via_compound_record(int *_Nullable q) {
+  return ((struct S){.p = q}).p;
+  // expected-error@-1 {{cannot return possibly-null status pointer 'p' as a '_Nonnull' pointer}}
+}
+
+// --- Positive controls: laundering must NOT fire when source is NonNull ---
+
+_Unsafe int *_Nonnull ok_nonnull_source(int *_Nonnull r) {
+  int *_Nonnull x = (int *_Nonnull){r};                 // ok: r is _Nonnull
+  take_nonnull((int *_Nonnull[]){r, nullptr}[0]);       // ok: element 0 is _Nonnull
+  int *_Nonnull p = (int *_Nonnull){r};                 // ok
+  (void)p;
+  return ((struct S){.p = r}).p;                         // ok
+}
+
+// --- Positive control: assigning a _Nullable compound literal to a _Nullable
+// target is fine (no _Nonnull sink) ---
+_Unsafe void ok_nullable_sink(int *_Nullable q) {
+  int *_Nullable x = (int *_Nullable){q};                // ok
+  (void)x;
+}

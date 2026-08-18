@@ -200,6 +200,77 @@ MemberExpr *getMemberExprFromExpr(Expr *E) {
   return nullptr;
 }
 
+/// Resolve the InitListExpr that directly carries the value of \p Base when
+/// \p Base denotes an element/field of a compound-literal aggregate. Supports
+/// two base shapes:
+///  - the compound literal itself: `(T[N]){...}` or `(struct S){...}`
+///  - a member of a compound-literal record whose field is itself an
+///    aggregate: `((struct SArr){0}).arr` (arr is T[N])
+/// Returns nullptr when the base is not rooted at a compound literal, in
+/// which case the static element/field type should be trusted as before.
+static InitListExpr *getCompoundLiteralInitList(Expr *Base, ASTContext &Ctx) {
+  Base = Base->IgnoreParenImpCastsSafe();
+  if (auto *CLE = dyn_cast<CompoundLiteralExpr>(Base))
+    return dyn_cast<InitListExpr>(CLE->getInitializer());
+  // `((struct SArr){0}).arr` — the base is a MemberExpr whose base is a
+  // compound-literal record; recurse to that record's init list, then index
+  // into the accessed field.
+  if (auto *ME = dyn_cast<MemberExpr>(Base)) {
+    auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
+    if (!FD)
+      return nullptr;
+    InitListExpr *ParentILE = getCompoundLiteralInitList(ME->getBase(), Ctx);
+    if (!ParentILE)
+      return nullptr;
+    unsigned Idx = FD->getFieldIndex();
+    if (Idx >= ParentILE->getNumInits())
+      return nullptr;
+    return dyn_cast<InitListExpr>(ParentILE->getInit(Idx));
+  }
+  return nullptr;
+}
+
+/// Given the base of an ArraySubscriptExpr / MemberExpr that denotes an
+/// element or field of a compound literal aggregate, return the specific
+/// initializer expression for that element/field, or nullptr if the base is
+/// not a compound literal (in which case the static element/field type
+/// should be trusted, as before).
+///
+/// \p IndexE — for array subscript, the index expression (must fold to a
+///             constant).
+/// \p Field  — for member access, the accessed FieldDecl.
+static Expr *getCompoundLiteralInitElem(Expr *Base, Expr *IndexE,
+                                        FieldDecl *Field, ASTContext &Ctx) {
+  InitListExpr *ILE = getCompoundLiteralInitList(Base, Ctx);
+  if (!ILE)
+    return nullptr;
+  unsigned Idx;
+  if (Field) {
+    Idx = Field->getFieldIndex();
+  } else {
+    if (!IndexE)
+      return nullptr;
+    Expr::EvalResult ER;
+    if (!IndexE->EvaluateAsInt(ER, Ctx) || !ER.Val.isInt())
+      return nullptr;
+    llvm::APInt V = ER.Val.getInt();
+    if (V.isNegative())
+      return nullptr;
+    Idx = (unsigned)V.getLimitedValue();
+  }
+  if (Idx >= ILE->getNumInits()) {
+    // Omitted array elements are implicitly zero-initialized; Sema materializes
+    // them as the InitListExpr's array_filler (an ImplicitValueInitExpr).
+    // Surface it so a _Nonnull slot filled with NULL is not laundered to the
+    // declared _Nonnull type. (Records never use a filler — Sema fills every
+    // field slot explicitly.)
+    if (!Field && ILE->hasArrayFiller())
+      return ILE->getArrayFiller();
+    return nullptr;
+  }
+  return ILE->getInit(Idx);
+}
+
 /// Return the source pointer name used by nullability diagnostics.
 /// Comma and assignment expressions produce the value of their RHS, so name
 /// extraction follows the RHS. This intentionally differs from data-flow
@@ -324,6 +395,9 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     return NullabilityKind::Nullable;
   if (E->getStmtClass() == Expr::StringLiteralClass)
     return NullabilityKind::NonNull;
+  if (E->getStmtClass() == Expr::ImplicitValueInitExprClass &&
+      E->getType()->isPointerType())
+    return NullabilityKind::Nullable;
   QualType QT = E->getType();
   QualType CanQT = QT.getCanonicalType();
   if (CanQT->isPointerType()) {
@@ -334,6 +408,9 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       return getExprPathNullability(cast<SafeExpr>(E)->getSubExpr());
     case Expr::ImplicitCastExprClass:
       return getExprPathNullability(cast<ImplicitCastExpr>(E)->getSubExpr());
+    case Expr::CompoundLiteralExprClass:
+      return getExprPathNullability(
+          cast<CompoundLiteralExpr>(E)->getInitializer());
     case Expr::CallExprClass: {
       CallExpr *CE = cast<CallExpr>(E);
       if (FunctionDecl *FD = CE->getDirectCallee()) {
@@ -461,20 +538,28 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     }
     case Expr::ArraySubscriptExprClass: {
       // Builtin array elements cannot have independent path-sensitive state.
-      NullabilityKind NK =
-          cast<ArraySubscriptExpr>(E)->getType().getDefNullability();
+      // Exception: the base is a compound literal aggregate.
+      auto *ASE = cast<ArraySubscriptExpr>(E);
+      if (Expr *InitE = getCompoundLiteralInitElem(
+              ASE->getBase(), ASE->getIdx(), /*Field=*/nullptr, Ctx))
+        return getExprPathNullability(InitE);
+      NullabilityKind NK = ASE->getType().getDefNullability();
       if (NK == NullabilityKind::NonNull || NK == NullabilityKind::Nullable)
         return NK;
       break;
     }
     case Expr::MemberExprClass: {
-      if (auto FD = dyn_cast<FieldDecl>(cast<MemberExpr>(E)->getMemberDecl())) {
+      auto *ME = cast<MemberExpr>(E);
+      if (auto FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+        if (Expr *InitE = getCompoundLiteralInitElem(
+                ME->getBase(), /*IndexE=*/nullptr, FD, Ctx))
+          return getExprPathNullability(InitE);
         NullabilityKind NK = FD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
         else if (NK == NullabilityKind::Nullable) {
           FieldPath FP;
-          VisitMEForFieldPath(cast<MemberExpr>(E), FP);
+          VisitMEForFieldPath(ME, FP);
           if (CurrStatusFP.count(FP))
             return CurrStatusFP[FP];
         }

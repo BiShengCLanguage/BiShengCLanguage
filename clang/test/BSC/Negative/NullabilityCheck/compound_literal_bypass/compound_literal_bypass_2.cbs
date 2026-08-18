@@ -1,0 +1,65 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// A _Nonnull pointer element/field that is OMITTED from a compound
+// literal is implicitly zero-initialized to NULL. Without handling for
+// ImplicitValueInitExpr, the NULL value laundered through as Unspecified and
+// escaped the NonnullAssignedByNullable / NullablePointerDereference guards.
+// Now: getExprPathNullability returns Nullable for a pointer-typed
+// ImplicitValueInitExpr, and getCompoundLiteralInitElem surfaces the
+// array_filler for omitted array elements (including nested ones reached via
+// a MemberExpr base such as ((struct SArr){0}).arr[1]).
+
+struct S { int a; int *_Nonnull p; };
+
+_Unsafe void take_nonnull(int *_Nonnull p);
+
+// --- Trigger 1: return via omitted _Nonnull field (value is NULL) ----------
+_Unsafe int *_Nonnull return_via_implicit_field(void) {
+  return ((struct S){.a = 1}).p;
+  // expected-error@-1 {{cannot return possibly-null status pointer 'p' as a '_Nonnull' pointer}}
+}
+
+// --- Trigger 2: return via omitted _Nonnull array element (index 1 -> NULL) -
+_Unsafe int *_Nonnull return_via_implicit_array(int *_Nullable q) {
+  return (int *_Nonnull[2]){q}[1];
+  // expected-error@-1 {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+// --- Trigger 3: _Nonnull array field, both elements implicitly zero-init ---
+struct SArr { int *_Nonnull arr[2]; };
+_Unsafe int *_Nonnull return_via_implicit_struct_array(void) {
+  return ((struct SArr){0}).arr[1];
+  // expected-error@-1 {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+// --- Trigger 4: assignment sink via omitted _Nonnull field ------------------
+_Unsafe void assign_via_implicit_field(void) {
+  int *_Nonnull p;
+  p = ((struct S){.a = 1}).p;
+  // expected-error@-1 {{cannot assign possibly-null status pointer 'p' to a '_Nonnull' pointer}}
+  (void)p;
+}
+
+// --- Trigger 5: call argument via omitted _Nonnull array element ------------
+_Unsafe void call_arg_via_implicit_array(int *_Nullable q) {
+  take_nonnull((int *_Nonnull[2]){q}[1]);
+  // expected-error@-1 {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+// --- Trigger 6: dereference of omitted _Nonnull field -----------------------
+_Unsafe void deref_via_implicit_field(void) {
+  *((struct S){.a = 1}).p = 1;
+  // expected-error@-1 {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+// --- Positive control: explicit non-null source must NOT fire --------------
+_Unsafe int *_Nonnull ok_explicit_nonnull(int *_Nonnull r) {
+  int *_Nonnull x = (int *_Nonnull){r};              // ok
+  (void)x;
+  return ((struct S){.a = 1, .p = r}).p;             // ok: p explicitly _Nonnull
+}
+
+// --- Positive control: _Nullable sink must NOT fire (NULL allowed) ---------
+_Unsafe int *_Nullable ok_nullable_sink(void) {
+  return ((struct S){.a = 1}).p;                     // ok: NULL is fine for _Nullable
+}
