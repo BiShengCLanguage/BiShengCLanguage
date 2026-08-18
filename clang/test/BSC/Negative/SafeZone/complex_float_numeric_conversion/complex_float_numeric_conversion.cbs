@@ -1,0 +1,73 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+_Safe int complex_float_to_int(void) {
+    _Complex float z = 1.0f + 2.0fi;
+    int x = (int)z; // expected-error {{conversion from type '_Complex float' to 'int' is forbidden in the safe zone}}
+    return x;
+}
+
+_Safe int complex_double_to_int(void) {
+    _Complex double z = 1.0 + 2.0i;
+    int x = (int)z; // expected-error {{conversion from type '_Complex double' to 'int' is forbidden in the safe zone}}
+    return x;
+}
+
+_Safe int complex_long_double_to_int(void) {
+    _Complex long double z = 1.0L + 2.0Li;
+    int x = (int)z; // expected-error {{conversion from type '_Complex long double' to 'int' is forbidden in the safe zone}}
+    return x;
+}
+
+_Safe int complex_float_to_unsigned_long(void) {
+    _Complex float z = 1.0f + 2.0fi;
+    unsigned long x = (unsigned long)z; // expected-error {{conversion from type '_Complex float' to 'unsigned long' is forbidden in the safe zone}}
+    return (int)x;
+}
+
+_Safe int int_to_complex_float(void) {
+    int x = 5;
+    _Complex float z = x; // expected-error {{implicit conversion from type 'int' to '_Complex float' is forbidden in the safe zone}}
+    (void)z;
+    return 0;
+}
+
+_Safe int int_to_complex_double(void) {
+    int x = 5;
+    _Complex double z = x; // expected-error {{implicit conversion from type 'int' to '_Complex double' is forbidden in the safe zone}}
+    (void)z;
+    return 0;
+}
+
+_Safe int long_to_complex_float(void) {
+    long x = 5;
+    _Complex float z = x; // expected-error {{implicit conversion from type 'long' to '_Complex float' is forbidden in the safe zone}}
+    (void)z;
+    return 0;
+}
+
+_Safe int unsigned_to_complex_double(void) {
+    unsigned x = 5;
+    _Complex double z = x; // expected-error {{implicit conversion from type 'unsigned int' to '_Complex double' is forbidden in the safe zone}}
+    (void)z;
+    return 0;
+}
+
+_Safe int real_float_to_int(void) {
+    float f = 1.5f;
+    int x = (int)f; // expected-error {{conversion from type 'float' to 'int' is forbidden in the safe zone}}
+    return x;
+}
+
+_Safe int int_to_real_float(void) {
+    int x = 5;
+    float f = x; // expected-error {{implicit conversion from type 'int' to 'float' is forbidden in the safe zone}}
+    (void)f;
+    return 0;
+}
+
+_Safe int int_to_real_double(void) {
+    int x = 5;
+    double d = x; // expected-error {{implicit conversion from type 'int' to 'double' is forbidden in the safe zone}}
+    (void)d;
+    return 0;
+}

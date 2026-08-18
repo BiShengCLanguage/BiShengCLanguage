@@ -1,0 +1,62 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+_Safe int bincond_two_bool_arms(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = (a > b) ?: (c < d);
+    return t;
+}
+
+_Safe int bincond_common_eq_false_lt(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = (a == b) ?: (c < d);
+    return t;
+}
+
+_Safe int bincond_common_ne_false_le(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = (a != b) ?: (c <= d);
+    return t;
+}
+
+_Safe int bincond_common_ge_false_gt(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = (a >= b) ?: (c > d);
+    return t;
+}
+
+_Safe int bincond_logical_and_arms(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = (a && b) ?: (c || d);
+    return t;
+}
+
+_Safe int bincond_common_unary_not(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = !(a > b) ?: (c < d);
+    return t;
+}
+
+_Safe int bincond_paren_wrapped(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = ((a > b)) ?: ((c < d));
+    return t;
+}
+
+_Safe int ternary_control(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    char t = (a > b) ? (a > b) : (c < d);
+    return t;
+}
+
+_Safe int bincond_to_signed_char(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    signed char t = (a > b) ?: (c < d);
+    return t;
+}
+
+_Safe int bincond_to_unsigned_char(void) {
+    int a = 1, b = 2, c = 3, d = 4;
+    unsigned char t = (a > b) ?: (c < d);
+    return t;
+}

@@ -853,6 +853,11 @@ bool IsBooleanEvaluation(const Expr *E) {
            IsBooleanEvaluation(CO->getFalseExpr());
   }
 
+  if (const auto *BCO = dyn_cast<BinaryConditionalOperator>(E)) {
+    return IsBooleanEvaluation(BCO->getCommon()) &&
+           IsBooleanEvaluation(BCO->getFalseExpr());
+  }
+
   return false;
 }
 
@@ -986,7 +991,7 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
     IsSafeBehavior = false;
   } else {
     // Forbid float to integer conversion in safe zone (even with explicit cast).
-    if (DestType->isIntegerType() && SrcType->isRealFloatingType()) {
+    if (DestType->isIntegerType() && SrcType->isFloatingType()) {
       IsSafeBehavior = false;
     }
     const auto *SBT =
@@ -1017,7 +1022,7 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
           DoesExprValueRangeFitInType(E, DestType)) {
         IsSafeBehavior = true;
       } else if (!IsExplicitCast && SrcType->isIntegerType() &&
-                 DestType->isRealFloatingType()) {
+                 DestType->isFloatingType()) {
         // Implicit integer to floating is forbidden unless constant fits.
         IsSafeBehavior = false;
         IsExplicitConversionAllowed = true; // arithmetic explicit cast OK
