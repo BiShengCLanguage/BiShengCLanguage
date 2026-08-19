@@ -1,0 +1,10 @@
+// RUN: %clang_cc1 -internal-isystem %S/../../../../../../lib/Headers/bsc_include -verify %s
+
+#include "bsc_type_traits.hbs"
+#include "bsc_conditional.hbs"
+
+void test2() {
+  typedef T = int*_Borrow _Nullable;
+  _Static_assert(is_borrow<conditional<(!is_borrow<T>()), int*_Borrow, int*>>(), "Fail1"); // expected-error {{static assertion failed due to requirement 'is_borrow<int *>()'}}
+  _Static_assert(is_borrow<conditional<!is_borrow<T>(), int*_Borrow, int*>>(), "Fail1"); // expected-error {{static assertion failed due to requirement 'is_borrow<int *>()'}}
+}

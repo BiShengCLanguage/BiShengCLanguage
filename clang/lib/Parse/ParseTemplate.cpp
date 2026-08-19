@@ -1664,15 +1664,28 @@ bool Parser::ParseTemplateArgumentList(TemplateArgList &TemplateArgs,
       // if template argument list like <T, int N> or <T, MyInt N>
       // we should only parse <T, N>, ignore the type of constant template
       // so we will consume builtin type 'int' or typedef type 'MyInt'
-      if (PP.LookAhead(0).is(tok::identifier)) ConsumeToken();
+      //
+      // Only strip a token that can actually start a type-name.  A constant
+      // expression such as `!is_borrow<T>()` must not have its leading unary
+      // operator consumed just because it is followed by an identifier.
+      // Unknown tokens are still skipped to preserve error recovery in
+      // malformed template argument lists (e.g. `c<`x`>()`).
+      if (PP.LookAhead(0).is(tok::identifier) &&
+          (isKnownToBeTypeSpecifier(Tok) || Tok.is(tok::unknown) ||
+           (Tok.is(tok::identifier) &&
+            Actions.getTypeName(*Tok.getIdentifierInfo(), Tok.getLocation(),
+                                getCurScope()))))
+        ConsumeToken();
       // if template argument list like <T, unsigned long int N>
       // should consume tokens 'unsigned long int'
+      // Require at least one builtin type keyword before the identifier.
       int ShouldConsumeCnt = 0;
       while (PP.LookAhead(ShouldConsumeCnt).isOneOf(tok::kw_int, tok::kw_long,
                                                     tok::kw_short, tok::kw_unsigned,
                                                     tok::kw_signed))
         ShouldConsumeCnt++;
-      if (PP.LookAhead(ShouldConsumeCnt).is(tok::identifier)) {
+      if (ShouldConsumeCnt > 0 &&
+          PP.LookAhead(ShouldConsumeCnt).is(tok::identifier)) {
         for (int i = 0; i <= ShouldConsumeCnt; i++) ConsumeToken();
       }
     }
