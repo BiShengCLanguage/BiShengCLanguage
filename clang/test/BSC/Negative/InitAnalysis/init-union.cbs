@@ -1,37 +1,69 @@
 // RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
 
-// Union: reading without any initialization is an error.
-// Union read/write is not allowed in safe zone, so use -uninit-check=all.
+// A union is initialized only at declaration or by a single whole-variant
+// assignment. Nothing inside an uninitialized union is readable — not even
+// a field that was just written — and the diagnostic names the union.
 
 union U { int a; float b; };
 
 void use_int(int a);
 void use_float(float f);
 
-// Reading uninitialized union.
+// Reading an uninitialized union.
 void test_union_uninit(void) {
     union U u;
-    use_int(u.a); // expected-error {{use of uninitialized value: 'u.a'}}
+    use_int(u.a); // expected-error {{use of uninitialized value: 'u'}}
 }
 
-// --- Union with struct inside: uninit ---
+// --- Union with struct inside ---
 
 struct Inner { int x; int y; };
 union UWithStruct { struct Inner s; float f; };
 
+void use_inner(struct Inner v);
+
 void test_union_struct_uninit(void) {
     union UWithStruct u;
-    use_int(u.s.x); // expected-error {{use of uninitialized value: 'u.s.x'}}
+    use_int(u.s.x); // expected-error {{use of uninitialized value: 'u'}}
 }
 
-// Partial struct init within union: u.s.y not written.
+// A partial write grants nothing — not even the written field.
+void test_partial_written_field(void) {
+    union UWithStruct u;
+    u.s.x = 1;
+    use_int(u.s.x); // expected-error {{use of uninitialized value: 'u'}}
+}
+
+// Sibling of the written field.
 void test_union_struct_partial(void) {
     union UWithStruct u;
     u.s.x = 1;
-    use_int(u.s.y); // expected-error {{use of uninitialized value: 'u.s.y'}}
+    use_int(u.s.y); // expected-error {{use of uninitialized value: 'u'}}
 }
 
-// --- Struct with union inside: uninit ---
+// Cross-variant read after a partial write.
+void test_partial_cross_variant(void) {
+    union UWithStruct u;
+    u.s.x = 1;
+    use_float(u.f); // expected-error {{use of uninitialized value: 'u'}}
+}
+
+// Whole-variant read after a partial write.
+void test_partial_whole_variant(void) {
+    union UWithStruct u;
+    u.s.x = 1;
+    use_inner(u.s); // expected-error {{use of uninitialized value: 'u'}}
+}
+
+// Writing every field one-by-one never promotes (no accumulation).
+void test_no_accumulation(void) {
+    union UWithStruct u;
+    u.s.x = 1;
+    u.s.y = 2;
+    use_float(u.f); // expected-error {{use of uninitialized value: 'u'}}
+}
+
+// --- Struct with union inside ---
 
 union InnerU { int a; float b; };
 struct SWithUnion { union InnerU u; int v; };
@@ -42,12 +74,12 @@ void test_struct_union_uninit(void) {
     use_int(s.v); // expected-error {{use of uninitialized value: 's.v'}}
 }
 
-// Struct partial init: only v set, union field still uninit.
+// Struct partial init: only v set, the union is still uncovered.
 void test_struct_union_partial(void) {
     struct SWithUnion s;
     s.v = 1;
     use_int(s.v);
-    use_int(s.u.a); // expected-error {{use of uninitialized value: 's.u.a'}}
+    use_int(s.u.a); // expected-error {{use of uninitialized value: 's.u'}}
 }
 
 // --- Union with union with struct inside ---
@@ -58,30 +90,56 @@ union Outer { union Mid m; float of; };
 // Deep uninit read.
 void test_deep_uninit(void) {
     union Outer u;
-    use_int(u.m.ms.x); // expected-error {{use of uninitialized value: 'u.m.ms.x'}}
+    use_int(u.m.ms.x); // expected-error {{use of uninitialized value: 'u'}}
 }
 
-// Deep partial struct init: u.m.ms.y not written.
+// Deep partial write grants nothing.
 void test_deep_partial(void) {
     union Outer u;
     u.m.ms.x = 1;
-    use_int(u.m.ms.y); // expected-error {{use of uninitialized value: 'u.m.ms.y'}}
+    use_int(u.m.ms.y); // expected-error {{use of uninitialized value: 'u'}}
+}
+
+// A deep whole-variant write cannot cover the outer union it passes
+// through, so nothing under the outer union becomes readable.
+void test_deep_inner_scalar(void) {
+    union Outer u;
+    u.m.mv = 42;
+    use_int(u.m.ms.x); // expected-error {{use of uninitialized value: 'u'}}
+}
+
+// The GitCode #24 reproducer: under the two-form rule a partial write
+// covers nothing, so the cross-variant read is rejected.
+struct CrossMid { union { struct Inner s; int raw; } u; };
+union CrossOuter { struct CrossMid m; int fallback; };
+
+void test_partial_cross_nested(void) {
+    union CrossOuter o;
+    o.m.u.s.x = 1;
+    use_int(o.m.u.raw); // expected-error {{use of uninitialized value: 'o'}}
 }
 
 // --- Struct with union inside (nested) ---
 
 struct Wrap { union UWithStruct uw; int v; };
 
-// Partial struct in nested union: w.uw.s.y not written.
+// Partial write into the nested union grants nothing.
 void test_wrap_partial(void) {
     struct Wrap w;
     w.uw.s.x = 1;
-    use_int(w.uw.s.y); // expected-error {{use of uninitialized value: 'w.uw.s.y'}}
+    use_int(w.uw.s.y); // expected-error {{use of uninitialized value: 'w.uw'}}
 }
 
-// Writing union field only: v still uninit.
-void test_wrap_v_uninit(void) {
+// Cross-variant read after a partial write into the nested union.
+void test_wrap_cross(void) {
     struct Wrap w;
     w.uw.s.x = 1;
+    use_float(w.uw.f); // expected-error {{use of uninitialized value: 'w.uw'}}
+}
+
+// Covering the union says nothing about the struct's other fields.
+void test_wrap_v_uninit(void) {
+    struct Wrap w;
+    w.uw.f = 3.14f;
     use_int(w.v); // expected-error {{use of uninitialized value: 'w.v'}}
 }

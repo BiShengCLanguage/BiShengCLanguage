@@ -58,3 +58,39 @@ void test_typedef_vla_local(void) {
 void test_multidim_vla(int n, int m) {
     int arr[n][m];
 }
+
+// sizeof of a VLA type reads each size expression into a temp before the
+// sizeof itself, outer size first.
+// CHECK-LABEL: fn test_sizeof_vla_type
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 4
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   _2 = const 2
+// CHECK-NEXT:   StorageLive(_3)
+// CHECK-NEXT:   _4 = copy(_1)
+// CHECK-NEXT:   _5 = copy(_2)
+// CHECK-NEXT:   _6 = sizeof(int[n][m])
+// CHECK-NEXT:   _3 = copy(_6)
+void test_sizeof_vla_type(void) {
+    int n = 4;
+    int m = 2;
+    unsigned long sz = sizeof(int[n][m]);
+}
+
+// Applied to an expression of VLA type there is no size read: the only one is
+// at the array's declaration.
+// CHECK-LABEL: fn test_sizeof_vla_object
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 4
+// CHECK-NEXT:   _2 = copy(_1)
+// CHECK-NEXT:   StorageLive(_3)
+// CHECK-NEXT:   StorageLive(_4)
+// CHECK-NEXT:   _5 = sizeof(int[n])
+// CHECK-NEXT:   _4 = copy(_5)
+void test_sizeof_vla_object(void) {
+    int n = 4;
+    int arr[n];
+    unsigned long sz = sizeof(arr);
+}

@@ -1,0 +1,14 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// Outside a safe zone the same check applies under -uninit-check=all.
+
+_Unsafe unsigned long sizeof_vla_uninit(void) {
+    int n;
+    unsigned long sz = sizeof(int[n]); // expected-error {{use of uninitialized value: 'n'}}
+    return sz;
+}
+
+_Unsafe void direct_vla_uninit(void) {
+    int n;
+    int arr[n]; // expected-error {{use of uninitialized value: 'n'}}
+}

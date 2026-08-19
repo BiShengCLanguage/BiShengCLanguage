@@ -67,10 +67,13 @@ struct InitLattice {
     SmallVector<unsigned, 2> OutFieldIndices;
     LocalId RetLocal;
     int CondValue;
+    /// True when the argument addressed a pointee, not the local itself.
+    bool Pointee = false;
     bool operator==(const PendingCondInit &O) const {
       return OutParamLocal == O.OutParamLocal &&
              OutFieldIndices == O.OutFieldIndices &&
-             RetLocal == O.RetLocal && CondValue == O.CondValue;
+             RetLocal == O.RetLocal && CondValue == O.CondValue &&
+             Pointee == O.Pointee;
     }
   };
   SmallVector<PendingCondInit, 2> PendingCondInits;
@@ -171,6 +174,24 @@ private:
   const Body &B;
   bool CheckAllZones;
 
+  /// What an `&`-origin argument addresses, leading Deref resolved away.
+  struct AddressedPlace {
+    bool Recognised = false;
+    bool Pointee = false; // came through a Deref, so a re-point invalidates it
+    FieldPath Path;       // Base always set; Indices empty for a whole object
+  };
+
+  AddressedPlace classifyAddressedPlace(const Place &P) const;
+
+  /// Which place of ours the callee's contract covers for argument \p I.
+  AddressedPlace classifyContractArg(const Terminator::CallData &CD,
+                                     unsigned I) const;
+
+  /// Mark what \p Addressed names as initialized.
+  void markAddressedPlaceInit(InitLattice &State,
+                              const AddressedPlace &Addressed,
+                              bool CreditPointeeOfLocal, bool &Changed) const;
+
   /// Get the struct pointee type for an ensure_init param, or null QualType.
   QualType getEnsureInitPointeeType(LocalId Id) const;
 
@@ -197,16 +218,25 @@ private:
   collectEnsureInitArgTemps(const BasicBlock &BB) const;
 
   /// Check ensure_init constraints on an assignment (reassignment + aliasing).
+  /// Block-local temp aliases of a param's pointer value and of its address.
   void checkEnsureInitAssign(
       const Statement &S, const InitLattice &State,
       llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
+      llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParamAddr,
       SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Check deref reads of ensure_init params (*out before init).
   void checkEnsureInitDerefReads(
       const Statement &S, const InitLattice &State,
+      const llvm::DenseSet<LocalId> &EnsureInitArgTemps,
       const llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
       SmallVectorImpl<InitDiagInfo> &Diags) const;
+
+  /// Diagnose \p P reading the uninitialized pointee of a contract param.
+  void checkEnsureInitPointeeRead(
+      const Place &P, const InitLattice &State,
+      const llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
+      SourceLocation Loc, SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Collect exempt ensure_init arg indices for a call terminator.
   llvm::DenseSet<unsigned>
@@ -286,25 +316,8 @@ private:
   /// Build a human-readable field-qualified name from a FieldPath.
   std::string buildFieldName(const FieldPath &FP) const;
 
-  /// Check if a FieldPath traverses through a union into a struct's fields.
-  /// Returns true if the path enters a union variant that is a struct type
-  /// and continues deeper into that struct. Sets UnionDepth to the index
-  /// in FP.Indices where the union variant index sits.
-  bool isUnionStructFieldPath(const FieldPath &FP,
-                              unsigned &UnionDepth) const;
-
-  /// Check if a FieldPath ends at a union variant (enters union but doesn't
-  /// continue into struct fields). Used to detect writes like u.f or u.s.
-  bool isUnionVariantPath(const FieldPath &FP, unsigned &UnionDepth) const;
-
-  /// Check if there are any FieldStates entries under a union prefix.
-  bool hasUnionFieldEntries(const InitLattice &State, LocalId Base,
-                            ArrayRef<unsigned> UnionPrefix) const;
-
-  /// Clear all FieldStates entries under a union prefix.
-  void clearUnionFieldEntries(InitLattice &State, LocalId Base,
-                              ArrayRef<unsigned> UnionPrefix,
-                              bool &Changed) const;
+  /// First union depth along \p FP (its index selects a variant), or None.
+  llvm::Optional<unsigned> firstUnionDepth(const FieldPath &FP) const;
 };
 
 /// Run initialization analysis on a BSCIR Body and collect diagnostics.

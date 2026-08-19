@@ -1,6 +1,9 @@
 // RUN: %clang_cc1 -fsyntax-only -uninit-check=all %s
 
-// Union: initializing any member initializes the whole union.
+// Union initialization takes exactly two forms:
+//   1. an initializer at declaration, which covers the whole union;
+//   2. a single assignment wholly initializing one variant (or the union).
+// A covered union is fully readable through every variant.
 // Union read/write is not allowed in safe zone, so use -uninit-check=all.
 
 union U { int a; float b; };
@@ -10,7 +13,7 @@ void use_int(int a);
 void use_float(float f);
 void use_ptr(int *_Nullable p);
 
-// Initializing one member makes the whole union initialized.
+// Scalar-variant assignment covers the union.
 void test_union_init_a(void) {
     union U u;
     u.a = 42;
@@ -62,31 +65,31 @@ void test_union_ptr_zero(void) {
 struct Inner { int x; int y; };
 union UWithStruct { struct Inner s; float f; };
 
-// Partial struct init within union: only x written.
-// Cross-variant read (u.f) is OK, same-variant initialized field (u.s.x) is OK.
-void test_union_struct_member(void) {
-    union UWithStruct u;
-    u.s.x = 1;
-    use_int(u.s.x);
-    use_float(u.f);  // cross-variant: OK
-}
+void use_inner(struct Inner v);
 
-// All struct fields within union written: promotes whole union.
-void test_union_struct_all_fields(void) {
+// Whole struct-variant assignment covers the union.
+void test_union_whole_variant_assign(void) {
     union UWithStruct u;
-    u.s.x = 1;
-    u.s.y = 2;
+    u.s = (struct Inner){1, 2};
     use_int(u.s.x);
-    use_int(u.s.y);
     use_float(u.f);
+    use_inner(u.s);
 }
 
-// Scalar write after partial struct write clears field tracking.
-void test_union_scalar_clears_tracking(void) {
+// Scalar-variant assignment covers; the earlier partial write is irrelevant.
+void test_union_partial_then_cover(void) {
     union UWithStruct u;
     u.s.x = 1;
     u.f = 3.14f;
-    use_int(u.s.y);  // OK: scalar write cleared field tracking
+    use_int(u.s.y);
+}
+
+// Coverage is not undone by a later partial write.
+void test_union_cover_then_partial(void) {
+    union UWithStruct u;
+    u.f = 3.14f;
+    u.s.x = 1;
+    use_int(u.s.y);
 }
 
 // Init float member of union containing struct.
@@ -115,7 +118,7 @@ void test_union_struct_empty(void) {
 union InnerU { int a; float b; };
 struct SWithUnion { union InnerU u; int v; };
 
-// Init both fields of struct containing union.
+// Scalar-variant assignment covers the nested union; v separately.
 void test_struct_union_init(void) {
     struct SWithUnion s;
     s.u.a = 42;
@@ -143,87 +146,44 @@ void test_struct_union_empty(void) {
 union Mid { struct Inner ms; int mv; };
 union Outer { union Mid m; float of; };
 
-// Partial struct init in nested union: cross-variant reads OK.
-void test_deep_cross_variant(void) {
-    union Outer u;
-    u.m.ms.x = 1;
-    use_float(u.of);  // outer cross-variant: OK
-}
-
-// Scalar variant write in inner union clears struct tracking.
-void test_deep_inner_scalar(void) {
-    union Outer u;
-    u.m.mv = 42;
-    use_int(u.m.ms.x);  // inner scalar covers all: OK
-}
-
-// Outer scalar write clears all tracking.
+// A whole-variant write to the outer union covers everything beneath.
 void test_deep_outer_scalar(void) {
     union Outer u;
     u.of = 3.14f;
-    use_int(u.m.ms.x);  // outer scalar covers all: OK
-}
-
-// All struct fields written in nested union.
-void test_deep_all_fields(void) {
-    union Outer u;
-    u.m.ms.x = 1;
-    u.m.ms.y = 2;
     use_int(u.m.ms.x);
-    use_int(u.m.ms.y);
-    use_float(u.of);
 }
 
-// Scalar write after partial struct clears tracking.
-void test_deep_scalar_clears(void) {
+// The partial write grants nothing; the outer cover makes all readable.
+void test_deep_partial_then_cover(void) {
     union Outer u;
     u.m.ms.x = 1;
     u.of = 3.14f;
-    use_int(u.m.ms.y);  // OK: scalar write cleared field tracking
+    use_int(u.m.ms.y);
 }
 
 // --- Struct with union inside (nested) ---
 
 struct Wrap { union UWithStruct uw; int v; };
 
-// Cross-variant read in nested union.
-void test_wrap_cross_variant(void) {
-    struct Wrap w;
-    w.uw.s.x = 1;
-    use_float(w.uw.f);  // cross-variant: OK
-}
-
-// Scalar variant write in nested union clears tracking.
+// Scalar-variant assignment covers the nested union.
 void test_wrap_scalar_variant(void) {
     struct Wrap w;
     w.uw.f = 3.14f;
-    use_int(w.uw.s.x);  // scalar covers all: OK
+    use_int(w.uw.s.x);
 }
 
-// Scalar write after partial struct clears tracking in nested.
-void test_wrap_scalar_clears(void) {
+// Partial write then a covering assignment.
+void test_wrap_partial_then_cover(void) {
     struct Wrap w;
     w.uw.s.x = 1;
     w.uw.f = 3.14f;
-    use_int(w.uw.s.y);  // OK: scalar write cleared field tracking
-}
-
-// All struct fields + v written in nested.
-void test_wrap_all_fields(void) {
-    struct Wrap w;
-    w.uw.s.x = 1;
-    w.uw.s.y = 2;
-    w.v = 3;
-    use_int(w.uw.s.x);
     use_int(w.uw.s.y);
-    use_float(w.uw.f);
-    use_int(w.v);
 }
 
-// Whole union assign in nested.
+// Whole-union assignment covers.
 void test_wrap_whole_assign(struct Wrap w2) {
     struct Wrap w;
     w.uw = w2.uw;
-    use_int(w.uw.s.x);  // OK: whole union assigned
-    use_float(w.uw.f);  // OK
+    use_int(w.uw.s.x);
+    use_float(w.uw.f);
 }

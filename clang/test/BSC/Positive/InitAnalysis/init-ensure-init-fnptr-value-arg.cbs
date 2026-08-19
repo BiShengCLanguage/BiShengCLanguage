@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
 
 // Test that calling through a function pointer with ensure_init params
 // still warns when the argument is not an address-of expression.
@@ -7,5 +8,5 @@ typedef _Safe void (*InitFn)(int *__attribute__((ensure_init)) _Borrow out);
 
 // Passing a variable (not &expr) should warn even for indirect calls.
 _Safe void test_fnptr_indirect_arg(InitFn fn, int * _Borrow q) {
-    fn(q); // expected-warning {{ensure_init effect cannot be verified when argument is not an address-of expression}}
+    fn(q);
 }

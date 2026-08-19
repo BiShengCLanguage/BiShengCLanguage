@@ -58,3 +58,40 @@ _Safe int star_prototype(int rows, int cols, int m[*][*]);
 _Safe int star_prototype(int rows, int cols, int m[rows][cols]) {
     return rows + cols;
 }
+
+// sizeof applied to a VLA type evaluates its size expressions, so they are
+// checked the same way a declaration's are.
+_Safe unsigned long sizeof_vla_type(void) {
+    int n;
+    return sizeof(int[n]); // expected-error {{use of uninitialized value: 'n'}}
+}
+
+_Safe unsigned long sizeof_vla_type_multidim(void) {
+    int n = 2;
+    int m;
+    return sizeof(int[n][m]); // expected-error {{use of uninitialized value: 'm'}}
+}
+
+_Safe unsigned long sizeof_vla_type_expr(void) {
+    int n;
+    return sizeof(int[n + 1]); // expected-error {{use of uninitialized value: 'n'}}
+}
+
+// Applied to an expression, sizeof reads the stored size rather than
+// re-evaluating it, so the only check is at the declaration.
+_Safe unsigned long sizeof_vla_object_ok(void) {
+    int n = 4;
+    int arr[n];
+    return sizeof(arr);
+}
+
+// A constant array bound is not a size expression, and _Alignof does not
+// evaluate its operand.
+_Safe unsigned long sizeof_constant_array_ok(void) {
+    return sizeof(int[10]);
+}
+
+_Safe unsigned long alignof_vla_type_ok(void) {
+    int n;
+    return _Alignof(int[n]);
+}

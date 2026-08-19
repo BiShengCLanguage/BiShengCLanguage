@@ -1,0 +1,49 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// A statement expression is lowered like any other expression, so a read of an
+// uninitialized variable inside one is diagnosed wherever it appears: as the
+// value of the block, in a declaration within it, or in a statement the block
+// evaluates for its side effects.
+
+_Safe int value_is_uninit(void) {
+    int x;
+    int y = ({ x; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int read_in_declaration(void) {
+    int x;
+    int y = ({ int t = x; t; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int read_in_earlier_statement(void) {
+    int x;
+    int y = ({ int a = x; 5; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int read_in_nested_block(void) {
+    int x;
+    int y = ({ int t = ({ int u = x; u; }); t; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+// A local of the block itself is tracked like any other local.
+
+_Safe int block_local_read_uninit(void) {
+    int x;
+    ({ int t; x = t; }); // expected-error {{use of uninitialized value: 't'}}
+    return x;
+}
+
+_Safe int block_local_is_the_value(void) {
+    int y = ({ int t; t; }); // expected-error {{use of uninitialized value: 't'}}
+    return y;
+}
+
+_Safe int main(void){
+  int x;
+  int v = ({x;}); // expected-error {{use of uninitialized value: 'x'}}
+  return v;
+}

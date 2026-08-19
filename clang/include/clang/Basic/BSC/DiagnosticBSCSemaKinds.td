@@ -220,9 +220,6 @@ def err_ensure_init_maybe_not_init : Error<
 def err_ensure_init_reassigned : Error<
   "__attribute__((ensure_init)) not satisfied: '%0' is reassigned before '*%0' "
   "is initialized, so '*%0' is not initialized at return">;
-def warn_ensure_init_not_addressof : Warning<
-  "%select{ensure_init|ensure_init_if_ret}0 effect cannot be verified when argument is not an address-of expression">,
-  InGroup<BSCEnsureInitAttr>;
 def err_ensure_init_ptr_aliased : Error<
   "__attribute__((%select{ensure_init|ensure_init_if_ret}1)) parameter '%0' "
   "cannot be reassigned or aliased before '*%0' is initialized">;

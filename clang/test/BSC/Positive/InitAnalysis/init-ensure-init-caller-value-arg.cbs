@@ -1,8 +1,9 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
 
 // Test ensure_init caller side: passing a variable (not &expr) to an
-// ensure_init parameter emits a warning because the init effect
-// cannot be verified.
+// ensure_init parameter is a by-value argument: it hands the callee the same
+// pointee this function tracks, so the contract is delegated.
 
 void init_int(int *__attribute__((ensure_init)) out);
 
@@ -11,11 +12,11 @@ _Safe void test_indirect(void) {
     int x;
     _Unsafe {
         int *p = &x;
-        init_int(p); // expected-warning {{ensure_init effect cannot be verified when argument is not an address-of expression}}
+        init_int(p);
     }
 }
 
-// Direct &expr should produce no warning.
+// Direct &expr delegates the same way.
 _Safe void test_direct(void) {
     int x;
     _Unsafe { init_int(&x); }
@@ -24,10 +25,10 @@ _Safe void test_direct(void) {
 
 // Passing a parameter pointer (not &expr) should warn.
 _Safe void test_param_pass(int *q) {
-    _Unsafe { init_int(q); } // expected-warning {{ensure_init effect cannot be verified when argument is not an address-of expression}}
+    _Unsafe { init_int(q); }
 }
 
 // Delegation: passing an ensure_init param to another ensure_init function is OK.
 void delegating(int *__attribute__((ensure_init)) out) {
-    init_int(out); // no warning: delegation is allowed
+    init_int(out); // delegation is allowed
 }

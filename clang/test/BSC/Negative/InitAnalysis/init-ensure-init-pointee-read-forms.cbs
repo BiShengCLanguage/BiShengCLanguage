@@ -1,0 +1,131 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// The contract says nothing about `*out` until the callee writes it, so every
+// way of reading it beforehand is a use of uninitialized memory. The check used
+// to see only a Deref appearing in an assignment's right-hand side.
+
+void use(int x);
+void init_int(int *__attribute__((ensure_init)) out);
+
+// Baseline: the shape that was always caught.
+int plain_read(int *__attribute__((ensure_init)) out) {
+    int v = *out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 1;
+    return v;
+}
+
+// --- terminator operands ----------------------------------------------------
+
+int call_argument(int *__attribute__((ensure_init_if_ret(0))) out) {
+    use(*out); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    return -1;
+}
+
+int branch_condition(int *__attribute__((ensure_init)) out) {
+    if (*out) { // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+        *out = 1;
+        return 1;
+    }
+    *out = 2;
+    return 0;
+}
+
+int switch_discriminant(int *__attribute__((ensure_init)) out) {
+    switch (*out) { // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    case 1:
+        *out = 1;
+        return 1;
+    default:
+        *out = 2;
+        return 0;
+    }
+}
+
+int loop_condition(int *__attribute__((ensure_init)) out) {
+    while (*out) { // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+        *out = 0;
+    }
+    *out = 1;
+    return 0;
+}
+
+// --- subscript reaches the same load as a dereference -----------------------
+
+int constant_index(int *__attribute__((ensure_init)) out) {
+    int x = out[0]; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 5;
+    return x;
+}
+
+int variable_index(int i, int *__attribute__((ensure_init)) out) {
+    int x = out[i]; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 5;
+    return x;
+}
+
+// --- the address of a write destination is computed by reading the pointee --
+
+void dest_prefix(int **out __attribute__((ensure_init))) {
+    **out = 1; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = (int *)0;
+}
+
+// --- a field read only needs that field -------------------------------------
+
+struct Pair { int a; int b; };
+void use_pair(struct Pair *__attribute__((ensure_init)) out) {
+    out->a = 1;
+    use(out->a);
+    out->b = 2;
+}
+
+int read_field_before_write(struct Pair *__attribute__((ensure_init)) out) {
+    use(out->a); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    out->a = 1;
+    out->b = 2;
+    return 0;
+}
+
+// Taking an address is not a read: the callee here has no contract, so nothing
+// is credited, but forming `&out->b` reads nothing either.
+void sink(int *x);
+void addr_of_field(struct Pair *__attribute__((ensure_init)) out) {
+    sink(&out->b);
+    out->a = 1;
+    out->b = 2;
+}
+
+// Binding the address to a variable is caught by the aliasing rule rather than
+// by the reads above: the read is `*p`, and p is an alias of the parameter.
+int alias_then_read(int *__attribute__((ensure_init)) out) {
+    int *p = &*out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    int v = *p;
+    *out = 1;
+    return v;
+}
+
+// --- the exception covers the address-of expression, nothing else -----------
+// Taking the address of an uninitialized object is allowed when that address
+// is the contract argument (3.7.3 rule 4). Passing a value loads it, so the
+// value has to be initialized like any other operand.
+
+struct Node { int *p; int n; };
+void init_int_c(int *__attribute__((ensure_init)) out);
+
+void addr_of_uninit_is_the_exception(void) {
+    int x;
+    init_int_c(&x);
+    (void)x;
+}
+
+void value_pass_is_a_read(struct Node *__attribute__((ensure_init)) out) {
+    init_int_c(out->p); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    out->p = 0;
+    out->n = 0;
+}
+
+void value_pass_after_init(struct Node *__attribute__((ensure_init)) out) {
+    out->p = 0;
+    init_int_c(out->p);
+    out->n = 0;
+}

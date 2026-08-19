@@ -1263,6 +1263,8 @@ Operand BSCIRBuilder::VisitUnaryExprOrTypeTraitExpr(
     QualType ArgTy;
     if (E->isArgumentType()) {
       ArgTy = E->getArgumentType();
+      // sizeof of a VLA type evaluates its size expressions.
+      lowerVLASizeExprs(ArgTy, E);
     } else {
       ArgTy = E->getArgumentExpr()->getType();
     }
@@ -1284,7 +1286,29 @@ Operand BSCIRBuilder::VisitCompoundAssignOperator(CompoundAssignOperator *CAO) {
   return VisitBinaryOperator(CAO);
 }
 
-Operand BSCIRBuilder::VisitConditionalOperator(ConditionalOperator *CO) {
+Operand BSCIRBuilder::VisitOpaqueValueExpr(OpaqueValueExpr *OVE) {
+  auto It = OpaqueValueMap.find(OVE);
+  if (It == OpaqueValueMap.end())
+    return VisitStmt(OVE);
+  return Operand::createCopy(
+      Place(It->second, OVE->getType(), OVE->getExprLoc()));
+}
+
+Operand BSCIRBuilder::VisitAbstractConditionalOperator(
+    AbstractConditionalOperator *CO) {
+  // `a ?: b` evaluates `a` once; the opaque value resolves to that temp.
+  if (auto *BCO = dyn_cast<BinaryConditionalOperator>(CO)) {
+    Expr *Common = BCO->getCommon();
+    Operand CommonVal = lowerToOperand(Common);
+    LocalId CommonTmp =
+        TheBody->addTemp(Common->getType(), Common->getExprLoc());
+    Place CommonPlace(CommonTmp, Common->getType(), Common->getExprLoc());
+    emit(Statement::createAssign(CommonPlace, Rvalue::createUse(CommonVal),
+                                 currentSafeZone(), Common,
+                                 Common->getExprLoc()));
+    OpaqueValueMap[BCO->getOpaqueValue()] = CommonTmp;
+  }
+
   // Lower condition in current block
   Operand Cond = lowerToOperand(CO->getCond());
 
@@ -1337,6 +1361,34 @@ Operand BSCIRBuilder::VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *E) {
   return Operand::createConstant(
       APValue(llvm::APSInt(llvm::APInt(1, 0), /*isUnsigned=*/false)),
       E->getType());
+}
+
+Operand BSCIRBuilder::VisitStmtExpr(StmtExpr *SE) {
+  const CompoundStmt *CS = SE->getSubStmt();
+
+  // Copy the block's value out before its own locals go dead.
+  LocalId Result = TheBody->addTemp(SE->getType(), SE->getExprLoc());
+  Place ResultPlace(Result, SE->getType(), SE->getExprLoc());
+
+  ScopeStack.push_back({});
+
+  for (auto It = CS->body_begin(), End = CS->body_end(); It != End; ++It) {
+    const Stmt *S = *It;
+    const Expr *ValueExpr =
+        std::next(It) == End ? dyn_cast<Expr>(S) : nullptr;
+    if (!ValueExpr) {
+      lowerStmt(S);
+      continue;
+    }
+    Operand Value = lowerToOperand(ValueExpr);
+    if (!SE->getType()->isVoidType())
+      emit(Statement::createAssign(ResultPlace, Rvalue::createUse(Value),
+                                   currentSafeZone(), SE, SE->getExprLoc()));
+  }
+
+  emitScopeExit(CS->getRBracLoc());
+
+  return Operand::createCopy(ResultPlace);
 }
 
 Operand BSCIRBuilder::VisitStmt(Stmt *S) {

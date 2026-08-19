@@ -1,0 +1,52 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// An init contract names one indirection level. Passing `&out` to a callee
+// proves the callee wrote the *pointer* `out`, and says nothing about the
+// pointee `*out` that this function's own contract covers.
+
+int inner_lvl(int **__attribute__((ensure_init_if_ret(0))) pp);
+
+int wrong_level(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int r = inner_lvl(&out);
+    if (r == 0) {
+        return 0; // expected-error {{'*out' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+    }
+    return 1;
+}
+
+// The inner call does fulfil its own contract, so `out` may be read after it.
+int inner_result_is_the_pointer(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int r = inner_lvl(&out);
+    if (r == 0) {
+        *out = 1;
+        return 0;            // OK: the pointee is written here
+    }
+    return 1;
+}
+
+// --- shapes that do reach the pointee ---------------------------------------
+
+int inner_same(int *__attribute__((ensure_init_if_ret(0))) out);
+
+int direct_delegation(int *__attribute__((ensure_init_if_ret(0))) out) {
+    return inner_same(out);  // OK: same level, contract carries over
+}
+
+int addr_of_deref(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int r = inner_same(&*out);
+    if (r == 0)
+        return 0;            // OK: `&*out` addresses the pointee
+    return 1;
+}
+
+// --- `&x` on a plain local still credits that local -------------------------
+
+int fills(int *__attribute__((ensure_init_if_ret(0))) out);
+
+int addr_of_local(void) {
+    int x;
+    int r = fills(&x);
+    if (r == 0)
+        return x;            // OK
+    return 0;
+}

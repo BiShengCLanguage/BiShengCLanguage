@@ -1,0 +1,79 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// The parameter may not be aliased before '*out' is initialized (3.7.4): an
+// alias escapes into a name the block-local tracking cannot follow. `&*out` is
+// out itself, since neither operator is evaluated when `&` is applied to a `*`
+// (C11 6.5.3.2p3), so all of these spell the same escape.
+
+void init_int(int *__attribute__((ensure_init)) out);
+
+int copy_of_param(int *__attribute__((ensure_init)) out) {
+    int *p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    return *p;
+}
+
+int addr_of_deref(int *__attribute__((ensure_init)) out) {
+    int *p = &*out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    return *p;
+}
+
+int addr_of_param(int *__attribute__((ensure_init)) out) {
+    int **p = &out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    return **p;
+}
+
+int ifret_addr_of_deref(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int *p = &*out; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)p;
+    return 0;
+}
+
+// Storing the pointer into an aggregate escapes it the same way a named copy
+// does; the store's destination does not have to be a whole variable.
+
+struct Holder { int *p; };
+
+int into_struct_field(int *__attribute__((ensure_init)) out) {
+    struct Holder h;
+    h.p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    return *h.p;
+}
+
+int into_array_element(int *__attribute__((ensure_init)) out) {
+    int *arr[2];
+    arr[0] = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    return *arr[0];
+}
+
+// --- once the contract is fulfilled the pointer is free ---------------------
+
+int alias_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    int *p = out;
+    int *q = &*out;
+    int **r = &out;
+    return *p + *q + **r;
+}
+
+// --- handing the address straight to a contract callee is delegation --------
+
+void deleg_whole(int *__attribute__((ensure_init)) out) {
+    init_int(&*out);
+}
+
+void deleg_passed_on(int *__attribute__((ensure_init)) out) {
+    init_int(out);
+}
+
+int store_after_init(int *__attribute__((ensure_init)) out) {
+    struct Holder h;
+    *out = 1;
+    h.p = out;
+    return *h.p;
+}

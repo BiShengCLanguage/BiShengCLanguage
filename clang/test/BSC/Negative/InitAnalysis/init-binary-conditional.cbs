@@ -1,0 +1,61 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// The GNU binary conditional `a ?: b` is lowered like the ternary form, so a
+// read of an uninitialized variable is diagnosed in either operand. The common
+// operand `a` supplies both the condition and the value of the true branch,
+// and is read once.
+
+int g;
+
+_Safe void consume(int v) { g = v; }
+
+_Safe int common_is_uninit(void) {
+    int x;
+    int y = x ?: 0; // expected-error {{use of uninitialized value: 'x'}}
+    if (y > 0) g = 1; else g = 0;
+    return g;
+}
+
+_Safe int false_branch_is_uninit(int c) {
+    int x;
+    int y = c ?: x; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int both_operands_uninit(void) {
+    int a;
+    int b;
+    int y = a ?: b; // expected-error {{use of uninitialized value: 'a'}}
+                    // expected-error@-1 {{use of uninitialized value: 'b'}}
+    return y;
+}
+
+// The common operand is read through a conversion when the operands differ in
+// type, and through the nested operator when the forms are chained.
+
+_Safe int common_needs_conversion(void) {
+    int x;
+    long y = x ?: 0L; // expected-error {{use of uninitialized value: 'x'}}
+    return (int)y;
+}
+
+_Safe int nested(void) {
+    int x;
+    int y = (x ?: 1) ?: 2; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+// The common operand is read once, so it is reported once. Spelling the same
+// operand twice in the ternary form reads it twice and reports it twice.
+
+_Safe int main(void){
+  int x;
+  int v = x ?: 42; // expected-error {{use of uninitialized value: 'x'}}
+  return v;
+}
+
+_Safe int ternary_reads_twice(void) {
+  int x;
+  int v = x ? x : 42; // expected-error 2 {{use of uninitialized value: 'x'}}
+  return v;
+}

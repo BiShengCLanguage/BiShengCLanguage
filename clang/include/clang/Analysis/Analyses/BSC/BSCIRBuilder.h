@@ -59,10 +59,12 @@ public:
   Operand VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E);
   Operand VisitParenExpr(ParenExpr *PE);
   Operand VisitCompoundAssignOperator(CompoundAssignOperator *CAO);
-  Operand VisitConditionalOperator(ConditionalOperator *CO);
+  Operand VisitAbstractConditionalOperator(AbstractConditionalOperator *CO);
+  Operand VisitOpaqueValueExpr(OpaqueValueExpr *OVE);
   Operand VisitGNUNullExpr(GNUNullExpr *E);
   Operand VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *E);
   Operand VisitSafeExpr(SafeExpr *SE);
+  Operand VisitStmtExpr(StmtExpr *SE);
   Operand VisitStmt(Stmt *S); // fallback
 
 private:
@@ -98,6 +100,8 @@ private:
   llvm::DenseMap<LabelDecl *, BasicBlockId> LabelMap;
   llvm::DenseMap<LabelDecl *, unsigned> LabelScopeDepth;
 
+  // --- Opaque value bindings: the temp holding `a` in `a ?: b` ---
+  llvm::DenseMap<const OpaqueValueExpr *, LocalId> OpaqueValueMap;
   // --- Address-of origin tracking (for ensure_init) ---
   // Maps temp LocalId → the Place whose address was taken to produce that temp.
   llvm::DenseMap<LocalId, Place> AddrOfOrigins;

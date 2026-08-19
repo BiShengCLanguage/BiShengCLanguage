@@ -4,10 +4,23 @@
 
 struct Pair { int a; int b; };
 void init_int(int *__attribute__((ensure_init)) out);
+_Safe void init_safe(int *_Borrow __attribute__((ensure_init)) out);
 
 _Safe void test_field_partial(void) {
     struct Pair p;
     _Unsafe { init_int(&p.a); }
     int y = p.a;
     int z = p.b; // expected-error {{use of uninitialized value: 'p.b'}}
+}
+
+// The credit is field-precise, so the struct as a whole stays uninitialized
+// until every field is covered. A _Safe callee takes the borrow directly, with
+// no _Unsafe block around the call.
+_Safe void test_whole_after_partial(void) {
+    struct Pair p;
+    init_safe(&_Mut p.a);
+    int y = p.a;
+    (void)y;
+    struct Pair q = p; // expected-error {{use of uninitialized value: 'p'}}
+    (void)q;
 }

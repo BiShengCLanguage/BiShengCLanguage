@@ -1,0 +1,37 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// The GNU binary conditional over initialized values. The common operand is
+// evaluated once, so a call in that position runs a single time and an
+// assignment there initializes the variable for the rest of the function.
+
+_Safe int f(void);
+
+_Safe int initialized_common(void) {
+    int x = 3;
+    int y = x ?: 0;
+    return y;
+}
+
+_Safe int call_as_common(void) {
+    int y = f() ?: 7;
+    return y;
+}
+
+_Safe int initialized_false_branch(int c) {
+    int x = 1;
+    int y = c ?: x;
+    return y;
+}
+
+_Safe int assignment_as_common(void) {
+    int x;
+    int y = (x = 4) ?: 9;
+    return y + x;
+}
+
+_Safe int main(void){
+  int x = 7;
+  int v = x ?: 42;
+  return v;
+}

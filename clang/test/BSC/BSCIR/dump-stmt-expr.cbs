@@ -1,0 +1,66 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// Test BSCIR lowering of a statement expression ({ ... }). The block's
+// statements are lowered in place, and its value is copied into a temporary of
+// the enclosing scope before the block's own locals go dead.
+
+// CHECK-LABEL: fn test_stmt_expr
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   StorageLive(_4)
+// CHECK-NEXT:   _4 = copy(_1)
+// CHECK-NEXT:   _3 = copy(_4)
+// CHECK-NEXT:   StorageDead(_4)
+// CHECK-NEXT:   _2 = copy(_3)
+// CHECK-NEXT:   StorageDead(_2)
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_stmt_expr(void) {
+    int x = 1;
+    int y = ({ int t = x; t; });
+}
+
+// Every statement is lowered, not only the one that produces the value.
+
+// CHECK-LABEL: fn test_stmt_expr_multi
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   StorageLive(_4)
+// CHECK-NEXT:   _4 = copy(_1)
+// CHECK-NEXT:   StorageLive(_5)
+// CHECK-NEXT:   _5 = copy(_4)
+// CHECK-NEXT:   _3 = copy(_5)
+// CHECK-NEXT:   StorageDead(_5)
+// CHECK-NEXT:   StorageDead(_4)
+// CHECK-NEXT:   _2 = copy(_3)
+// CHECK-NEXT:   StorageDead(_2)
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_stmt_expr_multi(void) {
+    int x = 1;
+    int y = ({ int a = x; int b = a; b; });
+}
+
+// A void-valued block assigns no result, but still lowers its statements.
+
+// CHECK-LABEL: fn test_stmt_expr_void
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   StorageLive(_3)
+// CHECK-NEXT:   _3 = copy(_1)
+// CHECK-NEXT:   _4 = Cast(copy(_3) as void)
+// CHECK-NEXT:   StorageDead(_3)
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_stmt_expr_void(void) {
+    int x = 1;
+    ({ int t = x; (void)t; });
+}

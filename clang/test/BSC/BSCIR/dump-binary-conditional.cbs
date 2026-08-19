@@ -1,0 +1,61 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// Test BSCIR lowering of the GNU binary conditional `a ?: b`. The common
+// operand is evaluated once into a temporary; the switch tests that temporary
+// and the true branch reads it again, rather than evaluating the operand twice.
+
+int f(void);
+
+// CHECK-LABEL: fn test_binary_cond
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   _3 = copy(_1)
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb2, otherwise: bb1]
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   _4 = copy(_3)
+// CHECK-NEXT:   goto -> bb3
+// CHECK-NEXT: }
+// CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _4 = const 0
+// CHECK-NEXT:   goto -> bb3
+// CHECK-NEXT: }
+// CHECK:      bb3: {{[{]}}
+// CHECK-NEXT:   _2 = copy(_4)
+void test_binary_cond(void) {
+    int x = 1;
+    int y = x ?: 0;
+}
+
+// A call in the common position is emitted once, and both the condition and
+// the true branch read its result.
+
+// CHECK-LABEL: fn test_binary_cond_call
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _2 = call f() -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   _3 = copy(_2)
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb3, otherwise: bb2]
+// CHECK-NEXT: }
+// CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _4 = copy(_3)
+// CHECK-NOT:    call f()
+void test_binary_cond_call(void) {
+    int y = f() ?: 7;
+}
+
+// The conversion applied to the common operand is preserved on the true branch.
+
+// CHECK-LABEL: fn test_binary_cond_conv
+// CHECK:        _4 = copy(_1)
+// CHECK:        switchInt(copy(_4))
+// CHECK:        _6 = Cast(copy(_4) as double)
+void test_binary_cond_conv(void) {
+    int i = 1;
+    double d = 2.0;
+    double y = i ?: d;
+}

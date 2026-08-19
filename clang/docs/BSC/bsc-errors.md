@@ -95,9 +95,16 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 
 ---
 
-## INIT — initialization (31 errors, 1 warning)
+## INIT — initialization (31 errors)
 
 (INIT-006 is retired: `err_return_possibly_uninit` was merged into INIT-005 `err_return_uninit` as a `%select` variant. Codes are not renumbered.)
+
+(INIT-W001 is retired: `warn_ensure_init_not_addressof` reported that a call gave
+the caller no init credit, which it inferred from the argument's syntax alone. It
+fired on correct code with no alternative spelling — a pointer parameter or a
+heap pointer passed to a contract parameter — while a genuine loss of credit is
+reported precisely by INIT-001 at the read. Passing an *uninitialized* pointer is
+now INIT-010.)
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
@@ -108,8 +115,8 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | INIT-005 | err_return_uninit | non-void function `%0` does not return a value%select{\| in all control paths}1 | Anchored at the function's closing brace when the failing return is the implicit fall-off return |
 | INIT-007 | err_ensure_init_not_init | `*%0` not initialized at return in `__attribute__((ensure_init))` function | `note_ensure_init_ptr_reassigned_here` — `%0` was re-pointed here without initializing `*%0` first (fires when the failing path included a re-point) |
 | INIT-008 | err_ensure_init_maybe_not_init | `*%0` may not be initialized on all paths at return in `__attribute__((ensure_init))` function | `note_ensure_init_ptr_reassigned_here` — same trigger as INIT-007 |
-| INIT-009 | err_ensure_init_ptr_aliased | `__attribute__((ensure_init))` parameter `%0` cannot be reassigned or aliased before `*%0` is initialized | Fires for aliasing the param into a named local; re-pointing is deferred to INIT-007/008 with a note instead |
-| INIT-010 | err_ensure_init_deref_read_uninit | use of uninitialized `*%0` in `__attribute__((ensure_init))` function | — |
+| INIT-009 | err_ensure_init_ptr_aliased | `__attribute__((ensure_init))` parameter `%0` cannot be reassigned or aliased before `*%0` is initialized | Fires for aliasing the param into a named local, whether written `q = p`, `q = &*p` or `q = &p`; re-pointing is deferred to INIT-007/008 with a note instead |
+| INIT-010 | err_ensure_init_deref_read_uninit | use of uninitialized `*%0` in `__attribute__((ensure_init))` function | Covers every form that loads the pointee: `*p`, `p[i]`, a call argument or branch condition, and the prefix an assignment's destination walks through, as in `**p = 1`. Taking an address is not a load, so `&p->f` is not reported |
 | INIT-011 | err_ensure_init_funcptr_incompatible | incompatible function pointer types: target expects `__attribute__((ensure_init))` on parameter %0 but source does not have it | — |
 | INIT-012 | err_assume_init_bad_arg | `__assume_initialized` requires `&` expression as argument | — |
 | INIT-013 | err_assume_init_array_subscript | `__assume_initialized` argument cannot contain an array subscript | `note_assume_init_array_subscript_hint` — the init analysis tracks arrays as whole units; address the enclosing array instead |
@@ -132,7 +139,6 @@ Every borrow-check error is emitted with one note from `BSCBorrowChecker.h::flus
 | INIT-030 | err_ensure_init_redecl_mismatch | conflicting `__attribute__((ensure_init))` on parameter `%0` in redeclaration of `%1` | `note_previous_declaration` — previous declaration is here |
 | INIT-031 | err_ensure_init_unsafe_without_safe | `__attribute__((ensure_init))` on parameter `%0` of `_Unsafe` declaration requires the matching `_Safe` declaration to carry the same attribute | `note_previous_declaration` — previous declaration is here |
 | INIT-032 | err_global_nonnull_init_by_default | cannot implicitly initialize `%0` because it contains `_Nonnull` pointer | `note_global_nonnull_init_reason` — add explicit initializer for `_Nonnull` pointers inside `%0` or declare them as `_Nullable` |
-| **INIT-W001** | warn_ensure_init_not_addressof | `%select{ensure_init\|ensure_init_if_ret}0` effect cannot be verified when argument is not an address-of expression | Message names the attribute the parameter actually carries; also fires for `ensure_init_if_ret` parameters, including indirect calls through a function-pointer typedef |
 
 ---
 
@@ -205,12 +211,12 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 |------------|-------------------------------|-------:|---------:|
 | OWN-       | owned                         | 43     | 1        |
 | BOR-       | borrow                        | 20     | 0        |
-| INIT-      | initialization                | 31     | 1        |
+| INIT-      | initialization                | 31     | 0        |
 | MISC-      | declaration / dispatch        | 6      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
 | NONNULL-   | nonnull pointer               | 3      | 0        |
 | NULLABLE-  | nullable pointer              | 5      | 0        |
-| **Total**  |                               | **120** | **2**   |
+| **Total**  |                               | **120** | **1**   |
 
 Plus **25 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 

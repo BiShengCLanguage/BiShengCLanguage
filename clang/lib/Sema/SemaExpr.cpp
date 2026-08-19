@@ -7793,40 +7793,6 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
         Diag(Fn->getBeginLoc(), diag::err_unsafe_action)
             << "_Unsafe function call";
       }
-
-      // Check ensure_init arguments: warn if not an address-of expression
-      // and not a delegation to another ensure_init parameter.
-      // Works for both direct calls (FDecl) and indirect calls (fn pointers).
-      unsigned NumCallArgs = TheCall->getNumArgs();
-      const FunctionProtoType *CalleeFPT =
-          Fn->getType()->getAs<FunctionProtoType>();
-      if (!CalleeFPT) {
-        QualType PointeeTy = Fn->getType()->getPointeeType();
-        if (!PointeeTy.isNull())
-          CalleeFPT = PointeeTy->getAs<FunctionProtoType>();
-      }
-
-      for (unsigned I = 0; I < NumCallArgs; ++I) {
-        // 0 = ensure_init, 1 = ensure_init_if_ret; -1 = no contract.
-        int Cond = 0;
-        EnsureInitKind Kind = classifyEnsureInit(FDecl, CalleeFPT, I, Cond);
-        if (Kind == EnsureInitKind::None)
-          continue;
-        int AttrSelect = (Kind == EnsureInitKind::EnsureInitIfRet) ? 1 : 0;
-
-        Expr *Arg = TheCall->getArg(I)->IgnoreParenImpCasts();
-        if (auto *UO = dyn_cast<UnaryOperator>(Arg))
-          if (UO->getOpcode() == UO_AddrOf || UO->getOpcode() == UO_AddrMut)
-            continue;
-        if (auto *DRE = dyn_cast<DeclRefExpr>(Arg))
-          if (auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl()))
-            if (PVD->hasAttr<EnsureInitAttr>() ||
-                PVD->hasAttr<EnsureInitIfRetAttr>())
-              continue;
-        Diag(TheCall->getArg(I)->getExprLoc(),
-             diag::warn_ensure_init_not_addressof)
-            << AttrSelect;
-      }
     }
 #endif
   }

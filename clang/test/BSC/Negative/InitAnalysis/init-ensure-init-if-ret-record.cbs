@@ -4,9 +4,8 @@
 // ensure_init_if_ret with struct / union pointee.
 //   - struct: each field tracked independently; deref state promotes to
 //     Initialized once every field is written on the path.
-//   - union: per existing init-analysis rules, variant writes don't
-//     promote the deref state (the union has no "all fields written"
-//     meaning). Whole-union assignment is the supported pattern.
+//   - union: covered by wholly initializing one variant, or by assigning the
+//     whole union; writing one field of a variant covers nothing.
 // ==========================================================================
 
 struct Pair { int a; int b; };
@@ -109,8 +108,7 @@ int nested_full(struct Nested *__attribute__((ensure_init_if_ret(0))) out) {
 
 
 // --- union pointee --------------------------------------------------------
-// Per existing init-analysis behavior, writing a single union variant does
-// NOT mark the union as fully initialized. Use whole-union assignment.
+// A union pointee follows the same rule as a union local.
 
 int union_no_variant(union U *__attribute__((ensure_init_if_ret(0))) out) {
     return 0; // expected-error {{'*out' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
@@ -118,7 +116,7 @@ int union_no_variant(union U *__attribute__((ensure_init_if_ret(0))) out) {
 
 int union_variant_write(union U *__attribute__((ensure_init_if_ret(0))) out) {
     out->i = 5;
-    return 0; // expected-error {{'*out' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+    return 0;            // OK: the scalar variant is initialized whole
 }
 
 int union_whole_write(union U *__attribute__((ensure_init_if_ret(0))) out) {
@@ -130,7 +128,7 @@ int union_whole_write(union U *__attribute__((ensure_init_if_ret(0))) out) {
 
 
 // --- struct containing a union --------------------------------------------
-// Same rule as plain union for the embedded union field.
+// The embedded union follows the same rule, and counts toward the struct.
 
 int with_union_whole(struct WithUnion *__attribute__((ensure_init_if_ret(0))) out) {
     struct WithUnion tmp;
@@ -143,4 +141,10 @@ int with_union_whole(struct WithUnion *__attribute__((ensure_init_if_ret(0))) ou
 int with_union_only_tag(struct WithUnion *__attribute__((ensure_init_if_ret(0))) out) {
     out->tag = 7;
     return 0; // expected-error {{'*out' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+}
+
+int with_union_variant_and_tag(struct WithUnion *__attribute__((ensure_init_if_ret(0))) out) {
+    out->u.i = 1;
+    out->tag = 7;
+    return 0;            // OK: the union is covered, so every field is
 }

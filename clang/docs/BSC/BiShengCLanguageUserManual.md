@@ -6104,41 +6104,76 @@ _Safe void rule6_struct_ok(void) {
 }
 ```
 
-7. 联合体（union）写入任一成员会将整个联合体标记为已初始化（符合 C 语言联合体语义：写入任一变体覆盖全部字节）。对于联合体中包含结构体变体的情况，写入结构体的某个字段也会将整个联合体标记为已初始化，跨变体读取也是允许的。
+7. 联合体（union）只有两种方式会被视为已初始化：
+
+- 声明时带初始化器，任意形式（指定初始化、`{0}`、`{}`）；
+- 一次赋值整体初始化某一个变体：标量变体（`u.f = 3.14f;`）、整个结构体变体（`u.s = (struct Inner){1, 2};`），或整个联合体（`u = other;`）。
+
+覆盖之后，可以通过任意变体、任意深度读取（符合 C 语言联合体语义：写入任一变体覆盖全部字节），后续的部分写入也不会取消覆盖。
+
+只写入变体中的某个字段不构成覆盖，被写入的那个字段本身也不可读；逐个字段写完整个变体同样不会累积成覆盖。只有路径上最外层的联合体可以被覆盖。读取未覆盖的联合体时，诊断信息报告最外层联合体的名字，而不是叶子字段。覆盖始终以整个变体为单位，`__assume_initialized` 和初始化契约的委托也遵循同一规则：断言或委托变体中的某个字段不会覆盖联合体，需要针对整个变体或整个联合体。
 
 注：由于安全区内不允许直接访问联合体字段，以下示例使用非安全函数配合 `-uninit-check=all` 来展示联合体的初始化行为。
 
 ```c
 // 编译选项: -uninit-check=all
-union U { int a; float f; };
+struct Inner { int x; int y; };
+union U { struct Inner s; float f; int a; };
 
-void rule7(void) {
-    union U u;
-    u.a = 42;
-    float f = u.f; // ok: 联合体已通过 u.a 初始化
+void rule7_decl_init(void) {
+    union U u = { .a = 42 };
+    float f = u.f;              // ok: 声明时初始化，整个联合体已覆盖
 }
 
-// 联合体包含结构体变体
-struct S { int x; int y; };
-union US { int a; struct S s; };
+void rule7_whole_variant(void) {
+    union U u;
+    u.f = 3.14f;                // 整体初始化标量变体 → 覆盖整个联合体
+    int v = u.s.x;              // ok: 覆盖后可跨变体、任意深度读取
+}
 
-void rule7_struct(void) {
-    union US u;
-    u.s.x = 1;      // 写入结构体变体的字段 → 整个联合体标记为已初始化
-    int v = u.a;     // ok: 跨变体读取，联合体已初始化
+void rule7_whole_struct_variant(void) {
+    union U u;
+    u.s = (struct Inner){1, 2}; // 整体初始化结构体变体 → 覆盖整个联合体
+    float f = u.f;              // ok
+}
+
+void rule7_partial(void) {
+    union U u;
+    u.s.x = 1;                  // 只写入变体中的一个字段 → 不构成覆盖
+    int v = u.s.x;              // error: use of uninitialized value: 'u'
+}
+
+void rule7_no_accumulation(void) {
+    union U u;
+    u.s.x = 1;
+    u.s.y = 2;                  // 逐字段写完变体也不会累积成覆盖
+    float f = u.f;              // error: use of uninitialized value: 'u'
 }
 ```
 
-> **已知限制**：写入一个变体会将整个联合体标记为已初始化，因此跨变体读取结构体字段时，即使对应的字节实际上未被写入，编译器也不会报错。例如：
+结构体成员中的联合体被覆盖后，与其他字段一样参与结构体的整体提升。
+
+```c
+// 编译选项: -uninit-check=all
+struct W { union U uw; int v; };
+
+void rule7_wrapped(void) {
+    struct W w;
+    w.uw.f = 3.14f;             // 经由结构体到达的变体整体赋值 → 覆盖 w.uw
+    w.v = 1;                    // 所有字段均已初始化 → w 整体提升
+    int v = w.uw.a;             // ok
+}
+```
+
+> **已知限制**：覆盖以整个变体为单位，不做大小校验。因此用较小的变体覆盖联合体之后，读取较大的变体也不会报错，即使多出来的字节实际上并未被写入。例如：
 >
 > ```c
-> struct S2 { int b; int c; };
-> union U2 { int a; struct S2 s; };
+> union U2 { char c; long l; };
 >
 > void example(void) {
 >     union U2 u;
->     u.a = 1;
->     int v = u.s.c; // 编译通过，但 u.s.c 的字节实际上可能未被有意义地写入
+>     u.c = 1;
+>     long v = u.l; // 编译通过，但 u.l 的高位字节实际上未被写入
 > }
 > ```
 
@@ -6226,7 +6261,7 @@ _Safe void caller_safe(void) {
 }
 ```
 
-`ensure_init` 参数在 `*param` 初始化完成前不允许被重新赋值或复制到其他变量（别名）：
+`ensure_init` 参数在 `*param` 初始化完成前不允许被重新赋值或复制到其他变量（别名），存入结构体字段或数组元素同样算作别名。把指针作为实参传给不带契约的函数不在此列，但编译器同样不会跟踪被调用方通过它进行的写入，契约仍须在本函数内履行：
 
 ```c
 void bad_reassign(int *__attribute__((ensure_init)) out) {
@@ -6236,6 +6271,14 @@ void bad_reassign(int *__attribute__((ensure_init)) out) {
 
 void bad_alias(int *__attribute__((ensure_init)) out) {
     int *p = out; // error: __attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized
+    *out = 42;
+}
+
+struct Holder { int *p; };
+
+void bad_alias_field(int *__attribute__((ensure_init)) out) {
+    struct Holder h;
+    h.p = out; // error: __attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized
     *out = 42;
 }
 ```

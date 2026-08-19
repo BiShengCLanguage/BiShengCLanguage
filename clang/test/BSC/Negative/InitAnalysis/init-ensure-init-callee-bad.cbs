@@ -4,3 +4,37 @@
 
 void bad_init(int *__attribute__((ensure_init)) out) {
 } // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// Long-standing behaviour, kept under test because the caller-side credit for
+// an addressed place is now shared with __assume_initialized, which does reach
+// the pointee through `&x`. Passing `&out` to a contract callee hands it the
+// address of the pointer, so the callee's contract covers `out` itself and
+// leaves `*out` untouched. __attribute__((ensure_init_if_ret)) records the same
+// shape through the pending-credit path and is not covered here.
+void init_pp(int **__attribute__((ensure_init)) pp);
+
+void addr_of_param(int *__attribute__((ensure_init)) out) {
+    init_pp(&out);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// A union is covered only by initializing one variant whole. Handing a single
+// field of a variant to a contract callee covers neither the union nor the
+// struct holding it.
+struct Pair { int a; int b; };
+union UP { struct Pair p; int n; };
+struct WithUnionP { union UP u; int tag; };
+
+void init_int2(int *__attribute__((ensure_init)) out);
+
+void partial_variant(struct WithUnionP *__attribute__((ensure_init)) out) {
+    init_int2(&out->u.p.a);
+    init_int2(&out->tag);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// A union pointee is covered only by a whole variant; one field of a variant
+// leaves the contract unsatisfied.
+union UPointee { struct Pair p; int n; };
+
+void union_pointee_partial(union UPointee *__attribute__((ensure_init)) out) {
+    out->p.a = 1;
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}

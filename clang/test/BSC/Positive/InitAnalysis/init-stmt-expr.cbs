@@ -1,0 +1,53 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// Statement expressions over initialized values, including a local declared
+// inside the block, which dies with it.
+
+_Safe int reads_initialized_local(void) {
+    int x = 5;
+    int y = ({ int t = x; t; });
+    return y;
+}
+
+_Safe int value_declared_inside(void) {
+    int y = ({ int t = 7; t; });
+    return y;
+}
+
+_Safe int several_statements(void) {
+    int x = 2;
+    int y = ({ int a = x; int b = a + 1; b; });
+    return y;
+}
+
+_Safe int nested_blocks(void) {
+    int x = 1;
+    int y = ({ int t = ({ int u = x; u; }); t; });
+    return y;
+}
+
+_Safe void void_valued(void) {
+    int x = 1;
+    ({ int t = x; (void)t; });
+}
+
+// A write performed inside the block initializes the variable it assigns,
+// whether that variable belongs to the block or encloses it.
+
+_Safe int writes_enclosing_local(void) {
+    int x;
+    ({ x = 5; });
+    return x;
+}
+
+_Safe int writes_then_yields(void) {
+    int x;
+    int y = ({ x = 5; x; });
+    return y + x;
+}
+
+_Safe int block_local_assigned_late(void) {
+    int y = ({ int t; t = 3; t; });
+    return y;
+}

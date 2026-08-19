@@ -27,5 +27,5 @@ union U { int a; struct S s; };
 void test_union_partial_struct(void) {
     union U u;
     u.s.b = 1;
-    use_int(u.s.c);  // expected-error {{use of uninitialized value: 'u.s.c'}}
+    use_int(u.s.c);  // expected-error {{use of uninitialized value: 'u'}}
 }

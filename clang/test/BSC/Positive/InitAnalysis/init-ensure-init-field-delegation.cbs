@@ -1,0 +1,127 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// Handing each field of the pointee to a callee that carries the contract
+// initializes the pointee: `&out->a` addresses this function's own pointee,
+// not a field of the pointer holding it. This is the same field-level
+// delegation the manual shows for a local struct, one indirection out.
+
+struct Pair { int a; int b; };
+struct Nested { struct Pair p; int x; };
+union U { int a; long b; };
+struct WithUnion { union U u; int tag; };
+union UP { struct Pair p; int a; };
+union UScalar { int a; float f; };
+struct WithUnionP { union UP u; int tag; };
+struct WithArray { int arr[3]; int n; };
+
+void init_int(int *__attribute__((ensure_init)) out);
+int init_int_if(int *__attribute__((ensure_init_if_ret(0))) out);
+void init_arr(int (*__attribute__((ensure_init)) a)[3]);
+void init_pair(struct Pair *__attribute__((ensure_init)) out);
+
+void deleg_fields(struct Pair *__attribute__((ensure_init)) out) {
+    init_int(&out->a);
+    init_int(&out->b);
+}
+
+void deleg_nested(struct Nested *__attribute__((ensure_init)) out) {
+    init_int(&out->p.a);
+    init_int(&out->p.b);
+    init_int(&out->x);
+}
+
+// `&*out` addresses the whole pointee rather than one field.
+void deleg_whole_pointee(int *__attribute__((ensure_init)) out) {
+    init_int(&*out);
+}
+
+// An array field is asserted whole, since the analysis tracks an array as one
+// unit; a path through a subscript is not a supported form.
+void deleg_array_field(struct WithArray *__attribute__((ensure_init)) out) {
+    init_arr(&out->arr);
+    init_int(&out->n);
+}
+
+// Handing a whole variant to a contract callee covers the union, so the
+// enclosing struct is fully covered once the sibling field is covered too.
+void deleg_union_field(struct WithUnion *__attribute__((ensure_init)) out) {
+    init_int(&out->u.a);
+    init_int(&out->tag);
+}
+
+// A struct variant works the same way when it is handed over whole.
+void deleg_union_struct_variant(struct WithUnionP *__attribute__((ensure_init)) out) {
+    init_pair(&out->u.p);
+    init_int(&out->tag);
+}
+
+int deleg_fields_if(struct Pair *__attribute__((ensure_init_if_ret(0))) out) {
+    int r1 = init_int_if(&out->a);
+    int r2 = init_int_if(&out->b);
+    if (r1 == 0) {
+        if (r2 == 0)
+            return 0;
+        return 1;
+    }
+    return 1;
+}
+
+int deleg_whole_pointee_if(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int r = init_int_if(&*out);
+    if (r == 0)
+        return 0;
+    return 1;
+}
+
+// __assume_initialized asserts that everything reachable from the address is
+// initialized, so `&p` covers the pointee too. A contract callee handed the
+// same `&p` would only prove the pointer was written, which is why the two
+// spellings credit different things.
+void assume_addr_of_param(int *__attribute__((ensure_init)) p) {
+    __assume_initialized(&p);
+}
+
+// Addressing the pointee to hand it to a callee, or to assert it, is the
+// contract being delegated rather than a read of it, so the reads check has to
+// leave these alone.
+void assume_whole_pointee(int *__attribute__((ensure_init)) out) {
+    __assume_initialized(&*out);
+}
+
+void assume_pointee_field(struct Pair *__attribute__((ensure_init)) out) {
+    __assume_initialized(&out->a);
+    __assume_initialized(&out->b);
+}
+
+// Once the contract is fulfilled the pointee reads normally, in every form.
+int read_after_init(int i, int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    int a = *out;
+    int b = out[0];
+    int c = out[i];
+    int *p = &*out;
+    return a + b + c + *p;
+}
+
+// A local struct filled the same way keeps working.
+void caller_local(void) {
+    struct Pair p;
+    init_int(&p.a);
+    init_int(&p.b);
+    struct Pair q = p;
+    (void)q;
+}
+
+// The pointee may itself be a union: wholly initializing one variant covers it,
+// exactly as it would for a local.
+void deleg_union_pointee_scalar(union UScalar *__attribute__((ensure_init)) out) {
+    out->a = 1;
+}
+
+void deleg_union_pointee_variant(union UP *__attribute__((ensure_init)) out) {
+    struct Pair v;
+    v.a = 1;
+    v.b = 2;
+    out->p = v;
+}

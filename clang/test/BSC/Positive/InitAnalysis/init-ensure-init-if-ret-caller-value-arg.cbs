@@ -1,9 +1,10 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
 
 // =============================================================================
 // Indirect pass: when an ensure_init_if_ret arg is not a direct `&x` /
-// `&_Mut x` expression, the init effect cannot be verified. The
-// warn_ensure_init_not_addressof diagnostic fires.
+// `&_Mut x` expression hands the callee the same pointee this function
+// tracks, so the contract is delegated.
 // =============================================================================
 
 _Safe int try_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
@@ -14,15 +15,15 @@ _Safe int try_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
 _Safe void test_indirect(void) {
     int x = 0;
     int *_Borrow p = &_Mut x;
-    int r = try_init(p); // expected-warning {{ensure_init_if_ret effect cannot be verified when argument is not an address-of expression}}
+    int r = try_init(p);
 }
 
 // Passing a parameter pointer (not &expr) warns as well.
 _Safe void test_param_pass(int *_Borrow q) {
-    int r = try_init(q); // expected-warning {{ensure_init_if_ret effect cannot be verified when argument is not an address-of expression}}
+    int r = try_init(q);
 }
 
 // Delegation: passing one ensure_init_if_ret param to another is exempt.
 _Safe int delegating(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
-    return try_init(out); // no warning
+    return try_init(out); // delegation is allowed
 }
