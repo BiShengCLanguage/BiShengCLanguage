@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
 
 // Test that declaration and definition with different nullability qualifiers
 // should report conflicting types error
@@ -41,7 +41,7 @@ _Safe int *_Owned _Nullable foo5(void) {
 _Safe int *_Owned foo6(void);
 
 _Safe int *_Owned foo6(void) {
-  int *_Owned p = nullptr;
+  int *_Owned p = nullptr; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
   return p;
 }
 

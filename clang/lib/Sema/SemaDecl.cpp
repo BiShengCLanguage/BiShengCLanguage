@@ -16664,7 +16664,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
   if (LangOpts.BSC) {
     if (auto FD = dyn_cast_or_null<FunctionDecl>(dcl)) {
       BSCDataflowAnalysisFlag = true;
-      if (getDiagnostics().areAllErrorsFromBSCAnalyses()) {
+      if (LangOpts.getBSCDiag() == LangOptions::BSCDiagExhaustive) {
         bool DoAnalysis = true;
         // Skip function template and class template
         if (const auto *RD = dyn_cast<RecordDecl>(FD->getParent())) {
@@ -16672,9 +16672,62 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
             DoAnalysis = false;
         }
         auto md = dyn_cast_or_null<BSCMethodDecl>(FD);
-        // Don't check ownership rules of destructor parameters
-        if (DoAnalysis && (!md || !md->isDestructor()))
-          BSCDataflowAnalysis(FD);
+
+        // If this function itself already produced AST-invalidating errors, its
+        // AST may be incomplete; skip analysis without adding another diagnostic.
+        // Warnings upgraded to errors by -Werror do not invalidate the AST, so
+        // they must not disable BSC analysis for an otherwise clean function.
+        // Remember destructors so DesugarDestructor can make the same decision
+        // later.
+        bool HasLocalErrors = FD->isInvalidDecl();
+        if (FunctionScopeInfo *FSI = getCurFunction())
+          HasLocalErrors |= FSI->hasUncompilableErrorOccurred(getDiagnostics());
+        if (md && md->isDestructor() && HasLocalErrors)
+          BSCFunctionsWithLocalErrors.insert(FD);
+
+        // Don't check ownership rules of destructor parameters here; synthetic
+        // destructors are analyzed in DesugarDestructor.
+        if (DoAnalysis && (!md || !md->isDestructor())) {
+          if (HasLocalErrors) {
+            // Already reported errors inside this function; skip analysis.
+          } else {
+            SourceLocation InvalidLoc;
+            if (HasInvalidAST(FD, &InvalidLoc)) {
+              // The function body itself is clean, but earlier errors elsewhere
+              // have produced an unreliable AST. For template instantiations the
+              // invalid node usually comes from an error already reported on the
+              // template pattern, so an extra "not analyzed" diagnostic at the
+              // same location would be redundant; just skip analysis. For
+              // ordinary functions, tell the user why no BSC analysis was run.
+              if (!IsInstantiation) {
+                SourceLocation DiagLoc = InvalidLoc;
+                if (DiagLoc.isInvalid() ||
+                    !getSourceManager().isPointWithin(DiagLoc, FD->getBeginLoc(),
+                                                      FD->getEndLoc()))
+                  DiagLoc = FD->getLocation();
+                Diag(DiagLoc, diag::warn_bsc_analysis_skipped) << FD;
+              }
+            } else {
+              BSCDataflowAnalysis(FD);
+            }
+          }
+        }
+      } else {
+        // Default mode: keep the original TU-global gating. BSC analysis only
+        // runs while every error seen so far came from BSC analyses; any other
+        // error disables analysis for the rest of the translation unit.
+        if (getDiagnostics().areAllErrorsFromBSCAnalyses()) {
+          bool DoAnalysis = true;
+          // Skip function template and class template
+          if (const auto *RD = dyn_cast<RecordDecl>(FD->getParent())) {
+            if (RD->getDescribedClassTemplate() != nullptr)
+              DoAnalysis = false;
+          }
+          auto md = dyn_cast_or_null<BSCMethodDecl>(FD);
+          // Don't check ownership rules of destructor parameters
+          if (DoAnalysis && (!md || !md->isDestructor()))
+            BSCDataflowAnalysis(FD);
+        }
       }
       // Desugar BSC Function.
       DesugarDestructorCall(FD);

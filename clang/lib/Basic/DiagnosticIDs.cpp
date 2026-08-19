@@ -809,6 +809,17 @@ bool DiagnosticIDs::ProcessDiag(DiagnosticsEngine &Diag) const {
 
     Diag.ErrorOccurred = true;
     if (Diag.Client->IncludeInDiagnosticCounts()) {
+#if ENABLE_BSC
+      // Custom diagnostics cannot be remapped, so their reported level is their
+      // registered default level and an error there is always uncompilable.
+      // This only affects the BSC-specific counter
+      bool IsDefaultError =
+          DiagID < diag::DIAG_UPPER_LIMIT
+              ? isDefaultMappingAsError(DiagID)
+              : DiagLevel >= DiagnosticIDs::Error;
+      if (IsDefaultError)
+        ++Diag.NumUncompilableErrors;
+#endif
       ++Diag.NumErrors;
     }
 

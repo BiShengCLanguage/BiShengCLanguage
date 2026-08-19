@@ -58,6 +58,13 @@ void FunctionScopeInfo::Clear() {
   ByrefBlockVars.clear();
 }
 
+#if ENABLE_BSC
+void FunctionScopeInfo::Clear(DiagnosticsEngine &Diag) {
+  Clear();
+  NumUncompilableErrorsAtStart = Diag.getNumUncompilableErrors();
+}
+#endif
+
 static const NamedDecl *getBestPropertyDecl(const ObjCPropertyRefExpr *PropE) {
   if (PropE->isExplicitProperty())
     return PropE->getExplicitProperty();

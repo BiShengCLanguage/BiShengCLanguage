@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -verify %s
+
+// An ordinary error in one function must not disable BSC analysis for later
+// clean functions.
+
+void *malloc(unsigned long);
+
+void broken() {
+  undeclared_identifier_here; // expected-error {{use of undeclared identifier 'undeclared_identifier_here'}}
+}
+
+void good() {
+  int *p = (int *)malloc(sizeof(int) * 2);
+  *p = 3; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}

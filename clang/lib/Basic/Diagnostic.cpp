@@ -139,12 +139,13 @@ void DiagnosticsEngine::Reset(bool soft /*=false*/) {
 
   NumWarnings = 0;
   NumErrors = 0;
-  #if ENABLE_BSC
+#if ENABLE_BSC
   NumOwnershipErrors = 0;
   NumBorrowCheckErrors = 0;
   NumNullabilityCheckErrors = 0;
   NumInitCheckErrors = 0;
-  #endif
+  NumUncompilableErrors = 0;
+#endif
   TrapNumErrorsOccurred = 0;
   TrapNumUnrecoverableErrorsOccurred = 0;
 

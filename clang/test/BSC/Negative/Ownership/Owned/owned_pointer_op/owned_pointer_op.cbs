@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -ast-dump -verify %s
 
 void test1() {
     int* _Owned p1;
@@ -23,7 +23,7 @@ void test3(int* _Owned a, int* _Owned b) {
     int* _Owned c = a;
     int* _Owned d = c;
     c = b;  //legal BinaryOperator '=' is allowed
-}
+} // expected-error {{memory leak because 'd' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 
 void test_cascade(int* _Owned a) { // expected-note {{pointer 'a' declared here}}
     _Safe {

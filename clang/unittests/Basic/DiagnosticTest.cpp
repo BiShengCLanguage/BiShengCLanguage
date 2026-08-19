@@ -127,4 +127,22 @@ TEST(DiagnosticTest, diagnosticError) {
   EXPECT_EQ(*Value, std::make_pair(20, 1));
   EXPECT_EQ(Value->first, 20);
 }
+
+#if ENABLE_BSC
+// Custom diagnostics cannot be remapped, so an error-level custom diagnostic is
+// always an uncompilable error and must be counted by the BSC-specific counter.
+// The generic UncompilableErrorOccurred flag intentionally keeps the original
+// isDefaultMappingAsError() behavior, which does not cover custom diagnostics.
+TEST(DiagnosticTest, customErrorIsUncompilable) {
+  DiagnosticsEngine Diags(new DiagnosticIDs(), new DiagnosticOptions,
+                          new IgnoringDiagConsumer());
+  unsigned DiagID =
+      Diags.getCustomDiagID(DiagnosticsEngine::Error, "custom error message");
+  Diags.Report(DiagID);
+
+  EXPECT_FALSE(Diags.hasUncompilableErrorOccurred());
+  EXPECT_EQ(Diags.getNumErrors(), 1u);
+  EXPECT_EQ(Diags.getNumUncompilableErrors(), 1u);
+}
+#endif
 }

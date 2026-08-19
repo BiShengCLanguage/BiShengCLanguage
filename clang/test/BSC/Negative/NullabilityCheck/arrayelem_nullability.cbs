@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -nullability-check=all -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -verify %s
 
 _Safe int g_nonnull(int *_Borrow _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
@@ -47,36 +47,36 @@ _Unsafe int f_caller(int x) {
 
 _Safe int h_nonnull(int *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_nullable(int *_Owned _ArrayElem _Nullable p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_const_nonnull(const int *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_const_nullable(const int *_Owned _ArrayElem _Nullable p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_void(void *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_ptrptr(int **_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_second(int a, int *_Owned _ArrayElem _Nonnull p) { // expected-note {{passing argument to parameter 'p' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
 
 _Safe int h_two(int *_Owned _ArrayElem _Nonnull p, // expected-note {{passing argument to parameter 'p' here}}
                 int *_Owned _ArrayElem _Nullable q) { // expected-note {{passing argument to parameter 'q' here}}
   return 0;
-}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
 
 _Unsafe int h_caller(int x) {
   int arr = x;

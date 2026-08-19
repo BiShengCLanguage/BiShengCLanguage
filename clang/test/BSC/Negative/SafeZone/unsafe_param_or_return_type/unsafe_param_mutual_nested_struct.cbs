@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fsyntax-only -verify %s
 
 union U {};
 struct S1;  // expected-note{{forward declaration of 'struct S1'}}
@@ -10,10 +10,10 @@ struct S4;  // expected-note{{forward declaration of 'struct S4'}}
 struct S5 { struct S4 s4; }; // expected-error{{field has incomplete type 'struct S4'}}
 struct S4 { struct S5 s5; };  
 
-_Safe struct S1 unsafeReturnFunc(void) {} 
+_Safe struct S1 unsafeReturnFunc(void) {} // expected-warning {{function 'unsafeReturnFunc' was not analyzed because of earlier errors; fix the other errors and recompile}}
 
-_Safe void unsafeParamFunc(struct S1 s1) {} 
+_Safe void unsafeParamFunc(struct S1 s1) {} // expected-warning {{function 'unsafeParamFunc' was not analyzed because of earlier errors; fix the other errors and recompile}}
 
-_Safe struct S4 safeReturnFunc(void) {}
+_Safe struct S4 safeReturnFunc(void) {} // expected-warning {{function 'safeReturnFunc' was not analyzed because of earlier errors; fix the other errors and recompile}}
 
-_Safe void safeParamFunc(struct S4 s4) {}
+_Safe void safeParamFunc(struct S4 s4) {} // expected-warning {{function 'safeParamFunc' was not analyzed because of earlier errors; fix the other errors and recompile}}

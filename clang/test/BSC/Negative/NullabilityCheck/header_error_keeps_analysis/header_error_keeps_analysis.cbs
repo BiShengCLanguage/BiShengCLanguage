@@ -1,0 +1,13 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -I%S -verify %s
+
+// Regression: an error in an included header must not disable BSC analysis for
+// functions whose own AST is clean.
+
+#include "bad.h"
+
+void *malloc(unsigned long);
+
+void test() {
+  int *p = (int *)malloc(sizeof(int) * 2);
+  *p = 3; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}

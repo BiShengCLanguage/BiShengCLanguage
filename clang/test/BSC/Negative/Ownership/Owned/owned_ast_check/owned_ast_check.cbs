@@ -1,5 +1,5 @@
 // Test without serialization:
-// RUN: %clang_cc1 -ast-dump -verify %s \
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -ast-dump -verify %s \
 // RUN: | FileCheck -strict-whitespace %s
 
 struct A {
@@ -34,7 +34,7 @@ void ownedTest0() {
 
 int ownedTest1(_Owned int x, _Owned int* y, _Owned int* _Owned c, _Owned int* _Owned * d) { // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     return 0;
-} 
+}  // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 // CHECK:       FunctionDecl 0x{{[^ ]*}} {{.*}}ownedTest1 'int (_Owned int, _Owned int *, _Owned int *_Owned, _Owned int *_Owned *)'
 // CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}x '_Owned int'
 // CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}y '_Owned int *'

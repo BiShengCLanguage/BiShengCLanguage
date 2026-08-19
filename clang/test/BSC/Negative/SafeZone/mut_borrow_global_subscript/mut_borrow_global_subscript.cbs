@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fsyntax-only -verify %s
 
 typedef struct {
   int a;
@@ -16,7 +16,7 @@ _Safe void test_global_subscript_mut_borrow(void) {
 
 _Safe void test_local_subscript_mut_borrow(void) {
   int lv[10];
-  (void)&_Mut lv[0]; // legal
+  (void)&_Mut lv[0]; // legal // expected-error {{use of uninitialized value: 'lv'}}
 }
 
 _Safe void test_mut_borrow_binary_expr(void) {

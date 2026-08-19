@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fbsc-experimental -ast-dump -verify %s
 
 // Test that '_Owned' qualifier can only be applied to pointer types
 
@@ -61,7 +61,7 @@ void test_function_params(
     OwnedS param3,            // OK - using _Owned struct type directly
     struct S * _Owned param4,  // OK - pointer type
     OwnedT<int> param5        // OK - using template _Owned struct type directly
-) {}
+) {} // expected-error {{memory leak because 'param2' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'param4' is not freed or moved before it goes out of scope}}
 
 // Test in function return types
 int _Owned test_return1() {    // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
@@ -74,12 +74,12 @@ int * _Owned test_return2() {  // OK - pointer type
 
 OwnedS test_return3() {       // OK - using _Owned struct type directly
     OwnedS s;
-    return s;
+    return s; // expected-error {{use of uninitialized value: 's'}}
 }
 
 OwnedT<int> test_return4() {  // OK - using template _Owned struct type directly
     OwnedT<int> t;
-    return t;
+    return t; // expected-error {{use of uninitialized value: 't'}}
 }
 
 int *_Owned test_return5() {

@@ -33,6 +33,179 @@
 using namespace clang;
 using namespace sema;
 
+namespace {
+
+/// Returns true if \p Ty contains a record type that, when traversed by value
+/// through fields/array elements, reaches itself again. Such cyclic record
+/// types can only be created by error recovery (C does not allow a struct to
+/// contain itself by value), and they make AST-walking analyses unsafe.
+bool TypeHasCyclicRecord(QualType Ty,
+                         llvm::DenseSet<const RecordDecl *> &Active) {
+  if (Ty.isNull())
+    return false;
+  // getCanonicalType() strips all sugar (typedefs, elaborated types, etc.), so
+  // the RecordDecl pointer used for cycle detection is unique per type.
+  Ty = Ty.getCanonicalType();
+
+  if (const RecordDecl *RD = Ty->getAsRecordDecl()) {
+    if (!Active.insert(RD).second)
+      return true;
+    for (const FieldDecl *FD : RD->fields())
+      if (TypeHasCyclicRecord(FD->getType(), Active))
+        return true;
+    Active.erase(RD);
+    return false;
+  }
+
+  if (Ty->isArrayType()) {
+    if (const ArrayType *AT = Ty->getAsArrayTypeUnsafe())
+      return TypeHasCyclicRecord(AT->getElementType(), Active);
+  }
+
+  // _Atomic(T) stores T by value, so a cyclic record inside it is still a
+  // by-value cycle and must be followed (C11 6.7.2.4p4).
+  if (const AtomicType *AT = Ty->getAs<AtomicType>())
+    return TypeHasCyclicRecord(AT->getValueType(), Active);
+
+  // Pointers, references, scalars, and functions stop by-value recursion.
+  return false;
+}
+
+bool TypeHasCyclicRecord(QualType Ty) {
+  llvm::DenseSet<const RecordDecl *> Active;
+  return TypeHasCyclicRecord(Ty, Active);
+}
+
+/// Set \p Loc to \p NewLoc when \p Loc is non-null, currently invalid, and
+/// \p NewLoc is valid.
+void setInvalidLocIfUnset(SourceLocation *Loc, SourceLocation NewLoc) {
+  if (Loc && !Loc->isValid() && NewLoc.isValid())
+    *Loc = NewLoc;
+}
+
+/// Recursively check whether a statement tree contains AST nodes that were
+/// produced from errors, or references declarations/types that are invalid.
+/// This is used to decide whether BSC dataflow analysis can safely run on the
+/// function: error nodes coming from outside the current function can make the
+/// AST unreliable even when no diagnostic was emitted inside the function.
+/// If \p Loc is non-null, it is set to the first problematic node's location.
+bool StmtTreeHasErrors(const Stmt *S, SourceLocation *Loc = nullptr) {
+  if (!S)
+    return false;
+
+  if (const auto *E = dyn_cast<Expr>(S)) {
+    if (E->containsErrors()) {
+      setInvalidLocIfUnset(Loc, E->getExprLoc());
+      return true;
+    }
+    if (TypeHasCyclicRecord(E->getType())) {
+      setInvalidLocIfUnset(Loc, E->getExprLoc());
+      return true;
+    }
+    if (const Type *T = E->getType().getTypePtrOrNull())
+      if (T->containsErrors()) {
+        setInvalidLocIfUnset(Loc, E->getExprLoc());
+        return true;
+      }
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      if (DRE->getDecl() && DRE->getDecl()->isInvalidDecl()) {
+        setInvalidLocIfUnset(Loc, DRE->getLocation());
+        return true;
+      }
+    if (const auto *ME = dyn_cast<MemberExpr>(E))
+      if (ME->getMemberDecl() && ME->getMemberDecl()->isInvalidDecl()) {
+        setInvalidLocIfUnset(Loc, ME->getMemberLoc());
+        return true;
+      }
+    if (const auto *CE = dyn_cast<CallExpr>(E))
+      if (const FunctionDecl *Callee = CE->getDirectCallee())
+        if (Callee->isInvalidDecl()) {
+          setInvalidLocIfUnset(Loc, CE->getBeginLoc());
+          return true;
+        }
+    if (const auto *CSCE = dyn_cast<CStyleCastExpr>(E)) {
+      if (const Type *T = CSCE->getTypeAsWritten().getTypePtrOrNull())
+        if (T->containsErrors()) {
+          setInvalidLocIfUnset(Loc, CSCE->getBeginLoc());
+          return true;
+        }
+    }
+  }
+
+  if (const auto *DS = dyn_cast<DeclStmt>(S)) {
+    for (const Decl *D : DS->decls()) {
+      if (D->isInvalidDecl()) {
+        setInvalidLocIfUnset(Loc, D->getLocation());
+        return true;
+      }
+      if (const auto *VD = dyn_cast<VarDecl>(D)) {
+        if (TypeHasCyclicRecord(VD->getType())) {
+          setInvalidLocIfUnset(Loc, VD->getLocation());
+          return true;
+        }
+        if (const Type *T = VD->getType().getTypePtrOrNull())
+          if (T->containsErrors()) {
+            setInvalidLocIfUnset(Loc, VD->getLocation());
+            return true;
+          }
+      }
+    }
+  }
+
+  for (const Stmt *Child : S->children())
+    if (StmtTreeHasErrors(Child, Loc))
+      return true;
+
+  return false;
+}
+
+} // namespace
+
+bool Sema::HasInvalidAST(const FunctionDecl *FD,
+                         SourceLocation *InvalidLoc) const {
+  if (!FD)
+    return false;
+
+  auto SetLoc = [&](SourceLocation L) {
+    setInvalidLocIfUnset(InvalidLoc, L);
+  };
+
+  if (FD->isInvalidDecl()) {
+    SetLoc(FD->getLocation());
+    return true;
+  }
+  if (const Type *T = FD->getType().getTypePtrOrNull())
+    if (T->containsErrors()) {
+      SetLoc(FD->getLocation());
+      return true;
+    }
+  if (TypeHasCyclicRecord(FD->getReturnType())) {
+    SetLoc(FD->getReturnTypeSourceRange().getBegin());
+    SetLoc(FD->getLocation());
+    return true;
+  }
+  if (const Type *RT = FD->getReturnType().getTypePtrOrNull())
+    if (RT->containsErrors()) {
+      SetLoc(FD->getReturnTypeSourceRange().getBegin());
+      SetLoc(FD->getLocation());
+      return true;
+    }
+  for (const ParmVarDecl *PVD : FD->parameters()) {
+    if (TypeHasCyclicRecord(PVD->getType())) {
+      SetLoc(PVD->getLocation());
+      return true;
+    }
+    if (const Type *PT = PVD->getType().getTypePtrOrNull())
+      if (PT->containsErrors()) {
+        SetLoc(PVD->getLocation());
+        return true;
+      }
+  }
+  if (const Stmt *Body = FD->getBody())
+    return StmtTreeHasErrors(Body, InvalidLoc);
+  return false;
+}
+
 void Sema::CheckBSCConstexprFunction(FunctionDecl* FD) {
   assert(getLangOpts().BSC && FD->isConstexprSpecified());
   // BSC constexpr function can not be async.

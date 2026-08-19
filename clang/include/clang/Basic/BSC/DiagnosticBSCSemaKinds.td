@@ -404,3 +404,9 @@ def err_pass_string_literal_to_mut_borrow : Error<
 
 def err_bsc_nullptr_cast : Error<
   "cannot cast an object of type %select{'nullptr_t' to %1|%1 to 'nullptr_t'}0">;
+
+// BSC analysis gating.
+def warn_bsc_analysis_skipped : Warning<
+  "function %0 was not analyzed because of earlier errors; fix the other "
+  "errors and recompile">,
+  InGroup<BSCAnalysisSkipped>;

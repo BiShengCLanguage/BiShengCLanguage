@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fbsc-experimental -verify %s
 
 typedef struct {
     int a;
@@ -32,7 +32,7 @@ ownedA* func2(ownedA* sa) {
 
 void test2(ownedA* sa) {
     int res1 = sa->a;
-    func2(sa)->a; // expected-warning {{expression result unused}}
+    func2(sa)->a; // expected-warning {{expression result unused}} // expected-warning {{expression result unused}}
     int res2 = func2(sa)->a;
     return;
 }

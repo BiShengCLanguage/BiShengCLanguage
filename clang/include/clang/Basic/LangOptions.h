@@ -83,6 +83,7 @@ public:
 #if ENABLE_BSC
   enum NullCheckZone { NC_SAFE, NC_ALL };
   enum UninitCheckZone { UC_NONE, UC_SAFE, UC_ALL };
+  enum BSCDiagMode { BSCDiagDefault, BSCDiagExhaustive };
 #endif
   enum GCMode { NonGC, GCOnly, HybridGC };
   enum StackProtectorMode { SSPOff, SSPOn, SSPStrong, SSPReq };

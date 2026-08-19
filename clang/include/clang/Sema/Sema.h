@@ -9698,6 +9698,11 @@ public:
 #if ENABLE_BSC
   /// Marking into the data flow analysis process
   bool BSCDataflowAnalysisFlag;
+
+  /// BSC destructors whose user-written body already contained errors. Such
+  /// destructors must not run dataflow analysis later in DesugarDestructor;
+  /// the existing errors are the user-visible explanation.
+  llvm::SmallPtrSet<const FunctionDecl *, 8> BSCFunctionsWithLocalErrors;
 #endif
   /// The number of typos corrected by CorrectTypo.
   unsigned TyposCorrected;
@@ -12390,6 +12395,13 @@ public:
   bool CheckTemporaryVarMemoryLeak(Expr* E);
   void BSCDataflowAnalysis(const Decl *D);
   void BSCBorrowChecker(FunctionDecl *FD);
+  /// Whether FD's AST contains error nodes/types or references invalid
+  /// declarations, making BSC dataflow analysis unreliable. Used to decide
+  /// whether to skip analysis and report why. If \p InvalidLoc is non-null and
+  /// the AST is invalid, it is set to a source location inside FD (when one
+  /// can be determined) that points at the problematic AST.
+  bool HasInvalidAST(const FunctionDecl *FD,
+                     SourceLocation *InvalidLoc = nullptr) const;
   bool IsInSafeZone() const;
   bool IsInEvaluatedSafeZone() const;
   bool IsSafeBuiltinTypeConversion(const ASTContext &Ctx, QualType SrcType,

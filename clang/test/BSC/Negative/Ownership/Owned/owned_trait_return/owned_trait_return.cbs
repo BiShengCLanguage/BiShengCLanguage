@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fbsc-experimental -verify %s
 
 _Trait T {
   _Safe void do_it(This* _Owned this);
@@ -82,7 +82,7 @@ _Trait T* _Borrow cond3(int flag, int* _Borrow x) {
     return &_Mut *sp;
   } else {
     struct S s = initS();
-    return &_Mut s;
+    return &_Mut s; // expected-error {{memory leak because s.a, s.b are not freed or moved before 's' goes out of scope}}
   }
 }
 

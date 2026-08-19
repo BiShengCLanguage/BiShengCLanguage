@@ -4833,6 +4833,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     else
       CmdArgs.push_back(Args.MakeArgString("-uninit-check=" + v));
   }
+  if (Args.hasArg(options::OPT_fbsc_diag)) {
+    Arg *A = Args.getLastArg(options::OPT_fbsc_diag);
+    StringRef v = A->getValue();
+    if (v.empty())
+      D.Diag(diag::err_drv_missing_argument) << A->getSpelling() << 1;
+    else
+      CmdArgs.push_back(Args.MakeArgString("-fbsc-diag=" + v));
+  }
 #endif
 
   auto *MemProfArg = Args.getLastArg(options::OPT_fmemory_profile,

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fsyntax-only -verify %s
 
 // ---------------------------------------------------------------------------
 // Test that casting T *_Borrow to B *_Borrow is checked at instantiation time.
@@ -59,7 +59,7 @@ _Unsafe void test_borrow_direct<T, B>(T a, B b) {
 // Same type: ok.
 _Unsafe void test_direct_same<T>(T a) {
     T c = (T)a;  // ok
-}
+} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
 
 int *_Owned safe_malloc(int n);
 void safe_free(void *_Owned p);
@@ -121,6 +121,6 @@ void test() {
     test_direct_same<int *_Borrow>(a);
 
     // Same owned type: ok.
-    test_direct_same<int *_Owned>(op);
+    test_direct_same<int *_Owned>(op); // expected-note {{in instantiation of function template specialization 'test_direct_same<int *_Owned>' requested here}}
 
 }

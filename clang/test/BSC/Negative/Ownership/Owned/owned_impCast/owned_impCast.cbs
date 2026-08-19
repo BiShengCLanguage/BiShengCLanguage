@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fbsc-experimental -ast-dump -verify %s
 
 #define NULL ((void*) 0)
 
@@ -34,7 +34,7 @@ int test5_1(int* _Owned a) {
     int* _Owned b;
     b = test5(a);
     if (b != 0) {
-        return 1;
+        return 1; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
     }
     return 0;
 }
@@ -51,9 +51,9 @@ int test6_1()
     int* a = test6();
     int* _Owned b = __take_from_raw(a);
     if (*b != 0) {
-        return 1;
+        return 1; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
     }
-    return 0;
+    return 0; // expected-error {{memory leak because 'b' is not freed or moved before it goes out of scope}}
 }
 
 // short to int
@@ -78,10 +78,10 @@ void test9() {
     int a = 10;
     int* const _Owned p1 = __take_from_raw(&a);   //legal
     int* const _Owned p2 = p1;   //legal
-    const int* _Owned p3 = p1;   //legal
-    const int* const _Owned p4 = p1; //legal
-    volatile int* _Owned p5 = p1;
-}
+    const int* _Owned p3 = p1;   //legal // expected-error {{use of moved value: 'p1'}}
+    const int* const _Owned p4 = p1; //legal // expected-error {{use of moved value: 'p1'}}
+    volatile int* _Owned p5 = p1; // expected-error {{use of moved value: 'p1'}}
+} // expected-error {{memory leak because 'p5' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'p4' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'p3' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'p2' is not freed or moved before it goes out of scope}}
 
 // pointer to _Owned type, recursively check
 void test10(_Owned int* p0) {// expected-error {{type of 'int' cannot be qualified by '_Owned'}} 

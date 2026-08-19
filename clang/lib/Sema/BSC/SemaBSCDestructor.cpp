@@ -828,8 +828,39 @@ void Sema::DesugarDestructor(RecordDecl *RD) {
     return;
   std::stack<FieldDecl *> Fields = CollectInstanceFieldWithDestructor(RD);
   BSCDataflowAnalysisFlag = true;
+  unsigned NumUncompilableErrorsBeforeBodyBuild =
+      getDiagnostics().getNumUncompilableErrors();
   HandleBSCDestructorBody(RD, Destructor, Fields);
-  if (getDiagnostics().areAllErrorsFromBSCAnalyses()) {
+  if (getLangOpts().getBSCDiag() == LangOptions::BSCDiagExhaustive) {
+    // The user-written destructor body may already have reported errors while it
+    // was parsed; those are recorded in BSCFunctionsWithLocalErrors. Errors
+    // emitted while synthesizing the remaining body are also local errors.
+    // Warnings upgraded by -Werror do not invalidate the AST, so they are not
+    // treated as local errors here.
+    bool HasLocalErrors =
+        Destructor->isInvalidDecl() ||
+        BSCFunctionsWithLocalErrors.count(Destructor) ||
+        getDiagnostics().getNumUncompilableErrors() >
+            NumUncompilableErrorsBeforeBodyBuild;
+    if (HasLocalErrors) {
+      // Already reported errors inside this destructor; skip analysis.
+    } else {
+      SourceLocation InvalidLoc;
+      if (HasInvalidAST(Destructor, &InvalidLoc)) {
+        // The destructor body itself is clean, but earlier errors elsewhere have
+        // produced an unreliable AST. Tell the user why no BSC analysis was run,
+        // pointing at the problematic AST inside the destructor when possible.
+        SourceLocation DiagLoc = InvalidLoc;
+        if (DiagLoc.isInvalid() ||
+            !getSourceManager().isPointWithin(DiagLoc, Destructor->getBeginLoc(),
+                                              Destructor->getEndLoc()))
+          DiagLoc = Destructor->getLocation();
+        Diag(DiagLoc, diag::warn_bsc_analysis_skipped) << Destructor;
+      } else {
+        BSCDataflowAnalysis(Destructor);
+      }
+    }
+  } else if (getDiagnostics().areAllErrorsFromBSCAnalyses()) {
     BSCDataflowAnalysis(Destructor);
   }
   BSCDataflowAnalysisFlag = false;

@@ -1,0 +1,9 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -verify %s
+
+void broken() {
+  undeclared_identifier_1; // expected-error {{use of undeclared identifier 'undeclared_identifier_1'}}
+}
+
+void also_broken() {
+  undeclared_identifier_2; // expected-error {{use of undeclared identifier 'undeclared_identifier_2'}}
+}

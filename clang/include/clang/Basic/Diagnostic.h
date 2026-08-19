@@ -494,13 +494,16 @@ private:
   /// Number of errors reported
   unsigned NumErrors;
 
+#if ENABLE_BSC
   /// Number of ownership errors reported
-  #if ENABLE_BSC
   unsigned NumOwnershipErrors;
   unsigned NumBorrowCheckErrors;
   unsigned NumNullabilityCheckErrors;
   unsigned NumInitCheckErrors;
-  #endif
+  /// Number of errors that prevent compilation reported (warnings upgraded to
+  /// errors by -Werror are not counted).
+  unsigned NumUncompilableErrors;
+#endif
 
   /// A function pointer that converts an opaque diagnostic
   /// argument to a strings.
@@ -886,6 +889,7 @@ public:
       getNumNullabilityCheckErrors() +
       getNumInitCheckErrors();
   }
+  unsigned getNumUncompilableErrors() const { return NumUncompilableErrors; }
   #endif
 
   /// Return an ID for a diagnostic with the specified format string and

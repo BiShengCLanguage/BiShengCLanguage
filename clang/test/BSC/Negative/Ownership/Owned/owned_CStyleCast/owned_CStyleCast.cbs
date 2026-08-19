@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -ast-dump -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -ast-dump -verify %s
 
 //_Owned to _Owned
 void test1() {
@@ -49,8 +49,8 @@ void test5(float _Owned f1, float* _Owned f2){ //expected-error {{type of 'float
 
 void test6(int** _Owned p) {
     const int** _Owned p1 = p;   //expected-warning {{initializing 'const int **_Owned' with an expression of type 'int **_Owned' discards qualifiers in nested pointer types}} [-Wincompatible-pointer-types-discards-qualifiers]
-    const int** _Owned p2 = (const int** _Owned)p;
-}
+    const int** _Owned p2 = (const int** _Owned)p; // expected-error {{use of moved value: 'p'}}
+} // expected-error {{memory leak because 'p2' is not freed or moved before it goes out of scope}} // expected-error {{memory leak because 'p1' is not freed or moved before it goes out of scope}}
 
 
 void multicast_integer_ptr_rev() {

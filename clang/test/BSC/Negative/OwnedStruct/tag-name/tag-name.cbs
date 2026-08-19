@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fbsc-experimental -verify %s
 
 _Owned struct A;
 
@@ -15,7 +15,7 @@ _Owned struct C {
 
 _Owned struct A ff() { // expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}
     A b; // ok
-    return b;
+    return b; // expected-error {{use of uninitialized value: 'b'}}
 }
 
 int _Owned struct A::f() { // expected-error {{type of 'int' cannot be qualified by '_Owned'}}  expected-error {{'_Owned struct' only appears in the type's declaration or definition; use 'A' without '_Owned struct'}}

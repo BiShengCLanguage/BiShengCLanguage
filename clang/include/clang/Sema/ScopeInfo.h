@@ -204,6 +204,12 @@ private:
   /// Used to determine if errors occurred in this function or block.
   DiagnosticErrorTrap ErrorTrap;
 
+#if ENABLE_BSC
+  /// Number of errors that prevent compilation (as opposed to warnings
+  /// upgraded by -Werror) that had been emitted when this scope was entered.
+  unsigned NumUncompilableErrorsAtStart;
+#endif
+
 public:
   /// A SwitchStmt, along with a flag indicating if its list of case statements
   /// is incomplete (because we dropped an invalid one while parsing).
@@ -402,9 +408,23 @@ public:
         HasPotentialAvailabilityViolations(false), ObjCShouldCallSuper(false),
         ObjCIsDesignatedInit(false), ObjCWarnForNoDesignatedInitChain(false),
         ObjCIsSecondaryInit(false), ObjCWarnForNoInitDelegation(false),
+#if ENABLE_BSC
+        NeedsCoroutineSuspends(true), ErrorTrap(Diag),
+        NumUncompilableErrorsAtStart(Diag.getNumUncompilableErrors()) {}
+#else
         NeedsCoroutineSuspends(true), ErrorTrap(Diag) {}
+#endif
 
   virtual ~FunctionScopeInfo();
+
+#if ENABLE_BSC
+  /// Determine whether an error that prevents compilation (as opposed to a
+  /// warning upgraded by -Werror) has occurred within this function or block
+  /// since the scope was entered.
+  bool hasUncompilableErrorOccurred(DiagnosticsEngine &Diag) const {
+    return Diag.getNumUncompilableErrors() > NumUncompilableErrorsAtStart;
+  }
+#endif
 
   /// Determine whether an unrecoverable error has occurred within this
   /// function. Note that this may return false even if the function body is
@@ -543,6 +563,9 @@ public:
   /// Clear out the information in this function scope, making it
   /// suitable for reuse.
   void Clear();
+#if ENABLE_BSC
+  void Clear(DiagnosticsEngine &Diag);
+#endif
 
   bool isPlainFunction() const { return Kind == SK_Function; }
 };

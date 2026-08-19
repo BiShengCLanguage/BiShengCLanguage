@@ -1,0 +1,12 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -Werror=unused-variable -verify %s
+
+// A warning upgraded to an error by -Werror does not invalidate the AST, so
+// BSC dataflow analysis must still run on the function.
+
+void *malloc(unsigned long);
+
+void test() {
+  int unused = 0; // expected-error {{unused variable 'unused'}}
+  int *p = (int *)malloc(sizeof(int) * 2);
+  *p = 3; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}

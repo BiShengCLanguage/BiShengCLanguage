@@ -2085,7 +2085,11 @@ Scope *Sema::getScopeForContext(DeclContext *Ctx) {
 void Sema::PushFunctionScope() {
   if (FunctionScopes.empty() && CachedFunctionScope) {
     // Use CachedFunctionScope to avoid allocating memory when possible.
+#if ENABLE_BSC
+    CachedFunctionScope->Clear(getDiagnostics());
+#else
     CachedFunctionScope->Clear();
+#endif
     FunctionScopes.push_back(CachedFunctionScope.release());
   } else {
     FunctionScopes.push_back(new FunctionScopeInfo(getDiagnostics()));
