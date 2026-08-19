@@ -8332,6 +8332,17 @@ static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(::new (S.Context) EnsureInitAttr(S.Context, AL));
 }
 
+// Spec: a literal (possibly wrapped/negated), not an arbitrary constant expr.
+static bool isIntegerLiteralShapedExpr(const Expr *E) {
+  E = E->IgnoreParenImpCastsSafe();
+  while (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() != UO_Minus && UO->getOpcode() != UO_Plus)
+      return false;
+    E = UO->getSubExpr()->IgnoreParenImpCastsSafe();
+  }
+  return isa<IntegerLiteral>(E) || isa<CXXBoolLiteralExpr>(E);
+}
+
 static void handleEnsureInitIfRetAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   ParmVarDecl *PVD = checkInitContractParam(S, D, AL);
   if (!PVD)
@@ -8342,20 +8353,8 @@ static void handleEnsureInitIfRetAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     return;
   }
 
-  // Spec requires an integer literal, not just any constant expression.
-  // Accept `-N` / `+N` since the AST wraps a literal in a UnaryOperator.
   Expr *ArgExpr = AL.getArgAsExpr(0);
-  Expr *Stripped = ArgExpr->IgnoreParenImpCasts();
-  bool IsLiteral = isa<IntegerLiteral>(Stripped) ||
-                   isa<CXXBoolLiteralExpr>(Stripped);
-  if (!IsLiteral) {
-    if (auto *UO = dyn_cast<UnaryOperator>(Stripped)) {
-      if ((UO->getOpcode() == UO_Minus || UO->getOpcode() == UO_Plus) &&
-          isa<IntegerLiteral>(UO->getSubExpr()->IgnoreParenImpCasts()))
-        IsLiteral = true;
-    }
-  }
-  if (!IsLiteral) {
+  if (!isIntegerLiteralShapedExpr(ArgExpr)) {
     S.Diag(ArgExpr->getExprLoc(),
            diag::err_ensure_init_if_ret_arg_not_integer_literal);
     return;

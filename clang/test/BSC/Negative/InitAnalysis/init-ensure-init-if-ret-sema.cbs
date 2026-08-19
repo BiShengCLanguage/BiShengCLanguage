@@ -69,6 +69,20 @@ int expr_arg(int *__attribute__((ensure_init_if_ret(1 + 1))) out); // expected-e
 // Negative integer literal is accepted (wrapped UnaryOperator over IntegerLiteral).
 int neg_arg(int *__attribute__((ensure_init_if_ret(-1))) out);
 
+// Unary +/- nest recursively over a literal.
+int nested_neg(int *__attribute__((ensure_init_if_ret(-(-1)))) out);
+int nested_mixed(int *__attribute__((ensure_init_if_ret(+(-(2))))) out);
+
+// Safe-zone markers are value-transparent, so a wrapped literal stays a literal.
+int safe_wrap(int *__attribute__((ensure_init_if_ret(_Safe(0)))) out);
+int unsafe_wrap(int *__attribute__((ensure_init_if_ret(_Unsafe(1)))) out);
+int safe_nested(int *__attribute__((ensure_init_if_ret(_Safe(-(-1))))) out);
+
+// The wrappers do not launder non-literals.
+int safe_expr(int *__attribute__((ensure_init_if_ret(_Safe(1 + 1)))) out); // expected-error {{__attribute__((ensure_init_if_ret)) argument must be an integer literal}}
+int neg_float(int *__attribute__((ensure_init_if_ret(-(1.5f)))) out); // expected-error {{__attribute__((ensure_init_if_ret)) argument must be an integer literal}}
+int lnot_arg(int *__attribute__((ensure_init_if_ret(!1))) out); // expected-error {{__attribute__((ensure_init_if_ret)) argument must be an integer literal}}
+
 // Boundary values inside the packed cond-value range (signed 16-bit) are
 // accepted; the diagnostic only fires when a literal overflows the bits
 // reserved for the value in ExtParameterInfo (so it can survive through
