@@ -1,0 +1,105 @@
+// RUN: %clang -fbsc-experimental %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+//
+// Test the user-level `remove_nullability` definition proposed in
+// spec proposal 035. The definition is not part of the compiler or of
+// the built-in headers; it uses `__conditional(...)` (the builtin that
+// `conditional<...>` expands to) instead of the `conditional` alias:
+//
+//   * `conditional` is an ordinary alias template, so its type arguments
+//     are instantiated eagerly (standard C++ alias-template semantics)
+//     before the conditional body is reached.
+//   * `__conditional` is the underlying builtin. With the lazy
+//     TreeTransform handling, when its condition is already known only the
+//     selected branch is instantiated, which makes `remove_nullability`
+//     satisfy the proposed semantics.
+//
+// Proposed semantics:
+//
+//   1. For a pointer type with an explicit _Nullable/_Nonnull qualifier,
+//      remove_nullability<T> yields the same pointer type without that
+//      qualifier (ownership and _ArrayElem are preserved).
+//   2. For every other type, remove_nullability<T> should yield T.
+
+#include "bsc_conditional.hbs"
+#include "bsc_type_traits.hbs"
+
+typedef __remove_nullability_safeptr_base<T> = __conditional(is_owned_pointer<T>(), __remove_pointer<T> *_Owned, __remove_pointer<T> *_Borrow);
+typedef __remove_nullability_safeptr<T> = __conditional(is_arrayelem<T>(), __remove_nullability_safeptr_base<T> _ArrayElem, __remove_nullability_safeptr_base<T>);
+typedef __remove_nullability_impl<T> = __conditional(!is_owned_pointer<T>() && !is_borrow<T>(), __remove_pointer<T> *, __remove_nullability_safeptr<T>);
+typedef remove_nullability<T> = __conditional(is_pointer<T>(), __remove_nullability_impl<T>, T);
+
+typedef int MyInt;
+typedef struct G { int a; } G;
+typedef int *_Owned OwnedInt;
+typedef int *_Borrow MutBorrowInt;
+typedef const int *_Borrow ImmutBorrowInt;
+typedef int *_Owned _ArrayElem OwnedArrayElemInt;
+typedef int *_Borrow _ArrayElem BorrowArrayElemInt;
+typedef int *_Owned _Nullable NullableOwnedInt;
+typedef int *_Borrow _Nullable NullableBorrowInt;
+typedef int *_Owned _Nonnull NonnullOwnedInt;
+typedef int *_Borrow _Nonnull NonnullBorrowInt;
+
+int test_remove_nullability() {
+    // --- Non-pointer types: identity ---
+    _Static_assert(is_same<remove_nullability<int>, int>(), "fail");
+    _Static_assert(is_same<remove_nullability<MyInt>, MyInt>(), "fail");
+    _Static_assert(is_same<remove_nullability<void>, void>(), "fail");
+    _Static_assert(is_same<remove_nullability<struct G>, struct G>(), "fail");
+
+    // --- Raw pointers: explicit nullability removed, raw default _Nullable kept ---
+    _Static_assert(is_same<remove_nullability<int *>, int *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Nullable>, int *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Nonnull>, int *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<void *>, void *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<struct G *>, struct G *>() == 1, "fail");
+
+    // --- _Owned pointers: ownership preserved, nullability removed ---
+    _Static_assert(is_same<remove_nullability<int * _Owned>, int * _Owned>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Owned _Nullable>, int * _Owned>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Owned _Nonnull>, int * _Owned>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<OwnedInt>, OwnedInt>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<NullableOwnedInt>, OwnedInt>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<NonnullOwnedInt>, OwnedInt>() == 1, "fail");
+
+    // --- _Borrow pointers: ownership preserved, nullability removed ---
+    _Static_assert(is_same<remove_nullability<int * _Borrow>, int * _Borrow>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Borrow _Nullable>, int * _Borrow>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Borrow _Nonnull>, int * _Borrow>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<const int * _Borrow>, const int * _Borrow>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<MutBorrowInt>, MutBorrowInt>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<ImmutBorrowInt>, ImmutBorrowInt>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<NullableBorrowInt>, MutBorrowInt>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<NonnullBorrowInt>, MutBorrowInt>() == 1, "fail");
+
+    // --- _ArrayElem pointers: _ArrayElem preserved, nullability removed ---
+    _Static_assert(is_same<remove_nullability<int * _Owned _ArrayElem>, int * _Owned _ArrayElem>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Owned _ArrayElem _Nullable>, int * _Owned _ArrayElem>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Owned _ArrayElem _Nonnull>, int * _Owned _ArrayElem>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Borrow _ArrayElem>, int * _Borrow _ArrayElem>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Borrow _ArrayElem _Nullable>, int * _Borrow _ArrayElem>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Borrow _ArrayElem _Nonnull>, int * _Borrow _ArrayElem>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<OwnedArrayElemInt>, OwnedArrayElemInt>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<BorrowArrayElemInt>, BorrowArrayElemInt>() == 1, "fail");
+
+    // --- Function pointers ---
+    _Static_assert(is_same<remove_nullability<int (*)(int)>, int (*)(int)>() == 1, "fail");
+
+    // --- Multi-level pointers ---
+    _Static_assert(is_same<remove_nullability<int **>, int **>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int ** _Nullable>, int **>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Nonnull *>, int * _Nonnull *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Owned *>, int * _Owned *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int * _Borrow *>, int * _Borrow *>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int ** _Borrow>, int ** _Borrow>() == 1, "fail");
+    _Static_assert(is_same<remove_nullability<int ** _Borrow _Nullable>, int ** _Borrow>() == 1, "fail");
+
+    return 0;
+}
+
+int main() {
+    test_remove_nullability();
+    return 0;
+}

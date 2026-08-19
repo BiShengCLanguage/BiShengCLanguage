@@ -6333,6 +6333,19 @@ QualType TreeTransform<Derived>::TransformConditionalType(TypeLocBuilder &TLB,
       return QualType();
   }
 
+  // When the condition is already known, only transform the selected branch
+  // so the unselected branch is not instantiated eagerly. The conditional
+  // sugar is dropped and the selected branch's TypeLoc is copied in directly.
+  if (CondResult.hasValue()) {
+    TypeSourceInfo *OldSel =
+        *CondResult ? TL.getConditionalTInfo1() : TL.getConditionalTInfo2();
+    TypeSourceInfo *NewSel = getDerived().TransformType(OldSel);
+    if (!NewSel)
+      return QualType();
+    TLB.pushFullCopy(NewSel->getTypeLoc());
+    return NewSel->getType();
+  }
+
   TypeSourceInfo* Old_ConditionalTypeInfo1 = TL.getConditionalTInfo1();
   TypeSourceInfo* New_ConditionalTypeInfo1 = getDerived().TransformType(Old_ConditionalTypeInfo1);
   if (!New_ConditionalTypeInfo1)
