@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+
+void use(int *_Borrow p);
+
+// A bare read of a frozen variable in the LHS of a comma operator must be
+// rejected — the LHS sub-instance must use a `Use` action so the read reaches
+// `CheckRead`.
+void comma_lhs_var_read(void) {
+  int x = 1;
+  int *_Borrow b = &_Mut x; // expected-note {{'x' is borrowed here}}
+  int v = (x, 0); // expected-error {{cannot use 'x' because it was mutably borrowed}}
+  (void)v;
+  use(b);
+}
+
+// A bare member read of a frozen struct field in the comma LHS must be
+// rejected as well.
+struct S { int f; };
+void comma_lhs_member_read(void) {
+  struct S s = {.f = 1};
+  int *_Borrow b = &_Mut s.f; // expected-note {{'s.f' is borrowed here}}
+  int v = (s.f, 0); // expected-error {{cannot use 's.f' because it was mutably borrowed}}
+  (void)v;
+  use(b);
+}
+
+// A bare read of a frozen variable nested inside an outer comma LHS must be
+// rejected — the inner comma's LHS sub-instance must also reach `CheckRead`.
+void nested_comma_lhs_read(void) {
+  int x = 1;
+  int y = 2;
+  int *_Borrow b = &_Mut x; // expected-note {{'x' is borrowed here}}
+  int v = ((x, y), 0); // expected-error {{cannot use 'x' because it was mutably borrowed}}
+  (void)v;
+  use(b);
+}

@@ -488,7 +488,7 @@ void ActionExtract::VisitBinaryOperator(BinaryOperator *BO) {
 
 void ActionExtract::VisitBinComma(BinaryOperator *BO) {
   std::vector<std::unique_ptr<Action>> LHSActions =
-      ActionExtract(BO->getLHS(), nullptr, SourceLocation(), rc).GetAction();
+      ActionExtract(BO->getLHS(), rc, Action::Use, RHS).GetAction();
   actions.insert(actions.end(), std::make_move_iterator(LHSActions.begin()),
                  std::make_move_iterator(LHSActions.end()));
   op = RHS;
