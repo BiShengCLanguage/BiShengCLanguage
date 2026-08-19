@@ -1,0 +1,68 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+
+void use(int *_Borrow p);
+
+// Trailing borrow inside a statement expression freezes the borrowee.
+void trailing_borrow_in_stmtexpr(void) {
+  int x = 1;
+  int *_Borrow b = ({ int *_Borrow tmp = &_Mut x; tmp; }); // expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  use(b);
+}
+
+// Extra parentheses around the statement expression do not break tracking.
+void stmtexpr_in_parens(void) {
+  int x = 1;
+  int *_Borrow b = (({ int *_Borrow tmp = &_Mut x; tmp; })); // expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  use(b);
+}
+
+// A comma operator whose RHS is a statement expression still reports the
+// borrow; the comma's LHS has no side effect on the borrow itself.
+void stmtexpr_in_comma_rhs(void) {
+  int x = 1;
+  int *_Borrow b = (0, ({ int *_Borrow tmp = &_Mut x; tmp; })); // expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  use(b);
+}
+
+// A statement expression whose trailing expression is itself a paren-wrapped
+// borrow (rather than a DeclRefExpr to a borrowed local) is still tracked.
+void stmtexpr_trailing_paren_borrow(void) {
+  int x = 1;
+  int *_Borrow b = ({ (&_Mut x); }); // expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  use(b);
+}
+
+// Nested statement expressions: the inner StmtExpr's trailing borrow is the
+// outer StmtExpr's trailing expression and must still freeze the borrowee.
+void nested_stmtexpr(void) {
+  int x = 1;
+  int *_Borrow b = ({ ({ int *_Borrow tmp = &_Mut x; tmp; }); }); // expected-note {{'x' is borrowed here}}
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  use(b);
+}
+
+// A bare read of a frozen variable in a non-trailing statement-expression
+// statement must be rejected — the sub-instance for non-trailing statements
+// must use a `Use` action so the read reaches `CheckRead`.
+void non_trailing_read_of_borrowed(void) {
+  int x = 1;
+  int *_Borrow b = &_Mut x; // expected-note {{'x' is borrowed here}}
+  int v = ({ x; 5; }); // expected-error {{cannot use 'x' because it was mutably borrowed}}
+  (void)v;
+  use(b);
+}
+
+// A member read of a frozen struct in a non-trailing statement-expression
+// statement must be rejected as well.
+struct S { int f; };
+void non_trailing_member_read_of_borrowed(void) {
+  struct S s = {.f = 1};
+  int *_Borrow b = &_Mut s.f; // expected-note {{'s.f' is borrowed here}}
+  int v = ({ s.f; 5; }); // expected-error {{cannot use 's.f' because it was mutably borrowed}}
+  (void)v;
+  use(b);
+}
