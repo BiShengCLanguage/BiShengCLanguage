@@ -317,6 +317,8 @@ Expr *NormalizeInitExpr(Expr *E) {
 //   6. int *p = a == 1 ? nullptr : &a; // ConditionOperator
 //   7. int *p = p1 ?: &a;    // GNU BinaryConditionalOperator
 //   8. int *p = va_arg(ap, int *_Nullable); // VAArgExpr
+//   9. int *p = ({ int *_Nullable t = q; t; }); // StmtExpr
+//  10. int *p = _Generic(q, int *: q, default: (int*)0); // GenericSelectionExpr
 NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
   if (E->isNullExpr(Ctx))
     return NullabilityKind::Nullable;
@@ -370,6 +372,36 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     }
     case Expr::VAArgExprClass:
       return E->getType().getDefNullability();
+    case Expr::StmtExprClass: {
+      // GCC statement expression ({...}) — the value is the trailing
+      // expression of the enclosing compound statement. Use
+      // getStmtExprResult() rather than body_back() so that a trailing
+      // NullStmt (e.g. ({...; t;; })) is skipped; otherwise the nullable
+      // value would be laundered through to Unspecified and escape the
+      // NonnullAssignedByNullable / NullablePointerDereference guards.
+      if (auto *LastExpr = dyn_cast<Expr>(
+              cast<StmtExpr>(E)->getSubStmt()->getStmtExprResult()))
+        return getExprPathNullability(LastExpr);
+      break;
+    }
+    case Expr::GenericSelectionExprClass: {
+      // _Generic — if the selection is not result-dependent, only the
+      // chosen arm can be evaluated at runtime; otherwise be conservative
+      // and union the nullability of all arms.
+      auto *GSE = cast<GenericSelectionExpr>(E);
+      if (!GSE->isResultDependent())
+        return getExprPathNullability(GSE->getResultExpr());
+      NullabilityKind Result = NullabilityKind::Unspecified;
+      for (unsigned I = 0, N = GSE->getNumAssocs(); I < N; ++I) {
+        NullabilityKind NK =
+            getExprPathNullability(GSE->getAssocExprs()[I]);
+        if (NK == NullabilityKind::Nullable)
+          return NullabilityKind::Nullable;
+        if (NK == NullabilityKind::NonNull)
+          Result = NullabilityKind::NonNull;
+      }
+      return Result;
+    }
     case Expr::CStyleCastExprClass: {
       // A pointer cast from a non-zero integer constant expression
       // (e.g. (int*)0x1234, (int*)(123 - 2)) produces a well-known

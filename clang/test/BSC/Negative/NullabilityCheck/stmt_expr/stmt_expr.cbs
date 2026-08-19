@@ -1,0 +1,37 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// GCC statement expression ({...}) — the value is the trailing expression of
+// the compound statement, so its nullability decides the result's. A trailing
+// NullStmt (e.g. ({...; t;; })) must be skipped, matching
+// CompoundStmt::getStmtExprResult().
+
+void stmt_expr_init(int *_Nullable q) {
+  int *_Nonnull p1 = ({ int *_Nullable t = q; t; }); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void stmt_expr_trailing_nullstmt(int *_Nullable q) {
+  // A trailing ';' adds a NullStmt; the value is still the nullable t, so the
+  // launder must still be caught.
+  int *_Nonnull p1 = ({ int *_Nullable t = q; t;; }); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = ({ int *_Nullable t = q; t;;; }); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void stmt_expr_deref(int *_Nullable q) {
+  // The statement expression is the base of a dereference.
+  *({ int *_Nullable t = q; t; }) = 1;   // expected-error {{cannot dereference a possibly-null status pointer}}
+  *({ int *_Nullable t = q; t;; }) = 1;  // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+void stmt_expr_nested(int *_Nullable q) {
+  // Nested statement expressions: the outermost trailing expression decides.
+  int *_Nonnull p = ({ ({ int *_Nullable t = q; t; }); }); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void stmt_expr_safe(int *_Nonnull q) {
+  // A non-null trailing expression is fine.
+  int *_Nonnull p = ({ int *_Nonnull t = q; t; });
+}
+
+int *_Nonnull stmt_expr_return(int *_Nullable q) {
+  return ({ int *_Nullable t = q; t; }); // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}

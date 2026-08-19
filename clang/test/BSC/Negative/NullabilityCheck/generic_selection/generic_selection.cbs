@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// _Generic — only the chosen arm can be evaluated at runtime, so the
+// result's nullability is decided by the chosen arm alone (when the
+// selection is not result-dependent).
+
+void generic_init(int *_Nullable q) {
+  // The chosen arm is the bare nullable operand q, so the diagnostic
+  // names the source operand.
+  int *_Nonnull p1 = _Generic(q, int *: q, default: (int *)0); // expected-error {{cannot assign possibly-null status pointer 'q' to a '_Nonnull' pointer}}
+  // The chosen arm is the null literal, so the diagnostic uses the
+  // generic form.
+  int *_Nonnull p2 = _Generic(q, int *: (int *)0, default: &q); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void generic_safe(int *_Nonnull q) {
+  // The chosen arm is non-null.
+  int *_Nonnull p = _Generic(q, int *: q, default: (int *)0);
+}
+
+int *_Nonnull generic_return(int *_Nullable q) {
+  return _Generic(q, int *: q, default: (int *)0); // expected-error {{cannot return possibly-null status pointer 'q' as a '_Nonnull' pointer}}
+}
