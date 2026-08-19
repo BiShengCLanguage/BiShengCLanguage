@@ -408,6 +408,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       }
       break;
     }
+    case Expr::CompoundAssignOperatorClass:
+      return getExprPathNullability(cast<CompoundAssignOperator>(E)->getLHS());
     case Expr::InitListExprClass: {
       InitListExpr *ILE = cast<InitListExpr>(E);
       if (ILE->getNumInits() > 0) {
@@ -753,7 +755,9 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     Expr *LHS = BO->getLHS();
     QualType LHSQT = LHS->getType();
     if (LHSQT.getCanonicalType()->isPointerType()) {
-      NullabilityKind RHSKind = getExprPathNullability(BO->getRHS());
+      NullabilityKind RHSKind = BO->isCompoundAssignmentOp()
+                                    ? getExprPathNullability(LHS)
+                                    : getExprPathNullability(BO->getRHS());
       NullabilityKind LHSKind = LHSQT.getDefNullability();
       std::string SourceName = getDiagNameFromExpr(BO->getRHS());
 

@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only -verify %s
+
+// Compound-assign handling must not loosen real null checks (Bug 31 guards).
+struct S { int x; };
+
+void plain_null_assign(struct S *_Nonnull s) {
+  s = 0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+int unnarrowed_deref(struct S *_Nullable p) {
+  p += 0;
+  return p->x; // expected-error {{cannot access the member through possibly-null status pointer 'p'}}
+}
+
+void value_use_nullable(struct S *_Nonnull q) {
+  struct S *_Nullable p = nullptr;
+  q = (p += 0); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}

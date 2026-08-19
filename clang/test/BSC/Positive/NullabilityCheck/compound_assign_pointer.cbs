@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only -verify %s
+
+// Pointer compound assign stores p±n: the integer offset RHS must not be
+// treated as a null pointer constant being assigned (Bug 31).
+struct S { int x; int *_Nonnull f; };
+
+int compound_assign_nonnull(struct S *_Nonnull s) {
+  s += 0;
+  s -= 0;
+  s += 1;
+  s = s + 0;
+  return s->x;
+}
+
+int narrowed_nullable_preserved(struct S *_Nullable p) {
+  if (p != nullptr) {
+    p += 0;
+    return p->x;
+  }
+  return 0;
+}
+
+void field_forms(struct S *_Nonnull s) {
+  s->f += 0;
+  (*s).f += 0;
+}
+
+void computed_offsets(struct S *_Nonnull s) {
+  s += (1 ? 0 : 1);
+  s += (0, 0); // expected-warning {{left operand of comma operator has no effect}}
+}
+
+void value_use(struct S *_Nonnull s, struct S *_Nonnull q) {
+  q = (s += 0);
+}
