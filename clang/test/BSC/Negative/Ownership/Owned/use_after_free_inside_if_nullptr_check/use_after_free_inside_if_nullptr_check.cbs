@@ -53,16 +53,16 @@ int assign_to_field_after_free() {
   if (p != nullptr) {
     read_data(&_Mut *p);
     safe_free((void *_Owned)p);
-    p->value += 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value -= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value *= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value /= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value %= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value >>=1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value <<=1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value &= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value |= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
-    p->value ^= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
+    p->value += 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value -= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value *= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value /= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value %= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value >>=1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value <<=1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value &= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value |= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
+    p->value ^= 1; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}} expected-error {{use of moved value: 'p.value'}}
     ++p->value; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
     --p->value; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}
     (p->value)++; // expected-error {{cannot assign to 'p.value' because the value it belongs to was moved}}

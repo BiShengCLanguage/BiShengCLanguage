@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+_Safe void safe_free(void *_Owned p);
+_Safe int *_Owned safe_malloc_int(int n);
+
+struct S { int *_Owned p; };
+
+// Compound assignment on a moved owned struct member must trigger
+// use-after-move: `*(s.p) += 5` has the semantics `*(s.p) = *(s.p) + 5`, so
+// the LHS is read before being written.
+_Safe int main(void) {
+  struct S s;
+  s.p = safe_malloc_int(1);
+  struct S t = s; // move s → t
+  *(s.p) += 5; // expected-error {{use of moved value: 's.p'}}
+  safe_free((void *_Owned)t.p);
+  return 0;
+}
+
+// All compound opcodes share the same read-then-write semantics.
+_Safe int all_compound_ops(void) {
+  struct S s;
+  s.p = safe_malloc_int(1);
+  struct S t = s; // move s → t
+  int *_Owned p = safe_malloc_int(1);
+  *p += 1; // ok: p is not moved
+  *p -= 1;
+  *p *= 2;
+  *p /= 2;
+  safe_free((void *_Owned)p);
+  *(s.p) -= 1; // expected-error {{use of moved value: 's.p'}}
+  safe_free((void *_Owned)t.p);
+  return 0;
+}
+
+// Compound assign on a moved owned primitive (scalar deref) must also report.
+_Safe int scalar_deref_moved(void) {
+  int *_Owned p = safe_malloc_int(1);
+  int *_Owned q = p; // move
+  *q += 5;
+  *p += 5; // expected-error {{use of moved value: 'p'}}
+  safe_free((void *_Owned)q);
+  return 0;
+}

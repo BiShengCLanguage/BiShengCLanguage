@@ -2612,6 +2612,7 @@ public:
 
   void VisitArraySubscriptExpr(ArraySubscriptExpr *ASE);
   void VisitBinaryOperator(BinaryOperator *BO);
+  void VisitCompoundAssignOperator(CompoundAssignOperator *CAO);
   void VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *UE);
   void VisitCallExpr(CallExpr *CE);
   void VisitCStyleCastExpr(CStyleCastExpr *CSCE);
@@ -3305,6 +3306,18 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     op = VisitMode;
     Visit(BO->getRHS());
   }
+}
+
+/// Compound assignment (`x += y`) reads LHS before writing it. Visit LHS with
+/// a use-checking op first, then fall through to the regular assignment path.
+void TransferFunctions::VisitCompoundAssignOperator(
+    CompoundAssignOperator *CAO) {
+  Expr *LHS = CAO->getLHS();
+  Operation Saved = op;
+  op = GetAddr;
+  Visit(LHS);
+  op = Saved;
+  VisitBinaryOperator(CAO);
 }
 
 void TransferFunctions::VisitAbstractConditionalOperator(
