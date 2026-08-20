@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
+// expected-no-diagnostics
+
+// Discarding an initialized value reads it legitimately. An assignment or a
+// call as a statement yields a value too, but reads nothing extra.
+
+_Safe int f(void);
+
+_Safe void discarded_reads(void) {
+    int x = 1;
+    x;
+    (void)x;
+}
+
+_Safe void assignment_statement(void) {
+    int x;
+    x = 1;      // writes, does not read
+    x;
+}
+
+_Safe void call_statement(void) {
+    f();
+}
+
+// An unevaluated operand is not read, however the value would be discarded.
+
+_Safe unsigned long unevaluated(void) {
+    int x;
+    return sizeof(x) + sizeof(x + 1);
+}
+
+// An increment that is never reached is never read.
+
+_Safe void unreachable_increment(void) {
+    int x;
+    for (; 0; x) { }
+}
+
+_Safe void comma_over_initialized(void) {
+    int x = 1;
+    int y = 2;
+    (x, y);
+    for (int i = 0; i < 1; i++, x) { }
+}

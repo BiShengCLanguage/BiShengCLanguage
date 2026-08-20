@@ -168,6 +168,27 @@ Operand BSCIRBuilder::lowerToOperand(const Expr *E) {
   return Visit(const_cast<Expr *>(E));
 }
 
+void BSCIRBuilder::lowerDiscardedExpr(const Expr *E) {
+  // A discarded comma discards both of its operands.
+  if (const auto *BO = dyn_cast<BinaryOperator>(E->IgnoreParens()))
+    if (BO->getOpcode() == BO_Comma) {
+      lowerDiscardedExpr(BO->getLHS());
+      lowerDiscardedExpr(BO->getRHS());
+      return;
+    }
+
+  Operand Op = lowerToOperand(E);
+  // A discarded lvalue-to-rvalue conversion still loads the place.
+  const auto *ICE = dyn_cast<ImplicitCastExpr>(E);
+  if (ICE && ICE->getCastKind() == CK_LValueToRValue &&
+      (Op.K == Operand::Copy || Op.K == Operand::Move)) {
+    LocalId Tmp = TheBody->addTemp(E->getType(), E->getExprLoc());
+    Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
+    emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Op),
+                                 currentSafeZone(), E, E->getExprLoc()));
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Parameter Lowering
 //===----------------------------------------------------------------------===//
@@ -337,7 +358,7 @@ void BSCIRBuilder::lowerStmt(const Stmt *S) {
 
   // Expression statements
   if (auto *E = dyn_cast<Expr>(S)) {
-    Visit(const_cast<Expr *>(E));
+    lowerDiscardedExpr(E);
     return;
   }
 
@@ -499,7 +520,7 @@ void BSCIRBuilder::lowerForStmt(const ForStmt *FS) {
   // Increment block
   switchToBlock(IncrBB);
   if (FS->getInc())
-    Visit(const_cast<Expr *>(FS->getInc()));
+    lowerDiscardedExpr(FS->getInc());
   setTerminator(Terminator::createGoto(CondBB, currentSafeZone()));
 
   // Exit
@@ -832,7 +853,7 @@ Operand BSCIRBuilder::VisitBinaryOperator(BinaryOperator *BO) {
 
   // Comma operator: evaluate LHS for side effects, return RHS.
   if (BO->getOpcode() == BO_Comma) {
-    lowerToOperand(BO->getLHS());   // side effects only
+    lowerDiscardedExpr(BO->getLHS());
     return lowerToOperand(BO->getRHS());
   }
 
