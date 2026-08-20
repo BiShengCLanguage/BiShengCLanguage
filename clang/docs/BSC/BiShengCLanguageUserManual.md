@@ -9329,3 +9329,11 @@ _external-declaration :
 #### B.3. Preprocessing directives
 
 无新增或修改。
+
+### 附录C. GNU C扩展
+
+下面的列表包含了毕昇C语言支持的GNU C扩展。
+
+- [Referring to a Type with typeof](https://gcc.gnu.org/onlinedocs/gcc/Typeof.html)
+- [Conditionals with Omitted Operands](https://gcc.gnu.org/onlinedocs/gcc/Conditionals.html)
+- [Statements and Declarations in Expressions](https://gcc.gnu.org/onlinedocs/gcc/Statement-Exprs.html)
