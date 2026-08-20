@@ -401,10 +401,6 @@ public:
       Visit(S);
     }
   }
-  ActionExtract(Stmt *S, RegionCheck &rc, Action::ActionKind K, decltype(op) Op)
-      : rc(rc), Kind(K), op(Op) {
-    Visit(S);
-  }
 
   ~ActionExtract() = default;
 
@@ -429,7 +425,6 @@ public:
   void VisitMemberExpr(MemberExpr *ME);
   void VisitReturnStmt(ReturnStmt *RS);
   void VisitStmt(Stmt *S);
-  void VisitStmtExpr(StmtExpr *SE);
   void VisitUnaryAddrConst(UnaryOperator *UO);
   void VisitUnaryAddrConstDeref(UnaryOperator *UO);
   void VisitUnaryAddrMut(UnaryOperator *UO);
@@ -488,26 +483,11 @@ void ActionExtract::VisitBinaryOperator(BinaryOperator *BO) {
 
 void ActionExtract::VisitBinComma(BinaryOperator *BO) {
   std::vector<std::unique_ptr<Action>> LHSActions =
-      ActionExtract(BO->getLHS(), rc, Action::Use, RHS).GetAction();
+      ActionExtract(BO->getLHS(), nullptr, SourceLocation(), rc).GetAction();
   actions.insert(actions.end(), std::make_move_iterator(LHSActions.begin()),
                  std::make_move_iterator(LHSActions.end()));
   op = RHS;
   Visit(BO->getRHS());
-}
-
-void ActionExtract::VisitStmtExpr(StmtExpr *SE) {
-  CompoundStmt *CS = SE->getSubStmt();
-  if (CS->body_empty())
-    return;
-  for (Stmt *S : CS->body()) {
-    if (S == CS->body_back())
-      break;
-    std::vector<std::unique_ptr<Action>> SubActions =
-        ActionExtract(S, rc, Action::Use, RHS).GetAction();
-    actions.insert(actions.end(), std::make_move_iterator(SubActions.begin()),
-                   std::make_move_iterator(SubActions.end()));
-  }
-  Visit(CS->body_back());
 }
 
 void ActionExtract::VisitBinAssign(BinaryOperator *BO) {
