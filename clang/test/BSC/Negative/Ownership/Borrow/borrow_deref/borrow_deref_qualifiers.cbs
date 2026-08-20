@@ -1,0 +1,123 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s | FileCheck %s
+
+// This specialization currently misses the move-from-borrow diagnostics because
+// instantiated generic function bodies are not checked again.  It must still
+// preserve all BSC qualifiers during lvalue-to-rvalue conversion.
+_Safe void safe_swap_array<T>(T _Nullable *_Borrow left,
+                              T _Nullable *_Borrow right) {
+  T tmp = *left;
+  *left = *right;
+  *right = tmp;
+}
+
+_Safe void test_array(void **_Owned _ArrayElem _Nullable *_Borrow p1,
+                      void **_Owned _ArrayElem _Nullable *_Borrow p2) {
+  safe_swap_array(p1, p2);
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} used safe_swap_array 'void (void **_Owned _ArrayElem _Nullable *_Borrow
+// CHECK: VarDecl {{.*}} tmp 'void **_Owned _ArrayElem _Nullable'
+// CHECK-NEXT: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable' <LValueToRValue>
+
+// Deliberately omit _ArrayElem and _Nullable from tmp.  The first and third
+// assignments are real safe-zone conversion errors.  The middle assignment has
+// matching types and must only diagnose moving an owned value through a borrow.
+_Safe void safe_swap1(void **_Owned _ArrayElem _Nullable *_Borrow left,
+                      void **_Owned _ArrayElem _Nullable *_Borrow right) {
+  void **_Owned tmp = *left; // expected-error {{cannot take ownership of a borrowed value}} expected-error {{conversion from type 'void **_Owned _ArrayElem _Nullable' to 'void **_Owned' is forbidden in the safe zone}}
+  *left = *right; // expected-error {{cannot take ownership of a borrowed value}}
+  *right = tmp; // expected-error {{conversion from type 'void **_Owned' to 'void **_Owned _ArrayElem _Nullable' is forbidden in the safe zone}}
+}
+
+_Safe void test_concrete_mismatch(
+    void **_Owned _ArrayElem _Nullable *_Borrow p1,
+    void **_Owned _ArrayElem _Nullable *_Borrow p2) {
+  safe_swap1(p1, p2);
+}
+
+// With exactly matching types, initialization and assignment must not produce
+// conversion diagnostics.  The remaining errors are move-from-borrow errors.
+_Safe void safe_swap_exact(
+    void **_Owned _ArrayElem _Nullable *_Borrow left,
+    void **_Owned _ArrayElem _Nullable *_Borrow right) {
+  void **_Owned _ArrayElem _Nullable tmp = *left; // expected-error {{cannot take ownership of a borrowed value}}
+  *left = *right; // expected-error {{cannot take ownership of a borrowed value}}
+  *right = tmp;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} safe_swap_exact
+// CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable' <LValueToRValue>
+
+_Safe void consume_array(void **_Owned _ArrayElem _Nullable value);
+
+_Safe void pass_array(
+    void **_Owned _ArrayElem _Nullable *_Borrow source) {
+  consume_array(*source); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} pass_array
+// CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable' <LValueToRValue>
+
+_Safe void **_Owned _ArrayElem _Nullable return_array(
+    void **_Owned _ArrayElem _Nullable *_Borrow source) {
+  return *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} return_array
+// CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable' <LValueToRValue>
+
+// Raw _Nonnull pointers are copyable.  These cases cover initialization,
+// assignment, argument passing, return, and conditional conversions without
+// introducing ownership diagnostics.
+_Safe void swap_raw_nonnull(void *_Nonnull *_Borrow left,
+                            void *_Nonnull *_Borrow right) {
+  void *_Nonnull tmp = *left;
+  *left = *right;
+  *right = tmp;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} swap_raw_nonnull
+// CHECK: ImplicitCastExpr {{.*}} 'void *_Nonnull' <LValueToRValue>
+
+_Safe void consume_raw_nonnull(void *_Nonnull value);
+
+_Safe void pass_raw_nonnull(void *_Nonnull *_Borrow source) {
+  consume_raw_nonnull(*source);
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} pass_raw_nonnull
+// CHECK: ImplicitCastExpr {{.*}} 'void *_Nonnull' <LValueToRValue>
+
+_Safe void *_Nonnull return_raw_nonnull(
+    void *_Nonnull *_Borrow source) {
+  return *source;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} return_raw_nonnull
+// CHECK: ImplicitCastExpr {{.*}} 'void *_Nonnull' <LValueToRValue>
+
+_Safe void *_Nonnull conditional_raw_nonnull(
+    _Bool select, void *_Nonnull *_Borrow left,
+    void *_Nonnull *_Borrow right) {
+  return select ? *left : *right;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} conditional_raw_nonnull
+// CHECK: ImplicitCastExpr {{.*}} 'void *_Nonnull' <LValueToRValue>
+
+_Safe _Bool compare_owned_nullable(
+    void **_Owned _ArrayElem _Nullable *_Borrow source) {
+  return *source == nullptr;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} compare_owned_nullable
+// CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable' <LValueToRValue>
+
+_Safe _Bool compare_owned_nonnull(
+    void **_Owned _ArrayElem _Nonnull *_Borrow source) {
+  return *source == nullptr;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} compare_owned_nonnull
+// CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nonnull' <LValueToRValue>

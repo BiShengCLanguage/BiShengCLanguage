@@ -731,12 +731,10 @@ QualType QualType::removeConstForBorrow(const ASTContext &Context) {
   QualType directPointee = getTypePtr()->getPointeeType();
   directPointee.removeLocalConst();
   QualType result = Context.getPointerType(directPointee);
-  // Preserve owned/borrow qualifiers from the original pointer type.
-  if (isOwnedQualified())
-    result.addOwned();
-  if (isBorrowQualified())
-    result.addBorrow();
-  return result;
+  // Preserve _Owned / _Borrow / _ArrayElem / _Nullable / _Nonnull qualifiers from the original pointer type.
+  Qualifiers BSCQuals =
+      getOnlyBSCQualifiedType(Context).getLocalQualifiers();
+  return Context.getQualifiedType(result, BSCQuals);
 }
 
 #endif
