@@ -141,6 +141,7 @@ private:
   void lowerBreakStmt(const BreakStmt *BS);
   void lowerContinueStmt(const ContinueStmt *CS);
   void lowerGotoStmt(const GotoStmt *GS);
+  void enterLabelBlock(const LabelStmt *LS);
   void lowerLabelStmt(const LabelStmt *LS);
   void lowerReturnStmt(const ReturnStmt *RS);
 

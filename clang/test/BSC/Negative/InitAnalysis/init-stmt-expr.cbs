@@ -47,3 +47,18 @@ _Safe int main(void){
   int v = ({x;}); // expected-error {{use of uninitialized value: 'x'}}
   return v;
 }
+
+// The value is the statement the block yields: trailing null statements are
+// skipped, and a label or attribute in that position yields its subexpression.
+
+_Safe int trailing_null(void) {
+    int x;
+    int y = ({ x;; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int labelled_value(void) {
+    int x;
+    int y = ({ l: x; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}

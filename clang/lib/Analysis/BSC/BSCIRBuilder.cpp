@@ -688,7 +688,7 @@ void BSCIRBuilder::lowerGotoStmt(const GotoStmt *GS) {
   switchToBlock(DeadBB);
 }
 
-void BSCIRBuilder::lowerLabelStmt(const LabelStmt *LS) {
+void BSCIRBuilder::enterLabelBlock(const LabelStmt *LS) {
   BasicBlockId LabelBB = getOrCreateLabelBlock(LS->getDecl());
   // Record scope depth at the label for goto cleanup
   LabelScopeDepth[LS->getDecl()] = ScopeStack.size();
@@ -696,6 +696,10 @@ void BSCIRBuilder::lowerLabelStmt(const LabelStmt *LS) {
   if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
     setTerminator(Terminator::createGoto(LabelBB, currentSafeZone()));
   switchToBlock(LabelBB);
+}
+
+void BSCIRBuilder::lowerLabelStmt(const LabelStmt *LS) {
+  enterLabelBlock(LS);
   // Lower the sub-statement
   lowerStmt(LS->getSubStmt());
 }
@@ -1372,17 +1376,34 @@ Operand BSCIRBuilder::VisitStmtExpr(StmtExpr *SE) {
 
   ScopeStack.push_back({});
 
-  for (auto It = CS->body_begin(), End = CS->body_end(); It != End; ++It) {
-    const Stmt *S = *It;
-    const Expr *ValueExpr =
-        std::next(It) == End ? dyn_cast<Expr>(S) : nullptr;
-    if (!ValueExpr) {
+  // The value is the statement a statement expression yields, which skips
+  // trailing null statements and reaches through labels and attributes.
+  const Stmt *ResultStmt = CS->body_empty() ? nullptr : CS->getStmtExprResult();
+
+  for (const Stmt *S : CS->body()) {
+    if (S != ResultStmt) {
       lowerStmt(S);
       continue;
     }
-    Operand Value = lowerToOperand(ValueExpr);
+    const Stmt *Value = ResultStmt;
+    while (!isa<Expr>(Value)) {
+      if (const auto *LS = dyn_cast<LabelStmt>(Value)) {
+        enterLabelBlock(LS);
+        Value = LS->getSubStmt();
+      } else if (const auto *AS = dyn_cast<AttributedStmt>(Value)) {
+        Value = AS->getSubStmt();
+      } else {
+        break;
+      }
+    }
+    const auto *ValueExpr = dyn_cast<Expr>(Value);
+    if (!ValueExpr) {
+      lowerStmt(Value);
+      continue;
+    }
+    Operand Op = lowerToOperand(ValueExpr);
     if (!SE->getType()->isVoidType())
-      emit(Statement::createAssign(ResultPlace, Rvalue::createUse(Value),
+      emit(Statement::createAssign(ResultPlace, Rvalue::createUse(Op),
                                    currentSafeZone(), SE, SE->getExprLoc()));
   }
 

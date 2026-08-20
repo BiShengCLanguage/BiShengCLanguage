@@ -51,3 +51,18 @@ _Safe int block_local_assigned_late(void) {
     int y = ({ int t; t = 3; t; });
     return y;
 }
+
+_Safe int trailing_null_ok(void) {
+    int x = 5;
+    return ({ x;;; });
+}
+
+_Safe int labelled_value_ok(void) {
+    int x = 5;
+    return ({ l: x; });
+}
+
+_Safe void empty_block_ok(void) {
+    ({ });
+    ({ ; });
+}
