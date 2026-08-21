@@ -264,7 +264,6 @@ LANGOPT(DumpBSCIR, 1, 0, "dump BSCIR")
 LANGOPT(BSCExperimental, 1, 0, "BSC experimental features")
 ENUM_LANGOPT(NullabilityCheck, NullCheckZone, 2, NC_SAFE, "nullability check")
 ENUM_LANGOPT(UninitCheck, UninitCheckZone, 2, UC_SAFE, "init analysis check")
-ENUM_LANGOPT(SpatialCheck, SpatialCheckMode, 2, SC_STATIC, "spatial safety check")
 #endif
 
 ENUM_LANGOPT(HLSLVersion, HLSLLangStd, 16, HLSL_Unset, "HLSL Version")

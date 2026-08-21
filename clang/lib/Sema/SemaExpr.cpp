@@ -5949,13 +5949,8 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
 #if ENABLE_BSC
   if (getLangOpts().BSC) {
     QualType BaseType = Base->getType();
-    // Before the _ArrayElem proposal lands, we have -spatial-check=user to
-    // allow users to do array subscripting on owned/borrow pointers.
-    // We will remove this support after code depending on this feature is migrated
-    // to the new syntax.
     if (BaseType->isPointerType()) {
-      bool IsAllowArraySubscript = BaseType.isArrayElemQualified() ||
-          (getLangOpts().getSpatialCheck() == LangOptions::SC_USER);
+      bool IsAllowArraySubscript = BaseType.isArrayElemQualified();
       if (BaseType.isOwnedQualified() && !IsAllowArraySubscript) {
         return ExprError(Diag(LLoc, diag::err_bsc_op_not_supported)
                          << "array subscript" << BaseType
@@ -5964,16 +5959,6 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
       if (BaseType.isBorrowQualified() && !IsAllowArraySubscript) {
         return ExprError(Diag(LLoc, diag::err_typecheck_borrow_subscript));
       }
-    }
-    // Array subscripting on owned/borrowed pointers to types with owned fields
-    // is disallowed in all modes, including -spatial-check=user and
-    // -spatial-check=static.
-    if (BaseType->isPointerType() &&
-        (BaseType.isOwnedQualified() || BaseType.isBorrowQualified()) &&
-        !BaseType.isArrayElemQualified() && BaseType->hasOwnedFields()) {
-      return ExprError(Diag(LLoc, diag::err_bsc_op_not_supported)
-                       << "array subscript" << BaseType
-                       << Base->getSourceRange());
     }
   }
 #endif

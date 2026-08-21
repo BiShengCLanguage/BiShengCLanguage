@@ -4833,14 +4833,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
     else
       CmdArgs.push_back(Args.MakeArgString("-uninit-check=" + v));
   }
-  if (Args.hasArg(options::OPT_spatial_check)) {
-    Arg *A = Args.getLastArg(options::OPT_spatial_check);
-    StringRef v = A->getValue();
-    if (v.empty())
-      D.Diag(diag::err_drv_missing_argument) << A->getSpelling() << 1;
-    else
-      CmdArgs.push_back(Args.MakeArgString("-spatial-check=" + v));
-  }
 #endif
 
   auto *MemProfArg = Args.getLastArg(options::OPT_fmemory_profile,
