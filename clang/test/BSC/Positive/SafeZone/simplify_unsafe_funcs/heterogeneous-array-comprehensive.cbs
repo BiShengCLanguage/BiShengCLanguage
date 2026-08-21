@@ -11,7 +11,7 @@ int const_process(const void* src, unsigned int size);
 _Safe void test1(void) {
     const int arr[20];
     _Unsafe {
-        const_process(arr, sizeof(arr));  // Matches _Unsafe: const void* (no _Borrow)
+        const_process(arr, sizeof(arr));  // Prefers _Safe: const void* _Borrow (array can decay to _Borrow)
     }
 }
 
@@ -45,7 +45,7 @@ void process_buffer(void* buf, int size);
 _Safe void test4(void) {
     DataBuffer db;
     _Unsafe {
-        process_buffer(db.buffer, 128);  // Matches _Unsafe: void* (no _Borrow)
+        process_buffer(db.buffer, 128);  // Prefers _Safe: void* _Borrow (array can decay to _Borrow)
         process_buffer(db.values, 32);
     }
 }
@@ -80,7 +80,7 @@ void nested_func(int* data);
 _Safe void test6(void) {
     NestedStruct ns;
     _Unsafe {
-        nested_func(ns.inner.nested);  // Matches _Unsafe: int* (no _Borrow)
+        nested_func(ns.inner.nested);  // Prefers _Safe: int* _Borrow (array can decay to _Borrow)
     }
 }
 
@@ -188,6 +188,6 @@ void* alloc_unsafe(void* hint, unsigned long size);
 _Safe void test15(void) {
     char buffer[128];
     _Unsafe {
-        alloc_unsafe(buffer, 256);  // Matches _Unsafe version
+        alloc_unsafe(buffer, 256);  // Prefers _Safe version
     }
 }

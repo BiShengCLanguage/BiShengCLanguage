@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+int foo(char*);
+_Safe int foo(char*_Borrow);
+
+_Safe void safe_caller(void) {
+  char a[10] = "";
+  foo(a);
+}
+
+void unsafe_caller(void) {
+  char a[10] = "";
+  foo(a);
+}

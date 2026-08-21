@@ -342,15 +342,6 @@ static int CheckCallAssignmentConstraints(Sema &S, FunctionDecl *FD,
     QualType ParamType = FD->getParamDecl(I)->getType();
     QualType ArgType = Args[I]->getType();
 
-    // String literals (including __FUNCTION__ and ternary string exprs) can
-    // auto-borrow to borrow pointers; plain arrays cannot.
-    if (ArgType->isArrayType() && ParamType->isPointerType() &&
-        ParamType.isBorrowQualified()) {
-      if (!S.IsStringLiteralExpr(Args[I]))
-        return (int)I;
-      continue;
-    }
-
     if (!S.DoPointerTypesSatisfyAssignmentConstraints(ParamType, ArgType))
       return (int)I;
   }

@@ -8,7 +8,7 @@ _Safe void test1(void){
      printf("test string\r\n"); // expected-warning {{format string is not a string literal (potentially insecure)}} expected-note {{treat the string as an argument to avoid this}}
 }
 
-// Test 2: Array to void* in _Unsafe context (should select _Unsafe version)
+// Test 2: Array to void* in _Unsafe context (should prefer _Safe version)
 extern void * test(const char * p);
 extern _Safe void * test(const char * p);
 
@@ -25,11 +25,11 @@ extern _Safe int process(void* data);
 _Safe void test3(void) {
     int arr[10];
     _Unsafe {
-        process(arr);  // Should select _Unsafe version (array decays to raw pointer)
+        process(arr);  // Prefers _Safe version (identical signature)
     }
 }
 
-// Test 4: memset_s with array argument (should select _Unsafe version)
+// Test 4: memset_s with array argument (should prefer _Safe version)
 typedef struct{
     unsigned int bits[256];
 }bit_stream;
@@ -41,6 +41,6 @@ bit_stream* stram=nullptr;
 
 _Safe void test4(int n){
     _Unsafe{
-        memset_s(stram[n].bits,0,0,0);  // Should select _Unsafe version (array cannot match _Borrow)
+        memset_s(stram[n].bits,0,0,0);  // Prefers _Safe version (array decays to void* _Borrow)
     }
 }
