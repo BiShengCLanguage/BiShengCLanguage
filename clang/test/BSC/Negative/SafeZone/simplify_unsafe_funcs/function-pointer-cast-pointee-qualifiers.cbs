@@ -1,0 +1,96 @@
+// RUN: %clang_cc1 -fsyntax-only -verify -x bsc %s
+
+// Function pointer casts in a safe zone must not change the mutability exposed
+// by a parameter or return type.  The first three cases are the original
+// reproductions from error-record/dts/test1.cbs through test3.cbs.
+
+typedef _Safe void (*ConstParamFn)(const int *_Borrow);
+typedef _Safe int *_Borrow (*MutReturnFn)(int *_Borrow);
+
+_Safe void mutate_arg(int *_Borrow p) {
+  *p = 999;
+}
+
+_Safe const int *_Borrow return_const(int *_Borrow p) {
+  *p = 9999;
+  return p;
+}
+
+_Safe int test1(void) {
+  ConstParamFn fp = (ConstParamFn)mutate_arg; // expected-error {{conversion from type '_Safe void (*)(int *_Borrow)' to 'ConstParamFn' (aka 'void (*)(const int *_Borrow)') is forbidden}}
+  int x = 5;
+  const int *_Borrow c = &_Const x;
+  fp(c);
+  return x;
+}
+
+_Safe int test2(void) {
+  MutReturnFn fp = (MutReturnFn)return_const; // expected-error {{conversion from type '_Safe const int *_Borrow (*)(int *_Borrow)' to 'MutReturnFn' (aka 'int *_Borrow (*)(int *_Borrow)') is forbidden}}
+  int x = 5;
+  int *_Borrow b = &_Mut x;
+  const int *_Borrow r = fp(b);
+  (void)r;
+  return x;
+}
+
+_Safe int test3(void) {
+  MutReturnFn fp = (MutReturnFn)return_const; // expected-error {{conversion from type '_Safe const int *_Borrow (*)(int *_Borrow)' to 'MutReturnFn' (aka 'int *_Borrow (*)(int *_Borrow)') is forbidden}}
+  int x = 5;
+  int *_Borrow b = &_Mut x;
+  int *_Borrow r = fp(b);
+  *r = 999;
+  return x;
+}
+
+// Multi-level pointer cases.  These exercise const below more than one
+// pointer layer, including const on an intermediate pointer.
+
+typedef _Safe void (*NestedConstParamFn)(const int **_Borrow);
+typedef _Safe int **_Borrow (*NestedMutReturnFn)(int **_Borrow);
+typedef _Safe void (*IntermediateConstParamFn)(int * const **_Borrow);
+
+_Safe void take_nested_mut(int **_Borrow p);
+_Safe const int **_Borrow return_nested_const(int **_Borrow p);
+_Safe void take_intermediate_mut(int ***_Borrow p);
+
+_Safe void test_nested_parameter(void) {
+  NestedConstParamFn fp = (NestedConstParamFn)take_nested_mut; // expected-error {{conversion from type '_Safe void (*)(int **_Borrow)' to 'NestedConstParamFn' (aka 'void (*)(const int **_Borrow)') is forbidden}}
+}
+
+_Safe void test_nested_return(void) {
+  NestedMutReturnFn fp = (NestedMutReturnFn)return_nested_const; // expected-error {{conversion from type '_Safe const int **_Borrow (*)(int **_Borrow)' to 'NestedMutReturnFn' (aka 'int **_Borrow (*)(int **_Borrow)') is forbidden}}
+}
+
+_Safe void test_intermediate_pointer_const(void) {
+  IntermediateConstParamFn fp = (IntermediateConstParamFn)take_intermediate_mut; // expected-error {{conversion from type '_Safe void (*)(int ***_Borrow)' to 'IntermediateConstParamFn' (aka 'void (*)(int *const **_Borrow)') is forbidden}}
+}
+
+// Check const compatibility recursively when a function parameter or return
+// type is itself a function pointer.
+typedef _Safe void (*MutParamFn)(int *_Borrow);
+typedef _Safe void (*TakesConstCallback)(ConstParamFn);
+typedef _Safe const int *_Borrow (*ConstReturnFn)(int *_Borrow);
+typedef _Safe MutReturnFn (*ReturnsMutCallback)(void);
+
+_Safe void takes_mut_callback(MutParamFn callback);
+_Safe ConstReturnFn returns_const_callback(void);
+
+_Safe void test_nested_callback_parameter(void) {
+  TakesConstCallback fp =
+      (TakesConstCallback)takes_mut_callback; // expected-error {{conversion from type 'void (*)(MutParamFn)' (aka 'void (*)(void (*)(int *_Borrow))') to 'TakesConstCallback' (aka 'void (*)(void (*)(const int *_Borrow))') is forbidden}}
+}
+
+_Safe void test_nested_callback_return(void) {
+  ReturnsMutCallback fp =
+      (ReturnsMutCallback)returns_const_callback; // expected-error {{conversion from type 'ConstReturnFn (*)(void)' (aka 'const int *_Borrow (*(*)(void))(int *_Borrow)') to 'ReturnsMutCallback' (aka 'int *_Borrow (*(*)(void))(int *_Borrow)') is forbidden}}
+}
+
+// Top-level const on a by-value function parameter does not change the
+// function signature and must remain compatible.
+typedef _Safe void (*TopLevelConstParamFn)(int * const _Borrow);
+_Safe void take_top_level_mut(int *_Borrow p);
+
+_Safe void test_top_level_parameter_const(void) {
+  TopLevelConstParamFn fp = (TopLevelConstParamFn)take_top_level_mut;
+  (void)fp;
+}

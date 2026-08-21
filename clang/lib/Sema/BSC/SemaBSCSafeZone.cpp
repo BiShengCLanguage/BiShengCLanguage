@@ -499,8 +499,7 @@ static bool DoPointerTypesSatisfyAssignmentConstraintsImpl(
   QualType SrcPointee = Src->getPointeeType();
 
   // Pointee types must match exactly.
-  if (DestPointee.getCanonicalType().getUnqualifiedType() !=
-      SrcPointee.getCanonicalType().getUnqualifiedType())
+  if (DestPointee.getCanonicalType() != SrcPointee.getCanonicalType())
     return false;
 
   // Const compatibility: mut -> const is OK, const -> mut is NOT OK.
