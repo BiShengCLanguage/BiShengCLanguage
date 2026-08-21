@@ -193,7 +193,7 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 
 ---
 
-## NULLABLE — nullable pointer (5 errors)
+## NULLABLE — nullable pointer (7 errors)
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
@@ -202,6 +202,8 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | NULLABLE-003 | err_return_nullable | cannot return %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 as a '_Nonnull' pointer | — |
 | NULLABLE-004 | err_nullable_pointer_access_member | cannot access the member through %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 | — |
 | NULLABLE-005 | err_bsc_nullptr_cast | cannot cast an object of type `nullptr_t` to %1 / %1 to `nullptr_t` | — |
+| NULLABLE-006 | err_assume_null_not_nullable | __assume_null requires a _Nullable pointer argument | — |
+| NULLABLE-007 | err_assume_null_complex_arg | unsupported __assume_null argument | — |
 
 ---
 
@@ -215,9 +217,9 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | MISC-      | declaration / dispatch        | 6      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
 | NONNULL-   | nonnull pointer               | 3      | 0        |
-| NULLABLE-  | nullable pointer              | 5      | 0        |
-| **Total**  |                               | **120** | **1**   |
+| NULLABLE-  | nullable pointer              | 7      | 0        |
+| **Total**  |                               | **122** | **1**   |
 
-Plus **25 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
+Plus **26 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 
 Out-of-scope BSC features (not coded here): traits, async/await, generic, constexpr, operator overload, instance member functions. These contribute several more errors, one warning (`warn_type_has_not_impl_trait`), and one note (`note_no_this_parameter`).

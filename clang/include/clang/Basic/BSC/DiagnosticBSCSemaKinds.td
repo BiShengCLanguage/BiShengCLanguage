@@ -295,6 +295,14 @@ def note_assume_init_complex_arg_hint : Note<
   "the argument must be '&' applied to a variable, struct field access, "
   "or pointer dereference">;
 
+// __assume_null
+def err_assume_null_not_nullable : Error<
+  "__assume_null requires a _Nullable pointer argument">;
+def err_assume_null_complex_arg : Error<
+  "unsupported __assume_null argument">;
+def note_assume_null_complex_arg_hint : Note<
+  "the argument must be a variable or struct field access">;
+
 // assign
 def err_ownership_assign_owned : Error<
   "cannot assign to '%0' because it still holds an _Owned value; move or free it first">;

@@ -18,6 +18,7 @@
 #include "clang/Analysis/Analyses/PostOrderCFGView.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
+#include "clang/Basic/Builtins.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
@@ -3348,6 +3349,20 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
     return;
 
   isHandlingCallExpr = false;
+
+  // __assume_null: the callee promises the _Nullable owned pointer has been
+  // freed and set to null by an opaque legacy API the analyzer cannot model.
+  // Unlike a normal Move (which records Moved and still flags a leak at scope
+  // end), set the pointer to Null: no ownership held, no leak, and a later
+  // use reports use-of-null. This must run before the generic argument Move
+  // loop below, which would otherwise move the owned pointer out.
+  if (FunctionDecl *Callee = CE->getDirectCallee()) {
+    if (Callee->getBuiltinID() == Builtin::BI__assume_null) {
+      if (CE->getNumArgs() == 1)
+        stat.setToNull(CE->getArg(0));
+      return;
+    }
+  }
 
   for (auto it = CE->arg_begin(), ei = CE->arg_end(); it != ei; ++it) {
     Expr *Arg = *it;

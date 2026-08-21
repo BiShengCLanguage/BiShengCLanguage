@@ -1,0 +1,69 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// __assume_null is a compile-time-only analyzer hint: it tells the
+// nullability and ownership dataflow that a _Nullable pointer is now null
+// (and, for an _Owned _Nullable pointer, holds no ownership). Codegen emits
+// nothing for it, so the BSC-to-C rewriter must turn the call into a void
+// no-op -- (void)p -- rather than leaving a call to an undeclared function.
+// The _Nullable / _Owned qualifiers on the operand are dropped alongside,
+// matching how the rewriter already treats those qualifiers elsewhere.
+
+// CHECK-NOT: __assume_null
+// CHECK-NOT: _Nullable
+// CHECK-NOT: _Owned
+
+struct S {
+    int *_Owned _Nullable p1;
+    int *_Owned _Nullable p2;
+};
+
+// Statement position: the builtin call becomes a (void) cast of its operand.
+int assume_stmt(void) {
+    int *_Owned _Nullable p = 0;
+    _Unsafe { __assume_null(p); }
+    return 0;
+}
+
+// Struct-field operand: the field access is preserved, the builtin vanishes.
+int assume_field(void) {
+    struct S s = {0};
+    _Unsafe { __assume_null(s.p1); }
+    return 0;
+}
+
+// The builtin is a void expression, so it also reaches positions where an
+// empty replacement would leave a syntax hole in the emitted C -- here, the
+// left operand of a comma operator.
+int assume_in_comma(void) {
+    int *_Owned _Nullable p = 0;
+    int v;
+    _Unsafe { v = (__assume_null(p), 0); }
+    return v;
+}
+
+// And the increment position of a for loop.
+int assume_in_for_increment(void) {
+    int *_Owned _Nullable p = 0;
+    int s = 0;
+    _Unsafe {
+        for (int i = 0; i < 1; i++, __assume_null(p))
+            s += i;
+    }
+    return s;
+}
+
+// A non-_Safe (plain C) function using the builtin still rewrites; outside a
+// safe zone the call is always allowed.
+int plain_assume(void) {
+    int *_Nullable p = 0;
+    __assume_null(p);
+    return 0;
+}
+
+int main(void) {
+    return assume_stmt() + assume_field() + assume_in_comma() +
+           assume_in_for_increment() + plain_assume();
+}

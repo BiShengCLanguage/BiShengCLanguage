@@ -1571,6 +1571,8 @@ BUILTIN(__builtin_assume, "vb", "n")
 #if ENABLE_BSC
 // BSC: mark a variable as initialized at this program point
 BUILTIN(__assume_initialized, "v.", "nt")
+// BSC: assume a _Nullable pointer is null at this program point
+BUILTIN(__assume_null, "v.", "nt")
 #endif
 
 // Multiprecision Arithmetic Builtins.

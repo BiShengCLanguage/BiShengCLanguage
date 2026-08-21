@@ -1,0 +1,69 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Test __assume_null Sema rejection: safe-zone ban and non-nullable argument.
+// (Dataflow-after-assume cases live in assume_null_deref.cbs — kept separate
+//  because a Sema error suppresses BSC CFG analyses, see
+//  SemaDecl.cpp areAllErrorsFromBSCAnalyses.)
+
+_Safe void MemFree(void *_Owned _Nullable *_Borrow ptr);
+
+// Rule 1: __assume_null is forbidden in a safe zone.
+_Safe void test_forbidden_in_safe_zone(void) {
+  int *_Owned _Nullable p = nullptr;
+  __assume_null(p); // expected-error {{__assume_null is forbidden in the safe zone}}
+}
+
+// Rule 1 variant: inside a _Safe function, even within an expression the
+// safe-zone context forbids the call.
+_Safe void test_forbidden_in_safe_zone_expr(void) {
+  int *_Owned _Nullable p = nullptr;
+  (void)__assume_null(p); // expected-error {{__assume_null is forbidden in the safe zone}}
+}
+
+// Rule 4: argument must be a _Nullable pointer.
+_Safe int *_Nonnull get_nonnull(void);
+_Safe void test_non_nullable_arg(void) {
+  int *_Nonnull p = get_nonnull();
+  _Unsafe { __assume_null(p); } // expected-error {{__assume_null requires a _Nullable pointer argument}}
+}
+
+// Rule 4 variant: non-pointer argument is rejected.
+_Safe void test_non_pointer_arg(void) {
+  int x = 0;
+  _Unsafe { __assume_null(x); } // expected-error {{__assume_null requires a _Nullable pointer argument}}
+}
+
+// Argument-shape: only a variable or struct field access is accepted. Any
+// compound expression is rejected because __assume_null is a pure analyzer
+// hint (codegen emits nothing) and the dataflow only tracks per-variable
+// null state; a compound expression would be silently dropped.
+
+// Comma expression: must not be mis-lowered to the left operand.
+_Safe void test_comma_arg(int *_Nullable a, int *_Nullable p) {
+  _Unsafe { __assume_null((a, p)); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}} expected-warning {{left operand of comma operator has no effect}}
+}
+
+// Ternary expression.
+_Safe void test_ternary_arg(int c, int *_Nullable p, int *_Nullable q) {
+  _Unsafe { __assume_null(c ? p : q); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+}
+
+// Explicit cast to a nullable pointer type.
+_Safe void test_cast_arg(int *_Nonnull p) {
+  _Unsafe { __assume_null((int *_Nullable)p); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+}
+
+// Array subscript.
+_Safe void test_array_subscript_arg(void) {
+  int *_Nullable arr[2];
+  _Unsafe { __assume_null(arr[0]); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+}
+
+// Dereference chain (*q): rejected. Dropping ownership of an inner pointee
+// through a _Borrow/_Nonnull outer pointer would require alias analysis
+// (borrow-checker scope), which the ownership analysis does not perform —
+// silently accepting it would let the real owner leak. Use __assume_null(p)
+// or free(p) on the owned variable itself.
+_Safe void test_deref_chain_arg(int *_Nullable *_Nonnull q) {
+  _Unsafe { __assume_null(*q); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+}

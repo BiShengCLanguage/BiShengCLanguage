@@ -4932,7 +4932,69 @@ int main() {
   return 0;
 }
 ```
-#### 3.4.8. 非空指针检查的范围和控制选项
+
+#### 3.4.8. `__assume_null`
+
+`__assume_null(p)` 是一个内建函数，用于在某个程序点断言一个 `_Nullable` 指针已经为 `null`。它是一个纯分析器提示——编译器不做契约验证，也不生成任何代码，由用户保证断言成立。
+
+`__assume_null` 只能在 `_Unsafe` 区域中使用，因为它绕过了编译器的非空指针检查。
+
+```c
+_Safe void foo(int *_Owned _Nullable p) {
+  __assume_null(p); // error: __assume_null is forbidden in the safe zone
+}
+```
+
+语义规则：
+
+1. 对于`_Owned _Nullable`指针`p`，使用`__assume_null(p)`后，认为该指针必定为空，不持有所有权。
+
+```c
+_Safe void MemAlloc(void *_Owned _Nullable *_Borrow ptr, unsigned long size);
+_Safe void MemFree(void *_Owned _Nullable *_Borrow ptr);
+
+_Safe void foo(void *_Owned _Nullable p) {
+  MemFree(&_Mut p);
+  _Unsafe { __assume_null(p); }
+  // 无需 forget(p)，也无需 p = nullptr
+  // 无泄漏
+}
+```
+
+2. 对于其他`_Nullable`指针`p`，使用`__assume_null(p)`后，认为该指针必定为空。
+   后续未作判空就直接解引用会报错空指针解引用；此前的判空窄化（如 `if (p)` 把 `p` 窄化为非空）也被作废。
+
+```c
+void foo(int *_Nullable *_Borrow ptr) {
+  *ptr = nullptr;
+}
+void bar(int x) {
+  int *p = &x;  // 调用前，p 状态为 _Nonnull
+  foo(&_Mut p); // 调用后，p 状态为 _Nullable
+  _Unsafe { __assume_null(p); }
+  *p = 2;       // error: 空指针解引用
+}
+```
+
+3. 对于其他类型的指针`p`，使用`__assume_null(p)`时，编译器认为是非法参数类型，报错。
+
+```c
+int *_Nonnull get_nonnull();
+_Safe void foo(void) {
+  int *_Nonnull p = get_nonnull();
+  _Unsafe { __assume_null(p); } // error: __assume_null requires a _Nullable pointer argument
+}
+```
+
+**使用限制**：`__assume_null` 只接受变量（如 `p`）或结构体字段访问（如 `s.p`），可外加括号/隐式转换。其他形态的指针表达式目前暂不支持，需要时请先用临时变量承接。
+
+```c
+_Safe void foo(int *_Nullable *_Nonnull q) {
+  _Unsafe { __assume_null(*q); } // error: unsupported __assume_null argument; the argument must be a variable or struct field access
+}
+```
+
+#### 3.4.9. 非空指针检查的范围和控制选项
 
 非空指针检查是一项强大的功能，能帮助开发者在编译期识别出潜在的危险行为。同时，这会带来一定的编译性能开销和编码行为限制。**默认情况下，对非空指针的检查仅在安全区生效**，安全区的定义详见[内存安全-安全区](#安全区)章节。
 

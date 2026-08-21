@@ -963,6 +963,27 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
 
 // NonNull parameter cannot take Nullable pointer as argument.
 void TransferFunctions::VisitCallExpr(CallExpr *CE) {
+  // __assume_null: assert the _Nullable pointer is null at this point, as if
+  // `p = nullptr` had executed. Mirror the assignment-time state update so a
+  // subsequent dereference reports a nullable dereference.
+  if (FunctionDecl *Callee = CE->getDirectCallee()) {
+    if (Callee->getBuiltinID() == Builtin::BI__assume_null) {
+      if (CE->getNumArgs() == 1) {
+        Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
+        if (VarDecl *VD = getVarDeclFromExpr(Arg)) {
+          if (CurrStatusVD.count(VD))
+            CurrStatusVD[VD] = NullabilityKind::Nullable;
+          EraseDerefStatusForVar(VD);
+        } else if (MemberExpr *ME = getMemberExprFromExpr(Arg)) {
+          FieldPath FP;
+          VisitMEForFieldPath(ME, FP);
+          if (CurrStatusFP.count(FP))
+            CurrStatusFP[FP] = NullabilityKind::Nullable;
+        }
+      }
+      return;
+    }
+  }
   if (FunctionDecl *FD = CE->getDirectCallee()) {
     for (unsigned i = 0; i < FD->getNumParams(); i++) {
       ParmVarDecl *PVD = FD->getParamDecl(i);

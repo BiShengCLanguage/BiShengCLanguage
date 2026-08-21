@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Test __assume_null dataflow: after the call the pointer is treated as null,
+// so dereferencing without a null check is a nullable dereference. These cases
+// contain NO Sema errors (a Sema error suppresses BSC CFG analyses), so the
+// assume_null calls here are all in legal _Unsafe contexts.
+
+// After __assume_null the pointer is null: dereferencing without a null check
+// is a nullable dereference error. (Non-_Safe function so the safe-zone
+// raw-deref ban does not shadow the nullable diagnostic.)
+void test_deref_after_assume(void) {
+  int *_Nullable p = (int *_Nullable)0;
+  _Unsafe { __assume_null(p); }
+  *p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+// After __assume_null on a struct field: dereferencing the field is a nullable
+// dereference error.
+struct S { int *_Nullable p; };
+
+void test_deref_field_after_assume(void) {
+  struct S s = {};
+  _Unsafe { __assume_null(s.p); }
+  *(s.p) = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+// After __assume_null on an owned nullable pointer, using it without a null
+// check is a nullable dereference.
+void test_deref_owned_after_assume(void) {
+  int *_Owned _Nullable p = nullptr;
+  _Unsafe { __assume_null(p); }
+  *p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}

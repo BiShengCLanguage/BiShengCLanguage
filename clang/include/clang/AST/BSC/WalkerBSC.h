@@ -329,6 +329,7 @@ public:
       case Builtin::BI__move_array_to_raw:
       case Builtin::BI__take_array_from_raw:
       case Builtin::BI__assume_initialized:
+      case Builtin::BI__assume_null:
         return true;
       default:
         break;

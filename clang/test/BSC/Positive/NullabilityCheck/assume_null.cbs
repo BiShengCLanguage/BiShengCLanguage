@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+// expected-no-diagnostics
+
+// Test __assume_null: asserts a _Nullable pointer is null at this program
+// point. After the call the analyzer treats the pointer as definitely null
+// (no ownership held, no leak), mirroring `p = nullptr`. Only allowed in
+// _Unsafe zones.
+
+_Safe void MemAlloc(void *_Owned _Nullable *_Borrow ptr, unsigned long size);
+_Safe void MemFree(void *_Owned _Nullable *_Borrow ptr);
+
+// Core scenario from the proposal: after MemFree the ownership and null state
+// are opaque to the analyzer. __assume_null tells it the pointer is now null
+// and holds no ownership — no forget() and no `p = nullptr` needed.
+_Safe int main(void) {
+  int *_Owned _Nullable p = nullptr;
+  MemAlloc(_Unsafe((void *_Owned _Nullable *_Borrow)&_Mut p), sizeof(int));
+  if (p != nullptr) {
+    *p = 2; // ok — narrowed non-null on this branch (BEFORE assume_null)
+  }
+  MemFree(_Unsafe((void *_Owned _Nullable *_Borrow)&_Mut p));
+  _Unsafe { __assume_null(p); }
+  // No forget(p): the builtin dropped ownership. No leak at scope end.
+  return 0;
+}
+
+// __assume_null on a non-owned _Nullable pointer: marks it null; reading it
+// afterwards without a null check would be a nullable deref, so the program
+// must not touch it.
+_Safe void use_raw(int *_Nonnull p);
+
+_Safe int assume_on_borrow_nullable(void) {
+  int *_Nullable p = (int *_Nullable)0;
+  _Unsafe { __assume_null(p); }
+  return 0; // ok — no use of p after the assumption
+}
+
+// __assume_null on a struct field nullable owned pointer: drops ownership of
+// the field, so no leak is reported for it at scope end.
+struct S {
+  int *_Owned _Nullable p1;
+  int *_Owned _Nullable p2;
+  int x;
+};
+
+_Safe void MemFreeS(struct S *_Borrow s);
+
+_Safe int assume_on_field(void) {
+  struct S s = {};
+  MemFreeS(&_Mut s);
+  _Unsafe {
+    __assume_null(s.p1);
+    __assume_null(s.p2);
+  }
+  // No leak for s.p1 / s.p2: the builtin dropped their ownership.
+  return 0;
+}
+
+// __assume_null is a BSC feature: a plain (non-safe) function using it still
+// compiles. Outside a safe zone the call is always allowed.
+void test_unsafe_func(void) {
+  int *_Nullable p = (int *_Nullable)0;
+  __assume_null(p);
+}

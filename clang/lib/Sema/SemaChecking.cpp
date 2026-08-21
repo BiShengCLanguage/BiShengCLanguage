@@ -2329,6 +2329,40 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     }
     break;
   }
+  case Builtin::BI__assume_null: {
+    // __assume_null may only be called outside a safe zone; it is a raw
+    // escape hatch that asserts a _Nullable pointer is null, which the
+    // compiler cannot otherwise prove after an opaque callee (e.g. a legacy
+    // MemFree taking void **_Borrow) sets *ptr = NULL.
+    if (getLangOpts().BSC && IsInSafeZone()) {
+      return ExprError(Diag(TheCall->getBeginLoc(), diag::err_unsafe_action)
+                       << "__assume_null");
+    }
+    if (checkArgCount(*this, TheCall, 1))
+      return ExprError();
+    QualType ArgTy = TheCall->getArg(0)->getType();
+    if (!ArgTy->isPointerType() ||
+        ArgTy.getDefNullability() != NullabilityKind::Nullable) {
+      Diag(TheCall->getArg(0)->getBeginLoc(), diag::err_assume_null_not_nullable);
+      return ExprError();
+    }
+    // The argument must be a static addressing path the dataflow can lower to
+    // a tracked location: a variable (DeclRefExpr) or a struct field access
+    // (MemberExpr), optionally wrapped in parens/implicit casts. Any other
+    // shape (comma, ternary, call, explicit cast, array subscript, ++/--,
+    // dereference chain `*q`, ...) is rejected — __assume_null is a pure
+    // analyzer hint (codegen emits nothing), so a compound expression would
+    // be silently dropped and the assumption never applied. This also avoids
+    // a pre-existing quirk where comma expressions `(a, p)` would be
+    // mis-lowered to the left operand.
+    const Expr *ArgE = TheCall->getArg(0)->IgnoreParenImpCasts();
+    if (!isa<DeclRefExpr>(ArgE) && !isa<MemberExpr>(ArgE)) {
+      Diag(ArgE->getBeginLoc(), diag::err_assume_null_complex_arg);
+      Diag(ArgE->getBeginLoc(), diag::note_assume_null_complex_arg_hint);
+      return ExprError();
+    }
+    break;
+  }
 #endif
   case Builtin::BI__assume:
   case Builtin::BI__builtin_assume:
