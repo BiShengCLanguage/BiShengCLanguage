@@ -3381,6 +3381,11 @@ QualType ASTContext::getDecayedType(QualType T) const {
   if (T->isFunctionType())
     Decayed = getPointerType(T);
 
+  return getDecayedType(T, Decayed);
+}
+
+QualType ASTContext::getDecayedType(QualType T, QualType Decayed) const {
+  assert((T->isArrayType() || T->isFunctionType()) && "T does not decay");
   llvm::FoldingSetNodeID ID;
   AdjustedType::Profile(ID, T, Decayed);
   void *InsertPos = nullptr;
@@ -6948,7 +6953,61 @@ const ArrayType *ASTContext::getAsArrayType(QualType T) const {
                                               VAT->getBracketsRange()));
 }
 
+#if ENABLE_BSC
+// Does T (an array element or record field type) contain _Owned/_Borrow?
+// Peels array levels on the sugar type because _Owned/_Borrow are local
+// qualifiers that canonicalization drops. Pointer pointees are deliberately
+// NOT followed: an element such as `int *_Owned *` is a bare pointer whose
+// ownership is not tracked, so the parameter keeps the plain `T*` adjustment.
+static bool ArrayParamElemContainsSafePointer(
+    QualType T, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
+  while (const auto *AT = T->getAsArrayTypeUnsafe())
+    T = AT->getElementType();
+  if (T.isOwnedQualified() || T.isBorrowQualified())
+    return true;
+  if (const auto *RT = dyn_cast<RecordType>(T.getCanonicalType())) {
+    // Unions must not contain _Owned/_Borrow pointers in valid BSC code;
+    // Sema rejects such declarations. Skipping unions here only affects
+    // error-recovery ASTs and keeps the behavior consistent with the manual.
+    if (RT->getDecl()->isUnion())
+      return false;
+    if (!Visited.insert(RT).second)
+      return false;
+    for (FieldDecl *FD : RT->getDecl()->fields())
+      if (ArrayParamElemContainsSafePointer(FD->getType(), Visited))
+        return true;
+  }
+  return false;
+}
+
+static bool ArrayParamElemContainsSafePointer(QualType T) {
+  llvm::SmallPtrSet<const RecordType *, 8> Visited;
+  return ArrayParamElemContainsSafePointer(T, Visited);
+}
+#endif
+
 QualType ASTContext::getAdjustedParameterType(QualType T) const {
+#if ENABLE_BSC
+  // In BSC, an array formal parameter whose element type is (or contains)
+  // _Owned/_Borrow is adjusted to `T* _Borrow _ArrayElem` (instead of the
+  // plain `T*`) so that ownership/borrow analysis keeps tracking the elements.
+  if (getLangOpts().BSC && T->isArrayType() &&
+      ArrayParamElemContainsSafePointer(T)) {
+    // Build the decayed pointer directly instead of using getArrayDecayedType:
+    // the latter propagates the element pointer's _Nullable/_Nonnull onto the
+    // decayed pointer, while BSC's explicit `T* _Borrow _ArrayElem` form keeps
+    // nullability on the element pointer only.
+    const ArrayType *PrettyArrayType = getAsArrayType(T);
+    QualType Decayed = getPointerType(PrettyArrayType->getElementType());
+    Decayed = getQualifiedType(Decayed,
+                               PrettyArrayType->getIndexTypeQualifiers());
+    Qualifiers Qs = Decayed.getQualifiers();
+    Qs.addBorrow();
+    Qs.addArrayElem();
+    Decayed = getQualifiedType(Decayed, Qs);
+    return getDecayedType(T, Decayed);
+  }
+#endif
   if (T->isArrayType() || T->isFunctionType())
     return getDecayedType(T);
   return T;

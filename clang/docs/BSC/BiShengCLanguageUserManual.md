@@ -4298,10 +4298,13 @@ int foo(void) {
 
 为了在兼容 C 语言的数组相关规则的基础上让用户便于通过借用指针访问数组元素，毕昇C 在C的基础上拓展数组退化规则，使数组能够在特定情况下隐式退化为借用指针。
 
-注：毕昇C 语言中以下场景涉及数组但不属于数组退化范畴，此类规则与 C 语言一致：
-1. 当数组作为函数形参时，函数形参的类型调整会固定将数组转化为裸指针。
+注：毕昇C 语言中以下场景涉及数组但不属于数组退化范畴，此类规则与 C 语言一致（数组形参除外，见下）：
+1. 当元素类型为 `T` 的数组作为函数形参时，如果 `T` 是 `_Owned` 或 `_Borrow` 修饰的类型，或是包含 `_Owned` 或 `_Borrow` 成员的结构体时，毕昇C 会将数组形参调整为 `T* _Borrow _ArrayElem`；否则调整为裸指针 `T*`，与C一致。
     ```c
-    void foo(int a[10]); // 一定调整为 void foo(int *a)
+    void f1(int a[10]);         // 调整为 void f1(int *a)
+    void f2(int *_Owned a[10]); // 调整为 void f2(int *_Owned * _Borrow _ArrayElem a)
+    struct S {int * _Owned ptr; };
+    void f3(struct S a[20]);    // 调整为 void f3(struct S * _Borrow _ArrayElem a)
     ```
 2. 当数组在以下场景使用时，语义是使用数组整体，不发生退化：(1)在 `sizeof()`, `typeof()` 中作为参数, (2) 整体取地址、取借用，(3)作为字符串字面量初始化字符数组。
 

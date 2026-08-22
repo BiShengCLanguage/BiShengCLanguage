@@ -167,6 +167,7 @@ static int knr_borrow_typedef_three_level_param(p)
 }
 
 static int knr_owned_array_param(p) // expected-error {{type with '_Owned' semantics is not allowed in a K&R-style function definition}}
+// expected-error@-1 {{type with '_Borrow' semantics is not allowed in a K&R-style function definition}}
   OwnedIntPtr p[4];
 {
   return p[0] != 0;

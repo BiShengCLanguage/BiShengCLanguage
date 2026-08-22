@@ -1,0 +1,109 @@
+// RUN: %clang_cc1 -triple x86_64-unknown-unknown -ast-dump %s \
+// RUN:   | FileCheck --strict-whitespace %s
+// expected-no-diagnostics
+
+typedef int *_Owned OwnedPtr;
+struct HasOwned { int *_Owned p; };
+struct HasBorrow { int *_Borrow p; };
+struct Nested { struct HasOwned inner; };
+struct NoSafe { int *p; };
+
+// CHECK-LABEL: FunctionDecl {{.*}} b1 'void (int *_Owned *_Borrow _ArrayElem)'
+void b1(int *_Owned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} b2 'void (int *_Borrow *_Borrow _ArrayElem)'
+void b2(int *_Borrow a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} b3 'void (struct HasOwned *_Borrow _ArrayElem)'
+void b3(struct HasOwned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} b4 'void (struct HasBorrow *_Borrow _ArrayElem)'
+void b4(struct HasBorrow a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} b5 'void (struct Nested *_Borrow _ArrayElem)'
+void b5(struct Nested a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} b6 'void (OwnedPtr *_Borrow _ArrayElem)'
+void b6(OwnedPtr a[10]);
+
+struct HasOwnedConst { int *_Owned const p; };
+struct HasOwnedVolatile { int *_Owned volatile p; };
+struct HasVolatileOwned { volatile int *_Owned p; };
+struct HasBorrowConst { int *_Borrow const p; };
+struct HasBorrowVolatile { int *_Borrow volatile p; };
+
+// The adjusted parameter keeps the element's C qualifiers while adding
+// `_Borrow _ArrayElem`.
+// CHECK-LABEL: FunctionDecl {{.*}} q1 'void (int *const _Owned *_Borrow _ArrayElem)'
+void q1(int *_Owned const a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q2 'void (const int *_Owned *_Borrow _ArrayElem)'
+void q2(const int *_Owned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q3 'void (volatile int *_Owned *_Borrow _ArrayElem)'
+void q3(volatile int *_Owned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q4 'void (int *_Owned volatile *_Borrow _ArrayElem)'
+void q4(int *volatile _Owned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q5 'void (const volatile int *_Owned *_Borrow _ArrayElem)'
+void q5(const volatile int *_Owned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q6 'void (int *const _Borrow *_Borrow _ArrayElem)'
+void q6(int *_Borrow const a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q7 'void (const int *_Borrow *_Borrow _ArrayElem)'
+void q7(const int *_Borrow a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q8 'void (int *_Borrow volatile *_Borrow _ArrayElem)'
+void q8(int *_Borrow volatile a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q9 'void (struct HasOwnedConst *_Borrow _ArrayElem)'
+void q9(struct HasOwnedConst a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q10 'void (struct HasOwnedVolatile *_Borrow _ArrayElem)'
+void q10(struct HasOwnedVolatile a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q11 'void (struct HasVolatileOwned *_Borrow _ArrayElem)'
+void q11(struct HasVolatileOwned a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q12 'void (struct HasBorrowConst *_Borrow _ArrayElem)'
+void q12(struct HasBorrowConst a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} q13 'void (struct HasBorrowVolatile *_Borrow _ArrayElem)'
+void q13(struct HasBorrowVolatile a[10]);
+
+// Other element qualifiers are also preserved on the adjusted parameter type;
+// _Nullable/_Nonnull stay on the element pointer and are not duplicated on
+// the decayed pointer.
+// CHECK-LABEL: FunctionDecl {{.*}} r1 'void (int *_Owned restrict *_Borrow _ArrayElem)'
+void r1(int *_Owned restrict a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} r2 'void (int *_Borrow restrict *_Borrow _ArrayElem)'
+void r2(int *_Borrow restrict a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} r3 'void (int *_Owned _Nullable *_Borrow _ArrayElem)'
+void r3(int *_Owned _Nullable a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} r4 'void (int *_Owned _Nonnull *_Borrow _ArrayElem)'
+void r4(int *_Owned _Nonnull a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} r5 'void (const int *_Owned _Nullable *_Borrow _ArrayElem)'
+void r5(const int *_Owned _Nullable a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} r6 'void (volatile int *_Borrow _Nullable *_Borrow _ArrayElem)'
+void r6(volatile int *_Borrow _Nullable a[10]);
+
+// Multi-dimensional arrays: the outer pointer becomes `_Borrow _ArrayElem`
+// and points to the inner array type.
+// CHECK-LABEL: FunctionDecl {{.*}} d1 'void (int *_Owned (*_Borrow _ArrayElem)[4])'
+void d1(int *_Owned a[3][4]);
+// CHECK-LABEL: FunctionDecl {{.*}} d2 'void (int *_Owned (*_Borrow _ArrayElem)[4][5])'
+void d2(int *_Owned a[3][4][5]);
+// CHECK-LABEL: FunctionDecl {{.*}} d3 'void (int *_Borrow (*_Borrow _ArrayElem)[4])'
+void d3(int *_Borrow a[3][4]);
+// CHECK-LABEL: FunctionDecl {{.*}} d4 'void (struct HasOwned (*_Borrow _ArrayElem)[4])'
+void d4(struct HasOwned a[3][4]);
+
+// CHECK-LABEL: FunctionDecl {{.*}} g1 'void (int *)'
+void g1(int a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} g2 'void (int **)'
+void g2(int *a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} g3 'void (struct NoSafe *)'
+void g3(struct NoSafe a[10]);
+// An array of bare pointers to _Owned objects is not tracked: it keeps the
+// ordinary `T**` adjustment.
+// CHECK-LABEL: FunctionDecl {{.*}} g4 'void (int *_Owned **)'
+void g4(int *_Owned *a[10]);
+
+// Plain qualified arrays still use the ordinary C decay.
+// CHECK-LABEL: FunctionDecl {{.*}} qg1 'void (const int *)'
+void qg1(const int a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} qg2 'void (volatile int *)'
+void qg2(volatile int a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} qg3 'void (const volatile int *)'
+void qg3(const volatile int a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} qg4 'void (int *const *)'
+void qg4(int *const a[10]);
+// CHECK-LABEL: FunctionDecl {{.*}} qg5 'void (int *volatile *)'
+void qg5(int *volatile a[10]);
+
+int main(void) { return 0; }

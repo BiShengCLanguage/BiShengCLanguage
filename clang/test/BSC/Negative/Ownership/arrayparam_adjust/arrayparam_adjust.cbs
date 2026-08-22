@@ -1,0 +1,109 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// The array parameter is adjusted to `int *_Owned * _Borrow _ArrayElem`.
+void consume_arr(int *_Owned a[3]); // expected-note {{passing argument to parameter 'a' here}}
+
+void test_param_transfer() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_arr(arr);
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+void test_bare_pointer_arg() {
+  int *_Owned *p = 0;
+  consume_arr(p); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned *' to 'int *_Owned *_Borrow _ArrayElem'}}
+}
+
+// const/volatile qualifiers on the array element are preserved in the
+// adjusted parameter type; the mismatches below are rejected.
+void consume_plain(int *_Owned a[3]); // expected-note {{passing argument to parameter 'a' here}}
+void consume_plain_const_elem(int *_Owned a[3]); // expected-note {{passing argument to parameter 'a' here}}
+void consume_const_ptr(const int *_Owned a[3]); // expected-note {{passing argument to parameter 'a' here}}
+void consume_volatile_ptr(volatile int *_Owned a[3]); // expected-note {{passing argument to parameter 'a' here}}
+void consume_volatile_elem(int *_Owned volatile a[3]); // expected-note {{passing argument to parameter 'a' here}}
+void consume_cv(const volatile int *_Owned a[3]); // expected-note {{passing argument to parameter 'a' here}}
+// expected-note@-1 {{passing argument to parameter 'a' here}}
+
+void test_const_ptr_to_plain() {
+  const int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_plain(arr); // expected-error {{incompatible _Borrow types, cannot cast 'const int *_Owned[3]' to 'int *_Owned *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_plain_to_const_ptr() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_const_ptr(arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned[3]' to 'const int *_Owned *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_plain_to_volatile_ptr() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_volatile_ptr(arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned[3]' to 'volatile int *_Owned *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_const_elem_to_plain() {
+  int *_Owned const arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_plain_const_elem(arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *const _Owned[3]' to 'int *_Owned *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_plain_to_volatile_elem() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_volatile_elem(arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned *_Borrow _ArrayElem' to 'int *_Owned volatile *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_const_to_cv() {
+  const int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_cv(arr); // expected-error {{incompatible _Borrow types, cannot cast 'const int *_Owned[3]' to 'const volatile int *_Owned *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void test_volatile_to_cv() {
+  volatile int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_cv(arr); // expected-error {{incompatible _Borrow types, cannot cast 'volatile int *_Owned[3]' to 'const volatile int *_Owned *_Borrow _ArrayElem'}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+// Multi-dimensional array parameters: only the real 2D array decay is accepted;
+// bare pointers to arrays or to owned pointers are rejected.
+void consume_2d(int *_Owned a[3][4]); // expected-note {{passing argument to parameter 'a' here}}
+// expected-note@-1 {{passing argument to parameter 'a' here}}
+// expected-note@-2 {{passing argument to parameter 'a' here}}
+
+void test_bare_double_ptr_to_2d() {
+  int *_Owned **p = 0;
+  consume_2d(p); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned **' to 'int *_Owned (*_Borrow _ArrayElem)[4]'}}
+}
+
+void test_bare_ptr_to_array_to_2d() {
+  int *_Owned (*p)[4] = 0;
+  consume_2d(p); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned (*)[4]' to 'int *_Owned (*_Borrow _ArrayElem)[4]'}}
+}
+
+void test_1d_to_2d() {
+  int *_Owned arr[4] = {safe_malloc(1), safe_malloc(2), safe_malloc(3), safe_malloc(4)};
+  consume_2d(arr); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Owned[4]' to 'int *_Owned (*_Borrow _ArrayElem)[4]'}}
+  for (int i = 0; i < 4; i++)
+    safe_free((void *_Owned)arr[i]);
+}

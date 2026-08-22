@@ -1,0 +1,17 @@
+// RUN: %clang_cc1 -triple x86_64-unknown-unknown -ast-dump -verify %s 2>&1 \
+// RUN:   | FileCheck --strict-whitespace %s
+
+// Invalid BSC code: unions must not contain _Owned/_Borrow pointers, so the
+// union cases below only exist in error-recovery ASTs. The array parameter
+// whose element type is a union must still use the ordinary C decay and must
+// NOT become `_Borrow _ArrayElem`.
+union U { int *_Owned p; }; // expected-error {{type of union field cannot be qualified by '_Owned'}}
+
+// CHECK-LABEL: FunctionDecl {{.*}} f 'void (union U *)'
+void f(union U a[10]);
+
+struct Inner { int *_Owned p; };
+union U2 { struct Inner inner; }; // expected-error {{type of union field cannot be qualified by '_Owned' (even indirectly) because 'struct Inner' contains a '_Owned' type}}
+
+// CHECK-LABEL: FunctionDecl {{.*}} g 'void (union U2 *)'
+void g(union U2 a[10]);

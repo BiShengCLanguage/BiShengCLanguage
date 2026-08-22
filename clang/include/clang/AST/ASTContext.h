@@ -1594,6 +1594,11 @@ private:
                       ArrayRef<TemplateArgument> TypeConstraintArgs = {},
                       bool IsCanon = false) const;
 
+  /// Build the uniqued DecayedType node for \p T with a precomputed decayed
+  /// type \p Decayed (used by parameter adjustment when BSC replaces the
+  /// plain `T*` decay with `T* _Borrow _ArrayElem`).
+  QualType getDecayedType(QualType T, QualType Decayed) const;
+
 public:
   /// Return the unique reference to the type for the specified type
   /// declaration.

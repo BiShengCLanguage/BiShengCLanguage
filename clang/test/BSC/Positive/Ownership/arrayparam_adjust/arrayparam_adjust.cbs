@@ -1,0 +1,209 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void define_owned(int *_Owned a[3]) {
+  (void)a;
+}
+
+struct HasOwned { int *_Owned p; };
+void define_struct(struct HasOwned a[2]) {
+  (void)a;
+}
+
+// Qualified element types keep their C qualifiers in the adjusted
+// `_Borrow _ArrayElem` parameter type.
+void define_owned_const_elem(int *_Owned const a[3]) {
+  (void)a;
+}
+void define_owned_volatile_elem(int *_Owned volatile a[3]) {
+  (void)a;
+}
+void define_const_owned_ptr(const int *_Owned a[3]) {
+  (void)a;
+}
+void define_volatile_owned_ptr(volatile int *_Owned a[3]) {
+  (void)a;
+}
+void define_borrow_const_elem(int *_Borrow const a[3]) {
+  (void)a;
+}
+void define_borrow_volatile_elem(int *_Borrow volatile a[3]) {
+  (void)a;
+}
+void define_const_borrow_ptr(const int *_Borrow a[3]) {
+  (void)a;
+}
+void define_volatile_borrow_ptr(volatile int *_Borrow a[3]) {
+  (void)a;
+}
+
+struct HasOwnedConst { int *_Owned const p; };
+struct HasOwnedVolatile { int *_Owned volatile p; };
+void define_struct_const_elem(struct HasOwnedConst a[2]) {
+  (void)a;
+}
+void define_struct_volatile_elem(struct HasOwnedVolatile a[2]) {
+  (void)a;
+}
+
+void consume_arr(int *_Owned a[3]);
+
+void call_borrow() {
+  int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_arr(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void consume_const_elem(int *_Owned const a[3]);
+void call_const_elem() {
+  int *_Owned const arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_const_elem(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void consume_volatile_elem(int *_Owned volatile a[3]);
+void call_volatile_elem() {
+  int *_Owned volatile arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_volatile_elem(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void consume_const_ptr(const int *_Owned a[3]);
+void call_const_ptr() {
+  const int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_const_ptr(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void consume_volatile_ptr(volatile int *_Owned a[3]);
+void call_volatile_ptr() {
+  volatile int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  consume_volatile_ptr(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+struct BW { int *_Owned arr[3]; };
+
+void call_field_borrow() {
+  struct BW w;
+  for (int i = 0; i < 3; i++)
+    w.arr[i] = safe_malloc(1);
+  consume_arr(w.arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)w.arr[i]);
+}
+
+void consume_struct_const_elem(struct HasOwnedConst a[3]);
+void call_struct_const_elem() {
+  struct HasOwnedConst arr[3] = {{safe_malloc(1)}, {safe_malloc(2)},
+                                 {safe_malloc(3)}};
+  consume_struct_const_elem(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i].p);
+}
+
+void consume_struct_volatile_elem(struct HasOwnedVolatile a[3]);
+void call_struct_volatile_elem() {
+  struct HasOwnedVolatile arr[3] = {{safe_malloc(1)}, {safe_malloc(2)},
+                                    {safe_malloc(3)}};
+  consume_struct_volatile_elem(arr);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)arr[i].p);
+}
+
+void redecl_owned(int *_Owned a[4]);
+void redecl_owned(int *_Owned * _Borrow _ArrayElem a);
+
+void call_redecl() {
+  int *_Owned arr[4] = {safe_malloc(1), safe_malloc(2), safe_malloc(3),
+                        safe_malloc(4)};
+  redecl_owned(arr);
+  for (int i = 0; i < 4; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+// The array form must be compatible with the explicit pointer form even when
+// the element pointer carries _Nullable/_Nonnull: nullability is not
+// duplicated onto the decayed pointer.
+void redecl_nullable(int *_Owned _Nullable a[4]);
+void redecl_nullable(int *_Owned _Nullable * _Borrow _ArrayElem a);
+
+void call_redecl_nullable() {
+  int *_Owned _Nullable arr[4] = {safe_malloc(1), safe_malloc(2),
+                                  safe_malloc(3), safe_malloc(4)};
+  redecl_nullable(arr);
+  for (int i = 0; i < 4; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+void redecl_nonnull(int *_Owned _Nonnull a[4]);
+void redecl_nonnull(int *_Owned _Nonnull * _Borrow _ArrayElem a);
+
+void call_redecl_nonnull() {
+  int *_Owned _Nonnull arr[4] = {safe_malloc(1), safe_malloc(2),
+                                 safe_malloc(3), safe_malloc(4)};
+  redecl_nonnull(arr);
+  for (int i = 0; i < 4; i++)
+    safe_free((void *_Owned)arr[i]);
+}
+
+// Multi-dimensional arrays are adjusted to a `_Borrow _ArrayElem` pointer to
+// the inner array type, and the elements are still tracked by ownership.
+void consume_2d(int *_Owned a[3][4]);
+void call_2d() {
+  int *_Owned arr[3][4];
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 4; j++)
+      arr[i][j] = safe_malloc(1);
+  consume_2d(arr);
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 4; j++)
+      safe_free((void *_Owned)arr[i][j]);
+}
+
+void consume_3d(int *_Owned a[2][3][4]);
+void call_3d() {
+  int *_Owned arr[2][3][4];
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      for (int k = 0; k < 4; k++)
+        arr[i][j][k] = safe_malloc(1);
+  consume_3d(arr);
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      for (int k = 0; k < 4; k++)
+        safe_free((void *_Owned)arr[i][j][k]);
+}
+
+void foo<T>(T a[10]) {
+  (void)a;
+}
+
+void call_generic() {
+  int *_Owned a[10];
+  for (int i = 0; i < 10; i++)
+    a[i] = safe_malloc(1);
+  foo<int *_Owned>(a);
+  for (int i = 0; i < 10; i++)
+    safe_free((void *_Owned)a[i]);
+}
+
+int main(void) { return 0; }
