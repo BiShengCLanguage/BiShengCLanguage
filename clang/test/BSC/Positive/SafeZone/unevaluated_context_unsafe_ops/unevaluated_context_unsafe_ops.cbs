@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -fsyntax-only -Wno-unevaluated-expression -Wno-pointer-to-int-cast -verify %s
+// expected-no-diagnostics
+
+struct S { int f; };
+int g;
+int *gp;
+_Unsafe int unsafe_fn(int);
+
+_Safe void test(void) {
+  int a = sizeof(*(int *)nullptr);
+  typeof(*(int *)nullptr) b = 10;
+  int c = sizeof(((struct S *)nullptr)->f);
+  typeof(((struct S *)nullptr)->f) d = 1;
+  int e = sizeof(&g);
+  int f = sizeof(gp[0]);
+  int h = sizeof(gp++);
+  int i = sizeof((int)gp);
+  typeof((int)gp) j = 1;
+  int k = sizeof(unsafe_fn(1));
+  (void)a; (void)b; (void)c; (void)d; (void)e;
+  (void)f; (void)h; (void)i; (void)j; (void)k;
+}

@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct S { int f; };
+int g;
+int *gp; // expected-note {{pointer 'gp' declared here}}
+_Unsafe int unsafe_fn(int);
+
+_Safe void test(void) {
+  int *p = &g; // expected-error {{'&' operator is forbidden in the safe zone}}
+  int a = *gp; // expected-error {{'*' operator is forbidden in the safe zone}}
+  int c = ((struct S *)nullptr)->f; // expected-error {{'->' operator used by raw pointer type is forbidden in the safe zone}}
+  gp++; // expected-error {{use of '++' on a raw pointer is not supported in the safe zone; consider wrapping it in '_Unsafe { ... }'}}
+  int d = (int)gp; // expected-error {{conversion from type 'int *' to 'int' is forbidden in the safe zone}}
+  int e = unsafe_fn(1); // expected-error {{_Unsafe function call is forbidden in the safe zone}}
+  (void)a; (void)c; (void)d; (void)e;
+}
+
+// Type checks are relaxed in unevaluated contexts, but safe zone type
+// selection still applies: ++/-- produce void even inside typeof.
+_Safe void test_incdec_type_selection(void) {
+  int a = 10;
+  typeof(a++) b = a++; // expected-error {{variable has incomplete type 'typeof (a++)' (aka 'void')}}
+}

@@ -203,7 +203,7 @@ bool Sema::CheckBSCOverloadedOperatorDeclaration(FunctionDecl *FnDecl) {
 }
 
 bool Sema::CheckIsUnsafeOverloadCall(Expr *Fn) {
-  if (!IsInSafeZone()) {
+  if (!IsInEvaluatedSafeZone()) {
     return false;
   }
   if (!Fn->getType()->checkFunctionProtoType(SZ_Safe)) {

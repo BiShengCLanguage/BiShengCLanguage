@@ -692,7 +692,7 @@ bool Sema::CheckBorrowQualTypeCStyleCast(QualType LHSType, QualType RHSType) {
     return false;
   if (LHSCanType->isVoidPointerType())
     return true;
-  if (RHSCanType->isVoidPointerType() && !IsInSafeZone())
+  if (RHSCanType->isVoidPointerType() && !IsInEvaluatedSafeZone())
     return true;
   if (RHSCanType.isBorrowQualified() && LHSCanType.isBorrowQualified() &&
       (RHSType.isArrayElemQualified() != LHSType.isArrayElemQualified())) {
@@ -814,7 +814,7 @@ bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS) {
             // this conversion does not drop const on the element type
             // unsafe zone: allow conversion unconditionally;
             // safe zone: require trivial element type
-            if (!IsInSafeZone() || RHSElementType->isTrivialDataType())
+            if (!IsInEvaluatedSafeZone() || RHSElementType->isTrivialDataType())
               return true;
           }
           Res = false;
@@ -850,7 +850,7 @@ bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS) {
         LHSPointee.removeLocalConst();
         if ((LHSPointee == RHSPointee) || // T*_Borrow -> const T*_Borrow
             (LHSPointee->isVoidType() &&  // T*_Borrow -> const void*_Borrow
-                (!IsInSafeZone() || RHSPointee->isTrivialDataType()))) {
+                (!IsInEvaluatedSafeZone() || RHSPointee->isTrivialDataType()))) {
           ExprResult ReBorrowExpr =
               CreateBuiltinUnaryOp(ExprLoc, UO_AddrConstDeref, RHSExpr);
           if (!ReBorrowExpr.isInvalid()) {

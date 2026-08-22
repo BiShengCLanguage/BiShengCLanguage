@@ -232,7 +232,7 @@ static void CheckStringInit(Expr *Str, QualType &DeclT, const ArrayType *AT,
           << Str->getSourceRange();
   } else {
 #if ENABLE_BSC
-    if (S.getLangOpts().BSC && S.IsInSafeZone()) {
+    if (S.getLangOpts().BSC && S.IsInEvaluatedSafeZone()) {
       if (StrLength > CAT->getSize().getZExtValue()) {
         S.Diag(Str->getBeginLoc(), diag::err_safe_string_init_too_long)
             << CAT->getSize().getZExtValue() << StrLength
@@ -1232,7 +1232,7 @@ void InitListChecker::CheckExplicitInitList(const InitializedEntity &Entity,
     bool ExtraInitsIsError = SemaRef.getLangOpts().CPlusPlus ||
                              (SemaRef.getLangOpts().OpenCL && T->isVectorType())
 #if ENABLE_BSC
-                             || SemaRef.IsInSafeZone()
+                             || SemaRef.IsInEvaluatedSafeZone()
 #endif
         ;
     hadError = ExtraInitsIsError;

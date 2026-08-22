@@ -12391,6 +12391,7 @@ public:
   void BSCDataflowAnalysis(const Decl *D);
   void BSCBorrowChecker(FunctionDecl *FD);
   bool IsInSafeZone() const;
+  bool IsInEvaluatedSafeZone() const;
   bool IsSafeBuiltinTypeConversion(const ASTContext &Ctx, QualType SrcType,
                                    QualType DestType);
   bool IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast = false);

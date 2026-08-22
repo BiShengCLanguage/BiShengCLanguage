@@ -157,7 +157,7 @@ static bool checkArgCount(Sema &S, CallExpr *Call, unsigned DesiredArgCount) {
 static bool checkBSCRawTransferBuiltinCommon(Sema &S, CallExpr *TheCall,
                                              StringRef Name) {
   // must not be in safe zone
-  if (S.getLangOpts().BSC && S.IsInSafeZone()) {
+  if (S.getLangOpts().BSC && S.IsInEvaluatedSafeZone()) {
     S.Diag(TheCall->getBeginLoc(), diag::err_unsafe_action) << Name;
     return true;
   }
@@ -2144,7 +2144,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
   case Builtin::BI__builtin_va_start:
 #if ENABLE_BSC
     // va_start is forbidden in safe zones
-    if (getLangOpts().BSC && IsInSafeZone()) {
+    if (getLangOpts().BSC && IsInEvaluatedSafeZone()) {
       return ExprError(Diag(TheCall->getBeginLoc(), diag::err_unsafe_action)
                        << "va_start");
     }
@@ -2155,7 +2155,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
   case Builtin::BI__va_start: {
 #if ENABLE_BSC
     // va_start is forbidden in safe zones
-    if (getLangOpts().BSC && IsInSafeZone()) {
+    if (getLangOpts().BSC && IsInEvaluatedSafeZone()) {
       return ExprError(Diag(TheCall->getBeginLoc(), diag::err_unsafe_action)
                        << "va_start");
     }
@@ -2177,7 +2177,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
   case Builtin::BI__builtin_va_end:
 #if ENABLE_BSC
     // va_end is forbidden in safe zones
-    if (getLangOpts().BSC && IsInSafeZone()) {
+    if (getLangOpts().BSC && IsInEvaluatedSafeZone()) {
       return ExprError(Diag(TheCall->getBeginLoc(), diag::err_unsafe_action)
                        << "va_end");
     }
@@ -14266,7 +14266,7 @@ static void CheckImplicitConversion(Sema &S, Expr *E, QualType T,
 
 #if ENABLE_BSC
         // In BSC safe zone, implicit enum-to-enum is an error (not just a warning).
-        if (S.getLangOpts().BSC && S.IsInSafeZone()) {
+        if (S.getLangOpts().BSC && S.IsInEvaluatedSafeZone()) {
           S.Diag(CC, diag::err_unsafe_implicit_cast) << SourceType << T;
           return;
         }

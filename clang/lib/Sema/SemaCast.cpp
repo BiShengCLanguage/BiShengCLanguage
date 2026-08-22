@@ -2912,7 +2912,7 @@ void CastOperation::CheckCStyleCast() {
       SrcExpr = ExprError();
       return;
     }
-    if (Self.IsInSafeZone() &&
+    if (Self.IsInEvaluatedSafeZone() &&
         !Self.IsSafeFunctionPointerTypeCast(DestType, SrcExpr.get())) {
       SrcExpr = ExprError();
       return;

@@ -141,11 +141,11 @@ _Safe void test_unsafe_ptr_arith(void) {
   (void)p;
 }
 
-// Unsafe in sizeof (still checked)
+// Unsafe in sizeof (unevaluated context: not checked)
 _Unsafe int unsafe_sizeof_func(void);
 
 _Safe void test_unsafe_sizeof(void) {
-  int size = sizeof(unsafe_sizeof_func());  // expected-error {{_Unsafe function call is forbidden in the safe zone}}
+  int size = sizeof(unsafe_sizeof_func());
   (void)size;
 }
 

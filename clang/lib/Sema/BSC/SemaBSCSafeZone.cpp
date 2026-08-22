@@ -41,6 +41,16 @@ bool Sema::IsInSafeZone() const {
   }
 }
 
+bool Sema::IsInEvaluatedSafeZone() const {
+  // Whether safe zone restrictions should apply to the current expression.
+  // Expressions in unevaluated contexts (e.g. the operands of sizeof/typeof)
+  // are never evaluated, so restrictions on operations that would only matter
+  // at runtime (deref, &, member access, unsafe calls/casts, va_arg, etc.)
+  // are relaxed as if they were outside the safe zone; type selection rules
+  // (e.g. ++/-- producing void) are still governed by IsInSafeZone().
+  return IsInSafeZone() && !isUnevaluatedContext();
+}
+
 bool Sema::IsSafeZoneIncDecVoidExpr(Expr *E) {
   if (!E || !E->getType()->isVoidType())
     return false;
@@ -602,7 +612,7 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
   // ensure_init is part of the function type. In the safe zone a cast cannot
   // launder a contract the source lacks (no more permissive than assignment);
   // in an unsafe zone the cast is the user's responsibility, so it is allowed.
-  if (IsInSafeZone() && !CheckEnsureInitFunctionPointerType(DestType, SrcExpr))
+  if (IsInEvaluatedSafeZone() && !CheckEnsureInitFunctionPointerType(DestType, SrcExpr))
     return false;
 
   // For heterogeneous function redeclarations (functions with both safe and
@@ -693,7 +703,7 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
 
   // conversion to an unsafe type is allowed in the unsafe zone
   // only need to care about the safe zone or safe type
-  if (!IsInSafeZone() && LHSFuncType->getFunSafeZoneSpecifier() != SZ_Safe) {
+  if (!IsInEvaluatedSafeZone() && LHSFuncType->getFunSafeZoneSpecifier() != SZ_Safe) {
     return true;
   }
 
@@ -921,7 +931,7 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
     return true;
   }
   // only check in the safe zone
-  if (!IsInSafeZone()) {
+  if (!IsInEvaluatedSafeZone()) {
     return true;
   }
 
@@ -1270,7 +1280,7 @@ bool Sema::CanBeUninitializedInSafeZone(QualType Type) {
 void Sema::DiagnoseInvalidMemberAccessExprInSafeZone(SourceLocation OpLoc,
                                                      tok::TokenKind Kind,
                                                      QualType T) {
-  if (!IsInSafeZone())
+  if (!IsInEvaluatedSafeZone())
     return;
 
   switch (Kind) {
@@ -1300,7 +1310,7 @@ void Sema::DiagnoseInvalidUnaryExprInSafeZone(SourceLocation OpLoc,
                                               UnaryOperatorKind Opc,
                                               QualType T,
                                               Expr *InputExpr) {
-  if (!IsInSafeZone())
+  if (!IsInEvaluatedSafeZone())
     return;
 
   switch (Opc) {

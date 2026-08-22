@@ -7772,7 +7772,7 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
     TheCall->getCallee()->HasBSCScopeSpec = Fn->HasBSCScopeSpec;
     if (getLangOpts().BSC) {
       // _Unsafe function call is forbidden in the safe zone
-      if (IsInSafeZone() &&
+      if (IsInEvaluatedSafeZone() &&
           (Fn->getType()->checkFunctionProtoType(SZ_None) ||
            Fn->getType()->checkFunctionProtoType(SZ_Unsafe))) {
         Diag(Fn->getBeginLoc(), diag::err_unsafe_action)
@@ -11093,7 +11093,7 @@ QualType Sema::InvalidOperands(SourceLocation Loc, ExprResult &LHS,
   }
 
 #if ENABLE_BSC
-  if (getLangOpts().BSC && IsInSafeZone()) {
+  if (getLangOpts().BSC && IsInEvaluatedSafeZone()) {
     if (OrigLHS.getType()->isVoidType() &&
         IsSafeZoneIncDecVoidExpr(LHS.get()))
       Diag(LHS.get()->getExprLoc(), diag::note_inc_dec_void_in_safe_zone);
@@ -11991,7 +11991,7 @@ static bool checkArithmeticOpPointerOperand(Sema &S, SourceLocation Loc,
 #if ENABLE_BSC
 static bool checkRawPtrIncDecInSafeZone(Sema &S, SourceLocation OpLoc,
                                         bool IsInc, Expr *Op) {
-  if (!S.getLangOpts().BSC || !S.IsInSafeZone())
+  if (!S.getLangOpts().BSC || !S.IsInEvaluatedSafeZone())
     return true;
   QualType T = Op->getType().getCanonicalType();
   if (T.isOwnedQualified() || T.isBorrowQualified())
@@ -15444,7 +15444,7 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
             << "'&_Mut'" << 0 << InputExpr->getSourceRange();
         Input = ExprError();
       }
-      if (IsInSafeZone()) {
+      if (IsInEvaluatedSafeZone()) {
         if (VarDecl *VD = dyn_cast_or_null<VarDecl>(getPrimaryDecl(
                 const_cast<Expr *>(InputExpr->IgnoreParenCasts())))) {
           if (VD->hasGlobalStorage())
@@ -17950,7 +17950,7 @@ ExprResult Sema::BuildVAArgExpr(SourceLocation BuiltinLoc,
 
 #if ENABLE_BSC
   // va_arg is forbidden in safe zones
-  if (getLangOpts().BSC && IsInSafeZone()) {
+  if (getLangOpts().BSC && IsInEvaluatedSafeZone()) {
     return ExprError(Diag(E->getBeginLoc(), diag::err_unsafe_action)
                      << "va_arg");
   }
@@ -18365,7 +18365,7 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
 #endif
     if (getLangOpts().CPlusPlus
 #if ENABLE_BSC
-        || IsInSafeZone() || IsSafeFunctionPointerType(DstType)
+        || IsInEvaluatedSafeZone() || IsSafeFunctionPointerType(DstType)
 #endif
     ) {
       DiagKind = diag::err_typecheck_convert_incompatible_function_pointer;
