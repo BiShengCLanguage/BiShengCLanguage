@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+void issue_845_repro(void) {
+  const char *fileType1[] = {"a", "b"};
+  const char *_Borrow fileType2[] = {"a", "b"};
+  const char *_Borrow _ArrayElem fileType3[] = {"a", "b"};
+  (void)fileType1;
+  (void)fileType2;
+  (void)fileType3;
+}
+
+void owned_arrayelem_array(void) {
+  int *_Owned _ArrayElem p[2];
+  int *_Owned _ArrayElem q[2][3];
+  (void)p;
+  (void)q;
+}
+
+void borrow_arrayelem_array(void) {
+  int x[2] = {1, 2};
+  int *_Borrow _ArrayElem p[1] = {&_Mut x[0]};
+  (void)p;
+}

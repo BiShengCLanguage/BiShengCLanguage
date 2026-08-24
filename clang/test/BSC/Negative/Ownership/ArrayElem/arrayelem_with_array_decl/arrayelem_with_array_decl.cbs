@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+void bare_int_elem(void) {
+  int _ArrayElem x[2]; // expected-error {{type of 'int' cannot be qualified by '_ArrayElem'}}
+  (void)x;
+}
+
+void no_safe_ptr(void) {
+  int *_ArrayElem p[2]; // expected-error {{'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type}}
+  (void)p;
+}
+
+
+struct WithBorrow { int *_Borrow f; };
+void borrow_pointee_arr(void) {
+  struct WithBorrow *_Borrow _ArrayElem arr[2];
+  // expected-error@-1 {{pointee type of 'struct WithBorrow *_Borrow _ArrayElem' cannot be _Borrow pointers or contain _Borrow qualified fields}}
+  // expected-error@-2 {{type of 'struct WithBorrow' cannot be qualified by '_Borrow' (even indirectly) because 'struct WithBorrow' contains a '_Borrow' type}}
+  (void)arr;
+}
+
+void nested_borrow_pointee_arr(void) {
+  int *_Borrow * _Borrow _ArrayElem outer[2];
+  // expected-error@-1 {{type of 'int *_Borrow' cannot be qualified by '_Borrow'}}
+  // expected-error@-2 {{pointee type of 'int *_Borrow *_Borrow _ArrayElem' cannot be _Borrow pointers or contain _Borrow qualified fields}}
+  (void)outer;
+}

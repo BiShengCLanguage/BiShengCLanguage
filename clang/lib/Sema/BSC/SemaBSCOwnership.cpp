@@ -74,7 +74,9 @@ bool CheckArrayElemQualifierRules(Sema &S, QualType T, SourceLocation Loc) {
   while (!Worklist.empty()) {
     QualType Current = Worklist.pop_back_val();
 
-    if (Current.isArrayElemQualified()) {
+    // Array types inherit _ArrayElem from their element the real qualifier
+    // lives on the element pointer, so skip the array itself.
+    if (Current.isArrayElemQualified() && !Current->isArrayType()) {
       if (!Current->isPointerType() && !Current->isDependentType()) {
         S.Diag(Loc, diag::err_owned_qualifier_non_pointer)
             << "_ArrayElem"
