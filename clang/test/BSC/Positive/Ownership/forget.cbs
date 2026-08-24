@@ -1,0 +1,65 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Test __forget: explicitly drops ownership of an _Owned pointer at this
+// program point. After the call the analyzer treats the pointer as Moved
+// (ownership forgotten): no leak at scope end, no need to free/move it
+// again, and a later use would report use-of-moved. Only allowed in _Unsafe
+// zones.
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+// Core scenario: __forget drops ownership, so no leak is reported at scope
+// end even though p is never freed or moved.
+void forget_local(void) {
+  int *_Owned p = safe_malloc(42);
+  _Unsafe { __forget(p); }
+}
+
+// __forget on a nullable owned pointer: ownership dropped, no leak.
+void forget_nullable_local(void) {
+  int *_Owned _Nullable p = nullptr;
+  _Unsafe { __forget(p); }
+}
+
+// After __forget, reassigning p to a fresh owned value is OK (Moved => the
+// variable can be (re)assigned), and that fresh value is then freed normally.
+void reassign_after_forget(void) {
+  int *_Owned p = safe_malloc(1);
+  _Unsafe { __forget(p); }
+  p = safe_malloc(2);
+  safe_free(p);
+}
+
+// __forget on an owned struct field: drops ownership of the field, so no
+// field leak is reported at scope end.
+struct S {
+  int *_Owned p1;
+  int *_Owned p2;
+  int x;
+};
+
+void forget_field(void) {
+  struct S s = {};
+  s.p1 = safe_malloc(10);
+  s.p2 = safe_malloc(20);
+  _Unsafe {
+    __forget(s.p1);
+    __forget(s.p2);
+  }
+}
+
+// __forget in a non-_Safe function (outside any safe zone) is always allowed.
+void forget_unsafe_func(void) {
+  int *_Owned p = safe_malloc(7);
+  __forget(p);
+}

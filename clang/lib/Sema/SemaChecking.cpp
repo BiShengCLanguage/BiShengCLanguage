@@ -2363,6 +2363,37 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     }
     break;
   }
+  case Builtin::BI__forget: {
+    // __forget explicitly drops ownership tracking of an _Owned pointer,
+    // promising the analyzer the pointer will neither be freed nor moved
+    // again. It is a raw escape hatch (pure analyzer hint, codegen emits
+    // nothing), so it is forbidden in a safe zone.
+    if (getLangOpts().BSC && IsInSafeZone()) {
+      return ExprError(Diag(TheCall->getBeginLoc(), diag::err_unsafe_action)
+                       << "__forget");
+    }
+    if (checkArgCount(*this, TheCall, 1))
+      return ExprError();
+    QualType ArgTy = TheCall->getArg(0)->getType();
+    if (!ArgTy->isPointerType() || !ArgTy.isOwnedQualified()) {
+      Diag(TheCall->getArg(0)->getBeginLoc(), diag::err_forget_not_owned);
+      return ExprError();
+    }
+    // The argument must be a static addressing path the dataflow can lower to
+    // a tracked location: a variable (DeclRefExpr) or a struct field access
+    // (MemberExpr), optionally wrapped in parens/implicit casts. Any other
+    // shape (comma, ternary, call, explicit cast, array subscript, ++/--,
+    // dereference chain `*q`, ...) is rejected — __forget is a pure analyzer
+    // hint (codegen emits nothing), so a compound expression would be silently
+    // dropped and the ownership never forgotten.
+    const Expr *ArgE = TheCall->getArg(0)->IgnoreParenImpCasts();
+    if (!isa<DeclRefExpr>(ArgE) && !isa<MemberExpr>(ArgE)) {
+      Diag(ArgE->getBeginLoc(), diag::err_forget_complex_arg);
+      Diag(ArgE->getBeginLoc(), diag::note_forget_complex_arg_hint);
+      return ExprError();
+    }
+    break;
+  }
 #endif
   case Builtin::BI__assume:
   case Builtin::BI__builtin_assume:

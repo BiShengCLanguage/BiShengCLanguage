@@ -1,0 +1,81 @@
+// RUN: %clang_cc1 -verify %s
+
+// Test __forget dataflow: after the call the pointer is treated as moved
+// (ownership forgotten), so using it without reassignment is a use-of-moved
+// error. These cases contain NO Sema errors (a Sema error suppresses BSC
+// CFG analyses), so the __forget calls here are all in legal _Unsafe
+// contexts.
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free<T>(T *_Owned p) { free(__move_to_raw(p)); }
+
+// After __forget on an owned pointer, reading it without reassignment is a
+// use-of-moved error. (Non-_Safe function so the safe-zone raw-deref ban
+// does not shadow the ownership diagnostic.)
+void test_use_after_forget(void) {
+  int *_Owned p = safe_malloc(1);
+  _Unsafe { __forget(p); }
+  *p = 1; // expected-error {{use of moved value: 'p'}}
+}
+
+// After __forget, passing p to a callee that consumes ownership is a
+// use-of-moved error.
+void sink(int *_Owned p);
+void test_pass_after_forget(void) {
+  int *_Owned p = safe_malloc(2);
+  _Unsafe { __forget(p); }
+  sink(p); // expected-error {{use of moved value: 'p'}}
+}
+
+// After __forget on a struct owned field, using the field is a
+// use-of-moved error. (Passing the field as an argument — not dereferencing
+// it — so this does not depend on the known pre-existing deref-marker
+// regression in checkSFieldUse's moved-field test, which requires
+// -fbsc-experimental.)
+struct S { int *_Owned p; };
+
+void sink_field(int *_Owned p);
+void test_use_field_after_forget(void) {
+  struct S s = {};
+  s.p = safe_malloc(3);
+  _Unsafe { __forget(s.p); }
+  sink_field(s.p); // expected-error {{use of moved value: 's.p'}}
+}
+
+// The same through an _Owned struct pointer: `__forget(s->p)` and the
+// equivalent `(*s).p` form must both drop the field's ownership. The struct
+// pointer itself is also forgotten afterwards (its fields are gone either
+// way), so the field-level diagnostic is not shadowed by a leak diagnostic
+// for `s`.
+struct Inner { int *_Owned p; };
+struct Inner *_Owned make_inner(void);
+
+void test_use_arrow_field_after_forget(void) {
+  struct Inner *_Owned s = make_inner();
+  _Unsafe { __forget(s->p); }
+  sink_field(s->p); // expected-error {{use of moved value: 's.p'}}
+  _Unsafe { __forget(s); }
+}
+
+void test_use_deref_field_after_forget(void) {
+  struct Inner *_Owned s = make_inner();
+  _Unsafe { __forget((*s).p); }
+  sink_field((*s).p); // expected-error {{use of moved value: 's.p'}}
+  _Unsafe { __forget(s); }
+}
+
+// After __forget, freeing p is a use-of-moved error (double-free path):
+// ownership was already forgotten, so safe_free sees a moved value.
+void test_free_after_forget(void) {
+  int *_Owned p = safe_malloc(4);
+  _Unsafe { __forget(p); }
+  safe_free(p); // expected-error {{use of moved value: 'p'}}
+}

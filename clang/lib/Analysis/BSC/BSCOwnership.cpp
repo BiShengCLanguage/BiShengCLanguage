@@ -1196,6 +1196,71 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
   }
 }
 
+void Ownership::OwnershipStatus::setToMoved(const VarDecl *VD) {
+  if (OPSStatus.count(VD)) {
+    OPSOwnedOwnedFields[VD].clear();
+    resetAll(VD);
+    set(VD, Ownership::Status::Moved);
+  }
+  if (BOPStatus.count(VD)) {
+    BOPOwnedOwnedFields[VD].clear();
+    resetAll(VD);
+    set(VD, Ownership::Status::Moved);
+  }
+}
+
+void Ownership::OwnershipStatus::setToMoved(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  // A plain owned-pointer variable (e.g. int *_Owned p): drop ownership by
+  // moving it out wholesale — no leak, no double-free, later use reports
+  // use-of-moved.
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
+    const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    setToMoved(VD);
+    return;
+  }
+  // A struct owned field (e.g. s.p, s->p, (*s).p): drop the field's ownership
+  // by moving it out, mirroring the field move-out performed when the field is
+  // freed via `(void *_Owned)s.p`. Erase the field path (and its sub-field
+  // prefixes) from the owned-field sets so no leak is reported at scope end;
+  // unlike setToNull, do not insert into the Null-owned-field sets (the
+  // pointer is not asserted null, its ownership is simply forgotten). Peel a
+  // leading deref from the member base so `(*s).p` resolves like `s->p`.
+  if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+    pair<const Expr *, string> memberField = getMemberFullField(ME);
+    if (const DeclRefExpr *DRE =
+            getRootDREFromMemberBase(memberField.first)) {
+      const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      if (OPSStatus.count(VD)) {
+        if (OPSAllOwnedFields[VD].count(memberField.second)) {
+          OPSOwnedOwnedFields[VD].erase(memberField.second);
+          OPSNullOwnedFields[VD].erase(memberField.second);
+          auto allPrefixStrs = findPrefixStrings(OPSAllOwnedFields[VD],
+                                                 memberField.second + ".");
+          for (const string &str : allPrefixStrs) {
+            OPSOwnedOwnedFields[VD].erase(str);
+            OPSNullOwnedFields[VD].erase(str);
+          }
+        }
+      }
+      if (SStatus.count(VD)) {
+        if (SAllOwnedFields[VD].count(memberField.second)) {
+          SOwnedOwnedFields[VD].erase(memberField.second);
+          SNullOwnedFields[VD].erase(memberField.second);
+          SUninitOwnedFields[VD].erase(memberField.second);
+          auto allPrefixStrs =
+              findPrefixStrings(SAllOwnedFields[VD], memberField.second + ".");
+          for (const string &str : allPrefixStrs) {
+            SOwnedOwnedFields[VD].erase(str);
+            SNullOwnedFields[VD].erase(str);
+            SUninitOwnedFields[VD].erase(str);
+          }
+        }
+      }
+    }
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Whole-array / struct-field transitions for owned-element arrays.
 //===----------------------------------------------------------------------===//
@@ -3360,6 +3425,19 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
     if (Callee->getBuiltinID() == Builtin::BI__assume_null) {
       if (CE->getNumArgs() == 1)
         stat.setToNull(CE->getArg(0));
+      return;
+    }
+  }
+
+  // __forget: the user explicitly drops ownership of an _Owned pointer,
+  // promising it will neither be freed nor moved again. Set the pointer to
+  // Moved: no leak at scope end, no double-free, and a later use reports
+  // use-of-moved. This must run before the generic argument Move loop below,
+  // which would otherwise move the owned pointer out.
+  if (FunctionDecl *Callee = CE->getDirectCallee()) {
+    if (Callee->getBuiltinID() == Builtin::BI__forget) {
+      if (CE->getNumArgs() == 1)
+        stat.setToMoved(CE->getArg(0));
       return;
     }
   }

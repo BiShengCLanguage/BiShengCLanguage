@@ -1573,6 +1573,8 @@ BUILTIN(__builtin_assume, "vb", "n")
 BUILTIN(__assume_initialized, "v.", "nt")
 // BSC: assume a _Nullable pointer is null at this program point
 BUILTIN(__assume_null, "v.", "nt")
+// BSC: forget ownership of an _Owned pointer at this program point
+BUILTIN(__forget, "v.", "nt")
 #endif
 
 // Multiprecision Arithmetic Builtins.

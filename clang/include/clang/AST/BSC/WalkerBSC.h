@@ -330,6 +330,7 @@ public:
       case Builtin::BI__take_array_from_raw:
       case Builtin::BI__assume_initialized:
       case Builtin::BI__assume_null:
+      case Builtin::BI__forget:
         return true;
       default:
         break;

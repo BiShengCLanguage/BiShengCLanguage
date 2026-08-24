@@ -3073,7 +3073,91 @@ int main() {
 
 `_Owned` 修饰的类型以及包含 `_Owned` 类型的成员的结构体可以作为数组成员。由于编译器无法静态追踪数组内不同元素的所有权状态，因此毕昇C不区分数组内不同下标的 `_Owned` 指针的所有权状态，如果要改变所有权则必须使用循环对数组内所有元素都进行相同的变更。详细规则请见[3.3.3节](#333-_owned-类型作为数组成员)。
 
-#### 3.1.5. 源源变换
+#### 3.1.5. `__forget`
+
+`__forget(p)` 是一个内建函数，用于显式遗忘一个 `_Owned` 指针 `p` 的所有权。它是一个纯分析器提示——编译器不做契约验证，也不生成任何代码，由用户保证调用后该指针既不会被释放、也不会被再次转移所有权。
+
+与 [3.1.4 节](#314-所有权状态转移规则)描述的常规状态转移不同，`__forget` 不对应任何运行时行为：它的作用是在数据流分析中把 `p` 的所有权状态整体翻转为"已移出（Moved）"。
+
+`__forget` 只能在 `_Unsafe` 区域中使用，因为它绕过了编译器的非空指针检查。
+
+```c
+_Safe void foo(int *_Owned p) {
+  __forget(p); // error: __forget is forbidden in the safe zone
+}
+```
+
+语义规则：
+
+1. 参数必须是一个 `_Owned` 指针。非 `_Owned` 的指针（`_Borrow`、原始指针、`_Nonnull` 指针）或非指针类型会被拒绝。
+
+```c
+void bar(int *_Borrow p, int *q, int x) {
+  _Unsafe { __forget(p); } // error: __forget requires an _Owned pointer argument
+  _Unsafe { __forget(q); } // error: __forget requires an _Owned pointer argument
+  _Unsafe { __forget(x); } // error: __forget requires an _Owned pointer argument
+}
+```
+
+2. 遗忘所有权后，`p` 视为已移出，无需释放或转移即可离开作用域，不报泄漏。
+
+```c
+T *_Owned safe_malloc<T>(T value);
+void safe_free<T>(T *_Owned p);
+
+void forget_local(void) {
+  int *_Owned p = safe_malloc(42);
+  _Unsafe { __forget(p); }
+  // 无需 safe_free(p)，也无需转移：所有权已被遗忘，不报泄漏
+}
+```
+
+3. 遗忘所有权后再次使用 `p` 会报告 `use of moved value`。
+
+```c
+void sink(int *_Owned p);
+
+void use_after_forget(void) {
+  int *_Owned p = safe_malloc(1);
+  _Unsafe { __forget(p); }
+  sink(p); // error: use of moved value: 'p'
+}
+```
+
+4. 遗忘所有权后，重新给 `p` 赋一个新的 `_Owned` 值是允许的，新值恢复正常的所有权追踪。
+
+```c
+void reassign_after_forget(void) {
+  int *_Owned p = safe_malloc(1);
+  _Unsafe { __forget(p); }
+  p = safe_malloc(2); // ok：Moved 状态可被重新赋值
+  safe_free(p);
+}
+```
+
+5. `__forget` 同样适用于结构体的 `_Owned` 字段（如 `s.p`、`s->p`、`(*s).p`），会遗忘该字段的所有权，使该字段在结构体作用域结束时不报泄漏，且再次使用该字段会报告 `use of moved value`。
+
+```c
+struct S { int *_Owned p; };
+
+void forget_field(void) {
+  struct S s = {};
+  s.p = safe_malloc(10);
+  _Unsafe { __forget(s.p); }
+  // s.p 的所有权已遗忘，结构体作用域结束时不为 s.p 报泄漏
+}
+```
+
+**使用限制**：`__forget` 只接受变量（如 `p`）或结构体字段访问（如 `s.p`、`s->p`），可外加括号/隐式转换。其他形态的表达式目前暂不支持，需要时请先用临时变量承接。
+
+```c
+void test_array_subscript(void) {
+  int *_Owned arr[2];
+  _Unsafe { __forget(arr[0]); } // error: unsupported __forget argument; the argument must be a variable or struct field access
+}
+```
+
+#### 3.1.6. 源源变换
 
 BiShengC 语言的 clang 编译器支持源源变换功能，即将`.cbs`文件转换为等价的`.c`文件。
 所有权特性仅引入了`_Owned`关键字表示所有权，在源源变换时只会去掉所有的`_Owned`关键字，然后生成相应的`.c`代码。

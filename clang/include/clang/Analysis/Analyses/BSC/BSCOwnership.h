@@ -415,6 +415,8 @@ public:
     void setToAllMoved(const Expr *E);
     void setToNull(const VarDecl *VD);
     void setToNull(const Expr *E);
+    void setToMoved(const VarDecl *VD);
+    void setToMoved(const Expr *E);
 
     // whole-array / struct-field ownership transitions applied
     // by the dataflow when a qualifying for-loop transfers array elements.

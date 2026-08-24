@@ -2795,6 +2795,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
 #if ENABLE_BSC
   case Builtin::BI__assume_initialized:
   case Builtin::BI__assume_null:
+  case Builtin::BI__forget:
     return RValue::get(nullptr);
 #endif
   case Builtin::BI__assume:

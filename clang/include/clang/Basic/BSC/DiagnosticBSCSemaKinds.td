@@ -303,6 +303,14 @@ def err_assume_null_complex_arg : Error<
 def note_assume_null_complex_arg_hint : Note<
   "the argument must be a variable or struct field access">;
 
+// __forget
+def err_forget_not_owned : Error<
+  "__forget requires an _Owned pointer argument">;
+def err_forget_complex_arg : Error<
+  "unsupported __forget argument">;
+def note_forget_complex_arg_hint : Note<
+  "the argument must be a variable or struct field access">;
+
 // assign
 def err_ownership_assign_owned : Error<
   "cannot assign to '%0' because it still holds an _Owned value; move or free it first">;

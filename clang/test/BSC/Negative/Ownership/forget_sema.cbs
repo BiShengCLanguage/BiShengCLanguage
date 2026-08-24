@@ -1,0 +1,84 @@
+// RUN: %clang_cc1 -verify %s
+
+// Test __forget Sema rejection: safe-zone ban and non-owned argument.
+// (Dataflow-after-forget cases live in forget_use.cbs — kept separate
+//  because a Sema error suppresses BSC CFG analyses, see
+//  SemaDecl.cpp areAllErrorsFromBSCAnalyses.)
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+// Rule 1: __forget is forbidden in a safe zone.
+_Safe void test_forbidden_in_safe_zone(void) {
+  int *_Owned _Nullable p = nullptr;
+  __forget(p); // expected-error {{__forget is forbidden in the safe zone}}
+}
+
+// Rule 1 variant: inside a _Safe function, even within an expression the
+// safe-zone context forbids the call.
+_Safe void test_forbidden_in_safe_zone_expr(void) {
+  int *_Owned _Nullable p = nullptr;
+  (void)__forget(p); // expected-error {{__forget is forbidden in the safe zone}}
+}
+
+// Rule 2: argument must be an _Owned pointer. A _Nonnull (non-owned) pointer
+// is rejected.
+_Safe int *_Nonnull get_nonnull(void);
+void test_non_owned_arg(void) {
+  int *_Nonnull p = get_nonnull();
+  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer argument}}
+}
+
+// Rule 2 variant: non-pointer argument is rejected.
+void test_non_pointer_arg(void) {
+  int x = 0;
+  _Unsafe { __forget(x); } // expected-error {{__forget requires an _Owned pointer argument}}
+}
+
+// Rule 2 variant: a _Borrow pointer is not _Owned.
+void test_borrow_arg(int *_Borrow p) {
+  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer argument}}
+}
+
+// Rule 2 variant: a raw (unqualified) pointer is not _Owned.
+void test_raw_ptr_arg(int *p) {
+  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer argument}}
+}
+
+// Argument-shape: only a variable or struct field access is accepted. Any
+// compound expression is rejected because __forget is a pure analyzer hint
+// (codegen emits nothing) and the dataflow only tracks per-variable
+// ownership; a compound expression would be silently dropped.
+
+// Comma expression: must not be mis-lowered to the left operand.
+void test_comma_arg(int *_Owned a, int *_Owned p) {
+  _Unsafe { __forget((a, p)); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}} expected-warning {{left operand of comma operator has no effect}}
+}
+
+// Ternary expression.
+void test_ternary_arg(int c, int *_Owned p, int *_Owned q) {
+  _Unsafe { __forget(c ? p : q); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
+}
+
+// Array subscript.
+void test_array_subscript_arg(void) {
+  int *_Owned arr[2];
+  arr[0] = safe_malloc(1);
+  arr[1] = safe_malloc(2);
+  _Unsafe { __forget(arr[0]); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
+}
+
+// Dereference chain (*q): rejected. Dropping ownership of an inner pointee
+// through a _Borrow/_Nonnull outer pointer would require alias analysis
+// (borrow-checker scope), which the ownership analysis does not perform —
+// silently accepting it would let the real owner leak. Use __forget(p) or
+// free(p) on the owned variable itself.
+void test_deref_chain_arg(int *_Owned *_Nonnull q) {
+  _Unsafe { __forget(*q); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
+}

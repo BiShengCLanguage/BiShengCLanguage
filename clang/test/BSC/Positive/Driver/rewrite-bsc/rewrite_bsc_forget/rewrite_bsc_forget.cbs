@@ -1,0 +1,84 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// __forget is a compile-time-only analyzer hint: it tells the ownership
+// dataflow that an _Owned pointer's ownership is dropped (treated as Moved)
+// and will neither be freed nor moved again. Codegen emits nothing for it, so
+// the BSC-to-C rewriter must turn the call into a void no-op -- (void)p --
+// rather than leaving a call to an undeclared function. The _Owned qualifier on
+// the operand is dropped alongside, matching how the rewriter already treats
+// that qualifier elsewhere.
+
+// CHECK-NOT: __forget
+// CHECK-NOT: _Owned
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+// __take_from_raw rewrites to a plain cast, so it doubles as the owned-pointer
+// source here without dragging in the generic safe_malloc template.
+int *_Owned make_int(int v) {
+    int *p = (int *)malloc(sizeof(int));
+    *p = v;
+    return __take_from_raw(p);
+}
+
+struct S {
+    int *_Owned p1;
+    int *_Owned p2;
+};
+
+// Statement position: the builtin call becomes a (void) cast of its operand.
+// (A real _Owned pointer so __forget's ownership-drop actually takes effect.)
+int forget_stmt(void) {
+    int *_Owned p = make_int(1);
+    _Unsafe { __forget(p); }
+    return 0;
+}
+
+// Struct-field operand: the field access is preserved, the builtin vanishes.
+int forget_field(void) {
+    struct S s = {0};
+    _Unsafe { __forget(s.p1); }
+    return 0;
+}
+
+// The builtin is a void expression, so it also reaches positions where an
+// empty replacement would leave a syntax hole in the emitted C -- here, the
+// left operand of a comma operator. A null-initialized _Owned _Nullable pointer
+// holds no ownership to leak (mirroring how the __assume_null rewrite test
+// exercises the same position), so the rewrite succeeds even though the
+// for-increment/comma positions are not reached by the dataflow's __forget
+// lowering.
+int forget_in_comma(void) {
+    int *_Owned _Nullable p = 0;
+    int v;
+    _Unsafe { v = (__forget(p), 0); }
+    return v;
+}
+
+// And the increment position of a for loop.
+int forget_in_for_increment(void) {
+    int *_Owned _Nullable p = 0;
+    int s = 0;
+    _Unsafe {
+        for (int i = 0; i < 1; i++, __forget(p))
+            s += i;
+    }
+    return s;
+}
+
+// A non-_Safe (plain C) function using the builtin still rewrites; outside a
+// safe zone the call is always allowed.
+int plain_forget(void) {
+    int *_Owned p = make_int(1);
+    __forget(p);
+    return 0;
+}
+
+int main(void) {
+    return forget_stmt() + forget_field() + forget_in_comma() +
+           forget_in_for_increment() + plain_forget();
+}

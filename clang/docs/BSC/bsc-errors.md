@@ -8,7 +8,7 @@ Backticks in the Message column are markdown formatting for placeholders and cod
 
 ---
 
-## OWN — owned (45 errors, 1 warning)
+## OWN — owned (47 errors, 1 warning)
 
 (OWN-024 and OWN-026 are retired: `err_typecheck_invalid_owned_binOp` and `err_typecheck_invalid_owned_arrsub` were combined with `err_bsc_ptr_inc_dec` into OWN-025 `err_bsc_op_not_supported`. OWN-012 is retired: `err_ownership_cast_owned` was removed from the compiler — its trigger condition was never produced by the ownership analysis, so it could not fire. OWN-006 is retired: `err_ownership_assign_possibly_partially_moved` was merged into OWN-005 `err_ownership_assign_partially_moved` as a `%select` variant. Codes are not renumbered.)
 
@@ -60,6 +60,8 @@ Backticks in the Message column are markdown formatting for placeholders and cod
 | OWN-047 | err_ownership_array_elem_transfer_forbidden | cannot transfer ownership of array element `%0` outside a qualifying for-loop; use a full-range for-loop or safe_swap | — |
 | OWN-048 | err_ownership_array_elem_path_inconsistent | ownership state of array element `%0` is inconsistent across paths in for-loop body | — |
 | OWN-049 | err_ownership_array_elem_assign_owned | cannot assign to `%0` because it still holds an _Owned value; move or free it first | Fires on `arr[i] = ...` / `s[i].p = ...` / `p->arr[i] = ...` when the element (or field) still holds ownership; assigning `nullptr` to an owned element is likewise rejected (it discards the old value). Only a null / moved / uninitialized element may be (re)assigned |
+| OWN-050 | err_forget_not_owned | __forget requires an _Owned pointer argument | `__forget(p)` explicitly drops ownership tracking of `p`; the operand must be an `_Owned` pointer (a non-_Owned / non-pointer operand is rejected) |
+| OWN-051 | err_forget_complex_arg | unsupported __forget argument | `note_forget_complex_arg_hint` — the argument must be a variable or struct field access. `__forget` is a pure analyzer hint (codegen emits nothing), so a compound expression (comma, ternary, call, cast, array subscript, dereference chain `*q`, ...) would be silently dropped and is rejected |
 | **OWN-W001** | warn_destructor_execute | destructor of %0 may not run because the switch can jump over its initialization | Fires only for an `_Owned struct` variable declared in a switch's top-level block; the same hazard via `goto` is currently not diagnosed |
 
 ---
@@ -211,15 +213,15 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 
 | Prefix     | Feature                       | Errors | Warnings |
 |------------|-------------------------------|-------:|---------:|
-| OWN-       | owned                         | 43     | 1        |
+| OWN-       | owned                         | 45     | 1        |
 | BOR-       | borrow                        | 20     | 0        |
 | INIT-      | initialization                | 31     | 0        |
 | MISC-      | declaration / dispatch        | 6      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
 | NONNULL-   | nonnull pointer               | 3      | 0        |
 | NULLABLE-  | nullable pointer              | 7      | 0        |
-| **Total**  |                               | **122** | **1**   |
+| **Total**  |                               | **124** | **1**   |
 
-Plus **26 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
+Plus **27 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 
 Out-of-scope BSC features (not coded here): traits, async/await, generic, constexpr, operator overload, instance member functions. These contribute several more errors, one warning (`warn_type_has_not_impl_trait`), and one note (`note_no_this_parameter`).
