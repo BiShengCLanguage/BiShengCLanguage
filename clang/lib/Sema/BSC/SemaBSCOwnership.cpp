@@ -478,8 +478,23 @@ bool Sema::CheckOwnedFunctionPointerType(QualType LHSType, Expr* RHSExpr) {
   if (!LHSFuncType->hasOwnedRetOrParams() && !RHSFuncType->hasOwnedRetOrParams()) {
     return true;
   }
+
+  // Mismatched pointee base types are reported by the general function pointer
+  // checks, which give a better diagnostic; only compare cv here.
+  auto OwnedPointeeCVMatch = [](QualType Dest, QualType Src) -> bool {
+    if (!Dest.isOwnedQualified() || !Src.isOwnedQualified() ||
+        !Dest->isPointerType() || !Src->isPointerType())
+      return true;
+    return Dest->getPointeeType().getCanonicalType().getLocalCVRQualifiers() ==
+           Src->getPointeeType().getCanonicalType().getLocalCVRQualifiers();
+  };
+
   if ((LHSFuncType->getReturnType().isOwnedQualified() && !RHSFuncType->getReturnType().isOwnedQualified())
        || (!LHSFuncType->getReturnType().isOwnedQualified() && RHSFuncType->getReturnType().isOwnedQualified())) {
+    return false;
+  }
+  if (!OwnedPointeeCVMatch(LHSFuncType->getReturnType(),
+                           RHSFuncType->getReturnType())) {
     return false;
   }
   if (LHSFuncType->getNumParams() != RHSFuncType->getNumParams()) {
@@ -488,6 +503,10 @@ bool Sema::CheckOwnedFunctionPointerType(QualType LHSType, Expr* RHSExpr) {
   for (unsigned i = 0; i < LHSFuncType->getNumParams(); i++) {
     if ((LHSFuncType->getParamType(i).isOwnedQualified() && !RHSFuncType->getParamType(i).isOwnedQualified())
          || (!LHSFuncType->getParamType(i).isOwnedQualified() && RHSFuncType->getParamType(i).isOwnedQualified())) {
+      return false;
+    }
+    if (!OwnedPointeeCVMatch(LHSFuncType->getParamType(i),
+                             RHSFuncType->getParamType(i))) {
       return false;
     }
   }

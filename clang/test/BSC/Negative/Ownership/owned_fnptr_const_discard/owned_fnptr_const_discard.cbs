@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// CheckOwnedFunctionPointerType compared only the _Owned flag, so a function
+// pointer assignment could drop const from an _Owned pointee.
+
+_Unsafe const int *_Owned src_ret(int *_Owned p);
+_Unsafe int *_Owned src_param(const int *_Owned p);
+
+void ret_discards_const(void) {
+  const int *_Owned (*fp_const)(int *_Owned) = src_ret;
+  int *_Owned (*fp_mut)(int *_Owned) = fp_const; // expected-error {{cannot cast 'const int *_Owned (*)(int *_Owned)' to 'int *_Owned (*)(int *_Owned)'}}
+  (void)fp_mut;
+}
+
+void param_discards_const(void) {
+  int *_Owned (*fp_const)(const int *_Owned) = src_param;
+  int *_Owned (*fp_mut)(int *_Owned) = fp_const; // expected-error {{cannot cast 'int *_Owned (*)(const int *_Owned)' to 'int *_Owned (*)(int *_Owned)'}}
+  (void)fp_mut;
+}
+
+void same_const_is_fine(void) {
+  const int *_Owned (*a)(const int *_Owned);
+  const int *_Owned (*b)(const int *_Owned) = a;
+  (void)b;
+}
