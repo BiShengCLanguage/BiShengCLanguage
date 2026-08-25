@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+typedef struct { int f[10]; } S;
+
+int memset_s(void *_Borrow, unsigned int, char, unsigned int);
+
+void minimal_repro(S s) {
+    memset_s(&_Mut (&_Mut s)->f[0], sizeof((&_Mut s)->f), 0,
+             sizeof((&_Mut s)->f));
+}
+
+
+#define ZERO_FIELD(p) \
+    ((void)memset_s(&_Mut (p)->f[0], sizeof((p)->f), 0, sizeof((p)->f)))
+void macro_form(S s) { ZERO_FIELD(&_Mut s); }
+
+
+void single_sizeof(S s) { (void)sizeof((&_Mut s)->f); }
+void two_sizeof(S s) {
+    unsigned a = sizeof((&_Mut s)->f);
+    unsigned b = sizeof((&_Mut s)->f);
+    (void)a; (void)b;
+}
+void nested_sizeof(S s) { (void)sizeof(sizeof((&_Mut s)->f)); }
+
+void sizeof_bare_borrow(S s) { (void)sizeof(&_Mut s); }
+void sizeof_deref_borrow(S s) { (void)sizeof(*(&_Mut s)); }

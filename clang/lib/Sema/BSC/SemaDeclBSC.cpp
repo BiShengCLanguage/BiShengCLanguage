@@ -879,6 +879,12 @@ public:
     return AE;
   }
 
+  // Keep consistent with ActionExtract::VisitUnaryExprOrTypeTraitExpr.
+  // Systematic VLA handling to be done later.
+  ExprResult TransformUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *E) {
+    return E;
+  }
+
   // Note: don't replace LHS and RHS with temporary variables directly in this
   // function, because it may cause incorrect transformation results.
   ExprResult TransformBinaryOperator(BinaryOperator *BO) {
