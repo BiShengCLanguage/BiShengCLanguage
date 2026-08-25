@@ -389,6 +389,12 @@ static bool IsImplTraitDeclIllegal(Sema &S, QualType TraitQT, QualType &ImplQT,
     }
     // Check whether function prototypes match in traitBody and type's member
     // funcs
+    if (!MD) {
+      // No matching BSC method in the impl type's DeclContext.
+      S.Diag(TypeLoc, diag::err_trait_impl)
+          << FunctionID << OriginTraitTy << ImplQT;
+      return true;
+    }
     QualType MethodQT = MD->getType();
     const FunctionProtoType *MethodTy = MethodQT->getAs<FunctionProtoType>();
     bool TypeDiagFlag = false;

@@ -3463,6 +3463,12 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       continue;
 
     case tok::annot_cxxscope: {
+#if ENABLE_BSC
+      // BSC uses its own scope-specifier path; reaching here is error
+      // recovery, and the below isCurrentClassName asserts CPlusPlus.
+      if (getLangOpts().BSC)
+        goto DoneWithDeclSpec;
+#endif
       if (DS.hasTypeSpecifier() || DS.isTypeAltiVecVector())
         goto DoneWithDeclSpec;
 
@@ -7167,7 +7173,17 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   }
 #endif
 
-  if (isFunctionDeclaratorIdentifierList()) {
+  if (isFunctionDeclaratorIdentifierList()
+#if ENABLE_BSC
+      // BSC: when this declarator is ambiguous (parser tentatively
+      // classified it as either a function declaration or an
+      // initializer, e.g. `c(d)` inside a block), do not enter the
+      // K&R identifier-list path — it leaves FTI.Params[i].Param null
+      // and only later errors. Real K&R function definitions are
+      // never marked ambiguous, so they still go through.
+      && !(getLangOpts().BSC && IsAmbiguous)
+#endif
+  ) {
     if (RequiresArg)
       Diag(Tok, diag::err_argument_required_after_attribute);
 

@@ -359,6 +359,9 @@ public:
     if (!CE) {
       return nullptr;
     }
+    // VD may be from an enclosing scope that bypassed CreateMoveFlag.
+    if (!FlagMap.count(VD))
+      return nullptr;
     Expr *FlagRefExpr = SemaRef.BuildDeclRefExpr(
         FlagMap[VD], FlagMap[VD]->getType(), VK_LValue, SourceLocation());
     FlagRefExpr =

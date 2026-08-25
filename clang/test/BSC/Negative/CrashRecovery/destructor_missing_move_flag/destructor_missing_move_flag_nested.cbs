@@ -1,0 +1,7 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: incompatible _Owned types, cannot cast 'void' to '_Owned struct outer'
+// CHECK-NOT: Segmentation fault
+
+_Owned struct outer { _Owned struct inner {} x; };
+void f() { outer y = ({ return 0; }); }

@@ -1,0 +1,6 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: unsupported global scope specifier '::'
+// CHECK-NOT: Segmentation fault
+
+::c<d>::a

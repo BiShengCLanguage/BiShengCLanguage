@@ -1,0 +1,6 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error:
+// CHECK-NOT: Segmentation fault
+
+_Owned truct a{};b(){a c=({return 0

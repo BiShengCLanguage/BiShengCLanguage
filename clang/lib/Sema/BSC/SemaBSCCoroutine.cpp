@@ -1981,6 +1981,12 @@ public:
 
     BSCMethodDecl *CompletedFD =
         lookupBSCMethodInRecord(SemaRef, "completed", PollResultRD);
+    if (!CompletedFD) {
+      // PollResult lacks a 'completed' method (e.g. empty PollResult<T>{}).
+      SemaRef.Diag(FD->getBeginLoc(), diag::err_async_func_unsupported)
+          << "a return type without a 'completed' method";
+      return StmtError();
+    }
 
     Expr *CompletedRef = SemaRef.BuildDeclRefExpr(
         CompletedFD, CompletedFD->getType(), VK_LValue, BLoc);

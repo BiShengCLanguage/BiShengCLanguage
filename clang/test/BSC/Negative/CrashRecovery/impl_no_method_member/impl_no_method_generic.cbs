@@ -1,0 +1,7 @@
+// RUN: not %clang_cc1 -fbsc-experimental -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: function 'foo' in '_Trait T<int>' is not implemented for 'int'
+// CHECK-NOT: Segmentation fault
+
+_Trait T<U> { foo(This* this, U x); };
+_Impl _Trait T<int>for int;

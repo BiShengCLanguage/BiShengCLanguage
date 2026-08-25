@@ -1,0 +1,9 @@
+// RUN: not %clang_cc1 -fbsc-experimental -internal-externc-isystem /usr/include/x86_64-linux-gnu -internal-externc-isystem /usr/include -fsyntax-only %s 2>&1 | FileCheck %s
+
+// CHECK: error: _Async function does not support a return type without a 'completed' method
+// CHECK-NOT: Segmentation fault
+
+#include <stdlib.h>
+struct PollResult<T> {};
+_Trait Future<T> {};
+_Async l(s, a) { return a; }
