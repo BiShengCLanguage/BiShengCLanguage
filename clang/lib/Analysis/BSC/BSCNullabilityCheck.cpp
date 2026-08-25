@@ -488,7 +488,12 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       if (Sub->EvaluateAsInt(Eval, Ctx) && Eval.Val.isInt() &&
           !Eval.Val.getInt().isZero())
         return NullabilityKind::NonNull;
-      return cast<CStyleCastExpr>(E)->getTypeAsWritten().getDefNullability();
+      QualType CastTy = cast<CStyleCastExpr>(E)->getTypeAsWritten();
+      NullabilityKind CastNK = CastTy.getDefNullability();
+      if (CastNK == NullabilityKind::Nullable &&
+          Sub->getType().getCanonicalType()->isPointerType())
+        return getExprPathNullability(Sub);
+      return CastNK;
     }
     case Expr::UnaryOperatorClass: {
       UnaryOperator::Opcode Op = cast<UnaryOperator>(E)->getOpcode();

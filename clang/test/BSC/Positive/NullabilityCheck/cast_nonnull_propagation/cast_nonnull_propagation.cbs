@@ -1,0 +1,62 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+_Safe void consume_uchar(unsigned char * _Nonnull p);
+
+_Safe void test_init(char * _Nullable p) {
+  if (p == nullptr)
+    return;
+  unsigned char * _Nonnull ptr = _Unsafe((unsigned char *)(char *)(&_Mut *p));
+  (void)ptr;
+}
+
+_Safe void test_assign(char * _Nullable p) {
+  unsigned char * _Nonnull ptr = _Unsafe((unsigned char *)0x1234);
+  (void)ptr;
+  if (p == nullptr)
+    return;
+  ptr = _Unsafe((unsigned char *)(char *)(&_Mut *p));
+  (void)ptr;
+}
+
+_Safe void test_call(char * _Nullable p) {
+  if (p == nullptr)
+    return;
+  consume_uchar(_Unsafe((unsigned char *)(char *)(&_Mut *p)));
+}
+
+// Explicit _Nullable cast types also preserve the proven NonNull state.
+_Safe void test_init_nullable_cast(char * _Nullable p) {
+  if (p == nullptr)
+    return;
+  unsigned char * _Nonnull ptr =
+      _Unsafe((unsigned char * _Nullable)(char * _Nullable)(&_Mut *p));
+  (void)ptr;
+}
+
+_Safe char * _Owned _Nullable getptr(void);
+_Safe void release(char * _Owned _Nullable);
+
+_Safe void test_owned_init(void) {
+  char * _Owned _Nullable line = getptr();
+  if (line == nullptr)
+    return;
+  unsigned char * _Nonnull ptr = _Unsafe((unsigned char *)(char *)(&_Mut *line));
+  (void)ptr;
+  release(line);
+}
+
+_Safe void chained_casts(char * _Nullable p) {
+  if (p == nullptr)
+    return;
+  consume_uchar(_Unsafe((unsigned char *)(char *)(unsigned char *)(char *)(&_Mut *p)));
+}
+
+int g_prop = 7;
+_Safe void addr_of_global_in_fn(void) {
+  consume_uchar(_Unsafe((unsigned char *)(char *)(&g_prop)));
+}
+
+_Safe void addr_of_local(char x) {
+  consume_uchar(_Unsafe((unsigned char *)(char *)(&x)));
+}

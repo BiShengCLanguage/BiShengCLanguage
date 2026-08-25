@@ -14803,8 +14803,19 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
         return NullabilityKind::NonNull;
       break;
     }
-    case Expr::CStyleCastExprClass:
-      return cast<CStyleCastExpr>(E)->getTypeAsWritten().getDefNullability();
+    case Expr::CStyleCastExprClass: {
+      Expr *Sub = cast<CStyleCastExpr>(E)->getSubExpr()->IgnoreParenImpCasts();
+      Expr::EvalResult Eval;
+      if (Sub->EvaluateAsInt(Eval, Context) && Eval.Val.isInt() &&
+          !Eval.Val.getInt().isZero())
+        return NullabilityKind::NonNull;
+      QualType CastTy = cast<CStyleCastExpr>(E)->getTypeAsWritten();
+      NullabilityKind CastNK = CastTy.getDefNullability();
+      if (CastNK == NullabilityKind::Nullable &&
+          Sub->getType().getCanonicalType()->isPointerType())
+        return GetExprNK(Sub);
+      return CastNK;
+    }
     case Expr::UnaryOperatorClass: {
       UnaryOperator::Opcode Op = cast<UnaryOperator>(E)->getOpcode();
       if (Op == UO_AddrOf || Op == UO_AddrMut || Op == UO_AddrConst)

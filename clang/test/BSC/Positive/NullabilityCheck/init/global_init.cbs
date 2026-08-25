@@ -23,6 +23,11 @@ int y = 2;
 int *_Nonnull globalP1 = &x;
 int *_Nonnull globalP2 = &y;
 
+// Test global nonnull pointer through unannotated raw pointer casts.
+void *_Nonnull globalCastP = (void *)&x;
+char *_Nonnull globalCastP2 = (char *)&x;
+void *_Nonnull globalCastP3 = (void * _Nullable)&x;
+
 // Test global union initialization
 union U u1;
 union U u2 = {};

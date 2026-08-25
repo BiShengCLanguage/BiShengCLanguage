@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify %s
+
+_Safe void consume_uchar(unsigned char * _Nonnull p);
+
+_Safe void test_init_nullable(char * _Nullable p) {
+  unsigned char * _Nonnull ptr = _Unsafe((unsigned char *)(char *)(&_Mut *p));
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  (void)ptr;
+}
+
+// Explicit _Nullable casts must not launder a still-nullable value either.
+_Safe void test_init_nullable_cast(char * _Nullable p) {
+  unsigned char * _Nonnull ptr = _Unsafe((unsigned char * _Nullable)(char * _Nullable)(&_Mut *p));
+  // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  (void)ptr;
+}
+
+_Safe void test_call_nullable(char * _Nullable p) {
+  consume_uchar(_Unsafe((unsigned char *)(char *)(&_Mut *p)));
+  // expected-error@-1 {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+_Safe void test_after_merge(char * _Nullable p, int c) {
+  if (c)
+    p = _Unsafe((char *)0x1234);
+  consume_uchar(_Unsafe((unsigned char *)(char *)(&_Mut *p)));
+  // expected-error@-1 {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+_Safe void zero_const_cast(void) {
+  consume_uchar(_Unsafe((unsigned char *)(char *)0));
+  // expected-error@-1 {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+_Safe char * _Nullable get_nullable(void);
+_Safe void unchecked_nullable_return(void) {
+  consume_uchar(_Unsafe((unsigned char *)(char *)(&_Mut *get_nullable())));
+  // expected-error@-1 {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
