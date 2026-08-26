@@ -1,0 +1,85 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s | FileCheck %s
+
+// Per C11 6.5.3.2p3 '&*P' is the address of '*P'.  '*P' carries no ownership,
+// so the address of it is a raw pointer even when P is _Borrow or _Owned.
+
+void raw_from_borrow(int *_Borrow p) {
+  int *raw = &*p;
+  int *_Borrow b = &*p; // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow'}}
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} raw_from_borrow
+// CHECK: UnaryOperator {{.*}} 'int *' prefix '&'
+
+void raw_from_const_borrow(const int *_Borrow p) {
+  const int *raw = &*p;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} raw_from_const_borrow
+// CHECK: UnaryOperator {{.*}} 'const int *' prefix '&'
+
+int *_Owned raw_from_owned(int *_Owned p) {
+  int *raw = &*p;
+  return p;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} raw_from_owned
+// CHECK: UnaryOperator {{.*}} 'int *' prefix '&'
+
+void outer_qualifier_only(int *_Owned *_Borrow p) {
+  int *_Owned *raw = &*p;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} outer_qualifier_only
+// CHECK: UnaryOperator {{.*}} 'int *_Owned *' prefix '&'
+
+// '&_Mut' and '&_Const' are unaffected: they still reborrow the pointee.
+void reborrow_still_borrows(int *_Borrow p) {
+  int *_Borrow m = &_Mut *p;
+  const int *_Borrow c = &_Const *p;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} reborrow_still_borrows
+// CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+// CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+
+// '&_Unsafe(*P)' never matched the '&*' form, so it always re-formed a pointer
+// to the pointee's type.  That is the same type the rule above now gives.
+void unsafe_wrapped(int *_Borrow p, int *_Owned *_Borrow q) {
+  int *raw = &_Unsafe(*p);
+  int *_Owned *nested = &_Unsafe(*q);
+  int *_Borrow b = &_Unsafe(*p); // expected-error {{incompatible _Borrow types, cannot cast 'int *' to 'int *_Borrow'}}
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} unsafe_wrapped
+// CHECK: UnaryOperator {{.*}} 'int *' prefix '&'
+// CHECK: UnaryOperator {{.*}} 'int *_Owned *' prefix '&'
+
+// '_ArrayElem' qualifies only an _Owned or _Borrow pointer, so it goes with the
+// ownership it accompanies rather than outliving it on a raw pointer.
+void arrayelem_dropped(int *_Owned _ArrayElem p, int *_Borrow _ArrayElem q) {
+  int *a = &*p;
+  int *b = &*q;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} arrayelem_dropped
+// CHECK: UnaryOperator {{.*}} 'int *' prefix '&'
+// CHECK: UnaryOperator {{.*}} 'int *' prefix '&'
+
+// It survives where it qualifies the pointee rather than the operand.
+void arrayelem_inner(int *_Owned _ArrayElem *_Borrow p) {
+  int *_Owned _ArrayElem *a = &*p;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} arrayelem_inner
+// CHECK: UnaryOperator {{.*}} 'int *_Owned _ArrayElem *' prefix '&'
+
+// '&_Mut *p' still reborrows, dropping the operand's own '_ArrayElem'.
+void arrayelem_reborrow(int *_Owned _ArrayElem p) {
+  int *_Borrow m = &_Mut *p;
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} arrayelem_reborrow
+// CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+

@@ -101,6 +101,14 @@ bool BSCIRBuilder::shouldMove(const Expr *E) const {
 Place BSCIRBuilder::lowerToPlace(const Expr *E) {
   E = E->IgnoreParenImpCasts();
 
+  // '_Unsafe(lvalue)' still denotes the place, only in another zone.
+  if (auto *SE = dyn_cast<SafeExpr>(E)) {
+    SafeZoneStack.push_back(SE->getSafeZoneSpecifier());
+    Place P = lowerToPlace(SE->getSubExpr());
+    SafeZoneStack.pop_back();
+    return P;
+  }
+
   if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
       LocalId Id = getOrCreateLocal(VD);
@@ -887,6 +895,11 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
     if (Op == UO_AddrMutDeref) {
       LocalId Tmp = TheBody->addTemp(UO->getType(), UO->getExprLoc());
       Place TmpPlace(Tmp, UO->getType(), UO->getExprLoc());
+      // `&_Mut *p` addresses the pointee, exactly like `&*p`.
+      AddrOfOrigins[Tmp] = P.project(
+          ProjectionElem::createDeref(
+              UO->getSubExpr()->getType()->getPointeeType()),
+          TheBody->getAllocator(), UO->getOperatorLoc());
       emit(Statement::createAssign(
           TmpPlace,
           Rvalue::createRef(BorrowKind::Mut, P, /*IsReborrow=*/true, RId),
@@ -908,8 +921,11 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
     unsigned RId = NextRegionId++;
     LocalId Tmp = TheBody->addTemp(UO->getType(), UO->getExprLoc());
     Place TmpPlace(Tmp, UO->getType(), UO->getExprLoc());
-    if (!IsReborrow)
-      AddrOfOrigins[Tmp] = P;
+    AddrOfOrigins[Tmp] =
+        IsReborrow ? P.project(ProjectionElem::createDeref(
+                                   UO->getSubExpr()->getType()->getPointeeType()),
+                               TheBody->getAllocator(), UO->getOperatorLoc())
+                   : P;
     emit(Statement::createAssign(
         TmpPlace, Rvalue::createRef(BorrowKind::Shared, P, IsReborrow, RId),
         currentSafeZone(), UO, UO->getExprLoc()));

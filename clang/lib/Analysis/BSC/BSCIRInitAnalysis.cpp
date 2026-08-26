@@ -1331,8 +1331,10 @@ void InitAnalysis::checkEnsureInitAssign(
   if (Src.K == Rvalue::AddressOf || Src.K == Rvalue::Ref) {
     const Place &SrcPlace =
         Src.K == Rvalue::AddressOf ? Src.getAddrOf().P : Src.getRef().P;
+    // A reborrow's place is the pointer, but the result carries its value.
+    bool IsReborrow = Src.K == Rvalue::Ref && Src.getRef().IsReborrow;
     if (SrcPlace.Projections.empty())
-      noteAlias(SrcPlace.Base, /*IsAddress=*/true);
+      noteAlias(SrcPlace.Base, /*IsAddress=*/!IsReborrow);
     else if (SrcPlace.Projections.size() == 1 &&
              SrcPlace.Projections[0].K == ProjectionElem::Deref)
       noteAlias(SrcPlace.Base, /*IsAddress=*/false);

@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// '_Unsafe(lvalue)' denotes a place but grants no initialization of its own:
+// reading through it still reads what has not been written, and wrapping a
+// call that carries no contract still leaves the pointee uninitialized.
+
+struct Pair { int a; int b; };
+
+void opaque(int *x);
+
+void read_local(void) {
+    int x;
+    int y = _Unsafe(x); // expected-error {{use of uninitialized value: 'x'}}
+}
+
+void read_pointee(int *__attribute__((ensure_init)) out) {
+    int v = _Unsafe(*out); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = v;
+}
+
+void no_contract(int *__attribute__((ensure_init)) out) {
+    opaque(&_Unsafe(*out));
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+void partial_field(struct Pair *__attribute__((ensure_init)) out) {
+    _Unsafe(out->a) = 1;
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}

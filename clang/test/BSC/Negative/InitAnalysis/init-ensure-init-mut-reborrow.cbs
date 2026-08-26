@@ -1,0 +1,55 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// `&_Mut *out` denotes the pointee, exactly like `&*out`: naming it before
+// '*out' is initialized is an alias the block-local tracking cannot follow,
+// reading through it reads the uninitialized pointee, and handing it to a
+// callee without the contract credits nothing.
+
+struct Pair { int a; int b; };
+
+void init_bor(int *_Borrow __attribute__((ensure_init)) x);
+void opaque(int *_Borrow x);
+void init_raw(int *__attribute__((ensure_init)) x); // expected-note 2 {{passing argument to parameter 'x' here}}
+
+void named_reborrow_alias(int *__attribute__((ensure_init)) out) {
+    int *_Borrow q = &_Mut *out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+}
+
+void named_const_reborrow_alias(int *__attribute__((ensure_init)) out) {
+    const int *_Borrow q = &_Const *out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+}
+
+int ifret_named_reborrow_alias(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int *_Borrow q = &_Mut *out; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    return 0;
+}
+
+int read_through_reborrow(int *__attribute__((ensure_init)) out) {
+    int v = *(&_Mut *out); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 1;
+    return v;
+}
+
+void reborrow_to_no_contract(int *__attribute__((ensure_init)) out) {
+    opaque(&_Mut *out);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+void deleg_field_partial(struct Pair *__attribute__((ensure_init)) out) {
+    init_bor(&_Mut out->a);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// The reborrow carries a borrow whatever out itself is, so a contract callee
+// taking a raw pointer rejects it -- the mirror of `&*out` against a _Borrow
+// parameter.
+void deleg_raw_param_from_raw(int *__attribute__((ensure_init)) out) {
+    init_raw(&_Mut *out); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Borrow' to 'int *'}}
+    *out = 1;
+}
+
+void deleg_raw_param_from_borrow(int *_Borrow __attribute__((ensure_init)) out) {
+    init_raw(&_Mut *out); // expected-error {{incompatible _Borrow types, cannot cast 'int *_Borrow' to 'int *'}}
+    *out = 1;
+}

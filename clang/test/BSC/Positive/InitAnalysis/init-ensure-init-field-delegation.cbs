@@ -74,6 +74,20 @@ int deleg_whole_pointee_if(int *__attribute__((ensure_init_if_ret(0))) out) {
     return 1;
 }
 
+// A _Borrow parameter delegates the same way. `&*out` is the address of the
+// pointee and carries no borrow of its own, so the callee taking a raw pointer
+// is the matching signature.
+void deleg_borrow_pointee(int *_Borrow __attribute__((ensure_init)) out) {
+    init_int(&*out);
+}
+
+int deleg_borrow_pointee_if(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int r = init_int_if(&*out);
+    if (r == 0)
+        return 0;
+    return 1;
+}
+
 // __assume_initialized asserts that everything reachable from the address is
 // initialized, so `&p` covers the pointee too. A contract callee handed the
 // same `&p` would only prove the pointer was written, which is why the two

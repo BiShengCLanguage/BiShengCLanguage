@@ -1,0 +1,47 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// Delegation by mut reborrow: `&_Mut *out` hands the callee the same pointee
+// `&*out` does, so a contract callee taking a borrow discharges this
+// function's own contract, and field reborrows delegate field-by-field.
+
+struct Pair { int a; int b; };
+
+void init_bor(int *_Borrow __attribute__((ensure_init)) x);
+int init_bor_if(int *_Borrow __attribute__((ensure_init_if_ret(0))) x);
+
+void deleg_raw_param(int *__attribute__((ensure_init)) out) {
+    init_bor(&_Mut *out);
+}
+
+void deleg_borrow_param(int *_Borrow __attribute__((ensure_init)) out) {
+    init_bor(&_Mut *out);
+}
+
+// A borrow param handed on whole delegates without a reborrow.
+void deleg_borrow_direct(int *_Borrow __attribute__((ensure_init)) out) {
+    init_bor(out);
+}
+
+void deleg_fields(struct Pair *__attribute__((ensure_init)) out) {
+    init_bor(&_Mut out->a);
+    init_bor(&_Mut out->b);
+}
+
+int ifret_deleg_return(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return init_bor_if(&_Mut *out);
+}
+
+int ifret_deleg_guarded(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int r = init_bor_if(&_Mut *out);
+    if (r == 0)
+        return 0;
+    return 1;
+}
+
+// Once the contract is fulfilled the reborrow is free.
+int reborrow_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    int *_Borrow q = &_Mut *out;
+    return *q;
+}

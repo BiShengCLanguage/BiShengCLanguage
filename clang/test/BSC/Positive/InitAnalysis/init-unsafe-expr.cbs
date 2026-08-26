@@ -1,0 +1,45 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// '_Unsafe(lvalue)' still denotes the place it wraps, so a write through it
+// initializes, and its address delegates the contract the same way the bare
+// lvalue does. Only the zone of what it wraps changes.
+
+struct Pair { int a; int b; };
+
+void init_raw(int *__attribute__((ensure_init)) x);
+int init_raw_if(int *__attribute__((ensure_init_if_ret(0))) x);
+
+void write_pointee(int *__attribute__((ensure_init)) out) {
+    _Unsafe(*out) = 1;
+}
+
+void write_field(struct Pair *__attribute__((ensure_init)) out) {
+    _Unsafe(out->a) = 1;
+    out->b = 2;
+}
+
+void deleg_pointee(int *__attribute__((ensure_init)) out) {
+    init_raw(&_Unsafe(*out));
+}
+
+void deleg_field(struct Pair *__attribute__((ensure_init)) out) {
+    init_raw(&_Unsafe(out->a));
+    init_raw(&out->b);
+}
+
+void deleg_inside(int *__attribute__((ensure_init)) out) {
+    init_raw(_Unsafe(&*out));
+}
+
+int ifret_write(int *__attribute__((ensure_init_if_ret(0))) out) {
+    _Unsafe(*out) = 1;
+    return 0;
+}
+
+int ifret_deleg(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int r = init_raw_if(&_Unsafe(*out));
+    if (r == 0)
+        return 0;
+    return 1;
+}

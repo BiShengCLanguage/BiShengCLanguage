@@ -15562,10 +15562,22 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
   if (getLangOpts().C99) {
     // Implement C99-only parts of addressof rules.
     if (UnaryOperator* uOp = dyn_cast<UnaryOperator>(op)) {
-      if (uOp->getOpcode() == UO_Deref)
+      if (uOp->getOpcode() == UO_Deref) {
+#if ENABLE_BSC
+        // '&*P' is the address of '*P', so it never re-creates ownership.
+        if (getLangOpts().BSC) {
+          QualType DerefTy = uOp->getSubExpr()->getType();
+          DerefTy.removeLocalOwned();
+          DerefTy.removeLocalBorrow();
+          // '_ArrayElem' only qualifies an _Owned or _Borrow pointer.
+          DerefTy.removeLocalArrayElem(Context);
+          return DerefTy;
+        }
+#endif
         // Per C99 6.5.3.2, the address of a deref always returns a valid result
         // (assuming the deref expression is valid).
         return uOp->getSubExpr()->getType();
+      }
     }
     // Technically, there should be a check for array subscript
     // expressions here, but the result of one is always an lvalue anyway.

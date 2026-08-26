@@ -1,0 +1,72 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// Test BSCIR lowering of '_Unsafe(lvalue)'. The wrapper denotes the place it
+// wraps, so no temporary reads the operand first.
+
+// CHECK-LABEL: fn test_unsafe_write
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   (*_1) = const 1
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_unsafe_write(int *out) {
+    _Unsafe(*out) = 1;
+}
+
+// Its address is the address of that place, not of a temporary holding a copy.
+
+// CHECK-LABEL: fn test_unsafe_addr
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = &(*_1)
+// CHECK-NEXT:   _3 = call init_raw(copy(_2)) -> bb1
+// CHECK-NEXT: }
+void init_raw(int *x);
+
+void test_unsafe_addr(int *out) {
+    init_raw(&_Unsafe(*out));
+}
+
+// The wrapper still changes the zone of what it wraps: the subscript's index
+// temporary is emitted unsafe, while the assignment around it stays safe.
+
+// CHECK-LABEL: fn test_unsafe_zone
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _3 = copy(_2) [unsafe]
+// CHECK-NEXT:   _1[_3] = const 1 [safe]
+// CHECK-NEXT:   return [safe]
+// CHECK-NEXT: }
+_Safe void test_unsafe_zone(int *p, int i) {
+    _Unsafe(p[i]) = 1;
+}
+
+// Parentheses on either side of the wrapper reach the same place.
+
+// CHECK-LABEL: fn test_paren_outside
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = &(*_1)
+// CHECK-NEXT:   _3 = call init_raw(copy(_2)) -> bb1
+// CHECK-NEXT: }
+void test_paren_outside(int *out) {
+    init_raw(&(_Unsafe(*out)));
+}
+
+// CHECK-LABEL: fn test_paren_inside
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = &(*_1)
+// CHECK-NEXT:   _3 = call init_raw(copy(_2)) -> bb1
+// CHECK-NEXT: }
+void test_paren_inside(int *out) {
+    init_raw(&_Unsafe((*out)));
+}
+
+// Wrapping the address-of instead of the lvalue addresses the same place, and
+// puts the statement itself in the unsafe zone.
+
+// CHECK-LABEL: fn test_wrapper_outside
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = &(*_1) [unsafe]
+// CHECK-NEXT:   _3 = call init_raw(copy(_2)) -> bb1
+// CHECK-NEXT: }
+void test_wrapper_outside(int *out) {
+    init_raw(_Unsafe(&*out));
+}
+
