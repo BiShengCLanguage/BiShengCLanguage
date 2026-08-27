@@ -1952,6 +1952,7 @@ Ownership::OwnershipStatus::checkSAssign(const VarDecl *VD,
     }
   }
   SOwnedOwnedFields[VD] = SAllOwnedFields[VD];
+  SNullOwnedFields[VD].clear();
   SUninitOwnedFields[VD].clear();
 
   return diags;
@@ -2046,8 +2047,10 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   for (const auto &str : allPrefixStrs) {
     SOwnedOwnedFields[VD].insert(str);
   }
+  SNullOwnedFields[VD].erase(fullFieldName);
   SUninitOwnedFields[VD].erase(fullFieldName);
   for (const auto &str : allPrefixStrs) {
+    SNullOwnedFields[VD].erase(str);
     SUninitOwnedFields[VD].erase(str);
   }
 

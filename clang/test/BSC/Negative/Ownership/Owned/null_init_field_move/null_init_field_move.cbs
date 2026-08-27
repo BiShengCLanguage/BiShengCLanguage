@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify %s
+
+void free(void *);
+int *_Owned safe_malloc_int(void);
+
+struct H { int *_Owned data; int tag; };
+struct Inner { int *_Owned q; };
+struct Nest { struct Inner in; int tag; };
+
+struct H make_h(void);
+struct Inner make_inner(void);
+
+void double_move_after_null_init(int *_Owned q) {
+    struct H h = {0};
+    h.data = q;
+    free(__move_to_raw(h.data));
+    free(__move_to_raw(h.data)); // expected-error {{use of moved value: 'h.data'}}
+}
+
+void read_after_move_null_init(int *_Owned q) {
+    struct H h = {0};
+    h.data = q;
+    free(__move_to_raw(h.data));
+    int x = *h.data; // expected-error {{use of moved value: 'h.data'}}
+}
+
+void double_move_nested_field_assign(void) {
+    struct Nest n = {0};
+    n.in = make_inner();
+    free(__move_to_raw(n.in.q));
+    free(__move_to_raw(n.in.q)); // expected-error {{use of moved value: 'n.in.q'}}
+}
+
+void double_move_after_whole_struct_assign(void) {
+    struct H h = {0};
+    h = make_h();
+    free(__move_to_raw(h.data));
+    free(__move_to_raw(h.data)); // expected-error {{use of moved value: 'h.data'}}
+}

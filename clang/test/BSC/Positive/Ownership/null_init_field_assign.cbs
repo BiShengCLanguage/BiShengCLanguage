@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Retracting the null state on assignment must not make a field that is still
+// null, or one moved only once, look moved.
+
+void free(void *);
+int *_Owned safe_malloc_int(void);
+
+struct H { int *_Owned data; int tag; };
+
+void single_move_after_null_init(int *_Owned q) {
+    struct H h = {0};
+    h.data = q;
+    free(__move_to_raw(h.data));
+}
+
+void move_of_still_null_field(void) {
+    struct H h = {0};
+    free(__move_to_raw(h.data));
+}
+
+void reassign_after_move(int *_Owned q) {
+    struct H h = {0};
+    h.data = q;
+    free(__move_to_raw(h.data));
+    h.data = safe_malloc_int();
+    free(__move_to_raw(h.data));
+}
