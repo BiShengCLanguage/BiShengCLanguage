@@ -2189,12 +2189,16 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     if (checkBSCRawTransferBuiltinCommon(*this, TheCall, "__move_to_raw")
         || checkMoveToRawArgumentShape(*this, TheCall, false))
       return ExprError();
+    CheckMoveVarMemoryLeak(TheCall->getArg(0),
+                           TheCall->getArg(0)->getBeginLoc());
     handleBSCRawTransferBuiltin(*this, TheCall, BuiltinID);
     break;
   case Builtin::BI__move_array_to_raw:
     if (checkBSCRawTransferBuiltinCommon(*this, TheCall, "__move_array_to_raw")
         || checkMoveToRawArgumentShape(*this, TheCall, true))
       return ExprError();
+    CheckMoveVarMemoryLeak(TheCall->getArg(0),
+                           TheCall->getArg(0)->getBeginLoc());
     handleBSCRawTransferBuiltin(*this, TheCall, BuiltinID);
     break;
   case Builtin::BI__take_from_raw:

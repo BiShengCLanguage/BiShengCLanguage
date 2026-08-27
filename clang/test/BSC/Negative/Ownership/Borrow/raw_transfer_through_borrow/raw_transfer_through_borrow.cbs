@@ -1,0 +1,48 @@
+// RUN: %clang_cc1 -verify %s
+
+// Moving an _Owned value out of a _Borrow pointee through the raw-transfer
+// builtins is forbidden. `__move_to_raw`/`__move_array_to_raw` would hand the
+// pointer to raw code while the original owner still believes it owns the
+// memory, which can lead to a double free. Normal calls are already diagnosed
+// by Sema::CheckMoveVarMemoryLeak; this test covers the builtins, which used
+// to bypass that check.
+
+_Safe void consume(int * _Owned);
+
+_Safe void foo(int * _Owned p) {
+  _Unsafe { __move_to_raw(*&_Mut p); } // expected-error {{cannot take ownership of a borrowed value}}
+  // Recover: move p directly (not through a borrow) so the parameter is consumed.
+  _Unsafe { int *raw = __move_to_raw(p); (void)raw; }
+}
+
+_Safe void bar(int * _Owned _ArrayElem arr) {
+  _Unsafe { __move_array_to_raw(*&_Mut arr); } // expected-error {{cannot take ownership of a borrowed value}}
+  _Unsafe { int *raw = __move_array_to_raw(arr); (void)raw; }
+}
+
+_Safe void via_named_borrow(int * _Owned * _Borrow pp) {
+  _Unsafe { __move_to_raw(*pp); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void via_named_borrow_array(int * _Owned _ArrayElem * _Borrow pp) {
+  _Unsafe { __move_array_to_raw(*pp); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+struct S {
+  int * _Owned f;
+};
+
+_Safe void via_member(struct S * _Borrow s) {
+  _Unsafe { __move_to_raw(s->f); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Positive controls: moving a directly owned value to raw is still fine.
+void ok_move(int * _Owned p) {
+  int *raw = __move_to_raw(p);
+  (void)raw;
+}
+
+void ok_move_array(int * _Owned _ArrayElem p) {
+  int *raw = __move_array_to_raw(p);
+  (void)raw;
+}
