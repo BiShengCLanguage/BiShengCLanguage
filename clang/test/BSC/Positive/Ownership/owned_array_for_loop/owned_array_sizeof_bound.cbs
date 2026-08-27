@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// The loop bound may be written as sizeof(arr)/sizeof(arr[0]) for any array
+// that has length information, including VLA.
+void test_fixed() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i)
+    safe_free((void *_Owned)a[i]);
+}
+
+struct W { int *_Owned arr[2]; };
+
+void test_struct_field() {
+  struct W w = {{0, 0}};
+  for (int i = 0; i < sizeof(w.arr) / sizeof(w.arr[0]); ++i)
+    w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < sizeof(w.arr) / sizeof(w.arr[0]); ++i)
+    safe_free((void *_Owned)w.arr[i]);
+}
+
+void test_vla(int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < n; ++i)
+    a[i] = safe_malloc(i);
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i)
+    safe_free((void *_Owned)a[i]);
+}
+
+void test_vla_deref_form(int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < n; ++i)
+    a[i] = safe_malloc(i);
+  for (int i = 0; i < sizeof(a) / sizeof(*a); ++i)
+    safe_free((void *_Owned)a[i]);
+}
+
+// Two VLAs declared with the same length variable have the same runtime
+// length, so a loop bounded by sizeof(a)/sizeof(a[0]) covers both.
+void test_two_vla_same_len(int n) {
+  int *_Owned a[n];
+  int *_Owned b[n];
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i) {
+    a[i] = safe_malloc(i);
+    b[i] = safe_malloc(i);
+  }
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i) {
+    safe_free((void *_Owned)a[i]);
+    safe_free((void *_Owned)b[i]);
+  }
+}

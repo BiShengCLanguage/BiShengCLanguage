@@ -99,8 +99,62 @@ static bool IsIncrementByOne(const ASTContext &Context, const Expr *Inc,
   return false;
 }
 
+// Recognize `i < sizeof(arr)/sizeof(arr[0])` (also `sizeof(arr)/sizeof(*arr)`)
+// as an array-length bound and return the array variable it refers to, or
+// nullptr when the expression does not have that shape.
+static const VarDecl *GetSizeofArrayBound(const ASTContext &Context,
+                                          const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  const BinaryOperator *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO || BO->getOpcode() != BO_Div)
+    return nullptr;
+  const UnaryExprOrTypeTraitExpr *SizeOfArr =
+      dyn_cast<UnaryExprOrTypeTraitExpr>(BO->getLHS()->IgnoreParenImpCasts());
+  if (!SizeOfArr || SizeOfArr->getKind() != UETT_SizeOf ||
+      SizeOfArr->isArgumentType())
+    return nullptr;
+  const Expr *ArrExpr = SizeOfArr->getArgumentExpr()->IgnoreParenImpCasts();
+  const UnaryExprOrTypeTraitExpr *SizeOfElem =
+      dyn_cast<UnaryExprOrTypeTraitExpr>(BO->getRHS()->IgnoreParenImpCasts());
+  if (!SizeOfElem || SizeOfElem->getKind() != UETT_SizeOf ||
+      SizeOfElem->isArgumentType())
+    return nullptr;
+  const Expr *ElemExpr = SizeOfElem->getArgumentExpr()->IgnoreParenImpCasts();
+  const DeclRefExpr *ArrDRE = dyn_cast<DeclRefExpr>(ArrExpr);
+  if (!ArrDRE)
+    return nullptr;
+  const Expr *ElemBase = nullptr;
+  if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(ElemExpr))
+    ElemBase = ASE->getBase()->IgnoreParenImpCasts();
+  else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(ElemExpr))
+    if (UO->getOpcode() == UO_Deref)
+      ElemBase = UO->getSubExpr()->IgnoreParenImpCasts();
+  const DeclRefExpr *ElemDRE = dyn_cast_or_null<DeclRefExpr>(ElemBase);
+  if (!ElemDRE || ElemDRE->getDecl() != ArrDRE->getDecl())
+    return nullptr;
+  return dyn_cast<VarDecl>(ArrDRE->getDecl());
+}
+
+// For `i < sizeof(arr)/sizeof(arr[0])`, return the VLA length variable of
+// `arr` (sizeof(arr)/sizeof(arr[0]) == that variable at runtime). Returns
+// nullptr when the bound is not a sizeof-based array length or the VLA size
+// is not a simple variable.
+static const VarDecl *GetSizeofArrayLengthVar(const ASTContext &Context,
+                                              const Expr *E) {
+  const VarDecl *ArrVD = GetSizeofArrayBound(Context, E);
+  if (!ArrVD)
+    return nullptr;
+  if (const auto *VAT = dyn_cast_or_null<VariableArrayType>(
+          ArrVD->getType()->getAsArrayTypeUnsafe()))
+    if (const DeclRefExpr *SizeDRE = dyn_cast<DeclRefExpr>(
+            VAT->getSizeExpr()->IgnoreParenImpCasts()))
+      return dyn_cast<VarDecl>(SizeDRE->getDecl());
+  return nullptr;
+}
+
 // The loop bound must equal the array length: constant N vs constant
-// array size, or VLA size variable n (3.2.1 cond 2).
+// array size, or VLA size variable n (3.2.1 cond 2). A sizeof-based bound
+// is normalized to its VLA length variable by the caller.
 static bool ArrayBoundMatches(const ASTContext &Context, const VarDecl *ArrVD,
                               bool IsConstantBound,
                               const llvm::APSInt &BoundVal,
@@ -399,7 +453,8 @@ static BranchSummary SummarizeBranch(
 // Collect every VLA bound variable used in any for-loop condition (3.2.1
 // cond 2): they must not be modified / address-taken / mutably borrowed.
 static void CollectBoundVarInStmt(
-    const Stmt *S, llvm::SmallPtrSetImpl<const VarDecl *> &Out) {
+    const ASTContext &Context, const Stmt *S,
+    llvm::SmallPtrSetImpl<const VarDecl *> &Out) {
   if (!S)
     return;
   if (const ForStmt *FS = dyn_cast<ForStmt>(S)) {
@@ -413,18 +468,23 @@ static void CollectBoundVarInStmt(
               if (V->getType()->isIntegerType())
                 Out.insert(V);
             }
+          } else if (const VarDecl *BoundVar =
+                         GetSizeofArrayLengthVar(Context, BO->getRHS())) {
+            // `sizeof(arr)/sizeof(arr[0])`: for a VLA the length variable is
+            // still a bound variable and must not be modified.
+            Out.insert(BoundVar);
           }
         }
       }
     }
   }
   for (const Stmt *Child : S->children())
-    CollectBoundVarInStmt(Child, Out);
+    CollectBoundVarInStmt(Context, Child, Out);
 }
 
 static void CollectLoopBoundVars(ASTContext &Context, const FunctionDecl *FD,
                                  llvm::SmallPtrSetImpl<const VarDecl *> &Out) {
-  CollectBoundVarInStmt(FD->getBody(), Out);
+  CollectBoundVarInStmt(Context, FD->getBody(), Out);
 }
 
 // First statement in FD that modifies / address-takes / mutably borrows
@@ -635,15 +695,24 @@ class OwnedArrayLoopClassifier {
     } else {
       const DeclRefExpr *BoundDRE = dyn_cast<DeclRefExpr>(
           CondBO->getRHS()->IgnoreParenImpCasts());
-      if (!BoundDRE)
-        return reject(NonQualifyingLoopReason::CondNotMatch);
-      BoundVD = dyn_cast<VarDecl>(BoundDRE->getDecl());
-      if (!BoundVD || !BoundVD->getType()->isIntegerType())
-        return reject(NonQualifyingLoopReason::CondNotMatch);
-      auto ModIt = BoundVarModLocs.find(BoundVD);
-      if (ModIt != BoundVarModLocs.end())
-        return reject(NonQualifyingLoopReason::VlaBoundVarModified,
-                      ModIt->second);
+      if (BoundDRE) {
+        BoundVD = dyn_cast<VarDecl>(BoundDRE->getDecl());
+        if (!BoundVD || !BoundVD->getType()->isIntegerType())
+          return reject(NonQualifyingLoopReason::CondNotMatch);
+      } else {
+        // `i < sizeof(arr)/sizeof(arr[0])`: for a VLA this is a runtime
+        // value, so it is not a constant expression. Normalize it to the
+        // array's VLA length variable and treat it like `i < n`.
+        BoundVD = GetSizeofArrayLengthVar(Context, CondBO->getRHS());
+        if (!BoundVD)
+          return reject(NonQualifyingLoopReason::CondNotMatch);
+      }
+      if (BoundVD) {
+        auto ModIt = BoundVarModLocs.find(BoundVD);
+        if (ModIt != BoundVarModLocs.end())
+          return reject(NonQualifyingLoopReason::VlaBoundVarModified,
+                        ModIt->second);
+      }
     }
 
     // init value: must be zero (3.2.1 cond 1)...
@@ -662,7 +731,7 @@ class OwnedArrayLoopClassifier {
           Bits - (LoopVar->getType()->isSignedIntegerType() ? 1 : 0);
       if (BoundVal.getActiveBits() > MaxBits)
         return reject(NonQualifyingLoopReason::InitTypeTooSmall);
-    } else {
+    } else if (BoundVD) {
       unsigned LoopBits = Context.getTypeSize(LoopVar->getType());
       unsigned LoopMaxBits =
           LoopBits - (LoopVar->getType()->isSignedIntegerType() ? 1 : 0);
@@ -1217,7 +1286,6 @@ class OwnedArrayLoopClassifier {
     // dataflow transfers on the MemberExpr itself, so record it (not just
     // its subscripted sub-expressions).
     if (const MemberExpr *ME = dyn_cast<MemberExpr>(S)) {
-      const Expr *Cur2 = ME;
       const VarDecl *HostVD = nullptr;
       llvm::SmallVector<std::pair<const MemberExpr *, const Expr *>, 4>
           Levels;

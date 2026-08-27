@@ -1,0 +1,34 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// The VLA length variable is still a bound variable when the loop bound is
+// written as sizeof(a)/sizeof(a[0]); modifying it disqualifies the loop.
+void test_vla_bound_modified(int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i)
+    a[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  n = 1; // expected-note {{for-loop is not a qualifying for-loop: VLA length / loop bound variable must not be modified, address-taken or mutably borrowed}}
+}
+
+// Using sizeof of an array with a different length variable as the bound does
+// not cover this array (the sizeof bound is normalized to its length variable).
+void test_vla_mismatch(int n, int m) {
+  int *_Owned a[n];
+  int *_Owned b[m];
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i) // expected-note {{for-loop is not a qualifying for-loop: loop bound variable must be the same variable that declares the VLA length}}
+    b[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `b` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  for (int i = 0; i < sizeof(a) / sizeof(a[0]); ++i) // expected-note {{for-loop is not a qualifying for-loop: loop bound variable must be the same variable that declares the VLA length}}
+    safe_free((void *_Owned)b[i]); // expected-error {{cannot transfer ownership of array element `b` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}

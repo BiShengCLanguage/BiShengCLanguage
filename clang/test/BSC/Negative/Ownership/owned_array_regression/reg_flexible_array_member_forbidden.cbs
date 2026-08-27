@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A flexible array member has no compile-time length, so a for-loop cannot be
+// proven to cover every element; ownership transfers through such a loop must
+// be rejected.
+struct S { int len; int *_Owned arr[]; };
+
+void test_local() {
+  struct S s;
+  for (int i = 0; i < 2; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    s.arr[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  for (int i = 0; i < 2; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    safe_free((void *_Owned)s.arr[i]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
+
+void test_owned_ptr(int n) {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S) + n * sizeof(int *)));
+  for (int i = 0; i < n; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    p->arr[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `p` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  for (int i = 0; i < n; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    safe_free((void *_Owned)p->arr[i]); // expected-error {{cannot transfer ownership of array element `p` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned': p.arr[] is still _Owned; move it out first}}
+}
