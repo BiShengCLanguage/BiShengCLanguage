@@ -32,4 +32,17 @@ void test_struct_mixed() {
     safe_free((void *_Owned)arr[i].p2);
 }
 
+// Struct-element array fields are tracked independently: p1 is null in every
+// element, so the whole arr[].p1 aggregate owns nothing and can be assigned in
+// a qualifying loop; p2 owns values and must be freed.
+void test_struct_field_wise_all_null_field() {
+  struct S arr[2] = {{nullptr, safe_malloc(2)}, {nullptr, safe_malloc(3)}};
+  for (int i = 0; i < 2; i++)
+    arr[i].p1 = safe_malloc(10 + i);
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)arr[i].p1);
+    safe_free((void *_Owned)arr[i].p2);
+  }
+}
+
 int main() { return 0; }

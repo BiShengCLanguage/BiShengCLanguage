@@ -1,0 +1,63 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct W { int *_Owned arr[2]; };
+
+// A struct with an owned-element array field may be zero / null initialized;
+// the array field then owns nothing, so a qualifying for-loop may assign
+// fresh owned pointers into it and later free them.
+void test_zero_init() {
+  struct W w = {{0, 0}};
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)w.arr[i]);
+}
+
+void test_empty_init() {
+  struct W w = {};
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)w.arr[i]);
+}
+
+void test_nullptr_init() {
+  struct W w = {{nullptr, nullptr}};
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)w.arr[i]);
+}
+
+// Nested host struct: the null state must propagate through `o.w.arr[]`.
+struct Outer { struct W w; };
+
+void test_nested_zero_init() {
+  struct Outer o = {{{0, 0}}};
+  for (int i = 0; i < 2; i++)
+    o.w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)o.w.arr[i]);
+}
+
+void test_nested_empty_init() {
+  struct Outer o = {};
+  for (int i = 0; i < 2; i++)
+    o.w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)o.w.arr[i]);
+}

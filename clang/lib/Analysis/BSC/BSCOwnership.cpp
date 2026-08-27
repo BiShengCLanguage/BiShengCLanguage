@@ -2660,6 +2660,53 @@ static bool isAllNullInits(ASTContext &ctx, const InitListExpr *ILE,
   return true;
 }
 
+// For a struct-element array initializer with mixed / non-null elements,
+// track each owned field independently: a field that is null in every element
+// owns nothing and is recorded as null; a field with any non-null element
+// keeps the whole field aggregate owned.
+static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
+                                         ASTContext &Ctx, const VarDecl *VD,
+                                         RecordDecl *RD,
+                                         const InitListExpr *ILE) {
+  for (const FieldDecl *FD : RD->fields()) {
+    QualType FT = FD->getType();
+    if (!FT.isOwnedQualified() && !FT->hasOwnedFields())
+      continue;
+    bool AllNull = true;
+    for (unsigned I = 0; I < ILE->getNumInits(); ++I) {
+      const Expr *ElemInit = ILE->getInit(I);
+      if (!ElemInit)
+        continue; // omitted element -> zero initialized
+      ElemInit = ElemInit->IgnoreParenImpCasts();
+      const InitListExpr *ElemILE = dyn_cast<InitListExpr>(ElemInit);
+      if (!ElemILE) {
+        AllNull = false; // unknown element shape: be conservative
+        break;
+      }
+      const Expr *FieldInit =
+          FD->getFieldIndex() < ElemILE->getNumInits()
+              ? ElemILE->getInit(FD->getFieldIndex())
+              : nullptr;
+      if (!isOwnedNullInit(Ctx, FieldInit, FT)) {
+        AllNull = false;
+        break;
+      }
+    }
+    if (AllNull) {
+      std::string FieldName = FD->getNameAsString();
+      // Use isFieldPathPrefix so a field named "a" does not also null a
+      // sibling field named "ab".
+      for (const std::string &Key : Stat.SAllOwnedFields[VD])
+        if (isFieldPathPrefix(FieldName, Key)) {
+          Stat.SOwnedOwnedFields[VD].erase(Key);
+          Stat.SNullOwnedFields[VD].insert(Key);
+        }
+    }
+  }
+  Stat.refreshArrayFieldState(VD, Stat.SOwnedOwnedFields[VD],
+                              Stat.SAllOwnedFields[VD]);
+}
+
 class TransferFunctions : public StmtVisitor<TransferFunctions> {
   OwnershipImpl &OS;
   Ownership::OwnershipStatus &stat;
@@ -3688,10 +3735,20 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
           while (const auto *AT = ElemTy->getAsArrayTypeUnsafe())
             ElemTy = AT->getElementType();
           if (const auto *ILE = dyn_cast<InitListExpr>(Init)) {
-            if (ILE->getNumInits() == 0 || isAllNullInits(OS.ctx, ILE, ElemTy))
+            if (ILE->getNumInits() == 0 || isAllNullInits(OS.ctx, ILE, ElemTy)) {
               stat.setArrayElemNull(VD);
-            else
+            } else if (const RecordType *RT =
+                           dyn_cast<RecordType>(ElemTy.getCanonicalType())) {
+              // Mixed / non-null struct-element array initializer: each owned
+              // field is tracked independently, so a field that is null in
+              // every element is recorded as null even when another field
+              // owns values.
               stat.setArrayElemOwned(VD);
+              NullAllNullStructArrayFields(stat, OS.ctx, VD, RT->getDecl(),
+                                           ILE);
+            } else {
+              stat.setArrayElemOwned(VD);
+            }
           } else {
             stat.setArrayElemOwned(VD);
           }
@@ -3750,6 +3807,24 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
         fullFieldName.empty() ? memberField : fullFieldName + "." + memberField;
     bool IsTrackedOwnedField = stat.SAllOwnedFields[VD].count(newFullFieldName);
     bool IsImplicitValueInit = isa<ImplicitValueInitExpr>(FieldInit);
+
+    // Array fields (e.g. int *_Owned arr[2] or struct S arr[2]) are tracked
+    // with "[]" levels ("arr[]" / "arr[].a"). A null / zero / omitted
+    // initializer makes the whole array field own nothing; otherwise it is
+    // left in the owned state established by setToOwned (conservative for
+    // partial / non-null initializers).
+    QualType FieldTy;
+    std::string ArraySuffix;
+    if (StripArrayFieldLevels(FD->getType(), ArraySuffix, FieldTy)) {
+      std::string ArrFieldName = newFullFieldName + ArraySuffix;
+      bool IsNullInit = FieldInit->isNullExpr(OS.ctx) || IsImplicitValueInit;
+      if (!IsNullInit)
+        if (const InitListExpr *FieldILE = dyn_cast<InitListExpr>(FieldInit))
+          IsNullInit = isAllNullInits(OS.ctx, FieldILE, FieldTy);
+      if (IsNullInit)
+        markPrefixAsNull(ArrFieldName);
+      continue;
+    }
 
     // allow ImplicitValueInit, e.g. struct S s = {0}
     if (FieldInit->isNullExpr(OS.ctx) || IsImplicitValueInit) {

@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned _Nullable a; int *_Owned _Nullable b; };
+
+// Field-wise initialization: arr[].a is null in every element (so it can be
+// assigned in a qualifying loop), while arr[].b owns values, so assigning to
+// arr[i].b without freeing it first is rejected.
+void test_owned_field_still_owned() {
+  struct S arr[2] = {{nullptr, safe_malloc(1)}, {nullptr, safe_malloc(2)}};
+  for (int i = 0; i < 2; i++)
+    arr[i].a = safe_malloc(10 + i);
+  for (int i = 0; i < 2; i++)
+    arr[i].b = safe_malloc(20 + i); // expected-error {{cannot assign to 'b' because it still holds an _Owned value; move or free it first}}
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)arr[i].a);
+    safe_free((void *_Owned)arr[i].b);
+  }
+}
