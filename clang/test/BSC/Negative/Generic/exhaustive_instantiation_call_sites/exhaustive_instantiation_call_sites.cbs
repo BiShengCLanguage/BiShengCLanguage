@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
+
+// In exhaustive mode, an instantiation error inside a generic function must
+// point at every call site that uses the same specialization, not just the
+// first one.
+
+T bad_member<T>(T x) {
+  return x.missing; // expected-error {{no member named 'missing' in 'struct S'}}
+}
+
+struct S { int a; };
+
+int main() {
+  struct S s1 = {1};
+  struct S s2 = {2};
+  bad_member(s1); // expected-note {{in instantiation of function template specialization 'bad_member<struct S>' requested here}}
+  bad_member(s2); // expected-note {{in instantiation of function template specialization 'bad_member<struct S>' requested here}}
+  bad_member(s1); // expected-note {{in instantiation of function template specialization 'bad_member<struct S>' requested here}}
+  return 0;
+}

@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -verify %s
+
+// In default mode, keep the original behavior: only the first call site of a
+// failing specialization is pointed at by a note.
+
+T bad_member<T>(T x) {
+  return x.missing; // expected-error {{no member named 'missing' in 'struct S'}}
+}
+
+struct S { int a; };
+
+int main() {
+  struct S s1 = {1};
+  struct S s2 = {2};
+  bad_member(s1); // expected-note {{in instantiation of function template specialization 'bad_member<struct S>' requested here}}
+  bad_member(s2); // no extra note in default mode
+  return 0;
+}

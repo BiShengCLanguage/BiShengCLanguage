@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fbsc-experimental -verify %s
+
+// Exhaustive mode should also cover member functions of generic structs.
+
+struct Box<T> { T val; };
+
+T Box<T>::get(struct Box<T>* this) {
+  return this->val.missing; // expected-error {{no member named 'missing' in type 'int'}}
+}
+
+int main() {
+  struct Box<int> b1;
+  b1.val = 1;
+  b1.get(); // expected-note {{in instantiation of member function 'Box<int>::get' requested here}}
+
+  struct Box<int> b2;
+  b2.val = 2;
+  b2.get(); // expected-note {{in instantiation of member function 'Box<int>::get' requested here}}
+  return 0;
+}

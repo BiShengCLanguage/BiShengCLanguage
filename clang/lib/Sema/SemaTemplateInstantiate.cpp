@@ -849,6 +849,54 @@ void Sema::PrintInstantiationStack() {
   }
 }
 
+#if ENABLE_BSC
+void Sema::PrintBSCInstantiationCallSites() {
+  if (!getLangOpts().BSC ||
+      getLangOpts().getBSCDiag() != LangOptions::BSCDiagExhaustive)
+    return;
+
+  // Find the innermost active function-template instantiation. That is the
+  // specialization whose instantiated body produced the current diagnostic;
+  // outer contexts are already covered by PrintInstantiationStack().
+  for (auto Active = CodeSynthesisContexts.rbegin(),
+       ActiveEnd = CodeSynthesisContexts.rend();
+       Active != ActiveEnd; ++Active) {
+    if (Active->Kind != CodeSynthesisContext::TemplateInstantiation)
+      continue;
+    auto *FD = dyn_cast<FunctionDecl>(Active->Entity);
+    if (!FD)
+      continue;
+
+    auto It = BSCInstantiationCallSites.find(FD->getCanonicalDecl());
+    if (It == BSCInstantiationCallSites.end())
+      return;
+
+    SourceLocation AlreadyReported = Active->PointOfInstantiation;
+    SmallVector<SourceLocation, 4> ExtraSites;
+    for (SourceLocation Loc : It->second) {
+      if (!Loc.isValid() || Loc == AlreadyReported)
+        continue;
+      bool AlreadyAdded = false;
+      for (SourceLocation Existing : ExtraSites)
+        if (Existing == Loc) {
+          AlreadyAdded = true;
+          break;
+        }
+      if (!AlreadyAdded)
+        ExtraSites.push_back(Loc);
+    }
+
+    for (SourceLocation Loc : ExtraSites) {
+      unsigned DiagID = FD->getPrimaryTemplate()
+                            ? diag::note_function_template_spec_here
+                            : diag::note_template_member_function_here;
+      Diags.Report(Loc, DiagID) << FD;
+    }
+    return;
+  }
+}
+#endif
+
 Optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
   if (InNonInstantiationSFINAEContext)
     return Optional<TemplateDeductionInfo *>(nullptr);

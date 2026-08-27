@@ -19527,6 +19527,18 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
   bool NeedDefinition = !IsRecursiveCall && (OdrUse == OdrUseContext::Used ||
                                              NeededForConstantEvaluation);
 
+#if ENABLE_BSC
+  // In BSC exhaustive diagnostic mode, remember every odr-use location of an
+  // implicitly instantiated function/member specialization. If instantiating
+  // that specialization later fails, the diagnostic can point at all call
+  // sites of the same specialization, not just the first one.
+  if (getLangOpts().BSC &&
+      getLangOpts().getBSCDiag() == LangOptions::BSCDiagExhaustive &&
+      NeedDefinition && Loc.isValid() &&
+      (Func->getPrimaryTemplate() || Func->getMemberSpecializationInfo()))
+    BSCInstantiationCallSites[Func->getCanonicalDecl()].push_back(Loc);
+#endif
+
   // C++14 [temp.expl.spec]p6:
   //   If a template [...] is explicitly specialized then that specialization
   //   shall be declared before the first use of that specialization that would

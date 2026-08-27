@@ -16,7 +16,7 @@ def uninit_check : Joined<["-"], "uninit-check=">, Flags<[CC1Option]>,
   NormalizedValues<["UC_SAFE", "UC_NONE", "UC_ALL"]>,
   MarshallingInfoEnum<LangOpts<"UninitCheck">, "UC_SAFE">;
 def fbsc_diag : Joined<["-"], "fbsc-diag=">, Flags<[CC1Option]>,
-  HelpText<"Select BSC analysis diagnostic mode">,
+  HelpText<"Select BSC diagnostic mode (default: standard diagnostics, exhaustive: more detailed diagnostics)">,
   Values<"default,exhaustive">, NormalizedValuesScope<"LangOptions">,
   NormalizedValues<["BSCDiagDefault", "BSCDiagExhaustive"]>,
   MarshallingInfoEnum<LangOpts<"BSCDiag">, "BSCDiagDefault">;

@@ -9361,6 +9361,15 @@ public:
   // FIXME: Does this belong in Sema? It's tough to implement it anywhere else.
   unsigned LastEmittedCodeSynthesisContextDepth = 0;
 
+#if ENABLE_BSC
+  /// For BSC exhaustive diagnostics, records every odr-use location of an
+  /// implicitly instantiated function/member specialization so that an
+  /// instantiation error can point at all call sites of the same
+  /// specialization.
+  llvm::DenseMap<const FunctionDecl *, SmallVector<SourceLocation, 4>>
+      BSCInstantiationCallSites;
+#endif
+
   /// The template instantiation callbacks to trace or track
   /// instantiations (objects can be chained).
   ///
@@ -9595,12 +9604,21 @@ public:
     if (!CodeSynthesisContexts.empty() &&
         CodeSynthesisContexts.size() != LastEmittedCodeSynthesisContextDepth) {
       PrintInstantiationStack();
+#if ENABLE_BSC
+      PrintBSCInstantiationCallSites();
+#endif
       LastEmittedCodeSynthesisContextDepth = CodeSynthesisContexts.size();
     }
     if (PragmaAttributeCurrentTargetDecl)
       PrintPragmaAttributeInstantiationPoint();
   }
   void PrintInstantiationStack();
+#if ENABLE_BSC
+  /// In BSC exhaustive diagnostic mode, after the regular instantiation
+  /// backtrace, print all other recorded call sites of the innermost failing
+  /// function/member specialization.
+  void PrintBSCInstantiationCallSites();
+#endif
 
   void PrintPragmaAttributeInstantiationPoint();
 
