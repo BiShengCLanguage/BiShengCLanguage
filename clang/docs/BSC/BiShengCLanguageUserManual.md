@@ -7885,7 +7885,61 @@ int main() {
 - 当源源变换前后代码行数存在差异、无法逐行映射时，例如 _Owned struct析构函数、 _Trait 等会生成新代码的特性，显示的调试位置可能不准确，需要开发者注意。
 
 
-### 5.3. IDE插件
+### 5.3. 编译选项
+
+本节汇总毕昇 C 编译器提供的与毕昇 C 语言特性相关的编译选项。
+
+#### 5.3.1. `-fbsc-experimental`
+
+毕昇 C 的部分语言特性目前属于低优先级/实验特性。这些特性在手册中使用 ⚠️ 标记，尚未经过充分测试，且在未来可能发生重大变更。要启用这些特性，需要在编译时添加 `-fbsc-experimental` 选项：
+
+```shell
+clang -fbsc-experimental -fsyntax-only test.cbs
+```
+
+未添加该选项时，使用 ⚠️ 标记的特性会报错，并提示需要开启 `-fbsc-experimental`。
+
+#### 5.3.2. `-fbsc-diag=default|exhaustive`
+
+`-fbsc-diag` 用于选择毕昇 C 的诊断模式，默认值为 `default`。
+
+- `default`：保持原有行为。毕昇 C 的静态分析采用整个编译单元级别的门控：一旦此前出现过非毕昇 C 分析产生的错误，后续函数不再进行 BSC 分析；泛型实例化报错时，也只通过 note 指出同一特化的第一个调用点。
+- `exhaustive`：启用更详尽的诊断与更独立的分析：
+  - BSC 静态分析改为按函数粒度执行。如果某个函数自身产生了导致 AST 无效的错误，则跳过该函数的分析；如果函数自身干净但 AST 因其它错误而不可靠，会给出相应 warning；否则即使编译单元前面存在无关错误，也继续对该函数进行分析。
+  - 泛型函数/泛型结构体成员函数实例化报错时，除了第一个调用点外，还会在**所有**使用同一特化的调用点处输出 note，便于定位所有传入了无效类型参数的调用处。
+
+```shell
+clang -fbsc-diag=exhaustive test.cbs
+```
+
+#### 5.3.3. `-nullability-check=safeonly|all`
+
+用于控制非空指针检查（`_Nonnull`/`_Nullable`）的作用范围，默认值为 `safeonly`。详细介绍见 [3.4.8 非空指针检查的范围和控制选项](#348-非空指针检查的范围和控制选项)。
+
+#### 5.3.4. `-uninit-check=safeonly|none|all`
+
+用于控制初始化分析的作用范围，默认值为 `safeonly`。详细介绍见 [3.7.7 检查模式](#377-检查模式)。
+
+#### 5.3.5. `-rewrite-bsc` 与 `-line`
+
+- `-rewrite-bsc`：将毕昇 C 源代码源源变换为等价的标准 C 代码，详见 [5.1 源源变换](#51-源源变换)。
+- `-line`：配合 `-rewrite-bsc` 使用，在变换生成的 C 代码中插入 `#line` 行号信息以支持调试，详见 [5.2 调试](#52-调试)。
+
+#### 5.3.6. 编译器内部调试选项
+
+以下选项主要用于毕昇 C 编译器自身的开发与调试，普通用户一般不需要使用。
+
+- `-dump-bscir`：用于输出毕昇 C 的中间表示 BSCIR。该选项为 cc1 层选项，使用时会输出 BSCIR 而不再执行 BSC 静态分析。
+
+  ```shell
+  clang -cc1 -fsyntax-only -dump-bscir test.cbs
+  ```
+
+  在普通 driver 命令中可以通过 `-Xclang` 传递：
+
+  ```shell
+  clang -Xclang -dump-bscir -fsyntax-only test.cbs
+  ```
 
 ## 6. 标准库
 
