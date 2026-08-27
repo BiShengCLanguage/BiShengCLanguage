@@ -650,13 +650,26 @@ class OwnedArrayLoopClassifier {
     if (!InitVal->isIntegerConstantExpr(Context) ||
         InitVal->EvaluateKnownConstInt(Context) != 0)
       return reject(NonQualifyingLoopReason::InitNotZero);
-    // ...and the loop variable's type must be able to hold the (constant)
-    // loop bound; otherwise the loop would wrap / never terminate.
+    // ...and the loop variable's type must be able to hold the loop bound;
+    // otherwise the loop would wrap / never terminate (3.2.1 cond 2).
+    // For a constant bound, compare the bound's value against the loop
+    // variable's positive range.  For a variable bound, the loop variable
+    // must be able to represent every value the bound variable can take,
+    // approximated by the maximum positive value of its type.
     if (IsConstantBound) {
       unsigned Bits = Context.getTypeSize(LoopVar->getType());
       unsigned MaxBits =
           Bits - (LoopVar->getType()->isSignedIntegerType() ? 1 : 0);
       if (BoundVal.getActiveBits() > MaxBits)
+        return reject(NonQualifyingLoopReason::InitTypeTooSmall);
+    } else {
+      unsigned LoopBits = Context.getTypeSize(LoopVar->getType());
+      unsigned LoopMaxBits =
+          LoopBits - (LoopVar->getType()->isSignedIntegerType() ? 1 : 0);
+      unsigned BoundBits = Context.getTypeSize(BoundVD->getType());
+      unsigned BoundMaxBits =
+          BoundBits - (BoundVD->getType()->isSignedIntegerType() ? 1 : 0);
+      if (BoundMaxBits > LoopMaxBits)
         return reject(NonQualifyingLoopReason::InitTypeTooSmall);
     }
     return true;

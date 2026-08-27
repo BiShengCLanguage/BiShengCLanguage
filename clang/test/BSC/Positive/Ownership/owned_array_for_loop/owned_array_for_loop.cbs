@@ -83,6 +83,14 @@ void test_vla_bound(int n) {
     safe_free((void *_Owned)arr[i]);
 }
 
+void test_vla_bound_wider_loop_var(int n) {
+  int *_Owned arr[n];
+  for (long long i = 0; i < n; ++i)
+    arr[i] = safe_malloc((int)i);
+  for (long long i = 0; i < n; ++i)
+    safe_free((void *_Owned)arr[i]);
+}
+
 void test_safe_swap_outside_loop() {
   int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
   int *_Owned tmp = nullptr;

@@ -1,0 +1,45 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// The loop variable type must be able to hold the VLA bound variable's
+// type; `char` is narrower than `int`, so the free loop is not a
+// qualifying for-loop.
+void test_vla_bound_char_too_small(int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < n; ++i)
+    a[i] = safe_malloc(i);
+  for (char i = 0; i < n; ++i) // expected-note {{for-loop is not a qualifying for-loop: type of the loop variable is too small to hold the loop bound}}
+    safe_free((void *_Owned)a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// Same check applies to unsigned narrow loop variables.
+void test_vla_bound_unsigned_char_too_small(int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < n; ++i)
+    a[i] = safe_malloc(i);
+  for (unsigned char i = 0; i < n; ++i) // expected-note {{for-loop is not a qualifying for-loop: type of the loop variable is too small to hold the loop bound}}
+    safe_free((void *_Owned)a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// A signed loop variable cannot represent every value of an unsigned
+// bound variable with more value bits (e.g. unsigned int vs int), so
+// neither the assign loop nor the free loop qualifies.
+void test_vla_bound_int_vs_unsigned(unsigned int n) {
+  int *_Owned a[n];
+  for (int i = 0; i < n; ++i) // expected-note {{for-loop is not a qualifying for-loop: type of the loop variable is too small to hold the loop bound}}
+    a[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  for (int i = 0; i < n; ++i) // expected-note {{for-loop is not a qualifying for-loop: type of the loop variable is too small to hold the loop bound}}
+    safe_free((void *_Owned)a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
