@@ -1,0 +1,79 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// Mutable _Borrow pointers may be implicitly re-borrowed as immutable
+// (_Borrow -> const _Borrow), including the _ArrayElem forms, even when the
+// pointee struct contains _Owned fields.
+
+struct Node {
+    int *_Owned data;
+};
+
+_Safe void use_const(const struct Node *_Borrow p) {}
+_Safe void use_const_ae(const struct Node *_Borrow _ArrayElem p) {}
+_Safe void use_const_null(const struct Node *_Borrow _Nullable p) {}
+_Safe void use_const_ae_null(const struct Node *_Borrow _Nullable _ArrayElem p) {}
+
+_Safe void test_assign(struct Node *_Borrow p) {
+    const struct Node *_Borrow q = p;
+    (void)q;
+}
+
+_Safe void test_assign_ae(struct Node *_Borrow _ArrayElem p) {
+    const struct Node *_Borrow _ArrayElem q = p;
+    (void)q;
+}
+
+_Safe void test_assign_ae_to_plain(struct Node *_Borrow _ArrayElem p) {
+    const struct Node *_Borrow q = p;
+    (void)q;
+}
+
+_Safe void test_assign_nullable(struct Node *_Borrow _Nullable p) {
+    const struct Node *_Borrow _Nullable q = p;
+    (void)q;
+}
+
+_Safe void test_assign_ae_nullable(struct Node *_Borrow _Nullable _ArrayElem p) {
+    const struct Node *_Borrow _Nullable _ArrayElem q = p;
+    (void)q;
+}
+
+_Safe void test_call(struct Node *_Borrow p) {
+    use_const(p);
+}
+
+_Safe void test_call_ae(struct Node *_Borrow _ArrayElem p) {
+    use_const_ae(p);
+}
+
+_Safe void test_call_ae_to_plain(struct Node *_Borrow _ArrayElem p) {
+    use_const(p);
+}
+
+_Safe void test_call_nullable(struct Node *_Borrow _Nullable p) {
+    use_const_null(p);
+}
+
+_Safe void test_call_ae_nullable(struct Node *_Borrow _Nullable _ArrayElem p) {
+    use_const_ae_null(p);
+}
+
+_Safe const struct Node *_Borrow test_return(struct Node *_Borrow p) {
+    return p;
+}
+
+_Safe const struct Node *_Borrow _ArrayElem
+test_return_ae(struct Node *_Borrow _ArrayElem p) {
+    return p;
+}
+
+_Safe const struct Node *_Borrow
+test_return_ae_to_plain(struct Node *_Borrow _ArrayElem p) {
+    return p;
+}
+
+int main() {
+    return 0;
+}

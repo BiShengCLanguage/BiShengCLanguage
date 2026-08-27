@@ -719,7 +719,19 @@ QualType QualType::addConstBorrow(const ASTContext &Context) {
   pointee.addConst();  // Add const to the (direct) pointee (the borrowed object)
   QualType result = Context.getPointerType(pointee);
   result.addBorrow();
-  return result;
+  // Preserve BSC semantic qualifiers that describe the borrow itself:
+  // _ArrayElem and explicit nullability (_Nullable/_Nonnull) survive a
+  // mutable-to-const reborrow. _Owned is intentionally not carried over:
+  // a const borrow is not an owned pointer (callers strip _Owned before
+  // invoking this helper).
+  Qualifiers Qs = result.getQualifiers();
+  if (isArrayElemQualified())
+    Qs.addArrayElem();
+  if (isNullableQualified())
+    Qs.addNullable();
+  if (isNonnullQualified())
+    Qs.addNonnull();
+  return Context.getQualifiedType(result.getTypePtr(), Qs);
 }
 
 QualType QualType::removeConstForBorrow(const ASTContext &Context) {

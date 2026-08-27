@@ -46,7 +46,7 @@ _Safe void safe_assign_ae(int *_Borrow _ArrayElem src) {
 // CHECK-LABEL: FunctionDecl {{.*}} safe_assign_ae
 // CHECK: VarDecl {{.*}} v 'const void *_Borrow _ArrayElem' cinit
 // CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow _ArrayElem' <BitCast>
-// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem' prefix '&_Const *' cannot overflow
 // CHECK: VarDecl {{.*}} v2 'const void *_Borrow' cinit
 // CHECK: ImplicitCastExpr {{.*}} 'const void *_Borrow' <BitCast>
-// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *' cannot overflow
+// CHECK-NEXT: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem' prefix '&_Const *' cannot overflow
