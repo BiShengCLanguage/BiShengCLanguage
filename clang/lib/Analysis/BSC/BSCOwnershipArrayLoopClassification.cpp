@@ -76,7 +76,7 @@ static bool IsIncrementByOne(const ASTContext &Context, const Expr *Inc,
         if (LHS->getDecl() != LoopVar)
           return false;
         if (const BinaryOperator *Add =
-                dyn_cast<BinaryOperator>(BO->getRHS()->IgnoreParens())) {
+                dyn_cast<BinaryOperator>(BO->getRHS()->IgnoreParenImpCasts())) {
           if (Add->getOpcode() != BO_Add)
             return false;
           auto isLoopVar = [&](const Expr *E) {

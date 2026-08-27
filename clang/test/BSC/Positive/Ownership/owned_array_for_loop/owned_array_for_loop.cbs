@@ -91,6 +91,37 @@ void test_vla_bound_wider_loop_var(int n) {
     safe_free((void *_Owned)arr[i]);
 }
 
+// Narrow integer loop variables are allowed as long as the increment is step
+// one. The explicit `i = i + 1` form goes through an implicit conversion back
+// to `char`; it must be recognized like `i += 1`, `++i`, and `i++`.
+void test_narrow_loop_var_step_one() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (char i = 0; i < 3; i = i + 1)
+    safe_free((void *_Owned)a[i]);
+}
+
+void test_narrow_loop_var_step_one_forms() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (char i = 0; i < 3; i += 1)
+    safe_free((void *_Owned)a[i]);
+  int *_Owned b[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (char i = 0; i < 3; ++i)
+    safe_free((void *_Owned)b[i]);
+  int *_Owned c[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (unsigned char i = 0; i < 3; i++)
+    safe_free((void *_Owned)c[i]);
+}
+
+// The increment step may be any constant expression that evaluates to 1.
+void test_narrow_loop_var_constant_one_expr() {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (char i = 0; i < 3; i = i + (1 == 1))
+    safe_free((void *_Owned)a[i]);
+  int *_Owned b[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (char i = 0; i < 3; i += sizeof(char))
+    safe_free((void *_Owned)b[i]);
+}
+
 void test_safe_swap_outside_loop() {
   int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
   int *_Owned tmp = nullptr;
