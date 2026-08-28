@@ -1136,7 +1136,7 @@ class OwnedArrayLoopClassifier {
         // member-array fields (w.arr / w2.w[i].arr) of a tracked host struct.
         // They are covered the same way as s[i].a / a[i][j]; the bound must
         // match the length of the array field whose index is the loop var.
-        if (const MemberExpr *FieldME = dyn_cast<MemberExpr>(Base)) {
+        if (isa<MemberExpr>(Base)) {
           // Collect the array-field chain (shared PeelFieldIndexLevels).
           const VarDecl *HostVD = nullptr;
           llvm::SmallVector<std::pair<const MemberExpr *, const Expr *>, 4>
