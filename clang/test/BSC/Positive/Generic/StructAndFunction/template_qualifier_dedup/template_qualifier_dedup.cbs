@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// A BSC qualifier that reaches template instantiation from two sources — the
+// declaration pattern ('T _Owned') and the deduced or explicitly specified
+// template argument ('int *_Owned') — must be normalized to a single
+// occurrence. The instantiated parameter type below must print as
+// 'int *_Owned', never as 'int *_Owned _Owned'.
+
+// --- _Owned: deduced argument path ---
+void complete_deduced<T>(T _Owned value);
+
+void test_owned_deduced(int *p) {
+  int *_Owned owned = __take_from_raw(p);
+  complete_deduced(owned);
+}
+
+// --- _Owned: explicitly specified argument path ---
+void complete_explicit<T>(T _Owned value);
+
+void test_owned_explicit(int *p) {
+  complete_explicit<int *_Owned>(__take_from_raw(p));
+}
+
+// --- _Borrow: deduced argument path ---
+void borrow_deduced<T>(T _Borrow value);
+
+void test_borrow_deduced(int x) {
+  int *_Borrow b = &_Mut x;
+  borrow_deduced(b);
+}
+
+// --- _Borrow: explicitly specified argument path ---
+void borrow_explicit<T>(T _Borrow value);
+
+void test_borrow_explicit(int x) {
+  borrow_explicit<int *_Borrow>(&_Mut x);
+}
+
+// --- _Nullable / _Nonnull: deduced argument path ---
+void nullable_deduced<T>(T _Nullable value);
+
+void test_nullable_deduced(int *p) {
+  int *_Nullable np = 0;
+  nullable_deduced(np);
+}
+
+// --- Distinct qualifier levels must NOT be collapsed: the outer pointer
+// --- qualifier and the replacement's own qualifier are two separate levels.
+void nested<T>(T *_Owned value);
+
+void test_nested_levels(int *p) {
+  int *_Owned inner = __take_from_raw(p);
+  int *_Owned *ptr = &inner;
+  nested<int *_Owned>(__take_from_raw(ptr)); // 'int *_Owned *_Owned'
+  (void)__move_to_raw(inner);
+}
+
+// --- The pattern qualifier still applies when the replacement lacks it ---
+void plain<T>(T _Owned value);
+
+void test_plain(int *p) {
+  plain<int *>(__take_from_raw(p)); // instantiates as 'int *_Owned'
+}

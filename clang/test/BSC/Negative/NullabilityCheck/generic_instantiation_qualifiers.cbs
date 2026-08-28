@@ -1,0 +1,122 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Nullability qualifiers applied to a dependent type must be validated after
+// substituting the concrete template argument.
+
+void nullable_bad<T>(T _Nullable value); // expected-note {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
+void nonnull_bad<T>(T _Nonnull value); // expected-note {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nonnull' cannot be applied to non-pointer type 'int'}}
+void null_conflict<T>(T _Nullable value); // expected-note {{candidate template ignored: substitution failure [with T = int *_Nonnull]: nullability specifier '_Nullable' conflicts with existing specifier '_Nonnull'}}
+void nonnull_conflict<T>(T _Nonnull value); // expected-note {{candidate template ignored: substitution failure [with T = int *_Nullable]: nullability specifier '_Nullable' conflicts with existing specifier '_Nonnull'}}
+
+void test_direct_bad(int *_Nonnull nonnull_pointer_value,
+                     int *_Nullable nullable_pointer_value) {
+  nullable_bad(10); // expected-error {{no matching function for call to 'nullable_bad'}}
+  nonnull_bad(10); // expected-error {{no matching function for call to 'nonnull_bad'}}
+  null_conflict<int *_Nonnull>(nonnull_pointer_value); // expected-error {{no matching function for call to 'null_conflict'}}
+  nonnull_conflict<int *_Nullable>(nullable_pointer_value); // expected-error {{no matching function for call to 'nonnull_conflict'}}
+}
+
+// Validate qualified dependent types below one or more pointer layers.
+void nonnull_nested_bad<T>(T _Nonnull *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nonnull' cannot be applied to non-pointer type 'int'}}
+void nullable_deep_bad<T>(T _Nullable **value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
+void nullable_array_bad<T>(T _Nullable *values[2]);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
+void null_nested_conflict<T>(T _Nullable *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int *_Nonnull]: nullability specifier '_Nullable' conflicts with existing specifier '_Nonnull'}}
+
+void test_nested_bad(void) {
+  nonnull_nested_bad<int>(nullptr); // expected-error {{no matching function for call to 'nonnull_nested_bad'}}
+  nullable_deep_bad<int>(nullptr); // expected-error {{no matching function for call to 'nullable_deep_bad'}}
+  nullable_array_bad<int>(nullptr); // expected-error {{no matching function for call to 'nullable_array_bad'}}
+  null_nested_conflict<int *_Nonnull>(nullptr); // expected-error {{no matching function for call to 'null_nested_conflict'}}
+}
+
+void nullable_ok<T>(T _Nullable value);
+void nonnull_ok<T>(T _Nonnull value);
+
+void test_direct_ok(int *_Nonnull nonnull_pointer_value,
+                    int *_Nullable nullable_pointer_value) {
+  nullable_ok<int *>(nonnull_pointer_value);
+  nullable_ok<int *_Nullable>(nullable_pointer_value);
+  nonnull_ok<int *>(nonnull_pointer_value);
+  nonnull_ok<int *_Nonnull>(nonnull_pointer_value);
+}
+
+void test_default_ok(int *_Owned owned_pointer_value,
+                     int *_Borrow borrow_pointer_value) {
+  nullable_ok<int *_Owned>(owned_pointer_value);
+  nullable_ok<int *_Borrow>(borrow_pointer_value);
+}
+
+void nonnull_nested_ok<T>(T _Nonnull *value);
+void nullable_deep_ok<T>(T _Nullable **value);
+
+void test_nested_ok(void) {
+  nonnull_nested_ok<int *>(nullptr);
+  nullable_deep_ok<int *>(nullptr);
+}
+
+void nullable_arg_bad<T>(T _Nullable value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int[2]]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int[2]'}}
+void nonnull_arg_bad<T>(T _Nonnull value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int[2]]: nullability specifier '_Nonnull' cannot be applied to non-pointer type 'int[2]'}}
+
+void test_array_bad(void) {
+  int values[2];
+  nullable_arg_bad<int[2]>(values); // expected-error {{no matching function for call to 'nullable_arg_bad'}}
+  nonnull_arg_bad<int[2]>(values); // expected-error {{no matching function for call to 'nonnull_arg_bad'}}
+}
+
+// Nullability inherited from an array element does not make the complete
+// array a nullability target and must not be diagnosed as a same-level
+// nullability conflict.
+void nullable_elem_bad<T>(T _Nullable value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int *_Nonnull[2]]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int *_Nonnull[2]'}}
+void nonnull_elem_bad<T>(T _Nonnull value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int *_Nullable[2]]: nullability specifier '_Nonnull' cannot be applied to non-pointer type 'int *_Nullable[2]'}}
+
+void test_elem_bad(void) {
+  nullable_elem_bad<int *_Nonnull[2]>(nullptr); // expected-error {{no matching function for call to 'nullable_elem_bad'}}
+  nonnull_elem_bad<int *_Nullable[2]>(nullptr); // expected-error {{no matching function for call to 'nonnull_elem_bad'}}
+}
+
+void local_array_ok<T>(void) {
+  T _Nullable values[2];
+}
+
+void test_local_array_ok(void) {
+  local_array_ok<int *>();
+}
+
+struct NullablePointerArrayField<T> {
+  T _Nullable values[2];
+};
+
+void test_field_array_ok(void) {
+  _Static_assert(sizeof(struct NullablePointerArrayField<int *>) > 0,
+                 "nullable pointer array field must instantiate");
+}
+
+T _Nullable return_bad<T>(); // expected-note {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
+
+void test_return_bad(void) {
+  int value = return_bad<int>(); // expected-error {{no matching function for call to 'return_bad'}}
+}
+
+struct NullableField<T> {
+  T _Nullable value; // expected-error {{nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
+};
+
+void test_field_bad(void) {
+  struct NullableField<int> value; // expected-note {{in instantiation of template class 'NullableField<int>' requested here}}
+}
+
+void nested_local_bad<T>(void) {
+  T _Nullable *values[2]; // expected-error {{nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
+}
+
+void test_nested_local_bad(void) {
+  nested_local_bad<int>(); // expected-note {{in instantiation of function template specialization 'nested_local_bad<int>' requested here}}
+}

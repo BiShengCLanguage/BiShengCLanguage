@@ -14,14 +14,6 @@ void safe_free(void *_Owned p) {
   free(__move_to_raw(p));
 }
 
-_Safe void safe_swap<T>(T *_Borrow left, T *_Borrow right) {
-  _Unsafe {
-    T tmp = *left;
-    *left = *right;
-    *right = tmp;
-  }
-}
-
 void test_owned_array_free_loop() {
   int *_Owned arr[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
   for (int i = 0; i < 3; i++) {
@@ -120,16 +112,6 @@ void test_narrow_loop_var_constant_one_expr() {
   int *_Owned b[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
   for (char i = 0; i < 3; i += sizeof(char))
     safe_free((void *_Owned)b[i]);
-}
-
-void test_safe_swap_outside_loop() {
-  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
-  int *_Owned tmp = nullptr;
-  safe_swap(&_Mut arr[0], &_Mut tmp);
-  if (tmp != nullptr)
-    safe_free((void *_Owned)tmp);
-  for (int i = 0; i < 2; i++)
-    safe_free((void *_Owned)arr[i]);
 }
 
 int main() {

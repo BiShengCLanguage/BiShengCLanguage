@@ -13543,10 +13543,25 @@ void Sema::checkNonTrivialCUnion(QualType QT, SourceLocation Loc,
 void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
   // If there is no declaration, there was an error parsing it.  Just ignore
   // the initializer.
+#if ENABLE_BSC
+  if (!RealDecl) {
+    CorrectDelayedTyposInExpr(Init, nullptr);
+    return;
+  }
+
+  if (getLangOpts().BSC && Init && isa<VarDecl>(RealDecl))
+    CheckMoveFromBorrow(Init, Init->getExprLoc());
+
+  if (RealDecl->isInvalidDecl()) {
+    CorrectDelayedTyposInExpr(Init, dyn_cast<VarDecl>(RealDecl));
+    return;
+  }
+#else
   if (!RealDecl || RealDecl->isInvalidDecl()) {
     CorrectDelayedTyposInExpr(Init, dyn_cast_or_null<VarDecl>(RealDecl));
     return;
-  }
+  }  
+#endif
 
   if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(RealDecl)) {
     // Pure-specifiers are handled in ActOnPureSpecifier.

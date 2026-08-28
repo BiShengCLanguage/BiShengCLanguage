@@ -1818,6 +1818,27 @@ DeclResult Sema::CheckClassTemplate(
     LookupName(Previous, S);
   }
 
+#if ENABLE_BSC
+  // BSC: If ordinary lookup misses, include a same-name tag declaration in
+  // the class-template redeclaration check.
+  if (getLangOpts().BSC && !getLangOpts().CPlusPlus && Previous.empty()) {
+    LookupResult TagPrevious(*this, Name, NameLoc, LookupTagName,
+                             forRedeclarationInCurContext());
+    if (SS.isNotEmpty() && !SS.isInvalid())
+      LookupQualifiedName(TagPrevious, SemanticContext);
+    else
+      LookupName(TagPrevious, S);
+
+    if (TagPrevious.isAmbiguous())
+      return true;
+
+    if (TagPrevious.isSingleResult()) {
+      Previous.addDecl(TagPrevious.getFoundDecl());
+      Previous.resolveKind();
+    }
+  }
+#endif
+
   if (Previous.isAmbiguous())
     return true;
 

@@ -87,59 +87,6 @@ void Sema::CheckOwnedOrIndirectOwnedType(SourceLocation ErrLoc, QualType T, Stri
   }
 }
 
-// Check that owned qualifiers on an instantiated type are valid.
-// This is called after template instantiation to validate that template
-// parameters which were qualified with 'owned' instantiate to pointer types
-// (or other valid owned types).
-//
-// For example:
-//   template<typename T> void f(owned T t);
-//   f<int>(x);  // Error: 'int' cannot be qualified by 'owned'
-//   f<int*>(x); // OK: 'int*' can be qualified by 'owned'
-//
-// Returns true if the type is valid, false if an error was reported.
-bool Sema::CheckInstantiatedTypeOwnedQualifiers(QualType T, SourceLocation Loc) {
-  if (!getLangOpts().BSC)
-    return true;
-
-  // Helper to check if a type can validly have owned qualifier
-  auto isValidOwnedType = [](QualType Ty) {
-    return (Ty->isPointerType() && !Ty->isFunctionPointerType()) ||
-           Ty->isOwnedStructureType() ||
-           Ty->isOwnedTemplateSpecializationType() ||
-           Ty->isArrayType(); // arrays with _Owned element types are valid
-  };
-
-  // Check owned qualifier
-  if (T.isOwnedQualified() && !isValidOwnedType(T)) {
-    QualType UnqualType = T;
-    UnqualType.removeLocalFastQualifiers(Qualifiers::Owned);
-    Diag(Loc, diag::err_owned_qualifier_non_pointer) << "_Owned" << UnqualType;
-    return false;
-  }
-
-  return true;
-}
-
-bool Sema::CheckInstantiatedTypeBorrowQualifiers(QualType T,
-                                                 SourceLocation Loc) {
-  if (T.isBorrowQualified() && T->isFunctionPointerType()) {
-    QualType UnqualType = T;
-    UnqualType.removeLocalBorrow();
-    Diag(Loc, diag::err_owned_qualifier_non_pointer) << "_Borrow" << UnqualType;
-    return false;
-  }
-
-  return true;
-}
-
-bool Sema::CheckInstantiatedTypeArrayElemQualifiers(QualType T,
-                                                    SourceLocation Loc) {
-  if (!getLangOpts().BSC)
-    return true;
-  return CheckArrayElemQualifierRules(*this, T, Loc);
-}
-
 // Check if 'owned' qualifier is applied to a non-pointer type
 // The 'owned' qualifier is only valid on:
 //   - Pointer types (e.g., int* owned, int** owned *)

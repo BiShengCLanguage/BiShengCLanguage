@@ -641,11 +641,6 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
         ExprResult BinOp =
             Actions.ActOnBinOp(getCurScope(), OpToken.getLocation(),
                                OpToken.getKind(), LHS.get(), RHS.get());
-#if ENABLE_BSC
-        if (getLangOpts().BSC && OpToken.is(tok::equal) && RHS.get()) {
-          Actions.CheckMoveFromBorrow(RHS.get(), RHS.get()->getExprLoc());
-        }
-#endif
         if (BinOp.isInvalid())
           BinOp = Actions.CreateRecoveryExpr(LHS.get()->getBeginLoc(),
                                              RHS.get()->getEndLoc(),

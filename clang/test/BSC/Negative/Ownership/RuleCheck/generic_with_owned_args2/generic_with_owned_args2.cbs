@@ -9,12 +9,13 @@
 // The _Owned qualifier is applied to whatever type T is instantiated with.
 // Validity is checked at instantiation time:
 // - If T is instantiated with a pointer type (e.g., int*), then "_Owned T" = "int* _Owned" is valid
-// - If T is instantiated with a non-pointer type (e.g., int), semantic errors occur at usage
+// - If T is instantiated with a non-pointer type (e.g., int), each attempt to
+//   form T _Owned is diagnosed during substitution
 //
 // This follows C++'s behavior where "const T" with T=int* gives "int* const", not "const int*"
 void Func_1<T>()
 {
-    _Static_assert(__is_same(T _Owned, _Owned T), "fail");
+    _Static_assert(__is_same(T _Owned, _Owned T), "fail"); // expected-error 2 {{type of 'int' cannot be qualified by '_Owned'}}
     T _Owned a; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     (void)a;
 }

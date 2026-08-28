@@ -1,0 +1,74 @@
+// RUN: %clang_cc1 %s -ast-dump | FileCheck %s
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// AST-level checks that the instantiated parameter types carry each BSC
+// qualifier exactly once. See template_qualifier_dedup.cbs for the
+// semantic (verify-based) companion test.
+
+// CHECK-LABEL: FunctionDecl {{.*}} used complete_deduced
+// CHECK: 'void (int *_Owned)'
+// CHECK-NOT: _Owned _Owned
+void complete_deduced<T>(T _Owned value);
+
+void test_owned_deduced(int *p) {
+  int *_Owned owned = __take_from_raw(p);
+  complete_deduced(owned);
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} used complete_explicit
+// CHECK: 'void (int *_Owned)'
+// CHECK-NOT: _Owned _Owned
+void complete_explicit<T>(T _Owned value);
+
+void test_owned_explicit(int *p) {
+  complete_explicit<int *_Owned>(__take_from_raw(p));
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} used borrow_deduced
+// CHECK: 'void (int *_Borrow)'
+// CHECK-NOT: _Borrow _Borrow
+void borrow_deduced<T>(T _Borrow value);
+
+void test_borrow_deduced(int x) {
+  int *_Borrow b = &_Mut x;
+  borrow_deduced(b);
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} used nullable_deduced
+// CHECK: 'void (int *_Nullable)'
+// CHECK-NOT: _Nullable _Nullable
+void nullable_deduced<T>(T _Nullable value);
+
+void test_nullable_deduced(int *p) {
+  int *_Nullable np = nullptr;
+  nullable_deduced(np);
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} used nested
+// CHECK: 'void (int *_Owned *_Owned)'
+void nested<T>(T *_Owned value);
+
+void test_nested_levels(int *p) {
+  int *_Owned inner = __take_from_raw(p);
+  int *_Owned *ptr = &inner;
+  nested<int *_Owned>(__take_from_raw(ptr));
+  (void)__move_to_raw(inner);
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} used explicit_duplicate_two
+// CHECK: 'void (int *_Owned)'
+// CHECK-NOT: _Owned _Owned
+void explicit_duplicate_two<T>(T _Owned value);
+
+// CHECK-LABEL: FunctionDecl {{.*}} used explicit_duplicate_three
+// CHECK: 'void (int *_Owned)'
+// CHECK-NOT: _Owned _Owned
+void explicit_duplicate_three<T>(T _Owned value);
+
+void test_explicit_owned_duplicates(int *first, int *second) {
+  // expected-warning@+1 {{duplicate '_Owned' declaration specifier}}
+  explicit_duplicate_two<int *_Owned _Owned>(__take_from_raw(first));
+  // expected-warning@+1 2{{duplicate '_Owned' declaration specifier}}
+  explicit_duplicate_three<int *_Owned _Owned _Owned>(
+      __take_from_raw(second));
+}

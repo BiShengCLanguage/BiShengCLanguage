@@ -1115,21 +1115,6 @@ Decl *TemplateDeclInstantiator::VisitVarDecl(VarDecl *D,
     return nullptr;
   }
 
-#if ENABLE_BSC
-  if (SemaRef.getLangOpts().BSC) {
-    // Check owned qualifiers
-    if (!SemaRef.CheckInstantiatedTypeOwnedQualifiers(DI->getType(),
-                                                      D->getLocation()))
-      return nullptr;
-    if (!SemaRef.CheckInstantiatedTypeBorrowQualifiers(DI->getType(),
-                                                       D->getLocation()))
-      return nullptr;
-    if (!SemaRef.CheckInstantiatedTypeArrayElemQualifiers(DI->getType(),
-                                                          D->getLocation()))
-      return nullptr;
-  }
-#endif
-
   DeclContext *DC = Owner;
   if (D->isLocalExternDecl())
     SemaRef.adjustContextForLocalExternDecl(DC);
@@ -1233,18 +1218,11 @@ Decl *TemplateDeclInstantiator::VisitFieldDecl(FieldDecl *D) {
 
 #if ENABLE_BSC
   if (SemaRef.getLangOpts().BSC && !Invalid) {
-    // Check owned qualifiers
-    if (!SemaRef.CheckInstantiatedTypeOwnedQualifiers(DI->getType(),
-                                                      D->getLocation())) {
-      Invalid = true;
-    }
-    if (!SemaRef.CheckInstantiatedTypeBorrowQualifiers(DI->getType(),
-                                                       D->getLocation())) {
-      Invalid = true;
-    }
-    if (!SemaRef.CheckInstantiatedTypeArrayElemQualifiers(DI->getType(),
-                                                          D->getLocation())) {
-      Invalid = true;
+    if (cast<RecordDecl>(Owner)->isUnion()) {
+      SemaRef.CheckOwnedOrIndirectOwnedType(D->getLocation(), DI->getType(),
+                                            "union field");
+      SemaRef.CheckBorrowOrIndirectBorrowType(D->getLocation(), DI->getType(),
+                                              "union field");
     }
   }
 #endif
@@ -2091,36 +2069,6 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
       if (!SemaRef.CheckBorrowFunctionType(
               FPT->getReturnType(), FPT->getParamTypes(), D->getLocation())) {
         return nullptr;
-      }
-
-      // Check return type
-      if (!SemaRef.CheckInstantiatedTypeOwnedQualifiers(FPT->getReturnType(),
-                                                        D->getLocation())) {
-        return nullptr;
-      }
-      if (!SemaRef.CheckInstantiatedTypeBorrowQualifiers(FPT->getReturnType(),
-                                                         D->getLocation())) {
-        return nullptr;
-      }
-      if (!SemaRef.CheckInstantiatedTypeArrayElemQualifiers(FPT->getReturnType(),
-                                                            D->getLocation())) {
-        return nullptr;
-      }
-
-      // Check parameter types
-      for (QualType ParamType : FPT->param_types()) {
-        if (!SemaRef.CheckInstantiatedTypeOwnedQualifiers(ParamType,
-                                                          D->getLocation())) {
-          return nullptr;
-        }
-        if (!SemaRef.CheckInstantiatedTypeBorrowQualifiers(ParamType,
-                                                           D->getLocation())) {
-          return nullptr;
-        }
-        if (!SemaRef.CheckInstantiatedTypeArrayElemQualifiers(
-                ParamType, D->getLocation())) {
-          return nullptr;
-        }
       }
     }
   }

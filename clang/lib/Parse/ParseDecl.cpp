@@ -2512,11 +2512,6 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
 
       PreferredType.enterVariableInit(Tok.getLocation(), ThisDecl);
       ExprResult Init = ParseInitializer();
-#if ENABLE_BSC
-      if (getLangOpts().BSC && Init.get()) {
-        Actions.CheckMoveFromBorrow(Init.get(), Init.get()->getExprLoc());
-      }
-#endif
 
       // If this is the only decl in (possibly) range based for statement,
       // our best guess is that the user meant ':' instead of '='.

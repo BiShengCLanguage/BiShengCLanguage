@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct PlainThenGeneric; // expected-note {{previous definition is here}}
+struct PlainThenGeneric<T> { // expected-error {{redefinition of 'PlainThenGeneric' as different kind of symbol}}
+// expected-error@-1 {{expected identifier or '('}}
+  T value;
+};
+struct PlainThenGeneric {
+  int value;
+};
+
+struct GenericThenPlain<T> { // expected-note {{previous definition is here}}
+  T value;
+};
+struct GenericThenPlain; // expected-error {{redefinition of 'GenericThenPlain' as different kind of symbol}}
+
+struct PlainForward;
+struct PlainForward {
+  int value;
+};
+
+struct GenericForward<T>;
+struct GenericForward<T> {
+  T value;
+};
+
+struct TagAndObject;
+int TagAndObject;

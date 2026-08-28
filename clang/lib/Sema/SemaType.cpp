@@ -2038,43 +2038,99 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
 
 #if ENABLE_BSC
   if (getLangOpts().BSC) {
-    Qualifiers TQs = T.getQualifiers();
-    TQs.addQualifiers(Qs);
-    if (TQs.hasOwned() && TQs.hasBorrow()) {
-      Diag(Loc, diag::err_owned_and_borrow_conflict);
-    }
-    if (Qs.hasArrayElem() && !T->isPointerType() && !T->isDependentType()) {
+    const bool IsDependentType = T->isDependentType();
+
+    // Validate only the qualifiers being added at this type layer. Qualifiers
+    // nested inside T were checked when that type was built and must not make
+    // an array or another enclosing type look like a valid qualifier target.
+    if (Qs.hasArrayElem() && !T->isPointerType() && !IsDependentType) {
       Diag(DS ? DS->getArrayElemSpecLoc() : Loc,
            diag::err_owned_qualifier_non_pointer)
           << "_ArrayElem" << T;
       Qs.removeArrayElem();
-    } else if (Qs.hasArrayElem() && !T->isDependentType() &&
-               !TQs.hasOwned() && !TQs.hasBorrow()) {
-      Diag(DS ? DS->getArrayElemSpecLoc() : Loc,
-           diag::err_arrayelem_requires_safe_pointer);
-      Qs.removeArrayElem();
     }
-    // Check _Borrow qualifier should only be applied to pointer types.
-    if (Qs.hasBorrow() && !T->isPointerType() && !T->isDependentType()) {
+
+    // Explicit declaration specifiers are checked later by
+    // CheckOwnedQualifierOnNonPointerType(), which intentionally preserves
+    // the invalid qualifier in the recovery type. Rebuilt qualified types do
+    // not have a DeclSpec, so validate their concrete replacement here.
+    if (Qs.hasOwned() && !IsDependentType && T->isFunctionPointerType()) {
+      Diag(DS ? DS->getOwnedSpecLoc() : Loc,
+           diag::err_owned_qualifier_non_pointer)
+          << "_Owned" << T;
+      Qs.removeOwned();
+    } else if (Qs.hasOwned() && !IsDependentType && !DS &&
+               !T->isPointerType() && !T->isOwnedStructureType() &&
+               !T->isOwnedTemplateSpecializationType()) {
+      Diag(Loc, diag::err_owned_qualifier_non_pointer) << "_Owned" << T;
+      Qs.removeOwned();
+    }
+
+    // Check _Borrow qualifier should only be applied to non-function pointer
+    // types.
+    if (Qs.hasBorrow() && !IsDependentType && !T->isPointerType()) {
       Diag(DS ? DS->getBorrowSpecLoc() : Loc,
            diag::err_typecheck_invalid_borrow_not_pointer)
           << T;
       Qs.removeBorrow();
+    } else if (Qs.hasBorrow() && !IsDependentType &&
+               T->isFunctionPointerType()) {
+      Diag(DS ? DS->getBorrowSpecLoc() : Loc,
+           diag::err_owned_qualifier_non_pointer)
+          << "_Borrow" << T;
+      Qs.removeBorrow();
     }
-    // Check _Owned/_Borrow qualifier cannot be applied to function pointer types.
-    if (T->isFunctionPointerType()) {
-      if (Qs.hasOwned()) {
-        Diag(DS ? DS->getOwnedSpecLoc() : Loc,
-             diag::err_owned_qualifier_non_pointer)
-            << "_Owned" << T;
-        Qs.removeOwned();
-      }
-      if (Qs.hasBorrow()) {
-        Diag(DS ? DS->getBorrowSpecLoc() : Loc,
-             diag::err_owned_qualifier_non_pointer)
-            << "_Borrow" << T;
-        Qs.removeBorrow();
-      }
+
+    if (Qs.hasNullable() && !IsDependentType && !T->canHaveNullability()) {
+      Diag(Loc, diag::err_nullability_nonpointer)
+          << DiagNullabilityKind(NullabilityKind::Nullable, false) << T;
+      Qs.removeNullable();
+    }
+    if (Qs.hasNonnull() && !IsDependentType && !T->canHaveNullability()) {
+      Diag(Loc, diag::err_nullability_nonpointer)
+          << DiagNullabilityKind(NullabilityKind::NonNull, false) << T;
+      Qs.removeNonnull();
+    }
+
+    // A BSC qualifier already present on T — directly or through sugar, e.g.
+    // a substituted template parameter whose replacement carries it ('T
+    // _Owned' with T = 'int *_Owned') — is idempotent. Adding it again at
+    // the same level only produces a duplicated spelling such as 'int
+    // *_Owned _Owned'. Drop the redundant copy, mirroring C11 6.7.3p5 for
+    // cv-qualifiers. Invalid uses were already diagnosed and stripped above,
+    // so this cannot mask them. Qualifiers nested inside T (e.g. the pointee
+    // of 'T *_Owned' with T = 'int *_Owned') live on inner type nodes and
+    // are not visible to T.getQualifiers(), so distinct levels are kept.
+    const Qualifiers ExistingQs = T.getQualifiers();
+    if (ExistingQs.hasOwned())
+      Qs.removeOwned();
+    if (ExistingQs.hasBorrow())
+      Qs.removeBorrow();
+    if (ExistingQs.hasArrayElem())
+      Qs.removeArrayElem();
+    if (ExistingQs.hasNullable())
+      Qs.removeNullable();
+    if (ExistingQs.hasNonnull())
+      Qs.removeNonnull();
+
+    // Check conflicts only after removing qualifiers that cannot apply to T.
+    // This prevents qualifiers inherited from array elements from producing a
+    // misleading same-level conflict on the complete array type.
+    Qualifiers TQs = T.getQualifiers();
+    TQs.addQualifiers(Qs);
+    if (TQs.hasOwned() && TQs.hasBorrow())
+      Diag(Loc, diag::err_owned_and_borrow_conflict);
+    if (TQs.hasNullable() && TQs.hasNonnull()) {
+      Diag(Loc, diag::err_nullability_conflicting)
+          << DiagNullabilityKind(NullabilityKind::Nullable, false)
+          << DiagNullabilityKind(NullabilityKind::NonNull, false);
+    }
+
+    if (Qs.hasArrayElem() && !IsDependentType && !TQs.hasOwned() &&
+        !TQs.hasBorrow()) {
+      Diag(DS ? DS->getArrayElemSpecLoc() : Loc,
+           diag::err_arrayelem_requires_safe_pointer);
+      Qs.removeArrayElem();
     }
   }
 #endif

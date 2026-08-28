@@ -1,0 +1,95 @@
+// RUN: %clang_cc1 -verify %s
+
+// Qualifiers applied to a dependent type must remain valid when the complete
+// instantiated type places that qualified type below pointer or array layers.
+
+typedef void (*FunctionPointer)(void);
+
+// _Owned: reject a non-pointer replacement even when an outer pointer hides
+// the invalid qualified type.
+void owned_deep_bad<T>(T _Owned **value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int]: type of 'int' cannot be qualified by '_Owned'}}
+void owned_fn_bad<T>(T _Owned *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = void (*)(void)]: type of 'void (*)(void)' cannot be qualified by '_Owned'}}
+
+void test_owned_bad(void) {
+  owned_deep_bad<int>(nullptr); // expected-error {{no matching function for call to 'owned_deep_bad'}}
+  owned_fn_bad<FunctionPointer>(nullptr); // expected-error {{no matching function for call to 'owned_fn_bad'}}
+}
+
+void owned_local_bad<T>(void) {
+  T _Owned *values[2]; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+}
+
+void test_owned_local_bad(void) {
+  owned_local_bad<int>(); // expected-note {{in instantiation of function template specialization 'owned_local_bad<int>' requested here}}
+}
+
+// _Borrow: reject non-pointer and function-pointer replacements while allowing
+// multi-level borrow types supported by the borrow checker.
+void borrow_bad<T>(T _Borrow *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int]: '_Borrow' can only be applied to a pointer type; 'int' is not a pointer}}
+void borrow_fn_bad<T>(T _Borrow *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = void (*)(void)]: type of 'void (*)(void)' cannot be qualified by '_Borrow'}}
+
+void test_borrow_bad(void) {
+  borrow_bad<int>(nullptr); // expected-error {{no matching function for call to 'borrow_bad'}}
+  borrow_fn_bad<FunctionPointer>(nullptr); // expected-error {{no matching function for call to 'borrow_fn_bad'}}
+}
+
+// Valid controls ensure additional outer pointer layers do not change which
+// type is directly qualified during substitution.
+void owned_deep_ok<T>(T _Owned **value);
+void borrow_ok<T>(T _Borrow *value);
+void borrow_level_ok<T>(T _Borrow *value);
+
+void test_levels_ok(void) {
+  owned_deep_ok<int *>(nullptr);
+  borrow_ok<int *>(nullptr);
+  borrow_level_ok<int *_Borrow *>(nullptr);
+}
+
+// Final instantiated array types inherit their element qualifiers. The
+// declaration-boundary checkers must not reinterpret those qualifiers as
+// applying directly to the array itself.
+struct QualifiedPointerArrayFields<T> {
+  T _Owned owned_values[2];
+  T _Borrow borrow_values[2];
+};
+
+void test_fields_ok(void) {
+  _Static_assert(sizeof(struct QualifiedPointerArrayFields<int *>) > 0,
+                 "qualified pointer array fields must instantiate");
+}
+
+// An explicitly supplied array type remains an array while qualifiers on T
+// are rebuilt. Parameter adjustment must not turn it into a pointer before
+// validating the qualifier applied directly to T.
+void owned_array_bad<T>(T _Owned value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int[2]]: type of 'int[2]' cannot be qualified by '_Owned'}}
+void borrow_array_bad<T>(T _Borrow value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int[2]]: '_Borrow' can only be applied to a pointer type; 'int[2]' is not a pointer}}
+void elem_array_bad<T>(T _Owned _ArrayElem value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int[2]]: type of 'int[2]' cannot be qualified by '_ArrayElem'}}
+
+void test_array_bad(void) {
+  int values[2];
+  owned_array_bad<int[2]>(values); // expected-error {{no matching function for call to 'owned_array_bad'}}
+  borrow_array_bad<int[2]>(values); // expected-error {{no matching function for call to 'borrow_array_bad'}}
+  elem_array_bad<int[2]>(values); // expected-error {{no matching function for call to 'elem_array_bad'}}
+}
+
+// Qualifiers inherited from an array element do not make the complete array
+// type a valid qualifier target and must not take precedence as a conflict.
+void owned_elem_bad<T>(T _Owned *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int *_Owned[2]]: type of 'int *_Owned[2]' cannot be qualified by '_Owned'}}
+void borrow_elem_bad<T>(T _Borrow *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int *_Owned[2]]: '_Borrow' can only be applied to a pointer type; 'int *_Owned[2]' is not a pointer}}
+void arrayelem_bad<T>(T _ArrayElem *value);
+// expected-note@-1 {{candidate template ignored: substitution failure [with T = int *_Owned[2]]: type of 'int *_Owned[2]' cannot be qualified by '_ArrayElem'}}
+
+void test_elem_bad(void) {
+  owned_elem_bad<int *_Owned[2]>(nullptr); // expected-error {{no matching function for call to 'owned_elem_bad'}}
+  borrow_elem_bad<int *_Owned[2]>(nullptr); // expected-error {{no matching function for call to 'borrow_elem_bad'}}
+  arrayelem_bad<int *_Owned[2]>(nullptr); // expected-error {{no matching function for call to 'arrayelem_bad'}}
+}

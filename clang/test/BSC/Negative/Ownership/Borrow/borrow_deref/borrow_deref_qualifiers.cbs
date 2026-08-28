@@ -1,19 +1,19 @@
 // RUN: %clang_cc1 -fbsc-experimental -verify %s
 // RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s | FileCheck %s
 
-// This specialization currently misses the move-from-borrow diagnostics because
-// instantiated generic function bodies are not checked again.  It must still
+// Move-from-borrow checks must run again after substituting the dependent type
+// in an instantiated generic function body.  The specialization must also
 // preserve all BSC qualifiers during lvalue-to-rvalue conversion.
 _Safe void safe_swap_array<T>(T _Nullable *_Borrow left,
                               T _Nullable *_Borrow right) {
-  T tmp = *left;
-  *left = *right;
+  T tmp = *left; // expected-error {{cannot take ownership of a borrowed value}}
+  *left = *right; // expected-error {{cannot take ownership of a borrowed value}}
   *right = tmp;
 }
 
 _Safe void test_array(void **_Owned _ArrayElem _Nullable *_Borrow p1,
                       void **_Owned _ArrayElem _Nullable *_Borrow p2) {
-  safe_swap_array(p1, p2);
+  safe_swap_array(p1, p2); // expected-note {{in instantiation of function template specialization 'safe_swap_array<void **_Owned _ArrayElem _Nullable>' requested here}}
 }
 
 // CHECK-LABEL: FunctionDecl {{.*}} used safe_swap_array 'void (void **_Owned _ArrayElem _Nullable *_Borrow
@@ -50,6 +50,15 @@ _Safe void safe_swap_exact(
 // CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable' <LValueToRValue>
 
 _Safe void consume_array(void **_Owned _ArrayElem _Nullable value);
+
+_Safe T return_array_generic<T>(T *_Borrow source) {
+  return *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void test_return_array_generic(
+    void **_Owned _ArrayElem _Nullable *_Borrow source) {
+  consume_array(return_array_generic(source)); // expected-note {{in instantiation of function template specialization 'return_array_generic<void **_Owned _ArrayElem _Nullable>' requested here}}
+}
 
 _Safe void pass_array(
     void **_Owned _ArrayElem _Nullable *_Borrow source) {

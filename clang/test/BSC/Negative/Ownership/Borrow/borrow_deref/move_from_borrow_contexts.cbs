@@ -1,0 +1,106 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+
+_Safe void consume_owned(int *_Owned value);
+
+// Non-generic functions must diagnose move-from-borrow in all four contexts
+// that consume an owned value.
+_Safe void non_generic_initializer(int *_Owned *_Borrow source) {
+  int *_Owned value = *source; // expected-error {{cannot take ownership of a borrowed value}}
+  consume_owned(value);
+}
+
+_Safe void non_generic_assignment(int *_Owned *_Borrow destination,
+                                  int *_Owned *_Borrow source) {
+  *destination = *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+struct MoveRecord {
+  int *_Owned value;
+};
+
+_Safe void non_generic_record_assignment(
+    struct MoveRecord *_Borrow destination,
+    struct MoveRecord *_Borrow source) {
+  *destination = *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe int *_Owned non_generic_return(int *_Owned *_Borrow source) {
+  return *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void non_generic_argument(int *_Owned *_Borrow source) {
+  consume_owned(*source); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void consume_generic<T>(T value);
+
+// Generic functions must diagnose the same four contexts after T has been
+// substituted with an owned pointer type.
+_Safe void generic_initializer<T>(T *_Borrow source) {
+  T value = *source; // expected-error {{cannot take ownership of a borrowed value}}
+  consume_generic(value);
+}
+
+_Safe void generic_assignment<T>(T *_Borrow destination,
+                                 T *_Borrow source) {
+  *destination = *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void generic_record_assignment<T>(T *_Borrow destination,
+                                        T *_Borrow source) {
+  *destination = *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe T generic_return<T>(T *_Borrow source) {
+  return *source; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void generic_argument<T>(T *_Borrow source) {
+  consume_generic(*source); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+_Safe void instantiate_generic_contexts(int *_Owned *_Borrow destination,
+                                        int *_Owned *_Borrow source) {
+  generic_initializer(source); // expected-note {{in instantiation of function template specialization 'generic_initializer<int *_Owned>' requested here}}
+  generic_assignment(destination, source); // expected-note {{in instantiation of function template specialization 'generic_assignment<int *_Owned>' requested here}}
+  consume_owned(generic_return(source)); // expected-note {{in instantiation of function template specialization 'generic_return<int *_Owned>' requested here}}
+  generic_argument(source); // expected-note {{in instantiation of function template specialization 'generic_argument<int *_Owned>' requested here}}
+}
+
+_Safe void instantiate_generic_record_assignment(
+    struct MoveRecord *_Borrow destination,
+    struct MoveRecord *_Borrow source) {
+  generic_record_assignment(destination, source); // expected-note {{in instantiation of function template specialization 'generic_record_assignment<struct MoveRecord>' requested here}}
+}
+
+// An _Unsafe block does not permit moving ownership out of borrowed storage.
+_Safe void safe_swap<T>(T *_Borrow left, T *_Borrow right) {
+  _Unsafe {
+    T tmp = *left; // expected-error {{cannot take ownership of a borrowed value}}
+    *left = *right; // expected-error {{cannot take ownership of a borrowed value}}
+    *right = tmp;
+  }
+}
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void test_safe_swap_outside_loop() {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  int *_Owned tmp = nullptr;
+  safe_swap(&_Mut arr[0], &_Mut tmp); // expected-note {{in instantiation of function template specialization 'safe_swap<int *_Owned>' requested here}}
+  if (tmp != nullptr)
+    safe_free((void *_Owned)tmp);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)arr[i]);
+}

@@ -16755,6 +16755,11 @@ ExprResult Sema::BuildBinOp(Scope *S, SourceLocation OpLoc,
   LHSExpr = LHS.get();
   RHSExpr = RHS.get();
 
+#if ENABLE_BSC
+  if (getLangOpts().BSC && Opc == BO_Assign)
+    CheckMoveFromBorrow(RHSExpr, RHSExpr->getExprLoc());
+#endif
+
   // We want to end up calling one of checkPseudoObjectAssignment
   // (if the LHS is a pseudo-object), BuildOverloadedBinOp (if
   // both expressions are overloadable or either is type-dependent),
