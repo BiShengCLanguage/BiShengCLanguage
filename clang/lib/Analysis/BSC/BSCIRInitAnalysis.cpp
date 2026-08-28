@@ -1397,9 +1397,20 @@ void InitAnalysis::checkEnsureInitPointeeRead(
   if (P.Projections.size() > 1 &&
       P.Projections[0].K == ProjectionElem::Deref) {
     Place SubPlace(ParamId, P.Projections.slice(1), P.Ty, P.Loc);
-    if (auto FP = getFieldPath(SubPlace))
+    if (auto FP = getFieldPathPrefix(SubPlace)) {
+      if (isVacuouslyInitialized(getFieldType(FP->Base, FP->Indices)))
+        return;
       if (getFieldInitState(State, *FP) == InitState::Initialized)
         return;
+      // A whole-struct write covers every path below it.
+      FieldPath Ancestor;
+      Ancestor.Base = FP->Base;
+      for (unsigned I = 0; I + 1 < FP->Indices.size(); ++I) {
+        Ancestor.Indices.push_back(FP->Indices[I]);
+        if (getFieldInitState(State, Ancestor) == InitState::Initialized)
+          return;
+      }
+    }
   }
   const LocalDecl &ParamLD = B.getLocal(ParamId);
   if (ParamLD.Name.empty())

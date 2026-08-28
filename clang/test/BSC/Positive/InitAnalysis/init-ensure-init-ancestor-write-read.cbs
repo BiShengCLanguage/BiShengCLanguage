@@ -1,0 +1,101 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// A write covering an ancestor of the read path initializes that read: the
+// pointee read check walks the field-path prefixes, so a whole-sub-struct
+// write reaches every leaf below it, and an assumed array covers its
+// elements. Covered for both contract attributes and for the plain locals
+// the pointee check mirrors.
+
+struct Pair { int a; int b; };
+struct Nested { struct Pair p; int x; };
+struct L1 { struct Pair q; int y; };
+struct L2 { struct L1 r; int z; };
+struct WithArr { struct Pair ps[2]; int x; };
+
+int sink(int v);
+
+int read_leaf_after_ancestor_write(struct Nested *__attribute__((ensure_init)) out) {
+  out->p = (struct Pair){1, 2};
+  int v = out->p.a;
+  out->x = 3;
+  return sink(v);
+}
+
+int read_leaf_two_levels_below(struct L2 *__attribute__((ensure_init)) out) {
+  out->r = (struct L1){{1, 2}, 3};
+  int v = out->r.q.a;
+  out->z = 4;
+  return sink(v);
+}
+
+int read_leaf_below_mid_write(struct L2 *__attribute__((ensure_init)) out) {
+  out->r.q = (struct Pair){1, 2};
+  int v = out->r.q.b;
+  out->r.y = 3;
+  out->z = 4;
+  return sink(v);
+}
+
+// Arrays are tracked as whole units, so the element read rests on the
+// assumed array, not on the element writes.
+int read_elem_after_assumed_array(struct WithArr *__attribute__((ensure_init)) out) {
+  out->ps[0] = (struct Pair){1, 2};
+  out->ps[1] = (struct Pair){3, 4};
+  _Unsafe { __assume_initialized(&out->ps); }
+  int v = out->ps[0].a;
+  out->x = 5;
+  return sink(v);
+}
+
+int read_elem_after_whole_pointee_write(struct WithArr *__attribute__((ensure_init)) out) {
+  *out = (struct WithArr){{{1, 2}, {3, 4}}, 5};
+  return sink(out->ps[0].a);
+}
+
+// ensure_init_if_ret shares the pointee read check.
+int ifret_read_leaf_after_ancestor_write(
+    struct Nested *__attribute__((ensure_init_if_ret(0))) out) {
+  out->p = (struct Pair){1, 2};
+  int v = out->p.a;
+  out->x = sink(v);
+  return 0;
+}
+
+int ifret_read_leaf_two_levels_below(
+    struct L2 *__attribute__((ensure_init_if_ret(0))) out) {
+  out->r = (struct L1){{1, 2}, 3};
+  int v = out->r.q.a;
+  out->z = sink(v);
+  return 0;
+}
+
+int ifret_read_elem_after_assumed_array(
+    struct WithArr *__attribute__((ensure_init_if_ret(0))) out) {
+  out->ps[0] = (struct Pair){1, 2};
+  out->ps[1] = (struct Pair){3, 4};
+  _Unsafe { __assume_initialized(&out->ps); }
+  int v = out->ps[0].a;
+  out->x = sink(v);
+  return 0;
+}
+
+// The unattributed local path the pointee check mirrors; it must keep
+// accepting the same shapes.
+int local_read_leaf_after_ancestor_write(void) {
+  struct Nested n;
+  n.p = (struct Pair){1, 2};
+  int v = n.p.a;
+  n.x = 3;
+  return sink(v);
+}
+
+int local_read_elem_after_assumed_array(void) {
+  struct WithArr w;
+  w.ps[0] = (struct Pair){1, 2};
+  w.ps[1] = (struct Pair){3, 4};
+  _Unsafe { __assume_initialized(&w.ps); }
+  int v = w.ps[0].a;
+  w.x = 5;
+  return sink(v);
+}

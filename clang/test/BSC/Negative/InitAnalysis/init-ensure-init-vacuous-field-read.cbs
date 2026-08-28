@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// The exemption covers only the vacuous field itself: a sibling that does
+// have something to initialize is still rejected, under either contract
+// attribute and for the plain local.
+
+struct Empty {};
+struct S1 { struct Empty e; int x; };
+
+int use(int v);
+
+int read_nonempty_sibling(struct S1 *__attribute__((ensure_init)) out) {
+  int v = out->x; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+  out->x = 1;
+  return use(v);
+}
+
+int ifret_read_nonempty_sibling(struct S1 *__attribute__((ensure_init_if_ret(0))) out) {
+  int v = out->x; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+  out->x = use(v);
+  return 0;
+}
+
+int local_read_nonempty_sibling(void) {
+  struct S1 s;
+  int v = s.x; // expected-error {{use of uninitialized value: 's.x'}}
+  s.x = 1;
+  return use(v);
+}

@@ -1,0 +1,47 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// No ancestor of the read path is written, so the prefix walk finds nothing
+// and the read stays rejected, under either contract attribute and for the
+// plain local.
+
+struct Pair { int a; int b; };
+struct Nested { struct Pair p; int x; };
+struct L1 { struct Pair q; int y; };
+struct L2 { struct L1 r; int z; };
+
+int sink(int v);
+
+int read_unwritten_sibling_leaf(struct L2 *__attribute__((ensure_init)) out) {
+  out->r.q.a = 1;
+  int v = out->r.q.b; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+  out->r.q.b = 2;
+  out->r.y = 3;
+  out->z = 4;
+  return sink(v);
+}
+
+int read_leaf_of_unwritten_subtree(struct L2 *__attribute__((ensure_init)) out) {
+  out->z = 1;
+  int v = out->r.q.a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+  out->r = (struct L1){{2, 3}, 4};
+  return sink(v);
+}
+
+int ifret_read_unwritten_sibling_leaf(
+    struct L2 *__attribute__((ensure_init_if_ret(0))) out) {
+  out->r.q.a = 1;
+  int v = out->r.q.b; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+  out->r.q.b = 2;
+  out->r.y = 3;
+  out->z = sink(v);
+  return 0;
+}
+
+int local_read_unwritten_sibling_leaf(void) {
+  struct Nested n;
+  n.p.a = 1;
+  int v = n.p.b; // expected-error {{use of uninitialized value: 'n.p.b'}}
+  n.p.b = 2;
+  n.x = 3;
+  return sink(v);
+}

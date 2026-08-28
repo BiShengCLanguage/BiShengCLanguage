@@ -1,0 +1,53 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// A field whose type has nothing to initialize needs no write before it is
+// read. The pointee read check applies the same exemption the local read
+// check does, so both contract attributes agree with the plain local.
+
+struct Empty {};
+struct S1 { struct Empty e; int x; };
+struct S2 { struct S1 s; int y; };
+
+int sink(void *p);
+
+int read_empty_field(struct S1 *__attribute__((ensure_init)) out) {
+  struct Empty tmp = out->e;
+  out->x = 1;
+  return sink(&tmp);
+}
+
+int read_empty_nested(struct S2 *__attribute__((ensure_init)) out) {
+  struct Empty tmp = out->s.e;
+  out->s.x = 1;
+  out->y = 2;
+  return sink(&tmp);
+}
+
+int ifret_read_empty_field(struct S1 *__attribute__((ensure_init_if_ret(0))) out) {
+  struct Empty tmp = out->e;
+  out->x = sink(&tmp);
+  return 0;
+}
+
+int ifret_read_empty_nested(struct S2 *__attribute__((ensure_init_if_ret(0))) out) {
+  struct Empty tmp = out->s.e;
+  out->s.x = sink(&tmp);
+  out->y = 2;
+  return 0;
+}
+
+int local_read_empty_field(void) {
+  struct S1 s;
+  struct Empty tmp = s.e;
+  s.x = 1;
+  return sink(&tmp);
+}
+
+int local_read_empty_nested(void) {
+  struct S2 s;
+  struct Empty tmp = s.s.e;
+  s.s.x = 1;
+  s.y = 2;
+  return sink(&tmp);
+}
