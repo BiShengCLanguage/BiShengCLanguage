@@ -51,14 +51,23 @@ endif()
 
 add_library(stdcbs STATIC ${STDCBS_SOURCES})
 
+# The .cbs sources are compiled with the clang built in this tree. Make the
+# object files depend on that compiler binary so that rebuilding clang
+# invalidates the prebuilt libcbs objects.
+set_source_files_properties(${STDCBS_SOURCES}
+  PROPERTIES OBJECT_DEPENDS "${CMAKE_C_COMPILER}")
 
 # Do not optimize, otherwise there will be missing symbols in std
 target_compile_options(stdcbs PRIVATE -O0)
 
 target_include_directories(stdcbs PUBLIC ${STDCBS_INCLUDES})
 
-# TODO: make it work
-# add_dependencies(stdcbs clang)
+# Make sure the just-built clang exists before stdcbs is compiled.  The
+# OBJECT_DEPENDS above is what makes a rebuilt clang actually invalidate the
+# objects; this target-level dependency additionally orders the build.
+if(TARGET clang)
+  add_dependencies(stdcbs clang)
+endif()
 
 # install the static library
 install(TARGETS stdcbs

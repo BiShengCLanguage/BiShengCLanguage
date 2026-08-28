@@ -31,6 +31,9 @@ function(add_libcbs_test test_name)
     message(FATAL_ERROR "The SRCS list for add_integration_test is missing.")
   endif()
 
+  set_source_files_properties(${INTEGRATION_TEST_SRCS}
+    PROPERTIES OBJECT_DEPENDS "${CMAKE_C_COMPILER}")
+
   add_executable(
     ${fq_target_name}
     EXCLUDE_FROM_ALL
@@ -51,6 +54,10 @@ function(add_libcbs_test test_name)
   )
 
   add_dependencies(${INTEGRATION_TEST_SUITE} ${fq_target_name})
+
+  if(TARGET clang)
+    add_dependencies(${fq_target_name} clang)
+  endif()
 endfunction(add_libcbs_test)
 
 # Rule to add a compile-time negative test that expects diagnostics.
