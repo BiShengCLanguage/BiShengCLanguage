@@ -174,9 +174,23 @@ add_custom_target(clang-test)
 add_dependencies(clang-test check-clang)
 set_target_properties(clang-test PROPERTIES FOLDER "Clang tests")
 
-# Add a target for BSC testing
-add_custom_target(bsc-test)
-add_dependencies(bsc-test check-clang-bsc)
+# Add a lightweight target for BSC testing.  Unlike the auto-generated
+# check-clang-bsc target, this only builds the tools actually used by the BSC
+# regression tests.
+set(BSC_TEST_DEPS
+  clang
+  clang-resource-headers
+  FileCheck
+  count
+  not
+)
+
+add_lit_target(bsc-test "Running the BSC regression tests"
+  ${CMAKE_CURRENT_SOURCE_DIR}/BSC
+  PARAMS ${CLANG_TEST_PARAMS}
+  DEPENDS ${BSC_TEST_DEPS}
+  ARGS ${CLANG_TEST_EXTRA_ARGS}
+)
 set_target_properties(bsc-test PROPERTIES FOLDER "BSC tests")
 
 # FIXME: This logic can be removed once all buildbots have moved
