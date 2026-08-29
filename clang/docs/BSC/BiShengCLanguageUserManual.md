@@ -3279,7 +3279,8 @@ int main() {
   return 0;
 }
 ```
-另外，表达式`e`如果是指针的解引用表达式(`*p`)，则`&_Mut *p`和`&_Const *p`分别可以看作对`p`指向的对象(也就是`*p`)取可变借用和不可变借用。`p`可以是裸指针（不能是函数指针）、`_Owned`指针和其它借用指针。**这样的取借用操作不对`*p`进行求值**, 例如`p`为空指针时不发生空指针解引用、`p`为`_Owned`指针时不发生所有权转移。获得的借用指针的 `_Nullable`/`_Nonnull` 属性与 `p` 相同，可空状态与 `p` 的可空状态相同。
+另外，表达式`e`如果是指针的解引用表达式(`*p`)，则`&_Mut *p`和`&_Const *p`分别可以看作对`p`指向的对象(也就是`*p`)取可变借用和不可变借用。`p`可以是裸指针（不能是函数指针）、`_Owned`指针和其它借用指针。**这样的取借用操作不对`*p`进行求值**, 例如`p`为空指针时不发生空指针解引用、`p`为`_Owned`指针时不发生所有权转移。带括号形式与 `_Safe/_Unsafe` 包裹形式与本形式等价：`&_Mut *(p)`、`&_Mut (*p)`、`&_Mut ((*(p)))`、`&_Mut _Unsafe(*p)` 等均与 `&_Mut *p` 等价，同样不对 `*p` 求值。获得的借用指针的 `_Nullable`/`_Nonnull` 属性与 `p` 相同，可空状态与 `p` 的可空状态相同。
+
 ```C
 #include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
 
@@ -4212,6 +4213,23 @@ void bar() {
   int arr[10];
   foo(&_Mut arr[0]); // ok, 显式对数组下标取借用
   foo(arr); // ok, 数组退化为 _Borrow _ArrayElem 指针
+}
+```
+
+当使用 `&_Mut a[i]`、`&_Const a[i]` 获取`_Borrow _ArrayElem`指针时，如果 `a` 是任意指针类型，那么：
+1. 当 `i` 是常量 0 时（对于 `&_Mut a[0]`、`&_Const a[0]`），不要求 `a` 必定非空，结果 `_Borrow _ArrayElem` 指针的可空性与可空状态与 `a` 一致。
+2. 对于其他所有下标 `i` （非零或者非常量），则 `a` 必须必定非空，结果 `_Borrow _ArrayElem` 指针也必定非空。
+
+如果`a`是数组类型，则结果 `_Borrow _ArrayElem` 指针必定非空。
+
+```c
+void foo(int *_Owned _ArrayElem _Nullable p1) {
+  int *_Borrow _ArrayElem _Nullable p2 = &_Mut p1[0]; // ok
+  int *_Borrow _ArrayElem _Nullable p3 = &_Mut p1[1]; // error，需要 p1 必定非空
+  if (p1) {
+    int *_Borrow _ArrayElem p4 = &_Mut p1[1]; // ok
+  }
+  ...
 }
 ```
 

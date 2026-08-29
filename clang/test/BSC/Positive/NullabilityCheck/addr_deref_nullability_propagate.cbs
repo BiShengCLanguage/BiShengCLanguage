@@ -1,0 +1,79 @@
+// RUN: %clang -cc1 %s
+// expected-no-diagnostics
+
+// &_Mut *p / &_Const *p (and every parenthesized variant) preserve p's
+// non-null path state: when p is definitely non-null, the resulting borrow is
+// also definitely non-null and can be dereferenced without a null check.
+_Safe void nonnull_propagates(int *_Borrow _Nonnull p) {
+  {
+    int *_Borrow _Nonnull q = &_Mut *p;
+    *q = 1;
+  }
+  {
+    int *_Borrow _Nonnull q = &_Mut *(p);
+    *q = 1;
+  }
+  {
+    int *_Borrow _Nonnull q = &_Mut (*p);
+    *q = 1;
+  }
+  {
+    int *_Borrow _Nonnull q = &_Mut ((*(p)));
+    *q = 1;
+  }
+  {
+    const int *_Borrow _Nonnull q = &_Const *p;
+    (void)*q;
+  }
+  {
+    const int *_Borrow _Nonnull q = &_Const *(p);
+    (void)*q;
+  }
+  {
+    const int *_Borrow _Nonnull q = &_Const (*p);
+    (void)*q;
+  }
+  {
+    const int *_Borrow _Nonnull q = &_Const ((*(p)));
+    (void)*q;
+  }
+}
+
+// When p is nullable but provably non-null on the current path, the borrow
+// expression also becomes non-null on that path.
+_Safe void nonnull_after_check(int *_Borrow _Nullable p) {
+  if (p != nullptr) {
+    {
+      int *_Borrow _Nonnull q = &_Mut *p;
+      *q = 1;
+    }
+    {
+      int *_Borrow _Nonnull q = &_Mut *(p);
+      *q = 1;
+    }
+    {
+      int *_Borrow _Nonnull q = &_Mut (*p);
+      *q = 1;
+    }
+    {
+      int *_Borrow _Nonnull q = &_Mut ((*(p)));
+      *q = 1;
+    }
+    {
+      const int *_Borrow _Nonnull q = &_Const *p;
+      (void)*q;
+    }
+    {
+      const int *_Borrow _Nonnull q = &_Const *(p);
+      (void)*q;
+    }
+    {
+      const int *_Borrow _Nonnull q = &_Const (*p);
+      (void)*q;
+    }
+    {
+      const int *_Borrow _Nonnull q = &_Const ((*(p)));
+      (void)*q;
+    }
+  }
+}

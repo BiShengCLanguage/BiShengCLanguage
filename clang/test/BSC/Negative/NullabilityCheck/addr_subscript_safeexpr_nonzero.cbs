@@ -1,0 +1,59 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only -verify %s
+
+// _Safe/_Unsafe wrappers must not hide the usual borrow-subscript rules: only
+// the constant-zero subscript (&_Mut p[0]) is exempt from the nullable
+// dereference check; non-zero / non-constant indices still require a non-null
+// base pointer. Wrapped forms still transfer the base pointer's nullability to
+// the resulting _Borrow _ArrayElem pointer.
+
+_Safe void zero_still_transfers_nullability(int *_Borrow _ArrayElem _Nullable p) {
+  {
+    int *_Borrow _ArrayElem _Nonnull q1 = &_Mut _Safe(p[0]);
+    // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    (void)q1;
+  }
+  {
+    int *_Borrow _ArrayElem _Nonnull q2 = &_Mut _Unsafe(p[0]);
+    // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    (void)q2;
+  }
+}
+
+_Safe void zero_const_still_transfers_nullability(int *_Borrow _ArrayElem _Nullable p) {
+  {
+    const int *_Borrow _ArrayElem _Nonnull q1 = &_Const _Safe(p[0]);
+    // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    (void)q1;
+  }
+  {
+    const int *_Borrow _ArrayElem _Nonnull q2 = &_Const _Unsafe(p[0]);
+    // expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    (void)q2;
+  }
+}
+
+_Safe void mut_nonzero_index(int *_Borrow _ArrayElem _Nullable p, int i) {
+  {
+    int *_Borrow _ArrayElem _Nullable q1 = &_Mut _Safe(p[1]);
+    // expected-error@-1 {{cannot dereference possibly-null status pointer 'p'}}
+    (void)q1;
+  }
+  {
+    int *_Borrow _ArrayElem _Nullable q2 = &_Mut _Unsafe(p[i]);
+    // expected-error@-1 {{cannot dereference possibly-null status pointer 'p'}}
+    (void)q2;
+  }
+}
+
+_Safe void const_nonzero_index(int *_Borrow _ArrayElem _Nullable p, int i) {
+  {
+    const int *_Borrow _ArrayElem _Nullable q1 = &_Const _Safe(p[1]);
+    // expected-error@-1 {{cannot dereference possibly-null status pointer 'p'}}
+    (void)q1;
+  }
+  {
+    const int *_Borrow _ArrayElem _Nullable q2 = &_Const _Unsafe(p[i]);
+    // expected-error@-1 {{cannot dereference possibly-null status pointer 'p'}}
+    (void)q2;
+  }
+}

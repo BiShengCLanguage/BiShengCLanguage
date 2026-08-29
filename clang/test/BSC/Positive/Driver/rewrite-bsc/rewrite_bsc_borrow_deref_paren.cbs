@@ -1,0 +1,51 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// This test locks in the source-to-source rewrite shape of &_Mut *p /
+// &_Const *p and all parenthesized variants, including _Safe/_Unsafe-wrapped
+// operands.
+//
+// The rewritten C must stay in the `&*...` form: C11 6.5.3.2p3 guarantees that
+// `&*p` does not evaluate the dereference, so a null `p` does not cause
+// undefined behavior. The rewrite must never produce `&(*p)`, which has no
+// such guarantee.
+
+void use(int *_Borrow p) { (void)p; }
+void use_const(const int *_Borrow p) { (void)p; }
+
+void borrow_deref(int *p) {
+  use(&_Mut *p);
+  use(&_Mut *(p));
+  use(&_Mut (*p));
+  use(&_Mut ((*(p))));
+  use(&_Mut _Unsafe(*p));
+  use_const(&_Const *p);
+  use_const(&_Const *(p));
+  use_const(&_Const (*p));
+  use_const(&_Const ((*(p))));
+  use_const(&_Const _Unsafe(*p));
+}
+
+int main(void) { return 0; }
+
+// CHECK: void use(int * p) {
+// CHECK:     (void)p;
+// CHECK: }
+// CHECK: void use_const(const int * p) {
+// CHECK:     (void)p;
+// CHECK: }
+// CHECK: void borrow_deref(int *p) {
+// CHECK:     use(&*p);
+// CHECK:     use(&*(p));
+// CHECK:     use(&*p);
+// CHECK:     use(&*(p));
+// CHECK:     use(&*p);
+// CHECK:     use_const(&*p);
+// CHECK:     use_const(&*(p));
+// CHECK:     use_const(&*p);
+// CHECK:     use_const(&*(p));
+// CHECK:     use_const(&*p);
+// CHECK: }
+// CHECK-NOT: &(*p)

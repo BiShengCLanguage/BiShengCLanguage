@@ -1,0 +1,70 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// This test locks in the source-to-source rewrite of &_Mut p[0] / &_Const p[0]
+// versus &_Mut p[i] (i != 0 or unknown), including _Safe/_Unsafe-wrapped
+// operands.
+//
+// In C11, `&p[0]` on a null pointer is undefined behavior (it is equivalent to
+// `p + 0`, and pointer arithmetic on a null pointer is UB), while the pointer
+// value is exactly `p`. BSC therefore promises that `&_Mut p[0]` may be used
+// with a nullable `p`, and the rewrite must emit `p` itself rather than
+// `&p[0]`.
+//
+// Non-zero/unknown indices (`&_Mut p[1]`, `&_Mut p[i]`) require a non-null `p`
+// and keep the `&p[i]` form; the nullability checker rejects them for nullable
+// `p`. Array lvalues are never null, so `&arr[0]` / `&arr[1]` are preserved.
+
+void use(int *_Borrow _ArrayElem p) { (void)p; }
+void use_const(const int *_Borrow _ArrayElem p) { (void)p; }
+
+void borrow_subscript(int *_Borrow _ArrayElem p, int i) {
+  use(&_Mut p[0]);
+  use(&_Mut (p[0]));
+  use(&_Mut ((p[0])));
+  use(&_Mut _Unsafe(p[0]));
+  use(&_Mut _Safe(p[0]));
+  use(&_Mut p[1]);
+  use(&_Mut p[i]);
+  use(&_Mut _Unsafe(p[1]));
+  use_const(&_Const p[0]);
+  use_const(&_Const (p[0]));
+  use_const(&_Const _Unsafe(p[0]));
+  use_const(&_Const _Safe(p[0]));
+  use_const(&_Const p[1]);
+  use_const(&_Const _Unsafe(p[1]));
+  int arr[10] = {0};
+  use(&_Mut arr[0]);
+  use(&_Mut arr[1]);
+}
+
+int main(void) { return 0; }
+
+// CHECK: void use(int * p) {
+// CHECK:     (void)p;
+// CHECK: }
+// CHECK: void use_const(const int * p) {
+// CHECK:     (void)p;
+// CHECK: }
+// CHECK: void borrow_subscript(int * p, int i) {
+// CHECK:     use(p);
+// CHECK:     use(p);
+// CHECK:     use(p);
+// CHECK:     use(p);
+// CHECK:     use(p);
+// CHECK:     use(&p[1]);
+// CHECK:     use(&p[i]);
+// CHECK:     use(&(p[1]));
+// CHECK:     use_const(p);
+// CHECK:     use_const(p);
+// CHECK:     use_const(p);
+// CHECK:     use_const(p);
+// CHECK:     use_const(&p[1]);
+// CHECK:     use_const(&(p[1]));
+// CHECK:     int arr[10] = {0};
+// CHECK:     use(&arr[0]);
+// CHECK:     use(&arr[1]);
+// CHECK: }
+// CHECK-NOT: &(*p)

@@ -15401,7 +15401,12 @@ static void diagnoseAddressOfInvalidType(Sema &S, SourceLocation Loc,
 
 #if ENABLE_BSC
 bool Sema::IsAddrBorrowDerefOp(ExprResult &OrigOp) {
-  if (UnaryOperator *uOp = dyn_cast<UnaryOperator>(OrigOp.get())) {
+  // Strip parentheses/implied casts and _Safe/_Unsafe wrappers so forms like
+  // &_Mut (*p), &_Mut ((*(p))) and &_Mut _Unsafe(*p) all fold into
+  // UO_AddrMutDeref / UO_AddrConstDeref. The rewrite then emits &*p (not
+  // &(*p)), which is well-defined in C even for a null pointer.
+  if (UnaryOperator *uOp =
+          dyn_cast<UnaryOperator>(OrigOp.get()->IgnoreParenImpCastsSafe())) {
     if (uOp->getOpcode() == UO_Deref) {
       OrigOp = uOp->getSubExpr();
       return true;
@@ -15486,11 +15491,20 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
   // if &_Mut/&_Const produces a borrow pointer successfully and the expression
   // is an array subscript, add _ArrayElem to the result type
   if (!resultType.isNull() && resultType->isPointerType() &&
-      resultType.isLocalBorrowQualified() &&
-      isa<ArraySubscriptExpr>(InputExpr->IgnoreParenImpCasts())) {
-    resultType = Context.getQualifiedType(
-      resultType.getUnqualifiedType(),
-      resultType.getQualifiers().withArrayElem());
+      resultType.isLocalBorrowQualified()) {
+    if (auto *ASE = dyn_cast<ArraySubscriptExpr>(
+            InputExpr->IgnoreParenImpCastsSafe())) {
+      resultType = Context.getQualifiedType(
+        resultType.getUnqualifiedType(),
+        resultType.getQualifiers().withArrayElem());
+      // &_Mut p[i] / &_Const p[i] borrow an element of the array/pointee; the
+      // resulting borrow pointer keeps the base pointer's nullability, exactly
+      // like &_Mut *p / &_Const *p.
+      const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+      if (Base->getType().getCanonicalType()->isPointerType())
+        resultType =
+            transferExplicitNullability(Base->getType(), resultType, Context);
+    }
   }
   return resultType;
 }

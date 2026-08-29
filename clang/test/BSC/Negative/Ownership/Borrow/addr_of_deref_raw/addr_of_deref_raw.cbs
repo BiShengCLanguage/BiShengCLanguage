@@ -44,6 +44,29 @@ void reborrow_still_borrows(int *_Borrow p) {
 // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
 // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
 
+// Parenthesized forms are normalized to the same combined operators, so they
+// are reborrows too and not treated as a dereference followed by &_Mut.
+void parenthesized_reborrow_still_borrows(int *_Borrow p) {
+  int *_Borrow m1 = &_Mut *p;
+  int *_Borrow m2 = &_Mut *(p);
+  int *_Borrow m3 = &_Mut (*p);
+  int *_Borrow m4 = &_Mut ((*(p)));
+  const int *_Borrow c1 = &_Const *p;
+  const int *_Borrow c2 = &_Const *(p);
+  const int *_Borrow c3 = &_Const (*p);
+  const int *_Borrow c4 = &_Const ((*(p)));
+}
+
+// CHECK-LABEL: FunctionDecl {{.*}} parenthesized_reborrow_still_borrows
+// CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+// CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+// CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+// CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+// CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+// CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+// CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+// CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+
 // '&_Unsafe(*P)' never matched the '&*' form, so it always re-formed a pointer
 // to the pointee's type.  That is the same type the rule above now gives.
 void unsafe_wrapped(int *_Borrow p, int *_Owned *_Borrow q) {

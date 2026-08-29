@@ -142,6 +142,7 @@ public:
   void VisitCallExpr(CallExpr *CE);
   void VisitReturnStmt(ReturnStmt *RS);
   void VisitCStyleCastExpr(CStyleCastExpr *CSCE);
+  bool IsDirectBorrowAddrOperand(Stmt *S);
   NullabilityKind getExprPathNullability(Expr *E);
   void SetCFGBlocksByExpr(Expr *PtrE, const CFGBlock *NonNullBlock,
                           const CFGBlock *NullableBlock);
@@ -497,8 +498,22 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     }
     case Expr::UnaryOperatorClass: {
       UnaryOperator::Opcode Op = cast<UnaryOperator>(E)->getOpcode();
-      if (Op == UO_AddrOf || Op == UO_AddrMut || Op == UO_AddrConst)
+      if (Op == UO_AddrOf || Op == UO_AddrMut || Op == UO_AddrConst) {
+        // &_Mut p[i] / &_Const p[i] borrow an array element without
+        // dereferencing p; the result follows the base pointer's
+        // path-sensitive nullability, exactly like &_Mut *p.
+        if (Op != UO_AddrOf) {
+          if (auto *ASE = dyn_cast<ArraySubscriptExpr>(
+                  cast<UnaryOperator>(E)->getSubExpr()->IgnoreParenImpCastsSafe())) {
+            Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+            if (Base->getType().getCanonicalType()->isPointerType())
+              return getExprPathNullability(Base);
+            // An array lvalue can never be null.
+            return NullabilityKind::NonNull;
+          }
+        }
         return NullabilityKind::NonNull;
+      }
       if (Op == UO_Deref) {
         // Prefer path-sensitive state produced by condition propagation (if
         // (*p), if (**p), ...). Fall back to declaration/default semantics.
@@ -1011,6 +1026,48 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
   }
 }
 
+// Returns true when \p S is the direct operand of a borrow address-of
+// operator (&_Mut / &_Const), possibly through parentheses. Only a constant
+// zero subscript (&_Mut p[0] and parenthesized variants) borrows the element
+// without actually dereferencing the nullable base pointer, so the
+// nullable-dereference check below must not fire for it. Non-zero or
+// non-constant indices (&_Mut p[i]) require a non-null base pointer and are
+// still reported. (&_Mut *p / &_Const *p are normalized into
+// UO_AddrMutDeref / UO_AddrConstDeref by Sema and therefore never reach the
+// UO_Deref check here.)
+bool TransferFunctions::IsDirectBorrowAddrOperand(Stmt *S) {
+  Stmt *Cur = S;
+  while (Cur) {
+    Stmt *Parent = PM.getParent(Cur);
+    if (!Parent)
+      return false;
+    if (auto *PE = dyn_cast<ParenExpr>(Parent)) {
+      Cur = PE;
+      continue;
+    }
+    // _Safe(...) / _Unsafe(...) are transparent wrappers around the subscript,
+    // so &_Mut _Safe(p[0]) / &_Mut _Unsafe(p[0]) are exempt exactly like
+    // &_Mut (p[0]).
+    if (auto *SE = dyn_cast<SafeExpr>(Parent)) {
+      Cur = SE;
+      continue;
+    }
+    if (auto *UO = dyn_cast<UnaryOperator>(Parent)) {
+      UnaryOperator::Opcode Op = UO->getOpcode();
+      if (Op != UO_AddrMut && Op != UO_AddrConst)
+        return false;
+      auto *ASE = dyn_cast<ArraySubscriptExpr>(S);
+      if (!ASE)
+        return false;
+      Expr::EvalResult ER;
+      return ASE->getIdx()->EvaluateAsInt(ER, Ctx) && ER.Val.isInt() &&
+             ER.Val.getInt().isZero();
+    }
+    return false;
+  }
+  return false;
+}
+
 // *p is not allowed when p has nullable PathNullability.
 // &mut *p and &const *p are allowed because no actual dereferencing happens.
 // These expressions only change the pointer type without accessing the memory,
@@ -1029,8 +1086,12 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
 
 // p[i] is not allowed when p has nullable PathNullability.
 // Array subscript is equivalent to *(p + i), so it dereferences the pointer.
+// &_Mut p[i] / &_Const p[i] borrow the element without dereferencing p, so
+// they are exempt.
 void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
-  if (getExprPathNullability(ASE->getBase()) == NullabilityKind::Nullable && ShouldReportNullPtrError(ASE)) {
+  if (!IsDirectBorrowAddrOperand(ASE) &&
+      getExprPathNullability(ASE->getBase()) == NullabilityKind::Nullable &&
+      ShouldReportNullPtrError(ASE)) {
     NullabilityCheckDiagInfo DI(ASE->getBeginLoc(),
                                 NullablePointerDereference,
                                 getDiagNameFromExpr(ASE->getBase()));

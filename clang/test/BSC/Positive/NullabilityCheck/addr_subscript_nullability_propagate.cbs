@@ -1,0 +1,48 @@
+// RUN: %clang -cc1 %s
+// expected-no-diagnostics
+
+// &_Mut p[0] / &_Const p[0] (and parenthesized variants) preserve p's
+// non-null path state: when p is definitely non-null, the resulting borrow is
+// also definitely non-null and can be dereferenced without a null check.
+_Safe void consume(int *_Owned _ArrayElem _Nullable p);
+
+_Safe void borrow_nonnull_propagates(int *_Borrow _ArrayElem _Nonnull p) {
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut p[0]; *q = 1; }
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut (p[0]); *q = 1; }
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut ((p[0])); *q = 1; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const p[0]; (void)*q; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const (p[0]); (void)*q; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const ((p[0])); (void)*q; }
+}
+
+_Safe void owned_nonnull_propagates(int *_Owned _ArrayElem _Nonnull p) {
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut p[0]; *q = 1; }
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut (p[0]); *q = 1; }
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut ((p[0])); *q = 1; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const p[0]; (void)*q; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const (p[0]); (void)*q; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const ((p[0])); (void)*q; }
+  consume(p);
+}
+
+// When p is nullable but provably non-null on the current path, the borrow
+// expression also becomes non-null on that path.
+_Safe void nonnull_after_check(int *_Borrow _ArrayElem _Nullable p) {
+  if (p != nullptr) {
+    { int *_Borrow _ArrayElem _Nonnull q = &_Mut p[0]; *q = 1; }
+    { int *_Borrow _ArrayElem _Nonnull q = &_Mut (p[0]); *q = 1; }
+    { int *_Borrow _ArrayElem _Nonnull q = &_Mut ((p[0])); *q = 1; }
+    { const int *_Borrow _ArrayElem _Nonnull q = &_Const p[0]; (void)*q; }
+    { const int *_Borrow _ArrayElem _Nonnull q = &_Const (p[0]); (void)*q; }
+    { const int *_Borrow _ArrayElem _Nonnull q = &_Const ((p[0])); (void)*q; }
+  }
+}
+
+// Array lvalues can never be null, so borrowing an array element is always
+// non-null.
+_Safe void array_base(void) {
+  int arr[10] = {0};
+  { int *_Borrow _ArrayElem _Nonnull q = &_Mut arr[0]; *q = 1; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const arr[0]; (void)*q; }
+  { const int *_Borrow _ArrayElem _Nonnull q = &_Const (arr[0]); (void)*q; }
+}

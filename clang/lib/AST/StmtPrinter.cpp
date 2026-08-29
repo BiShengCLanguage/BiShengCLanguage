@@ -172,6 +172,27 @@ namespace {
 
 } // namespace
 
+#if ENABLE_BSC
+namespace {
+/// Returns true when \p ASE is a constant-zero subscript of a pointer, i.e.
+/// `p[0]`. In C11, `&p[0]` is undefined behavior for a null `p` (it is
+/// equivalent to `p + 0`, and pointer arithmetic on a null pointer is UB),
+/// whereas the pointer value is exactly `p`. The rewrite therefore prints the
+/// base expression instead of `&p[0]`.
+bool isConstantZeroPointerSubscript(ArraySubscriptExpr *ASE,
+                                    const ASTContext *Context) {
+  if (!Context)
+    return false;
+  Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+  if (!Base->getType()->isPointerType())
+    return false;
+  Expr::EvalResult ER;
+  return ASE->getIdx()->EvaluateAsInt(ER, *Context) && ER.Val.isInt() &&
+         ER.Val.getInt().isZero();
+}
+} // namespace
+#endif
+
 //===----------------------------------------------------------------------===//
 //  Stmt printing methods.
 //===----------------------------------------------------------------------===//
@@ -1494,6 +1515,16 @@ void StmtPrinter::VisitUnaryOperator(UnaryOperator *Node) {
     if (Policy.RewriteBSC) {
       if (Node->getOpcode() == UO_AddrConst ||
           Node->getOpcode() == UO_AddrMut) {
+        // &_Mut p[0] / &_Const p[0] (constant zero index on a pointer) is
+        // rewritten to the base pointer itself. `&p[0]` would be UB for a
+        // null `p` in C11, while the pointer value is exactly `p`.
+        if (auto *ASE = dyn_cast<ArraySubscriptExpr>(
+                Node->getSubExpr()->IgnoreParenImpCastsSafe())) {
+          if (isConstantZeroPointerSubscript(ASE, Context)) {
+            PrintExpr(ASE->getBase());
+            return;
+          }
+        }
         OS << UnaryOperator::getOpcodeStr(UO_AddrOf);
       } else if (Node->getOpcode() == UO_AddrConstDeref ||
                  Node->getOpcode() == UO_AddrMutDeref) {

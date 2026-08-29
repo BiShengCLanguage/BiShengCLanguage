@@ -1,6 +1,8 @@
 // RUN: %clang -cc1 %s
 // expected-no-diagnostics
 
+_Safe void consume(int * _Owned _ArrayElem _Nullable p);
+
 _Safe void explicit_reborrow(int *_Borrow _Nullable ptr) {
     const int *_Borrow _Nullable cbp = &_Const *ptr;
     int *_Borrow _Nullable mbp = &_Mut *ptr;
@@ -23,5 +25,40 @@ _Safe int *_Owned _Nullable explicit_reborrow4(void) {
     const int *_Borrow _Nullable cbp = &_Const *ptr;
     int *_Borrow _Nullable mbp = &_Mut *ptr;
     return ptr;
+}
+
+// Parenthesized forms of &_Mut *p / &_Const *p are equivalent to the canonical
+// form: no actual dereference happens, so nullable pointers are allowed.
+_Safe void explicit_reborrow_parenthesized(int *_Borrow _Nullable ptr) {
+    int *_Borrow _Nullable mbp1 = &_Mut *ptr;
+    int *_Borrow _Nullable mbp2 = &_Mut *(ptr);
+    int *_Borrow _Nullable mbp3 = &_Mut (*ptr);
+    int *_Borrow _Nullable mbp4 = &_Mut ((*(ptr)));
+    const int *_Borrow _Nullable cbp1 = &_Const *ptr;
+    const int *_Borrow _Nullable cbp2 = &_Const *(ptr);
+    const int *_Borrow _Nullable cbp3 = &_Const (*ptr);
+    const int *_Borrow _Nullable cbp4 = &_Const ((*(ptr)));
+}
+
+// &_Mut p[0] / &_Const p[0] on nullable _ArrayElem pointers (including
+// parenthesized subscripts) borrow the array element without dereferencing the
+// nullable pointer, so they must also be allowed.
+_Safe void nullable_owned_arrayelem(int *_Owned _ArrayElem _Nullable p) {
+    int *_Borrow _ArrayElem _Nullable q1 = &_Mut p[0];
+    int *_Borrow _ArrayElem _Nullable q2 = &_Mut (p[0]);
+    int *_Borrow _ArrayElem _Nullable q3 = &_Mut ((p[0]));
+    const int *_Borrow _ArrayElem _Nullable cq1 = &_Const p[0];
+    const int *_Borrow _ArrayElem _Nullable cq2 = &_Const (p[0]);
+    const int *_Borrow _ArrayElem _Nullable cq3 = &_Const ((p[0]));
+    consume(p);
+}
+
+_Safe void nullable_borrow_arrayelem(int *_Borrow _ArrayElem _Nullable p) {
+    int *_Borrow _ArrayElem _Nullable q1 = &_Mut p[0];
+    int *_Borrow _ArrayElem _Nullable q2 = &_Mut (p[0]);
+    int *_Borrow _ArrayElem _Nullable q3 = &_Mut ((p[0]));
+    const int *_Borrow _ArrayElem _Nullable cq1 = &_Const p[0];
+    const int *_Borrow _ArrayElem _Nullable cq2 = &_Const (p[0]);
+    const int *_Borrow _ArrayElem _Nullable cq3 = &_Const ((p[0]));
 }
 

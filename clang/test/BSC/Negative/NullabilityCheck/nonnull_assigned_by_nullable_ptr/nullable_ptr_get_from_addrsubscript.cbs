@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Every parenthesized form of &_Mut p[0] / &_Const p[0] must preserve p's
+// nullable path state: when p may be null, the resulting borrow may be null
+// too and cannot be assigned to a '_Nonnull' pointer.
+_Safe void nullable_mut_all_forms(int *_Borrow _ArrayElem _Nullable p) {
+    int *_Borrow _ArrayElem _Nonnull q1 = &_Mut p[0];       // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Borrow _ArrayElem _Nonnull q2 = &_Mut (p[0]);     // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Borrow _ArrayElem _Nonnull q3 = &_Mut ((p[0]));   // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+_Safe void nullable_const_all_forms(int *_Borrow _ArrayElem _Nullable p) {
+    const int *_Borrow _ArrayElem _Nonnull q1 = &_Const p[0];     // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    const int *_Borrow _ArrayElem _Nonnull q2 = &_Const (p[0]);   // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    const int *_Borrow _ArrayElem _Nonnull q3 = &_Const ((p[0])); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+// Non-zero or non-constant indices require a non-null base pointer: unlike
+// &_Mut p[0], they would need real pointer arithmetic (p + i) in the
+// rewritten C, which is undefined for a null p.
+_Safe void nullable_mut_nonzero_index(int *_Borrow _ArrayElem _Nullable p, int i) {
+    int *_Borrow _ArrayElem _Nullable q1 = &_Mut p[1];       // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    int *_Borrow _ArrayElem _Nullable q2 = &_Mut (p[1]);     // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    int *_Borrow _ArrayElem _Nullable q3 = &_Mut ((p[i]));   // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+_Safe void nullable_const_nonzero_index(int *_Borrow _ArrayElem _Nullable p, int i) {
+    const int *_Borrow _ArrayElem _Nullable q1 = &_Const p[1];     // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    const int *_Borrow _ArrayElem _Nullable q2 = &_Const (p[1]);   // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    const int *_Borrow _ArrayElem _Nullable q3 = &_Const ((p[i])); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}

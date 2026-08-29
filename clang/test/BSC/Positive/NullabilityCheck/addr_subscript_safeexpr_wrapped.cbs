@@ -1,0 +1,60 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only %s
+// expected-no-diagnostics
+
+// _Safe(...) / _Unsafe(...) are transparent wrappers around an array subscript
+// for borrow purposes: &_Mut _Unsafe(p[0]) must behave exactly like
+// &_Mut (p[0]) / &_Mut p[0]. The result type is _Borrow _ArrayElem (with the
+// base pointer's nullability), and the constant-zero subscript is exempt from
+// the nullable-dereference check because borrowing p[0] does not evaluate
+// p + 0.
+
+_Safe void use(int *_Borrow _ArrayElem _Nullable p);
+_Safe void use_const(const int *_Borrow _ArrayElem _Nullable p);
+
+_Unsafe void unsafe_zone_mut(int *_Borrow _ArrayElem _Nullable p) {
+  int *_Borrow _ArrayElem _Nullable q = &_Mut _Unsafe(p[0]);
+  (void)q;
+  int *_Borrow _Nullable q2 = &_Mut _Unsafe(p[0]);
+  (void)q2;
+}
+
+_Unsafe void unsafe_zone_const(int *_Borrow _ArrayElem _Nullable p) {
+  const int *_Borrow _ArrayElem _Nullable q = &_Const _Unsafe(p[0]);
+  (void)q;
+  const int *_Borrow _Nullable q2 = &_Const _Unsafe(p[0]);
+  (void)q2;
+}
+
+void safe_expr_in_plain_function(int *_Borrow _ArrayElem p) {
+  use(&_Mut _Safe(p[0]));
+  use_const(&_Const _Safe(p[0]));
+}
+
+_Safe void safe_zone(int *_Borrow _ArrayElem _Nullable p) {
+  int *_Borrow _ArrayElem _Nullable q = &_Mut _Safe(p[0]);
+  (void)q;
+  int *_Borrow _Nullable q2 = &_Mut _Unsafe(p[0]);
+  (void)q2;
+  use_const(&_Const _Safe(p[0]));
+}
+
+// The wrapped borrow also keeps the base pointer's path-sensitive state: after
+// a null check, &_Mut _Unsafe(p[0]) is non-null and can be assigned to a
+// '_Nonnull' borrow.
+_Safe void nonnull_after_check(int *_Borrow _ArrayElem _Nullable p) {
+  if (p != nullptr) {
+    int *_Borrow _ArrayElem _Nonnull q = &_Mut _Unsafe(p[0]);
+    (void)q;
+    const int *_Borrow _ArrayElem _Nonnull cq = &_Const _Safe(p[0]);
+    (void)cq;
+  }
+}
+
+// The same transparency applies when the base is an ordinary nullable pointer
+// (not itself declared _ArrayElem).
+_Unsafe void plain_pointer_base(int *_Nullable p) {
+  int *_Borrow _ArrayElem _Nullable q = &_Mut _Unsafe(p[0]);
+  (void)q;
+  const int *_Borrow _ArrayElem _Nullable cq = &_Const _Safe(p[0]);
+  (void)cq;
+}
