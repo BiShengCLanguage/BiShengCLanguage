@@ -210,6 +210,15 @@ static bool AreTypesCompatibleForUnsafeToSafeRefinement(QualType UnsafeType,
     }
     return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafePointee, SafePointee, Ctx);
   }
+
+  // Arrays: recurse into element types so BSC qualifiers inside array elements
+  // (e.g. int *_Owned arr[10]) are checked too.
+  if (UnsafeType->isArrayType() && SafeType->isArrayType()) {
+    return AreTypesCompatibleForUnsafeToSafeRefinement(
+        UnsafeType->getAsArrayTypeUnsafe()->getElementType(),
+        SafeType->getAsArrayTypeUnsafe()->getElementType(), Ctx);
+  }
+
   return true;
 }
 
@@ -401,14 +410,31 @@ QualType getOnlyBSCQualifiedTypeWithoutNullability(QualType T,
 }
 
 /// Recursively check that LHS and RHS have the same effective nullability
-/// at every pointer level where both sides are pointer types.
+/// at every pointer level where both sides are pointer types. Function
+/// pointer pointees are traversed too, so nullability inside their return
+/// types and parameters is compared recursively.
 static bool areTypesNullabilityCompatibleRec(QualType LHS, QualType RHS,
                                              ASTContext &Ctx) {
   if (LHS->isPointerType() && RHS->isPointerType()) {
     if (LHS.getDefNullability() != RHS.getDefNullability())
       return false;
-    return areTypesNullabilityCompatibleRec(LHS->getPointeeType(),
-                                            RHS->getPointeeType(), Ctx);
+    QualType LPointee = LHS->getPointeeType();
+    QualType RPointee = RHS->getPointeeType();
+    const auto *LFn = LPointee->getAs<FunctionProtoType>();
+    const auto *RFn = RPointee->getAs<FunctionProtoType>();
+    if (LFn && RFn) {
+      if (LFn->getNumParams() != RFn->getNumParams())
+        return false;
+      if (!areTypesNullabilityCompatibleRec(LFn->getReturnType(),
+                                            RFn->getReturnType(), Ctx))
+        return false;
+      for (unsigned I = 0, N = LFn->getNumParams(); I != N; ++I)
+        if (!areTypesNullabilityCompatibleRec(LFn->getParamType(I),
+                                              RFn->getParamType(I), Ctx))
+          return false;
+      return true;
+    }
+    return areTypesNullabilityCompatibleRec(LPointee, RPointee, Ctx);
   }
   return true;
 }

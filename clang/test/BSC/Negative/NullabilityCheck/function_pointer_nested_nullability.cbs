@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// AreFunctionTypesNullabilityCompatible must recurse into function-pointer
+// pointees. A nullability mismatch inside a nested function pointer's
+// parameters or return type is rejected on assignment; matching forms are
+// accepted.
+
+void test_param_mismatch(void) {
+  void (*a)(void (*)(int *_Nonnull)) = 0;
+  void (*b)(void (*)(int *_Nullable)) = a;
+  // expected-error@-1 {{conversion from type 'void (*)(void (*)(int *_Nonnull))' to 'void (*)(void (*)(int *_Nullable))' is forbidden}}
+}
+
+void test_return_mismatch(void) {
+  int *_Nonnull (*a)(void) = 0;
+  int *_Nullable (*b)(void) = a;
+  // expected-error@-1 {{conversion from type 'int *_Nonnull (*)(void)' to 'int *_Nullable (*)(void)' is forbidden}}
+}
+
+void test_nested_param_match(void) {
+  void (*a)(void (*)(int *_Nullable)) = 0;
+  void (*b)(void (*)(int *_Nullable)) = a;
+}
+
+void test_nested_return_match(void) {
+  int *_Nullable (*a)(void) = 0;
+  int *_Nullable (*b)(void) = a;
+}

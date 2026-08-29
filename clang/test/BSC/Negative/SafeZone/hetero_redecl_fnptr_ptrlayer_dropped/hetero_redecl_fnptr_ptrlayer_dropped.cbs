@@ -22,3 +22,15 @@ _Safe void he_cb_inner(void (*cb)(int **));  // expected-error {{redeclaration o
 // --- two plain pointer layers above the qualifier (arbitrary depth) ----------
 void he_deep(int *_Owned **p); // expected-note {{previous declaration had parameter of type 'int *_Owned **'}}
 _Safe void he_deep(int ***p);  // expected-error {{redeclaration of 'he_deep' has incompatible parameter type 'int ***'}}
+
+// --- _Owned / _Borrow inside an array element type (pointer-to-array) --------
+void he_arr_owned(int *_Owned (*p)[10]); // expected-note {{previous declaration had parameter of type 'int *_Owned (*)[10]'}}
+_Safe void he_arr_owned(int * (*p)[10]);  // expected-error {{redeclaration of 'he_arr_owned' has incompatible parameter type 'int *(*)[10]'}}
+
+void he_arr_borrow(int *_Borrow (*p)[10]); // expected-note {{previous declaration had parameter of type 'int *_Borrow (*)[10]'}}
+_Safe void he_arr_borrow(int * (*p)[10]);  // expected-error {{redeclaration of 'he_arr_borrow' has incompatible parameter type 'int *(*)[10]'}}
+
+// The _Safe side may add _Owned inside an array element; the _Unsafe side may
+// lack it, so this is a valid refinement.
+void he_arr_add_owned(int * (*p)[10]);
+_Safe void he_arr_add_owned(int *_Owned (*p)[10]);
