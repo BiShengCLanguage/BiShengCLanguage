@@ -401,6 +401,60 @@ QualType stripAllNullabilityQualifiers(QualType T, ASTContext &Ctx) {
     return Ctx.getQualifiedType(Ctx.getPointerType(NewPointee).getTypePtr(),
                                 Qs);
   }
+
+  // Recurse into array element types so pointer nullability inside arrays
+  // (e.g. int *_Nullable arr[10]) is stripped too.
+  if (const auto *AT = T->getAsArrayTypeUnsafe()) {
+    QualType OldElem = AT->getElementType();
+    QualType NewElem = stripAllNullabilityQualifiers(OldElem, Ctx);
+    if (NewElem.getAsOpaquePtr() == OldElem.getAsOpaquePtr())
+      return T;
+    if (const auto *CAT = dyn_cast<ConstantArrayType>(AT))
+      return Ctx.getConstantArrayType(NewElem, CAT->getSize(),
+                                      CAT->getSizeExpr(), CAT->getSizeModifier(),
+                                      CAT->getIndexTypeCVRQualifiers());
+    if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
+      return Ctx.getVariableArrayType(NewElem, VAT->getSizeExpr(),
+                                      VAT->getSizeModifier(),
+                                      VAT->getIndexTypeCVRQualifiers(),
+                                      VAT->getBracketsRange());
+    if (const auto *IAT = dyn_cast<IncompleteArrayType>(AT))
+      return Ctx.getIncompleteArrayType(NewElem, IAT->getSizeModifier(),
+                                        IAT->getIndexTypeCVRQualifiers());
+    if (const auto *DSAT = dyn_cast<DependentSizedArrayType>(AT))
+      return Ctx.getDependentSizedArrayType(NewElem, DSAT->getSizeExpr(),
+                                            DSAT->getSizeModifier(),
+                                            DSAT->getIndexTypeCVRQualifiers(),
+                                            DSAT->getBracketsRange());
+    return T;
+  }
+
+  // Recurse into function return/parameter types so pointer nullability inside
+  // function types is stripped too.
+  if (const auto *FPT = T->getAs<FunctionProtoType>()) {
+    QualType OldRet = FPT->getReturnType();
+    QualType NewRet = stripAllNullabilityQualifiers(OldRet, Ctx);
+    SmallVector<QualType, 4> NewParams;
+    bool ParamsChanged = false;
+    for (QualType P : FPT->getParamTypes()) {
+      QualType NP = stripAllNullabilityQualifiers(P, Ctx);
+      NewParams.push_back(NP);
+      if (NP.getAsOpaquePtr() != P.getAsOpaquePtr())
+        ParamsChanged = true;
+    }
+    if (NewRet.getAsOpaquePtr() == OldRet.getAsOpaquePtr() && !ParamsChanged)
+      return T;
+    return Ctx.getFunctionType(NewRet, NewParams, FPT->getExtProtoInfo());
+  }
+
+  if (const auto *FNPT = T->getAs<FunctionNoProtoType>()) {
+    QualType OldRet = FNPT->getReturnType();
+    QualType NewRet = stripAllNullabilityQualifiers(OldRet, Ctx);
+    if (NewRet.getAsOpaquePtr() == OldRet.getAsOpaquePtr())
+      return T;
+    return Ctx.getFunctionNoProtoType(NewRet, FNPT->getExtInfo());
+  }
+
   return T;
 }
 

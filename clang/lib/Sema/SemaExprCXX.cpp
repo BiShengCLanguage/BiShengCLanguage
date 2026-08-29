@@ -5588,26 +5588,49 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT, QualType LhsT,
     // effective (def) nullability agrees at every pointer level — e.g. `int *`
     // and `int *_Nullable`, or `int *_Owned` and `int *_Owned _Nonnull`.
     // Canonicalize first so typeof()/typedef sugar cannot hide ExtQuals from
-    // stripAllNullabilityQualifiers (which only clears local bits on the
-    // outermost QualType).
+    // stripAllNullabilityQualifiers.
     if (Self.getLangOpts().BSC) {
-      QualType L = LhsT.getCanonicalType();
-      QualType R = RhsT.getCanonicalType();
+      // Keep the original (possibly sugared) types for the nullability walk:
+      // canonicalizing array elements or function parameters would strip the
+      // nested _Nullable/_Nonnull qualifiers. Canonical types are still used
+      // for the final spelling-stripped structural comparison.
+      QualType L = LhsT;
+      QualType R = RhsT;
       auto SameDefNullability = [&](auto &&SelfRec, QualType A,
                                     QualType B) -> bool {
         if (A->isPointerType() && B->isPointerType()) {
           if (A.getDefNullability() != B.getDefNullability())
             return false;
-          return SelfRec(SelfRec, A->getPointeeType().getCanonicalType(),
-                         B->getPointeeType().getCanonicalType());
+          return SelfRec(SelfRec, A->getPointeeType(), B->getPointeeType());
+        }
+        // Recurse into array element types so pointer nullability inside
+        // arrays is compared too.
+        if (A->isArrayType() && B->isArrayType()) {
+          return SelfRec(SelfRec,
+                         A->getAsArrayTypeUnsafe()->getElementType(),
+                         B->getAsArrayTypeUnsafe()->getElementType());
+        }
+        // Recurse into function return/parameter types so pointer nullability
+        // inside function types is compared too.
+        const auto *AFn = A->getAs<FunctionProtoType>();
+        const auto *BFn = B->getAs<FunctionProtoType>();
+        if (AFn && BFn) {
+          if (AFn->getNumParams() != BFn->getNumParams())
+            return false;
+          if (!SelfRec(SelfRec, AFn->getReturnType(), BFn->getReturnType()))
+            return false;
+          for (unsigned I = 0, N = AFn->getNumParams(); I != N; ++I)
+            if (!SelfRec(SelfRec, AFn->getParamType(I), BFn->getParamType(I)))
+              return false;
+          return true;
         }
         return true;
       };
       if (!SameDefNullability(SameDefNullability, L, R))
         return false;
       return Self.Context.hasSameType(
-          stripAllNullabilityQualifiers(L, Self.Context),
-          stripAllNullabilityQualifiers(R, Self.Context));
+          stripAllNullabilityQualifiers(LhsT.getCanonicalType(), Self.Context),
+          stripAllNullabilityQualifiers(RhsT.getCanonicalType(), Self.Context));
     }
 #endif
     return Self.Context.hasSameType(LhsT, RhsT);

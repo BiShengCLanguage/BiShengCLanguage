@@ -1,0 +1,22 @@
+// RUN: %clang -fsyntax-only %s
+// expected-no-diagnostics
+
+// BSC __is_same must compare effective nullability at every pointer level,
+// including pointers inside array element types and function parameters /
+// return types, while ignoring nullability spelling (e.g. `int *` vs
+// `int *_Nullable` are the same, `int *_Nullable` vs `int *_Nonnull` differ).
+
+_Static_assert(__is_same(int *_Nullable, int *), "top-level same");
+_Static_assert(!__is_same(int *_Nullable, int *_Nonnull), "top-level diff");
+
+_Static_assert(__is_same(int *_Nullable[10], int *[10]), "array same");
+_Static_assert(!__is_same(int *_Nullable[10], int *_Nonnull[10]), "array diff");
+
+_Static_assert(__is_same(int *_Nullable (*)[10], int * (*)[10]), "ptr-to-array same");
+_Static_assert(!__is_same(int *_Nullable (*)[10], int *_Nonnull (*)[10]), "ptr-to-array diff");
+
+_Static_assert(__is_same(void (*)(int *_Nullable), void (*)(int *)), "fnptr param same");
+_Static_assert(!__is_same(void (*)(int *_Nullable), void (*)(int *_Nonnull)), "fnptr param diff");
+
+_Static_assert(__is_same(int *_Nullable (*)(void), int * (*)(void)), "fnptr return same");
+_Static_assert(!__is_same(int *_Nullable (*)(void), int *_Nonnull (*)(void)), "fnptr return diff");
