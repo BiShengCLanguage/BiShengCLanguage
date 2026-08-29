@@ -1640,10 +1640,13 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
   }
 
   // check condition 3
-  // if fullFieldName has been moved, report error
+  // if fullFieldName has been moved, report error. Pass OPSNullOwnedFields so
+  // a field dropped via __assume_null (moved out of OwnedOwned into
+  // NullOwned) is not mistaken for a moved field on a later borrow —
+  // mirroring the S-path call below, which already passes &SNullOwnedFields.
   string movedFieldName =
       findMovedFieldKey(OPSAllOwnedFields[VD], OPSOwnedOwnedFields[VD],
-                        nullptr, fullFieldName);
+                        &OPSNullOwnedFields[VD], fullFieldName);
   if (!movedFieldName.empty() && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,

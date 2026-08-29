@@ -72,6 +72,21 @@ _Safe void assume_on_owned_struct_field(void *_Owned p) {
   consume(q);
 }
 
+// After __assume_null drops ownership of a single owned field, borrowing that
+// field (not consuming the whole pointer) must not be reported as a use of a
+// moved value — the field is null / handled, not moved.
+struct U {
+  void *_Owned _Nullable p;
+};
+
+_Safe void borrow_field(void *_Owned _Nullable *_Borrow p);
+
+_Safe void borrow_after_assume_null_field(void *_Owned p) {
+  struct U *_Owned q = _Unsafe((struct U *_Owned)p);
+  _Unsafe { __assume_null(q->p); }
+  borrow_field(&_Mut q->p);
+}
+
 // __assume_null is a BSC feature: a plain (non-safe) function using it still
 // compiles. Outside a safe zone the call is always allowed.
 void test_unsafe_func(void) {
