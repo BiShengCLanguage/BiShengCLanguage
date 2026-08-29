@@ -1126,16 +1126,39 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
         }
       }
     }
-    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(memberField.first)) {
+    // Peel a leading deref / implicit cast from the member base so `q->p`
+    // (base is an LValueToRValue ImplicitCastExpr around `q`) and `(*q).p`
+    // resolve to the same root DeclRefExpr as `s.p` does for a struct value.
+    if (const DeclRefExpr *DRE = getRootDREFromMemberBase(memberField.first)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
       if (OPSStatus.count(VD)) {
         if (OPSAllOwnedFields[VD].count(memberField.second)) {
           OPSOwnedOwnedFields[VD].erase(memberField.second);
+          OPSNullOwnedFields[VD].insert(memberField.second);
           auto allPrefixStrs = findPrefixStrings(OPSAllOwnedFields[VD],
                                                  memberField.second + ".");
           for (const string &str : allPrefixStrs) {
             OPSOwnedOwnedFields[VD].erase(str);
+            OPSNullOwnedFields[VD].insert(str);
           }
+        }
+        // The field is now null / handled. When every owned field has been
+        // assumed null, the whole owned-pointer-to-struct holds no ownership
+        // and may be moved or go out of scope without a leak — mirror the
+        // whole-variable Null state set by setToNull(VD). __assume_null(q->p)
+        // thus behaves like `q->p = nullptr` for the purposes of a later
+        // consume(q). Relying on NullOwned (not OwnedOwned being empty, which
+        // also holds for the AllMoved state) avoids prematurely marking a
+        // pointer Null when other owned fields still need freeing.
+        bool allFieldsNull = true;
+        for (const string &f : OPSAllOwnedFields[VD])
+          if (!OPSNullOwnedFields[VD].count(f)) {
+            allFieldsNull = false;
+            break;
+          }
+        if (allFieldsNull && !OPSAllOwnedFields[VD].empty()) {
+          resetAll(VD);
+          set(VD, Ownership::Status::Null);
         }
       }
       if (SStatus.count(VD)) {
