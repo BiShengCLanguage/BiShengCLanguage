@@ -305,6 +305,13 @@ public:
     return false;
   }
 
+  bool VisitUnaryOperator(UnaryOperator *UO) {
+    if (UO->getOpcode() >= UO_AddrMut &&
+        UO->getOpcode() <= UO_AddrConstDeref)
+      return true;
+    return VisitStmt(UO);
+  }
+
   bool VisitDeclRefExpr(DeclRefExpr *DRE) {
     if (VisitQualType(DRE->getType())) {
       return true;

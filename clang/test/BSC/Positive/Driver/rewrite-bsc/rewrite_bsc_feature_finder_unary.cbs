@@ -1,0 +1,24 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// BSCFeatureFinder must recognize &_Mut / &_Const unary operators even when
+// the expression is discarded and no BSC-qualified type appears anywhere else
+// in the function; otherwise -rewrite-bsc leaves BSC syntax in the output.
+
+void foo(int *p) {
+  (void)(&_Mut *p);
+  (void)(&_Const *p);
+  (void)(&_Mut (*p));
+  (void)(&_Mut _Unsafe(*p));
+}
+
+int main(void) { return 0; }
+
+// CHECK: void foo(int *p) {
+// CHECK:     (void)(&*p);
+// CHECK:     (void)(&*p);
+// CHECK:     (void)(&*p);
+// CHECK:     (void)(&*p);
+// CHECK: }
