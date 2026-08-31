@@ -1,0 +1,67 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct S { int *_Owned f; };
+
+struct N { int *_Owned _Nullable p; };
+
+void nullable_field_after_null_check(struct N *_Borrow s) {
+  if (s->p != nullptr) {
+    int *_Owned tmp = (s->p, s->p); // expected-warning {{left operand of comma operator has no effect}} expected-error {{cannot take ownership of a borrowed value}}
+    (void)tmp;
+  }
+}
+
+void comma_rhs(int *_Owned _Nonnull right, int *_Owned _Nonnull *_Borrow left) {
+  int *_Owned _Nonnull tmp = (right, *left); // expected-warning {{left operand of comma operator has no effect}} expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void comma_lhs_discard(int *_Owned _Nonnull *_Borrow left, int *_Owned _Nonnull right) {
+  int *_Owned _Nonnull tmp = (*left, right); // expected-warning {{left operand of comma operator has no effect}}
+  (void)tmp;
+}
+
+void comma_both(int *_Owned _Nonnull *_Borrow left, int *_Owned _Nonnull *_Borrow right) {
+  int *_Owned _Nonnull tmp = (*left, *right); // expected-warning {{left operand of comma operator has no effect}} expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void bincond_common(int *_Owned _Nonnull *_Borrow left, int *_Owned _Nonnull right) {
+  int *_Owned _Nonnull tmp = *left ?: right; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void bincond_false(int *_Owned _Nonnull x, int *_Owned _Nonnull *_Borrow right) {
+  int *_Owned _Nonnull tmp = x ?: *right; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void bincond_both(int *_Owned _Nonnull *_Borrow left, int *_Owned _Nonnull *_Borrow right) {
+  int *_Owned _Nonnull tmp = *left ?: *right; // expected-error 2 {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void ternary_true(int cond, int *_Owned _Nonnull *_Borrow left, int *_Owned _Nonnull right) {
+  int *_Owned _Nonnull tmp = cond ? *left : right; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void ternary_false(int cond, int *_Owned _Nonnull left, int *_Owned _Nonnull *_Borrow right) {
+  int *_Owned _Nonnull tmp = cond ? left : *right; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void ternary_both(int cond, int *_Owned _Nonnull *_Borrow left, int *_Owned _Nonnull *_Borrow right) {
+  int *_Owned _Nonnull tmp = cond ? *left : *right; // expected-error 2 {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void direct_deref(int *_Owned _Nonnull *_Borrow left) {
+  int *_Owned _Nonnull tmp = *left; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+void direct_member(struct S *_Borrow s) {
+  int *_Owned _Nonnull tmp = s->f; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}

@@ -1,11 +1,5 @@
 // RUN: %clang_cc1 -verify %s
 
-// Moving an _Owned value out of a _Borrow pointee through the raw-transfer
-// builtins is forbidden. `__move_to_raw`/`__move_array_to_raw` would hand the
-// pointer to raw code while the original owner still believes it owns the
-// memory, which can lead to a double free. Normal calls are already diagnosed
-// by Sema::CheckMoveVarMemoryLeak; this test covers the builtins, which used
-// to bypass that check.
 
 _Safe void consume(int * _Owned);
 

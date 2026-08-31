@@ -6759,7 +6759,7 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
         else
           return true;
       }
-      CheckMoveVarMemoryLeak(Arg, Arg->getBeginLoc());
+      CheckMoveFromBorrow(Arg, Arg->getBeginLoc());
 
       if (getLangOpts().BSC) {
         ExprResult BorrowDecayArg =

@@ -2768,6 +2768,7 @@ public:
   void VisitStmt(Stmt *S);
   void VisitUnaryOperator(UnaryOperator *UO);
   void VisitAbstractConditionalOperator(AbstractConditionalOperator *ACO);
+  void VisitBinaryConditionalOperator(BinaryConditionalOperator *BCO);
 
   void HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitListExpr *ILE, std::string fullFieldName = "");
   void HandleDREAssign(const DeclRefExpr *DRE, std::string fullFieldName = "");
@@ -3477,6 +3478,30 @@ void TransferFunctions::VisitAbstractConditionalOperator(
   stat = StatAfterCond;
   op = Inherited;
   Visit(ACO->getFalseExpr());
+
+  stat = OS.merge(StatAfterTrue, stat);
+  op = None;
+}
+
+/// GNU `x ?: y` reuses the common value (x) via an OpaqueValueExpr whose
+/// children are empty — visiting the OpaqueValueExpr directly records no move.
+void TransferFunctions::VisitBinaryConditionalOperator(
+    BinaryConditionalOperator *BCO) {
+  Operation Inherited = op;
+
+  op = None;
+  Visit(BCO->getCond());
+  Ownership::OwnershipStatus StatAfterCond = stat;
+
+  op = Inherited;
+  if (auto *OVE = dyn_cast<OpaqueValueExpr>(BCO->getTrueExpr()))
+    if (Expr *Src = OVE->getSourceExpr())
+      Visit(Src);
+  Ownership::OwnershipStatus StatAfterTrue = stat;
+
+  stat = StatAfterCond;
+  op = Inherited;
+  Visit(BCO->getFalseExpr());
 
   stat = OS.merge(StatAfterTrue, stat);
   op = None;

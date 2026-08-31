@@ -1,0 +1,19 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+void safe_free(void *_Owned p);
+
+int *_Owned mk(void);
+
+void bincond_move_then_free(void) {
+  int *_Owned q = mk();
+  int *_Owned p = q ?: __take_from_raw((int *)0);
+  safe_free((void *_Owned)p);
+  safe_free((void *_Owned)q); // expected-error {{cannot cast 'q' to 'void * _Owned' because it was moved}}
+}
+
+void ternary_move_then_free(void) {
+  int *_Owned q = mk();
+  int *_Owned p = (q != 0) ? q : __take_from_raw((int *)0);
+  safe_free((void *_Owned)p);
+  safe_free((void *_Owned)q); // expected-error {{cannot cast 'q' to 'void * _Owned' because it was moved}}
+}

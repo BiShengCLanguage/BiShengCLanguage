@@ -2514,7 +2514,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
       ExprResult Init = ParseInitializer();
 #if ENABLE_BSC
       if (getLangOpts().BSC) {
-        Actions.CheckMoveVarMemoryLeak(Init.get(), EqualLoc);
+        Actions.CheckMoveFromBorrow(Init.get(), EqualLoc);
       }
 #endif
 

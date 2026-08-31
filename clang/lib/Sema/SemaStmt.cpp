@@ -3946,7 +3946,7 @@ Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
 #if ENABLE_BSC
   if (getLangOpts().BSC) {
     if (auto RT = dyn_cast_or_null<ReturnStmt>(R.get())) {
-      CheckMoveVarMemoryLeak(RT->getRetValue(), ReturnLoc);
+      CheckMoveFromBorrow(RT->getRetValue(), ReturnLoc);
       CheckReturnStmtMemoryLeak(RT->getRetValue());
     }
   }

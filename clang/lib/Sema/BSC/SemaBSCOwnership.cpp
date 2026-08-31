@@ -612,15 +612,37 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
   return false;
 }
 
-void Sema::CheckMoveVarMemoryLeak(Expr* E, SourceLocation SL) {
+void Sema::CheckMoveFromBorrow(Expr* E, SourceLocation SL) {
   if (E == nullptr)
     return;
-  if (auto UO = dyn_cast_or_null<UnaryOperator>(E->IgnoreParenCastsSafe())) {
+  if (isUnevaluatedContext())
+    return;
+  E = E->IgnoreParenCastsSafe();
+  // Recurse through result-producing paths of composite expressions so that
+  // `T *_Owned tmp = (*p1, *p2)`, `q ?: null`, and `cond ? *p1 : *p2` don't
+  // silently skip the check.
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma) {
+      // Only the RHS is the runtime-taken ownership move (LHS is discarded
+      // without consuming ownership, matching `(void)*bp`-style discards).
+      CheckMoveFromBorrow(BO->getRHS(), SL);
+      return;
+    }
+  } else if (auto *BCO = dyn_cast<BinaryConditionalOperator>(E)) {
+    CheckMoveFromBorrow(BCO->getCommon(), SL);
+    CheckMoveFromBorrow(BCO->getFalseExpr(), SL);
+    return;
+  } else if (auto *CO = dyn_cast<ConditionalOperator>(E)) {
+    CheckMoveFromBorrow(CO->getTrueExpr(), SL);
+    CheckMoveFromBorrow(CO->getFalseExpr(), SL);
+    return;
+  }
+  if (auto *UO = dyn_cast_or_null<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref && UO->getType().isOwnedQualified()
         && UO->getSubExpr()->getType().isBorrowQualified()) {
         Diag(SL, diag::err_move_borrow);
     }
-  } else if (auto ME = dyn_cast_or_null<MemberExpr>(E->IgnoreParenCastsSafe())) {
+  } else if (auto *ME = dyn_cast_or_null<MemberExpr>(E)) {
     if (ME->getType().isOwnedQualified() && ME->getBase()->getType().isBorrowQualified())
       Diag(SL, diag::err_move_borrow);
   }

@@ -1,12 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
-// Regression: a SafeExpr wrapper (`_Safe(...)` / `_Unsafe(...)`) must not
-// hide a move-through-borrow from `Sema::CheckMoveVarMemoryLeak`. Before
-// the fix, the SafeExpr at the top of the AST survived `IgnoreParenCasts`
-// and the MemberExpr/UnaryOperator arms of the predicate didn't fire,
-// silently accepting a move that produces a runtime double-free.
-// Umbrella issue: IJP3AP (F62).
-
 struct S { int *_Owned f; };
 
 int * _Owned take_unsafe(struct S * _Borrow s) {

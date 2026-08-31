@@ -643,7 +643,7 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
                                OpToken.getKind(), LHS.get(), RHS.get());
 #if ENABLE_BSC
         if (getLangOpts().BSC && OpToken.is(tok::equal)) {
-          Actions.CheckMoveVarMemoryLeak(RHS.get(), OpToken.getLocation());
+          Actions.CheckMoveFromBorrow(RHS.get(), OpToken.getLocation());
         }
 #endif
         if (BinOp.isInvalid())

@@ -12489,7 +12489,7 @@ public:
                                SourceLocation SL);
   bool CheckBorrowFunctionPointerType(QualType LHSType, Expr* RHSExpr);
   bool CheckEnsureInitFunctionPointerType(QualType LHSType, Expr* RHSExpr);
-  void CheckMoveVarMemoryLeak(Expr* E, SourceLocation SL);
+  void CheckMoveFromBorrow(Expr* E, SourceLocation SL);
   bool CheckBorrowQualTypeCompare(QualType LHSType, QualType RHSType);
   void CheckBorrowOrIndirectBorrowType(SourceLocation ErrLoc, QualType T,
                                        StringRef Env);
