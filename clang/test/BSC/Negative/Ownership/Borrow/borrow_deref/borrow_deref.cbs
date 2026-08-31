@@ -116,7 +116,7 @@ void test() {
 
     struct R r = {p3};
     struct R * _Borrow b9 = &_Mut r;
-    struct R r1 = *b9; // legal
+    struct R r1 = *b9; // expected-error {{cannot take ownership of a borrowed value}}
     int * _Owned *_Borrow b10 = &_Mut r.p;
     a4 = *b10; // expected-error {{cannot take ownership of a borrowed value}}
 

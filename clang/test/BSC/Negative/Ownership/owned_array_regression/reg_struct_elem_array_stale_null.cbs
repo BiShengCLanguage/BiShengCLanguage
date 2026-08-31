@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) { free(__move_to_raw(p)); }
+
+struct S { int *_Owned _Nullable p; };
+
+void fill_field(struct S *_Borrow _ArrayElem a, int n);
+
+void test_null_assign_after_promotion_is_gated(void) {
+  struct S s[2] = {};
+  fill_field(s, 2);
+  s[0].p = nullptr; // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
+
+void test_full_free_after_promotion_is_ok(void) {
+  struct S s[2] = {};
+  fill_field(s, 2);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)s[i].p);
+}

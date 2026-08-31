@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned _Nullable arr[2]; };
+
+// Reading an owned array element through an _Owned struct-pointer host after
+// a qualifying loop has moved every element out must be diagnosed as
+// use-after-move.
+void test_read_after_move() {
+  struct S *_Owned p = __take_from_raw((struct S *)malloc(sizeof(struct S)));
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)p->arr[i]);
+    p->arr[i] = (int *_Owned)safe_malloc<int>(1);
+  }
+  for (int i = 0; i < 2; i++) safe_free((void *_Owned)p->arr[i]);
+  int v = *p->arr[0]; // expected-error {{use of moved value: 'p'}}
+  (void)v;
+  safe_free((void *_Owned)p);
+}

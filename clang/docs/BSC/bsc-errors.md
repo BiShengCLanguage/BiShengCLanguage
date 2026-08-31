@@ -86,7 +86,7 @@ attached note.
 | BOR-011 | err_typecheck_invalid_borrow_not_pointer | `_Borrow` can only be applied to a pointer type; `%0` is not a pointer | — |
 | BOR-012 | err_typecheck_borrow_func | return type cannot be _Borrow-qualified because no function parameter is _Borrow-qualified | — |
 | BOR-013 | err_typecheck_borrow_subscript | subscript of _Borrow pointer is not allowed | — |
-| BOR-014 | err_move_borrow | cannot take ownership of a borrowed value | — |
+| BOR-014 | err_move_borrow | cannot take ownership of a borrowed value | `note_array_param_adjusted_borrow_arrayelem` — array parameter `%0` is adjusted to a `_Borrow _ArrayElem` pointer; its elements are borrowed and cannot be moved out (fires when the offending value is rooted at an owned-element array formal) |
 | BOR-015 | err_mut_expr_unmodifiable | the expression after `&_Mut` must be modifiable | — |
 | BOR-016 | err_mut_or_const_expr_func | `%0` cannot be applied to a %select{function\|function pointer}1 | — |
 | BOR-017 | err_safe_mut | global or static variables are not allowed to be mutably borrowed within the safe zone | — |
@@ -224,6 +224,6 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | NULLABLE-  | nullable pointer              | 7      | 0        |
 | **Total**  |                               | **124** | **1**   |
 
-Plus **27 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
+Plus **29 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 
 Out-of-scope BSC features (not coded here): traits, async/await, generic, constexpr, operator overload, instance member functions. These contribute several more errors, one warning (`warn_type_has_not_impl_trait`), and one note (`note_no_this_parameter`).

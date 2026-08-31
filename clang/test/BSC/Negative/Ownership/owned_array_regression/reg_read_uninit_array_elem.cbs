@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned _Nullable p; };
+
+// Reading an uninitialized owned array element must be reported as
+// use-of-uninitialized, not as use-of-moved.
+void read_uninit() {
+  struct S a[2];
+  int v = *a[0].p; // expected-error {{use of uninitialized value: 'a'}}
+  (void)v;
+}

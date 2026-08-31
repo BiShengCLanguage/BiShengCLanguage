@@ -23,3 +23,22 @@ void test_borrow_leak() {
 void test_partial_nonnull() {
   int *_Owned _Nullable a[10] = {safe_malloc(1)};
 } // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+struct T { int *_Owned _Nullable q; };
+struct W { struct T arr[2]; };
+
+void consume_all(struct T *_Borrow _ArrayElem arr, int n) {
+  for (int i = 0; i < n; i++) {
+    if (arr[i].q != nullptr)
+      (void)*arr[i].q;
+  }
+}
+
+// Passing an all-null struct-field array to a `_Borrow _ArrayElem` parameter
+// takes a mutable borrow of the array; the callee may assign a new non-null
+// value into the borrowed elements (e.g. through safe_swap), so the caller
+// must conservatively treat the aggregate as owning again and report a leak.
+void test_field_array_borrow_leak() {
+  struct W w = {};
+  consume_all(w.arr, 2);
+} // expected-error {{memory leak because w.arr[].q is not freed or moved before 'w' goes out of scope}}

@@ -1,0 +1,62 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void consume(int *_Owned _Nullable p);
+
+struct S { int *_Owned _Nullable p; };
+
+void bar_const(struct S const *_Borrow b) {
+  if (b && b->p) {
+  }
+}
+
+void reader(struct S const *_Borrow _ArrayElem b, int n) {
+  for (int i = 0; i < n; i++)
+    if (b[i].p) {
+    }
+}
+
+// The qualifying loop moves every element's owned field out. Taking a const
+// borrow of a whole element afterwards must still be reported as use-of-moved:
+// the whole-aggregate query (FieldPath == "") must not disable the check just
+// because the tracked field keys are non-empty ("p").
+void test_moved_struct_const_borrow() {
+  struct S a[2];
+  for (int i = 0; i < 2; i++)
+    a[i].p = (int *_Owned)safe_malloc<int>(1);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)a[i].p);
+  bar_const(&_Const a[0]); // expected-error {{use of moved value: 'a'}}
+}
+
+// Array-to-pointer decay to a `_Borrow _ArrayElem` parameter is the same
+// whole-array use and must be rejected too.
+void test_moved_struct_array_decay() {
+  struct S a[2];
+  for (int i = 0; i < 2; i++)
+    a[i].p = (int *_Owned)safe_malloc<int>(1);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)a[i].p);
+  reader(a, 2); // expected-error {{use of moved value: 'a'}}
+}
+
+// All-null struct-element arrays own nothing; a const borrow after the
+// null-consuming loop is not a use-of-moved (null exemption).
+void test_null_struct_const_borrow_ok() {
+  struct S a[2] = {};
+  for (int i = 0; i < 2; i++)
+    consume(a[i].p);
+  bar_const(&_Const a[0]);
+}

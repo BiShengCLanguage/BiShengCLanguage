@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void take(int *_Owned p) { safe_free((void *_Owned)p); }
+
+struct S { int *_Owned a; };
+
+// A callee must not move an owned field out of a `_Borrow _ArrayElem`
+// parameter: the array elements are only borrowed, so taking ownership of
+// `arr[i].a` is forbidden.
+void consume_all(struct S *_Borrow _ArrayElem arr, int n) {
+  for (int i = 0; i < n; i++) {
+    take(arr[i].a); // expected-error {{cannot take ownership of a borrowed value}}
+  }
+}

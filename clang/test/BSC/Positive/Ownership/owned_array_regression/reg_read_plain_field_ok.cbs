@@ -1,0 +1,81 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned p; int x; };
+
+// Reading a plain non-owned field of an owned struct array element must remain
+// allowed: it does not touch ownership.
+void ok_read_plain_field() {
+  struct S a[2];
+  for (int i = 0; i < 2; i++) {
+    a[i].p = (int *_Owned)safe_malloc<int>(1);
+    a[i].x = i;
+  }
+  int v = a[0].x;
+  (void)v;
+  for (int i = 0; i < 2; i++) safe_free((void *_Owned)a[i].p);
+}
+
+struct T { int *_Owned _Nullable q; };
+struct W { struct T arr[2]; };
+
+// Reading a null-owned nested field-array member must not be reported as
+// use-after-move.
+void ok_read_null_field_array_member() {
+  struct W w = {};
+  if (w.arr[0].q != nullptr)
+    (void)*w.arr[0].q;
+}
+
+// Assigning to a plain non-owned field of an owned-element array element does
+// not change ownership and must not require a qualifying for-loop.
+void ok_assign_plain_field() {
+  struct S a[2];
+  a[0].x = 5;
+}
+
+struct U { int *_Owned _Nullable q; int y; };
+struct V { struct U arr[2]; };
+
+void ok_assign_plain_nested_field() {
+  struct V v;
+  v.arr[0].y = 5;
+}
+
+// Same rule for owned-pointer array elements (`a[i]->x` / `w.arr[0]->x`):
+// writing a plain pointee field does not change the pointer element's
+// ownership, so it must not be gated by the qualifying-loop rules.
+struct P { int x; };
+
+void ok_assign_bop_plain_field() {
+  struct P *_Owned a[2];
+  for (int i = 0; i < 2; i++)
+    a[i] = (struct P *_Owned)__take_from_raw((struct P *)malloc(sizeof(struct P)));
+  a[0]->x = 5;
+  for (int i = 0; i < 2; i++)
+    free(__move_to_raw((void *_Owned)a[i]));
+}
+
+struct PW { struct P *_Owned arr[2]; };
+
+void ok_assign_nested_bop_plain_field() {
+  struct PW w;
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = (struct P *_Owned)__take_from_raw((struct P *)malloc(sizeof(struct P)));
+  w.arr[0]->x = 5;
+  for (int i = 0; i < 2; i++)
+    free(__move_to_raw((void *_Owned)w.arr[i]));
+}

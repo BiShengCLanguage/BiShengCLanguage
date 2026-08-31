@@ -567,6 +567,100 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
   return false;
 }
 
+// True when E is an object/array expression rooted at a `_Borrow` (or
+// `_Borrow _ArrayElem`) pointer, e.g. `a->p`, `arr[i].a`, `(*a).p`,
+// `(*(a + 1)).p` and `((c ? a : b)[0]).p`. Only the three expression kinds
+// that produce an object/array from a pointer are peeled (MemberExpr,
+// ArraySubscriptExpr and UnaryOperator(Deref)); composite pointer operands
+// are decided by their type alone. A non-borrow (raw) pointer base/operand
+// stops the walk: an object reached through `**a` or `(*a)->p` (where `a` is
+// `struct S ** _Borrow _ArrayElem`) is behind an untracked pointer and is not
+// an element of the borrowed array. When RootDecl is provided and the
+// expression has a single DeclRefExpr root, it receives that declaration (for
+// diagnostics); composite roots leave it null.
+static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
+  if (!E)
+    return false;
+  if (RootDecl)
+    *RootDecl = nullptr;
+  E = E->IgnoreParenImpCastsSafe();
+  auto IsBorrowPtr = [](QualType T) {
+    return T->isPointerType() && T.isBorrowQualified();
+  };
+  // Try to fill RootDecl from a borrow-qualified pointer expression when it is
+  // a plain variable; composite pointer expressions have no single root.
+  auto NoteRootIfSimple = [&](const Expr *PtrExpr) {
+    if (RootDecl)
+      IsBorrowRoot(PtrExpr, RootDecl);
+  };
+
+  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    const Expr *Base = ME->getBase()->IgnoreParenImpCastsSafe();
+    QualType BaseTy = Base->getType();
+    if (BaseTy->isPointerType()) {
+      // `->`: the pointer base itself decides. Raw pointer bases (including
+      // `(&a[0])->p` and `(*a)->p`) are intentionally not tracked.
+      if (!IsBorrowPtr(BaseTy))
+        return false;
+      NoteRootIfSimple(Base);
+      return true;
+    }
+    // `.`: the object is a struct lvalue; its provenance comes from the base
+    // expression (`a[0].f`, `(*a).f`). Composite expressions that produce the
+    // object are followed on their result arms: `(c ? *a : *b).p` may take
+    // ownership from either borrowed arm, and `(0, *a).p` takes it from the
+    // comma's RHS. Such composite bases have no single root, so RootDecl is
+    // intentionally left null.
+    if (const auto *BO = dyn_cast<BinaryOperator>(Base)) {
+      if (BO->getOpcode() == BO_Comma)
+        return IsBorrowRoot(BO->getRHS());
+    } else if (const auto *ACO = dyn_cast<AbstractConditionalOperator>(Base)) {
+      if (IsBorrowRoot(ACO->getTrueExpr()) ||
+          IsBorrowRoot(ACO->getFalseExpr()))
+        return true;
+      return false;
+    }
+    return IsBorrowRoot(Base, RootDecl);
+  }
+
+  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    const Expr *Base = ASE->getBase()->IgnoreParenImpCastsSafe();
+    QualType BaseTy = Base->getType();
+    if (BaseTy->isPointerType()) {
+      // `p[i]`: the pointer base decides (composite pointer expressions are
+      // covered by the type check).
+      if (!IsBorrowPtr(BaseTy))
+        return false;
+      NoteRootIfSimple(Base);
+      return true;
+    }
+    // The base is an array lvalue (e.g. a member array of a struct element);
+    // recurse into the expression that produced it.
+    return IsBorrowRoot(Base, RootDecl);
+  }
+
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Deref) {
+      const Expr *Operand = UO->getSubExpr()->IgnoreParenImpCastsSafe();
+      if (!IsBorrowPtr(Operand->getType()))
+        return false;
+      NoteRootIfSimple(Operand);
+      return true;
+    }
+    return false;
+  }
+
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    QualType Ty = DRE->getType();
+    if (IsBorrowPtr(Ty)) {
+      if (RootDecl)
+        *RootDecl = dyn_cast<VarDecl>(DRE->getDecl());
+      return true;
+    }
+  }
+  return false;
+}
+
 void Sema::CheckMoveFromBorrow(Expr* E, SourceLocation SL) {
   if (E == nullptr)
     return;
@@ -575,31 +669,71 @@ void Sema::CheckMoveFromBorrow(Expr* E, SourceLocation SL) {
   E = E->IgnoreParenCastsSafe();
   // Recurse through result-producing paths of composite expressions so that
   // `T *_Owned tmp = (*p1, *p2)`, `q ?: null`, and `cond ? *p1 : *p2` don't
-  // silently skip the check.
+  // silently skip the check. Each arm is reported at its own location so that
+  // `c ? a[0] : a[1]` yields one diagnostic per offending branch instead of
+  // two identical diagnostics at the enclosing expression's location.
   if (auto *BO = dyn_cast<BinaryOperator>(E)) {
     if (BO->getOpcode() == BO_Comma) {
       // Only the RHS is the runtime-taken ownership move (LHS is discarded
       // without consuming ownership, matching `(void)*bp`-style discards).
-      CheckMoveFromBorrow(BO->getRHS(), SL);
+      CheckMoveFromBorrow(BO->getRHS(), BO->getRHS()->getExprLoc());
       return;
     }
   } else if (auto *BCO = dyn_cast<BinaryConditionalOperator>(E)) {
-    CheckMoveFromBorrow(BCO->getCommon(), SL);
-    CheckMoveFromBorrow(BCO->getFalseExpr(), SL);
+    CheckMoveFromBorrow(BCO->getCommon(), BCO->getCommon()->getExprLoc());
+    CheckMoveFromBorrow(BCO->getFalseExpr(), BCO->getFalseExpr()->getExprLoc());
     return;
   } else if (auto *CO = dyn_cast<ConditionalOperator>(E)) {
-    CheckMoveFromBorrow(CO->getTrueExpr(), SL);
-    CheckMoveFromBorrow(CO->getFalseExpr(), SL);
+    CheckMoveFromBorrow(CO->getTrueExpr(), CO->getTrueExpr()->getExprLoc());
+    CheckMoveFromBorrow(CO->getFalseExpr(), CO->getFalseExpr()->getExprLoc());
     return;
   }
-  if (auto *UO = dyn_cast_or_null<UnaryOperator>(E)) {
-    if (UO->getOpcode() == UO_Deref && UO->getType().isOwnedQualified()
-        && UO->getSubExpr()->getType().isBorrowQualified()) {
-        Diag(SL, diag::err_move_borrow);
+  auto IsOwnedConsuming = [](QualType T) {
+    return T.isOwnedQualified() || T->isMoveSemanticType();
+  };
+  // Emit the move-through-borrow error and, when the offending value is rooted
+  // at an array formal that was implicitly adjusted to `_Borrow _ArrayElem`,
+  // add a note pointing at that parameter.
+  auto DiagMoveBorrow = [&](const Expr *MoveExpr) {
+    Diag(SL, diag::err_move_borrow);
+    const VarDecl *Root = nullptr;
+    if (IsBorrowRoot(MoveExpr, &Root)) {
+      if (const auto *Parm = dyn_cast_or_null<ParmVarDecl>(Root)) {
+        if (const TypeSourceInfo *TSI = Parm->getTypeSourceInfo()) {
+          QualType WrittenTy = TSI->getType();
+          if (WrittenTy->isArrayType() &&
+              Parm->getType().isBorrowQualified() &&
+              Parm->getType().isArrayElemQualified())
+            Diag(Parm->getLocation(),
+                 diag::note_array_param_adjusted_borrow_arrayelem)
+                << Parm->getName();
+        }
+      }
     }
+  };
+  // Ownership must not leave through any `_Borrow` pointer, whether plain
+  // `_Borrow` or `_Borrow _ArrayElem`. The direct borrow-qualified checks
+  // cover `*p`, `p->f` and `a[i]`; `IsBorrowRoot` additionally covers
+  // deref-then-member forms (`(*a).p`, `(*(a + 1)).p`,
+  // `(c ? *a : *b).p`, `a[0].arr[0].p`). Forms that first go through a raw
+  // pointer (e.g. `*(&a[1])`, `(&a[0])->p`, `**a`) are intentionally not
+  // tracked.
+  if (auto *UO = dyn_cast_or_null<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Deref &&
+        IsOwnedConsuming(UO->getType()) &&
+        UO->getSubExpr()->getType().isBorrowQualified())
+      DiagMoveBorrow(UO);
   } else if (auto *ME = dyn_cast_or_null<MemberExpr>(E)) {
-    if (ME->getType().isOwnedQualified() && ME->getBase()->getType().isBorrowQualified())
-      Diag(SL, diag::err_move_borrow);
+    if (IsOwnedConsuming(ME->getType()) &&
+        (ME->getBase()->getType().isBorrowQualified() ||
+         IsBorrowRoot(ME)))
+      DiagMoveBorrow(ME);
+  } else if (auto *ASE =
+                 dyn_cast_or_null<ArraySubscriptExpr>(E)) {
+    if (IsOwnedConsuming(ASE->getType()) &&
+        (ASE->getBase()->getType().isBorrowQualified() ||
+         IsBorrowRoot(ASE)))
+      DiagMoveBorrow(ASE);
   }
 }
 

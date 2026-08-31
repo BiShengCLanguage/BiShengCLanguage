@@ -1,0 +1,122 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned p; };
+
+void consume_struct(struct S s) {
+  safe_free((void *_Owned)s.p);
+}
+
+// Moving a whole move-semantic struct element out of a `_Borrow _ArrayElem`
+// array is also a move-through-borrow and must be rejected.
+void call_struct(struct S *_Borrow _ArrayElem a) {
+  consume_struct(a[0]); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Equivalent pointer-arithmetic / address-of / increment forms must be
+// rejected the same way.
+void call_struct_arith(struct S *_Borrow _ArrayElem a) {
+  consume_struct(*(a + 1)); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+struct S ret_arith(struct S *_Borrow _ArrayElem a) {
+  return *(a + 1); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_inc(struct S *_Borrow _ArrayElem a) {
+  consume_struct(*a++); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Composite pointer expressions (ternary / assignment) that produce a
+// `_Borrow _ArrayElem` pointer must also be rejected when dereferenced.
+void call_struct_cond(struct S *_Borrow _ArrayElem a,
+                      struct S *_Borrow _ArrayElem b, int c) {
+  consume_struct(*(c ? a : b)); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_assign(struct S *_Borrow _ArrayElem a) {
+  consume_struct(*(a = a)); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void take(int *_Owned p);
+
+// Deref/address-of-then-member forms are equivalent to `a->p` / `a[i].p` and
+// must also be rejected.
+void call_struct_deref_member(struct S *_Borrow _ArrayElem a) {
+  take((*a).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_deref_arith_member(struct S *_Borrow _ArrayElem a) {
+  take((*(a + 1)).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Plain `_Borrow` is covered by the same rule.
+void call_borrow_deref_member(struct S *_Borrow b) {
+  take((*b).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Composite pointer operands in deref-then-member forms must be rejected too.
+void call_struct_cond_member(struct S *_Borrow _ArrayElem a,
+                             struct S *_Borrow _ArrayElem b, int c) {
+  take((*(c ? a : b)).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_comma_member(struct S *_Borrow _ArrayElem a) {
+  take((*(0, a)).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_assign_member(struct S *_Borrow _ArrayElem a) {
+  take((*(a = a)).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+struct Outer { struct S arr[3]; };
+
+// Nested array field through a borrowed struct element must also be rejected
+// (`a[0].arr[0].p`).
+void call_nested_array_field(struct Outer *_Borrow _ArrayElem a) {
+  take(a[0].arr[0].p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Composite pointer operands in subscript-then-member forms must be rejected
+// like their deref-then-member counterparts.
+void call_struct_cond_subscript_member(struct S *_Borrow _ArrayElem a,
+                                       struct S *_Borrow _ArrayElem b, int c) {
+  take(((c ? a : b)[0]).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_comma_subscript_member(struct S *_Borrow _ArrayElem a) {
+  take(((0, a)[0]).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_assign_subscript_member(struct S *_Borrow _ArrayElem a) {
+  take(((a = a)[0]).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Composite expressions that produce the *object* of a `.` member access must
+// also be rejected: the result may be a borrowed struct element on either arm.
+void call_struct_cond_object_member(struct S *_Borrow _ArrayElem a,
+                                    struct S *_Borrow _ArrayElem b, int c) {
+  take((c ? *a : *b).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_comma_object_member(struct S *_Borrow _ArrayElem a) {
+  take((0, *a).p); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void call_struct_cond_subscript_object_member(struct S *_Borrow _ArrayElem a,
+                                              struct S *_Borrow _ArrayElem b,
+                                              int c) {
+  take((c ? a[0] : b[0]).p); // expected-error {{cannot take ownership of a borrowed value}}
+}

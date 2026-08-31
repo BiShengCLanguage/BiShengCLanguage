@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -verify %s
+
+void consume(int *_Owned p);
+
+// An owned-element array parameter is adjusted to `T *_Owned *_Borrow
+// _ArrayElem`. Moving an element out of the borrowed array through the
+// subscript form (`a[0]`) must be rejected just like the deref form
+// (`*(a + 0)`) and the member form (`s->f`).
+void call_arg(int *_Owned a[3]) { // expected-note {{array parameter 'a' is adjusted to a '_Borrow _ArrayElem' pointer; its elements are borrowed and cannot be moved out}}
+  consume(a[0]); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+int *_Owned init(int *_Owned a[3]) { // expected-note {{array parameter 'a' is adjusted to a '_Borrow _ArrayElem' pointer; its elements are borrowed and cannot be moved out}}
+  int *_Owned p = a[0]; // expected-error {{cannot take ownership of a borrowed value}}
+  return p;
+}
+
+int *_Owned ret(int *_Owned a[3]) { // expected-note {{array parameter 'a' is adjusted to a '_Borrow _ArrayElem' pointer; its elements are borrowed and cannot be moved out}}
+  return a[1]; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void assign(int *_Owned a[3]) { // expected-note {{array parameter 'a' is adjusted to a '_Borrow _ArrayElem' pointer; its elements are borrowed and cannot be moved out}}
+  int *_Owned q = nullptr;
+  q = a[2]; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void raw_transfer(int *_Owned a[3]) { // expected-note {{array parameter 'a' is adjusted to a '_Borrow _ArrayElem' pointer; its elements are borrowed and cannot be moved out}}
+  _Unsafe {
+    int *raw = __move_to_raw(a[0]); // expected-error {{cannot take ownership of a borrowed value}}
+    (void)raw;
+  }
+}

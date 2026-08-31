@@ -2513,8 +2513,8 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
       PreferredType.enterVariableInit(Tok.getLocation(), ThisDecl);
       ExprResult Init = ParseInitializer();
 #if ENABLE_BSC
-      if (getLangOpts().BSC) {
-        Actions.CheckMoveFromBorrow(Init.get(), EqualLoc);
+      if (getLangOpts().BSC && Init.get()) {
+        Actions.CheckMoveFromBorrow(Init.get(), Init.get()->getExprLoc());
       }
 #endif
 

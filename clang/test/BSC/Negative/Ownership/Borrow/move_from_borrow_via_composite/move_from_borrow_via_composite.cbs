@@ -56,6 +56,14 @@ void ternary_both(int cond, int *_Owned _Nonnull *_Borrow left, int *_Owned _Non
   (void)tmp;
 }
 
+void consume_struct(struct S s);
+
+// Both subscript arms move a whole struct element out of the same borrowed
+// array; each offending branch is diagnosed at its own location.
+void ternary_subscript_both(int cond, struct S *_Borrow _ArrayElem a) {
+  consume_struct(cond ? a[0] : a[1]); // expected-error 2 {{cannot take ownership of a borrowed value}}
+}
+
 void direct_deref(int *_Owned _Nonnull *_Borrow left) {
   int *_Owned _Nonnull tmp = *left; // expected-error {{cannot take ownership of a borrowed value}}
   (void)tmp;

@@ -40,3 +40,79 @@ void test_borrow_then_consume() {
     consume(a[i]);
   }
 }
+
+// Struct-field array counterpart: passing an all-null struct-field array to a
+// `_Borrow _ArrayElem` parameter takes a mutable borrow and conservatively
+// promotes the aggregate back to "may own". Releasing every element in a
+// qualifying loop afterwards leaves no ownership behind.
+struct T { int *_Owned _Nullable q; };
+struct W { struct T arr[2]; };
+
+void consume_all(struct T *_Borrow _ArrayElem arr, int n) {
+  for (int i = 0; i < n; i++) {
+    if (arr[i].q != nullptr)
+      (void)*arr[i].q;
+  }
+}
+
+void test_field_array_borrow_then_free() {
+  struct W w = {};
+  consume_all(w.arr, 2);
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned)w.arr[i].q);
+  }
+}
+
+void test_field_array_borrow_then_consume() {
+  struct W w = {};
+  consume_all(w.arr, 2);
+  for (int i = 0; i < 2; i++) {
+    consume(w.arr[i].q);
+  }
+}
+
+// All-null struct-element arrays: moving a whole (null-owned) element out is a
+// no-op and does not require a qualifying loop, matching local struct arrays
+// and pure owned-pointer field arrays.
+struct T2 { int *_Owned _Nullable q; };
+struct W3 { struct T2 arr[2]; };
+
+void consume_struct(struct T2 s) { consume(s.q); }
+
+void test_struct_field_array_null_elem_move() {
+  struct W3 w = {};
+  consume_struct(w.arr[0]);
+}
+
+void test_local_struct_array_null_elem_move() {
+  struct T2 a[2] = {};
+  consume_struct(a[0]);
+}
+
+struct W4 { int *_Owned _Nullable arr[2]; };
+void test_pure_field_array_null_elem_move() {
+  struct W4 w2 = {};
+  consume(w2.arr[0]);
+}
+
+// Clearing an already-null owned field with `= nullptr` is also a no-op and
+// must not require a qualifying for-loop (mirror of scalar `p = nullptr`).
+struct S9 { int *_Owned _Nullable p; };
+
+void test_null_field_clear_outside_loop() {
+  struct S9 a[2] = {};
+  a[0].p = nullptr;
+}
+
+void test_null_elem_clear_outside_loop() {
+  int *_Owned _Nullable a[2] = {};
+  a[0] = nullptr;
+}
+
+struct T9 { int *_Owned _Nullable q; };
+struct W9 { struct T9 arr[2]; };
+
+void test_nested_null_field_clear_outside_loop() {
+  struct W9 w = {};
+  w.arr[0].q = nullptr;
+}

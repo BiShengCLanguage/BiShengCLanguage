@@ -71,6 +71,8 @@ def err_mut_expr_unmodifiable  : Error<"the expression after '&_Mut' must be mod
 def err_mut_or_const_expr_func : Error<"%0 cannot be applied to a %select{function|function pointer}1">;
 def err_safe_mut : Error<"global or static variables are not allowed to be mutably borrowed within the safe zone">;
 def err_move_borrow : Error<"cannot take ownership of a borrowed value">;
+def note_array_param_adjusted_borrow_arrayelem : Note<
+  "array parameter '%0' is adjusted to a '_Borrow _ArrayElem' pointer; its elements are borrowed and cannot be moved out">;
 def err_typecheck_invalid_borrow_not_pointer : Error<"'_Borrow' can only be applied to a pointer type; %0 is not a pointer">;
 def err_borrow_qualcheck_incompatible : Error<
   "incompatible _Borrow types, cannot cast %0 to %1">;

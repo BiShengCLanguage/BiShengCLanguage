@@ -1,0 +1,65 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned _Nullable p; };
+
+// Reading a still-owned array element's field must remain allowed.
+void ok_read_before_free() {
+  struct S a[2];
+  for (int i = 0; i < 2; i++) a[i].p = (int *_Owned)safe_malloc<int>(1);
+  int v = *a[0].p;
+  (void)v;
+  for (int i = 0; i < 2; i++) safe_free((void *_Owned)a[i].p);
+}
+
+// Reading an all-null field must not be reported as use-after-move.
+void ok_read_null_field() {
+  struct S a[2] = {};
+  for (int i = 0; i < 2; i++) {
+    if (a[i].p != nullptr)
+      (void)*a[i].p;
+  }
+}
+
+// Moving a value reached through a non-owned intermediate pointer is not an
+// array-element move-through-borrow: the object is behind an untracked raw
+// pointer (`**a` / `(*a)->p` with `struct S ** _Borrow _ArrayElem`).
+struct S2 { int *_Owned p; };
+void take2(int *_Owned p);
+void consume_struct2(struct S2 s);
+
+void ok_move_through_nonowned_intermediate(struct S2 **_Borrow _ArrayElem a) {
+  consume_struct2(**a);
+  take2((*a)->p);
+}
+
+// `*(&a[1])` first goes through a raw address-of pointer, so it is
+// intentionally not tracked as a borrow-array element move.
+void ok_deref_addr_elem(struct S2 *_Borrow _ArrayElem a) {
+  consume_struct2(*(&a[1]));
+}
+
+// `(&a[0])->p` is the same raw-pointer conversion: `&a[0]` turns the element
+// access into a raw pointer, after which ownership is not tracked.
+void ok_addr_then_member(struct S2 *_Borrow _ArrayElem a) {
+  take2((&a[0])->p);
+}
+
+// `(*(&a[1])).p` also goes through the raw `&a[1]` conversion, so it is
+// allowed just like `*(&a[1])` and `(&a[1])->p`.
+void ok_deref_addr_then_member(struct S2 *_Borrow _ArrayElem a) {
+  take2((*(&a[1])).p);
+}
