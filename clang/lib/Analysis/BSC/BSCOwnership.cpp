@@ -13,6 +13,7 @@
 #if ENABLE_BSC
 
 #include "clang/Analysis/Analyses/BSC/BSCOwnership.h"
+#include "clang/AST/ParentMap.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Analysis/Analyses/BSC/BSCNullCheckInfo.h"
 #include "clang/Analysis/Analyses/PostOrderCFGView.h"
@@ -2740,6 +2741,7 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
   OwnershipImpl &OS;
   Ownership::OwnershipStatus &stat;
   OwnershipDiagReporter &reporter;
+  const llvm::DenseSet<const StmtExpr *> &StmtExprsWithDeferredLifetimeEnds;
   bool isHandlingCallExpr = false;
   bool isAddrMut = false;
   // The RHS of the assignment currently being visited (nullptr check for
@@ -2752,14 +2754,18 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
 
 public:
   TransferFunctions(OwnershipImpl &os, Ownership::OwnershipStatus &Stat,
-                    OwnershipDiagReporter &reporter)
-      : OS(os), stat(Stat), reporter(reporter) {}
+                    OwnershipDiagReporter &reporter,
+                    const llvm::DenseSet<const StmtExpr *> &DeferredStmtExprs)
+      : OS(os), stat(Stat), reporter(reporter),
+        StmtExprsWithDeferredLifetimeEnds(DeferredStmtExprs) {}
 
   void VisitArraySubscriptExpr(ArraySubscriptExpr *ASE);
   void VisitBinaryOperator(BinaryOperator *BO);
   void VisitCompoundAssignOperator(CompoundAssignOperator *CAO);
   void VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *UE);
   void VisitCallExpr(CallExpr *CE);
+  void VisitStmtExpr(StmtExpr *SE);
+  void VisitStmtExprResult(Expr *E);
   void VisitCStyleCastExpr(CStyleCastExpr *CSCE);
   void VisitDeclRefExpr(DeclRefExpr *DRE);
   void VisitDeclRefExpr(const DeclRefExpr *DRE, std::string fieldName);
@@ -2867,6 +2873,41 @@ void TransferFunctions::VisitStmt(Stmt *S) {
       Visit(C);
     }
   }
+}
+
+void TransferFunctions::VisitStmtExpr(StmtExpr *SE) {
+  // Block-local deferral is unavailable for cross-block consumers.
+  if (!StmtExprsWithDeferredLifetimeEnds.count(SE)) {
+    VisitStmt(SE);
+  } else {
+    CompoundStmt *CS = SE->getSubStmt();
+    if (!CS->body_empty()) {
+      // The CFG already visited the body; propagate op only to its result.
+      if (auto *Result = dyn_cast<ValueStmt>(CS->getStmtExprResult()))
+        if (Expr *ResultExpr = Result->getExprStmt())
+          VisitStmtExprResult(ResultExpr);
+    }
+  }
+
+  op = Operation::None;
+}
+
+void TransferFunctions::VisitStmtExprResult(Expr *E) {
+  E = E->IgnoreParenImpCasts();
+
+  if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->isAssignmentOp()) {
+      Visit(BO->getLHS());
+      return;
+    }
+
+    if (BO->getOpcode() == BO_Comma) {
+      VisitStmtExprResult(BO->getRHS());
+      return;
+    }
+  }
+
+  Visit(E);
 }
 
 void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
@@ -4173,7 +4214,12 @@ Ownership::OwnershipStatus
 OwnershipImpl::runOnBlock(const CFGBlock *block,
                           Ownership::OwnershipStatus status,
                           OwnershipDiagReporter &reporter, bool isDestructor) {
-  TransferFunctions TF(*this, status, reporter);
+  // Defer StmtExpr lifetime checks until after same-block consumers.
+  llvm::DenseSet<const StmtExpr *> StmtExprsWithDeferredLifetimeEnds;
+  TransferFunctions TF(*this, status, reporter,
+                       StmtExprsWithDeferredLifetimeEnds);
+  SmallVector<std::pair<const VarDecl *, SourceLocation>, 4>
+      DeferredStmtExprLifetimeEnds;
 
   for (CFGBlock::const_iterator it = block->begin(), ei = block->end();
        it != ei; ++it) {
@@ -4203,10 +4249,20 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
     if (elem.getAs<CFGLifetimeEnds>()) {
       const Stmt *S = elem.castAs<CFGLifetimeEnds>().getTriggerStmt();
       const VarDecl *VD = elem.castAs<CFGLifetimeEnds>().getVarDecl();
+      if (const auto *SE = dyn_cast_or_null<StmtExpr>(
+              analysisContext.getParentMap().getParent(S))) {
+        StmtExprsWithDeferredLifetimeEnds.insert(SE);
+        DeferredStmtExprLifetimeEnds.emplace_back(VD, S->getEndLoc());
+        continue;
+      }
       TF.VisitLifetimeEnds(const_cast<VarDecl *>(VD), S->getEndLoc(),
                            isDestructor);
     }
   }
+
+  for (const auto &LifetimeEnd : DeferredStmtExprLifetimeEnds)
+    TF.VisitLifetimeEnds(const_cast<VarDecl *>(LifetimeEnd.first),
+                         LifetimeEnd.second, isDestructor);
 
   return status;
 }

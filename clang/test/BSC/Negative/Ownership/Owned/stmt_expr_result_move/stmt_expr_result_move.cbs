@@ -1,0 +1,96 @@
+// RUN: %clang_cc1 -fsyntax-only -verify -Wno-unused-value %s
+
+int *_Owned make_owned(void);
+void consume(int *_Owned p);
+
+// Bug 23: moving the StmtExpr result into an owned initializer transfers the
+// inner local before its scope ends. The receiver remains usable and releasable.
+void bug23_stmt_expr_owned_init(void) {
+  int *_Owned p = ({int *_Owned t = make_owned(); t;});
+  *p = 10;
+  consume(p);
+}
+
+// Assignment and call-argument consumers use the same result-expression path.
+void move_into_assignment(void) {
+  int *_Owned _Nullable p = nullptr;
+  p = ({int *_Owned t = make_owned(); t;});
+  consume(p);
+}
+
+void move_into_call_argument(void) {
+  consume(({int *_Owned t = make_owned(); t;}));
+}
+
+int *_Owned move_into_return(void) {
+  return ({int *_Owned t = make_owned(); t;});
+}
+
+// GNU statement expressions ignore trailing NullStmts when selecting their
+// result expression.
+void trailing_semicolons(void) {
+  int *_Owned p = ({int *_Owned t = make_owned(); t;;;});
+  consume(p);
+}
+
+void move_from_comma_rhs(void) {
+  int *_Owned p = (0, ({int *_Owned t = make_owned(); t;}));
+  consume(p);
+}
+
+// An assignment result is the value stored in its LHS. The assignment itself
+// has already been visited as a standalone CFGStmt.
+void move_from_assignment_result(void) {
+  int *_Owned p = ({int *_Owned t; t = make_owned();});
+  consume(p);
+}
+
+// Only the RHS of a comma expression supplies the StmtExpr result value.
+void move_from_stmt_expr_comma_rhs(void) {
+  int *_Owned p = ({int *_Owned t = make_owned(); (0, t);});
+  consume(p);
+}
+
+void move_from_nested_stmt_expr(void) {
+  int *_Owned p = ({({int *_Owned t = make_owned(); t;});});
+  consume(p);
+}
+
+void move_from_nested_assignment_result(void) {
+  int *_Owned p = ({({int *_Owned t; t = make_owned();});});
+  consume(p);
+}
+
+// Result-only processing must not suppress a real overwrite diagnosed when
+// the assignment is first visited as a CFGStmt.
+void reject_overwrite_in_assignment_result(void) {
+  // expected-error@+1 {{cannot assign to 't' because it still holds an _Owned value; move or free it first}}
+  int *_Owned p = ({int *_Owned t = make_owned(); t = make_owned();});
+  consume(p);
+}
+
+// Converting the result to _Bool reads the pointer without consuming it.
+// The inner local must therefore still be diagnosed at scope exit.
+_Bool non_consuming_return(void) {
+  return ({int *_Owned t = make_owned(); t;}); // expected-error {{memory leak because 't' is not freed or moved before it goes out of scope}}
+}
+
+// Discarding the result and returning an unrelated value are also real leaks.
+void discarded_result(void) {
+  ({int *_Owned t = make_owned(); t;}); // expected-error {{memory leak because 't' is not freed or moved before it goes out of scope}}
+}
+
+int unrelated_result(void) {
+  return ({int *_Owned t = make_owned(); 0;}); // expected-error {{memory leak because 't' is not freed or moved before it goes out of scope}}
+}
+
+// FIXME: The StmtExpr lifetime and its consumer are in different CFG blocks,
+// so this case retains the existing leak false positive. The local fix must
+// not add a second, spurious use-of-moved diagnostic while visiting the
+// initializer in the successor block.
+void cross_block_consumer(int condition) {
+  int *_Owned p = condition
+      ? ({int *_Owned t = make_owned(); t;}) // expected-error {{memory leak because 't' is not freed or moved before it goes out of scope}}
+      : make_owned();
+  consume(p);
+}
