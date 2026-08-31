@@ -1,0 +1,12 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Out-of-range values must still be rejected in both ternary and binary
+// conditional forms.
+
+_Safe int main(void) {
+    int a = 1, b = 2;
+    char t1 = (a > b) ? 9999 : 1; // expected-error {{implicit conversion from type 'int' to 'char' is forbidden in the safe zone; use explicit cast or other means instead}}
+    char t2 = (a > b) ?: 9999;    // expected-error {{implicit conversion from type 'int' to 'char' is forbidden in the safe zone; use explicit cast or other means instead}}
+    (void)t1; (void)t2;
+    return 0;
+}

@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// GNU binary conditional `(a > b) ?: 1` is equivalent to the ternary
+// `(a > b) ? (a > b) : 1` and its value range fits `char`; the safe-zone
+// conversion check must recurse into both arms instead of rejecting the
+// overall expression as an `int -> char` implicit conversion.
+
+_Safe int main(void) {
+    int a = 1, b = 2;
+    char t = (a > b) ?: 1;
+    (void)t;
+    return t;
+}
+
+_Safe void arithmetic_merged_bincond(void) {
+    int a = 1, b = 2;
+    double d = (a > b) ?: 1.5;
+    float f = a ?: 0.0f;
+    (void)d; (void)f;
+}
+
+_Safe void pointer_dest_ternary(int x, int *arr) {
+    int *p = (x ? 0 : arr);
+    int *q = (x ? arr : 0);
+    (void)p; (void)q;
+}

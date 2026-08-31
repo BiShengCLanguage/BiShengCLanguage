@@ -949,11 +949,26 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
   }
 
   // Strip implicit casts so we recurse into ternaries whose result was promoted
-  // (e.g. enum E -> unsigned int) to int.
+  // (e.g. enum E -> unsigned int) to int. Ternary arms are already adjusted to
+  // the merged type by Sema, so recursing is always safe here.
   if (const ConditionalOperator *Exp =
           dyn_cast<ConditionalOperator>(E->IgnoreParenImpCasts())) {
     return IsSafeConversion(DestType, Exp->getTrueExpr(), IsExplicitCast) &&
            IsSafeConversion(DestType, Exp->getFalseExpr(), IsExplicitCast);
+  }
+  // GNU binary conditional `(a > b) ?: 1` is equivalent to the ternary
+  // `(a > b) ? (a > b) : 1`, but unlike the ternary its common arm keeps the
+  // original (unadjusted) type. Recurse only for integer destinations, where
+  // the value-range check is the motivation; for other destinations (pointer,
+  // borrow, or arithmetic-merged like `(a > b) ?: 1.5` where the overall type
+  // is double but the common arm is a bare int) fall through to the whole-
+  // expression check instead of misreporting the arm type.
+  if (const BinaryConditionalOperator *Exp =
+          dyn_cast<BinaryConditionalOperator>(E->IgnoreParenImpCasts())) {
+    if (DestType->isIntegerType()) {
+      return IsSafeConversion(DestType, Exp->getCommon(), IsExplicitCast) &&
+             IsSafeConversion(DestType, Exp->getFalseExpr(), IsExplicitCast);
+    }
   }
   bool IsSafeBehavior = true;
   bool IsExplicitConversionAllowed = false;
