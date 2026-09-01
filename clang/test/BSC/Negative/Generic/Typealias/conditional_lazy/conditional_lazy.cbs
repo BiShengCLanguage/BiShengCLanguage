@@ -1,0 +1,19 @@
+// RUN: %clang_cc1 -Wno-implicit-int -verify %s
+
+// __conditional only skips/ignores the unselected branch. The selected branch
+// is still fully checked.
+
+typedef Owned<T> = T _Owned; // expected-error {{type of 'void (*)(void)' cannot be qualified by '_Owned'}}
+
+void selected_branch_instantiation_error(void) {
+  __conditional(1, Owned<void (*)(void)>, int) a; // expected-note {{in instantiation of template type alias 'Owned' requested here}}
+}
+
+void selected_branch_name_error(void) {
+  __conditional(1, UndefinedType, int) a; // expected-error {{unknown type name 'UndefinedType'}}
+}
+
+void empty_unselected_branch_error(void) {
+  __conditional(1, int, ) a; // expected-error {{expected a type}}
+  __conditional(0, , int) b; // expected-error {{expected a type}}
+}

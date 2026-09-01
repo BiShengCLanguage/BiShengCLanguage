@@ -1,0 +1,34 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+// expected-no-diagnostics
+
+// A function that uses __conditional as its only BSC feature must still be
+// rewritten (not copied verbatim), and a known __conditional is replaced by
+// the rewritten selected branch.
+
+typedef Foo<T> = T*;
+
+int f(__conditional(1, int, Foo<int>) x) {
+  return x;
+}
+
+void g(void) {
+  __conditional(1, Foo<int>, Foo<double>) p = 0;
+  p = 0;
+}
+
+int main(void) {
+  __conditional(1, int, Foo<int>) a = 1;
+  g();
+  f(a);
+  return 0;
+}
+
+// CHECK-NOT: __conditional
+// CHECK: int f(int x)
+// CHECK: void g(void)
+// CHECK: int *p = 0;
+// CHECK: int main(void)
+// CHECK: int a = 1;

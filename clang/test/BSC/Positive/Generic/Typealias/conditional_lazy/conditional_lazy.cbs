@@ -1,0 +1,79 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -rewrite-bsc %S/../../../../../../lib/Headers/bsc_include/bsc_conditional.hbs -o %T/bsc_conditional.h
+// RUN: %clang -rewrite-bsc %S/../../../../../../lib/Headers/bsc_include/bsc_type_traits.hbs -o %T/bsc_type_traits.h
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+// expected-no-diagnostics
+
+// __conditional with a known condition must not instantiate the unselected
+// branch, even in non-generic (direct) uses. The unselected branch is not
+// checked at all: it is only skipped (with balanced delimiters), so unknown
+// names, invalid syntax, and template-argument errors inside it are ignored.
+
+#include "bsc_conditional.hbs"
+#include "bsc_type_traits.hbs"
+
+typedef Owned<T> = T _Owned; // instantiating Owned<function pointer> is an error
+typedef Identity1<T> = __conditional(1, T, Owned<T>);
+
+// Instantiating is_bad<int> would fail because Bad<int> = int _Owned is invalid.
+typedef Bad<T> = T _Owned;
+Bad<T> is_bad<T>(void) { Bad<T> x; return x; }
+typedef Foo<T> = T*;
+typedef Bar<int N> = int[N];
+typedef Baz<T> = T**;
+
+int main() {
+  // Unselected branch is a non-dependent alias specialization whose
+  // instantiation would fail; it must not be instantiated.
+  __conditional(1, int, Owned<void (*)(void)>) a = 1;
+  __conditional(0, Owned<void (*)(void)>, int) b = 1;
+
+  // Same for __remove_pointer<int>, which is invalid for non-pointer T.
+  __conditional(1, int, __remove_pointer<int>) c = 1;
+  __conditional(0, __remove_pointer<int>, int) d = 1;
+
+  // Nested: the inner unselected branch is also skipped, and the inner
+  // selected branch becomes the type of the outer selected branch.
+  __conditional(1, __conditional(0, Owned<void (*)(void)>, double), int) e = 1.0;
+
+  // Expression template-ids in the unselected branch must also be skipped:
+  // __typeof, nested __conditional conditions, and template arguments. The
+  // template-argument case uses a non-type parameter so the argument kind is
+  // compatible; only the expression instantiation is deferred.
+  __conditional(1, int, __typeof(is_bad<int>())) g = 1;
+  __conditional(1, int, __conditional(is_bad<int>(), double, float)) h = 1;
+  __conditional(1, int, Bar<is_bad<int>()>) i = 1;
+
+  // The unselected branch is not checked at all: unknown names, invalid
+  // syntax, and template-argument errors inside it are silently skipped.
+  __conditional(1, int, UndefinedType) k = 1;
+  __conditional(1, int, Undefined<int>) l = 1;
+  __conditional(1, int, __typeof(Undefined)) m = 1;
+  __conditional(1, int, Foo<Undefined>) n = 1;
+  __conditional(1, int, Bar<Undefined>) o = 1;
+  __conditional(1, int, 123) p = 1;
+  __conditional(1, int, Foo<int, int>) q = 1;
+  __conditional(1, int, Foo<1>) r = 1;
+  __conditional(1, int, __conditional(Undefined, int, double)) s = 1;
+  // '<' inside parentheses is not treated as an angle bracket when skipping.
+  __conditional(1, int, __typeof(1 < 2)) t = 1;
+  // Nested angle brackets, including '>>'/'>>>' token forms, are skipped.
+  __conditional(1, int, Foo<Bar<int>>) u = 1;
+  __conditional(1, int, Foo<Bar<Baz<int>>>) v = 1;
+
+  // A valid unselected Foo<int> is skipped entirely; the same specialization
+  // must still instantiate correctly elsewhere.
+  __conditional(1, int, Foo<int>) j = 1;
+  _Static_assert(is_same<Foo<int>, int *>(), "Foo<int> must still be int*");
+  Foo<int> *jp = 0;
+  int *jq = 0;
+  jp = &jq;
+
+  // Generic alias path still works.
+  Identity1<void (*)(void)> f = nullptr;
+
+  return 0;
+}

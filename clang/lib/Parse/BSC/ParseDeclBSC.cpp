@@ -18,6 +18,7 @@
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
+#include "clang/Lex/Lexer.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -1554,7 +1555,9 @@ void Parser::ParseConditionalSpecifier(DeclSpec &DS) {
 
   Sema::ConditionResult Cond;
   llvm::Optional<bool> CondResult;
-  ExprResult CondExpr = ParseExpression();
+  // Parse a constant-expression (not a full comma expression) so the parser
+  // stops at the comma before the first type branch.
+  ExprResult CondExpr = ParseConstantExpression();
   if (CondExpr.isInvalid()) {
     Cond = Sema::ConditionError();
     T.skipToEnd();
@@ -1570,16 +1573,125 @@ void Parser::ParseConditionalSpecifier(DeclSpec &DS) {
   CondResult = Cond.getKnownValue();
   ConsumeToken(); // Consume comma
 
-  // Parse the next two types.
-  TypeResult Ty1 = ParseTypeName();
+  // When the condition is already known, only the selected branch is parsed
+  // and semantically checked. The unselected branch is not checked at all: the
+  // compiler only skips its tokens (balancing parentheses, brackets, braces,
+  // and top-level angle brackets) so it can find the comma or ')' that ends
+  // the branch.
+  bool SkipBranch1 = CondResult.hasValue() && !*CondResult;
+  bool SkipBranch2 = CondResult.hasValue() && *CondResult;
+
+  // Build a dummy ParsedType for a branch that is skipped entirely. `void` is
+  // used as an explicit placeholder (the branch is never used semantically).
+  // The dummy TypeLoc is expanded to cover the skipped source range so
+  // downstream tools and diagnostics can still point at the original text.
+  auto MakeSkippedBranchType = [&](SourceLocation BranchStart,
+                                   SourceLocation BranchEnd) -> TypeResult {
+    QualType DummyTy = Actions.getASTContext().VoidTy;
+    TypeSourceInfo *DummyTSI = Actions.getASTContext()
+        .getTrivialTypeSourceInfo(DummyTy, BranchStart);
+    if (BranchEnd.isValid()) {
+      BuiltinTypeLoc BTL = DummyTSI->getTypeLoc().castAs<BuiltinTypeLoc>();
+      BTL.expandBuiltinRange(SourceRange(BranchStart, BranchEnd));
+    }
+    return Actions.CreateParsedType(DummyTy, DummyTSI);
+  };
+
+  // Skip the tokens of an unselected branch. Stop before the top-level comma
+  // (StopAtComma) or before the closing ')' of the __conditional (otherwise).
+  // Returns the end of the last consumed token (for the dummy TypeLoc range).
+  auto SkipUnselectedBranch = [&](bool StopAtComma) -> SourceLocation {
+    unsigned DepthParen = 0, DepthBracket = 0, DepthBrace = 0, DepthAngle = 0;
+    SourceLocation BranchEnd;
+    while (!Tok.is(tok::eof)) {
+      if (DepthParen == 0 && DepthBracket == 0 && DepthBrace == 0 &&
+          DepthAngle == 0) {
+        if (StopAtComma && Tok.is(tok::comma))
+          return BranchEnd;
+        if (!StopAtComma && Tok.is(tok::r_paren))
+          return BranchEnd;
+      }
+
+      switch (Tok.getKind()) {
+      case tok::l_paren:
+        ++DepthParen;
+        break;
+      case tok::r_paren:
+        if (DepthParen == 0)
+          return BranchEnd; // Malformed branch; do not consume past the ')'
+        --DepthParen;
+        break;
+      case tok::l_square:
+        ++DepthBracket;
+        break;
+      case tok::r_square:
+        if (DepthBracket)
+          --DepthBracket;
+        break;
+      case tok::l_brace:
+        ++DepthBrace;
+        break;
+      case tok::r_brace:
+        if (DepthBrace)
+          --DepthBrace;
+        break;
+      case tok::less:
+      case tok::greater:
+      case tok::greatergreater:
+      case tok::greatergreatergreater:
+        // Angle brackets only matter at top level; inside parentheses they may
+        // be comparison operators in expressions (e.g. __typeof(1 < 2)).
+        if (DepthParen == 0 && DepthBracket == 0 && DepthBrace == 0)
+          BSCUpdateAngleDepthForToken(Tok, DepthAngle);
+        break;
+      default:
+        break;
+      }
+      ConsumeAnyToken();
+      BranchEnd = Lexer::getLocForEndOfToken(
+          PrevTokLocation, 0, PP.getSourceManager(), getLangOpts());
+    }
+    return BranchEnd;
+  };
+
+  // Parse the next two types. The selected branch is parsed normally; the
+  // unselected branch is skipped without semantic analysis.
+  TypeResult Ty1;
+  if (SkipBranch1) {
+    if (Tok.is(tok::comma)) {
+      Diag(Tok.getLocation(), diag::err_expected_type);
+      T.skipToEnd();
+      return;
+    }
+    SourceLocation BranchStart = Tok.getLocation();
+    Ty1 = MakeSkippedBranchType(BranchStart,
+                                SkipUnselectedBranch(/*StopAtComma=*/true));
+  } else {
+    Ty1 = ParseTypeName();
+  }
+
   if (ExpectAndConsume(tok::comma)) {
     SkipUntil(tok::r_paren, StopAtSemi);
     return;
   }
-  TypeResult Ty2 = ParseTypeName();
-  if (Ty1.isInvalid() || Ty2.isInvalid()) {
+
+  TypeResult Ty2;
+  if (SkipBranch2) {
+    if (Tok.is(tok::r_paren)) {
+      Diag(Tok.getLocation(), diag::err_expected_type);
       T.skipToEnd();
       return;
+    }
+    SourceLocation BranchStart = Tok.getLocation();
+    Ty2 = MakeSkippedBranchType(BranchStart,
+                                SkipUnselectedBranch(/*StopAtComma=*/false));
+  } else {
+    Ty2 = ParseTypeName();
+  }
+
+  if (Ty1.isInvalid() || Ty2.isInvalid()) {
+    T.skipToEnd();
+    return;
   }
   // Closing ')'.
   if (T.consumeClose())

@@ -1254,6 +1254,16 @@ void TypePrinter::printTypeOfAfter(const TypeOfType *T, raw_ostream &OS) {}
 
 #if ENABLE_BSC
 void TypePrinter::printConditionalBefore(const ConditionalType *T, raw_ostream &OS) {
+  // During -rewrite-bsc, a known __conditional is replaced by its selected
+  // branch (which is then printed with the rewrite policy, e.g. alias
+  // templates are desugared).
+  if (Policy.RewriteBSC && T->getCondResult()) {
+    print(*T->getCondResult() ? T->getConditionalType1()
+                              : T->getConditionalType2(),
+          OS, StringRef());
+    return;
+  }
+
   OS << "__conditional(";
   if (T->getCondExpr()) {
     T->getCondExpr()->printPretty(OS, nullptr, Policy);

@@ -104,6 +104,9 @@ public:
     if (QT.isNullableQualified() || QT.isNonnullQualified()) {
       return true;
     }
+    if (QT->getAs<ConditionalType>()) {
+      return true;
+    }
     if (IsDesugaredFromTraitType(QT)) {
       return true;
     }
