@@ -696,14 +696,27 @@ int main() {
 }
 ```
 
-###### conditional 泛型类型别名
+###### __conditional 与 conditional 泛型类型别名
 
-在 bsc_conditional.hbs 这一 BSC 标准库中提供了 conditional 泛型类型别名，可以实现类型层面的“分支逻辑”：
+毕昇C语言引入了 `__conditional` 以支持类型层面的“分支逻辑”：
+
+```c
+int main() {
+    __conditional(1, int, double) a = 1;   //等价于int a = 1;
+    __conditional(0, int, double) b = 1.0; //等价于double b = 1.0;
+    return 0;
+}
+```
+
+`__conditional(C, T, F)` 是一个类型表达式，`C`是整数常量表达式，`T` 与 `F` 是类型表达式。当`C`非零时，`__conditional`指代`T`类型，否则指代`F`类型。
+
+毕昇C也在 `bsc_conditional.hbs` 这一 BSC 标准库中提供了 conditional 泛型类型别名对其进行封装：
 ```c
 // bsc_conditional.hbs
-typedef conditional<int C, T, F> = __conditional(int C, T, F);
+typedef conditional<int C, T, F> = __conditional(C, T, F);
 ```
-当 C 非 0 时，conditional 类型别名指代类型 T ，否则指代类型 F，条件表达式必须是可以编译期求值的常量表达式：
+
+使用 `conditional` 可以通过泛型的语法使用 `__conditional` 的类型分支功能：
 ```c
 #include<bsc_conditional.hbs>  //使用conditional需要导入头文件
 int main() {
@@ -712,6 +725,22 @@ int main() {
     return 0;
 }
 ```
+
+除了语法外，`conditional` 与 `__conditional` 语义上有以下区别：
+* 对于 `conditional`，不论`C`的取值，编译器总是要求类型`T`与`F`都能够成功实例化。
+* `__conditional`只要求被选中的分支能够成功实例化：当 `C` 非零时，实例化 `T`、不实例化 `F`；当 `C` 为零时，实例化 `F`、不实例化 `T`。未选中的分支不做任何语法或语义检查（但不能为空），编译器仅跳过其内容，因此即使未选中分支中包含未定义的名字或非法的类型表达式，也不会报错。
+
+```c
+#include <bsc_conditional.hbs>
+typedef Owned<T> = T _Owned; // 函数指针不允许 _Owned 修饰，实例化会报错
+typedef Identity1<T> = __conditional(1, T, Owned<T>);
+typedef Identity2<T> = conditional<1, T, Owned<T>>;
+void foo(void) {
+  Identity1<void(*)(void)> a = nullptr; // ok, T 为函数指针时不会实例化 Owned<T>、不报错
+  Identity2<void(*)(void)> b = nullptr; // error, 实例化 Owned<T> 时报错
+}
+```
+
 使用conditional，不仅可以简化书写，可以在编译时根据条件选择不同的类型，避免了运行时的条件分支，提高代码的效率，以下是一个关于选择函数返回类型的使用案例：
 
 定义一个泛型函数，它的返回值类型取决于泛型参数 T ，如果 T 是指针类型，则返回值类型仍然是 T ，否则，返回 T 的指针类型。
@@ -3888,7 +3917,7 @@ int main() {
 }
 ```
 
-2. 允许指向 T 的可变借用隐式转换为指向 void 类型的可变借用，以及指向 T 的不可变借用隐式转换为指向 void 类型的不可变借用（非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`），反过来从类型 void 的借用往类型 T 借用的转换只能在非安全区显式进行。其他指向类型不同的借用指针之间的类型转换均不允许。
+2. 允许指向 T 的可变借用隐式转换为指向 void 类型的可变借用，以及指向 T 的不可变借用隐式转换为指向 void 类型的不可变借用。对于这样的转换，非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`。反过来从类型 void 的借用往类型 T 借用的转换只能在非安全区显式进行。其他指向类型不同的借用指针之间的类型转换均不允许。
 
 ```C
 void test() {
@@ -3925,7 +3954,7 @@ int *_Owned test(int *_Owned p) {
 }
 ```
 
-5. 可变借用 `T *_Borrow` 类型可隐式转换为不可变借用 `const T *_Borrow` 类型或 `const void *_Borrow` 类型（转为 `const void *_Borrow` 时，非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`），由编译器自动插入 `&_Const *` 操作符。不允许在可变借用和只读借用之间进行强制类型转换。
+5. 可变借用 `T *_Borrow` 类型可被隐式 reborrow 得到不可变借用 `const T *_Borrow` 类型或 `const void *_Borrow` 类型（转为 `const void *_Borrow` 时，非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`）。不允许在可变借用和不可变借用之间进行强制类型转换。
 
 以下场景可发生可变借用到不可变借用的隐式转换：
   1. 变量的初始化与赋值
@@ -4308,9 +4337,10 @@ int foo(void) {
 
 **类型转换**
 
-1. `_Borrow _ArrayElem` 指针可以隐式转换为 `_Borrow` 指针，除此之外 `_Borrow _ArrayElem` 指针不能转换为其他安全指针类型。其他安全指针类型（包括 `_Borrow` 指针）不能转换为 `_Borrow _ArrayElem` 指针。
+1. `_Borrow _ArrayElem` 指针可以隐式转换为 `_Borrow` 指针，除此之外 `_Borrow _ArrayElem` 指针不能转换为其他安全指针类型。除非是 `void* _Borrow` 在非安全区显式转换为 `T* _Borrow _ArrayElem`，其他安全指针类型（包括指向非 `void` 类型的 `_Borrow` 指针）均不能转换为 `_Borrow _ArrayElem` 指针。
 2. 可以在非安全区将 `_Borrow _ArrayElem` 指针显式转换为裸指针，或是从裸指针显式转换为 `_Borrow _ArrayElem` 指针。
-3. 支持 `T * _Borrow _ArrayElem` 隐式转为 `void * _Borrow _ArrayElem`、`const void * _Borrow _ArrayElem` 与 `void * _Borrow`、`const void * _Borrow`（安全区要求 `T` 满足 `is_trivial_data`，非安全区总是允许），转为不可变借用时编译器自动插入 `&_Const *` 操作符。除此之外，安全区与非安全区均不支持其他指向类型不同的 `_Borrow _ArrayElem` 指针间的类型转换。
+3. 允许 `T* _Borrow _ArrayElem` 隐式转换为 `void *_Borrow _ArrayElem` 或 `void *_Borrow`，以及 `const T* _Borrow _ArrayElem` 隐式转换为 `const void* _Borrow _ArrayElem` 或 `const void* _Borrow`。对于这样的转换，非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`。反过来从指向 `void` 类型的借用往指向 `T` 类型的借用的转换只能在非安全区显式进行。除此之外，安全区与非安全区均不支持其他指向类型不同的 `_Borrow _ArrayElem` 指针间的类型转换。
+4. 可变借用 `T* _Borrow _ArrayElem` 可被隐式 reborrow 得到不可变借用 `const T* _Borrow _ArrayElem` 或 `const void* _Borrow _ArrayElem` 以及去掉 `_ArrayElem` 后的 `const T *_Borrow` 或 `const void *_Borrow`。reborrow 得到指向 `void` 类型的不可变借用时，非安全区总是允许，安全区要求 `T` 满足 `is_trivial_data`。
 
 #### 3.3.2. 数组退化规则拓展
 
