@@ -5108,6 +5108,30 @@ _Safe void foo(int *_Owned _Nullable p) {
 }
 ```
 
+`__assume_null` 的参数必须是一个可跟踪表达式（trackable expression）。
+
+```c
+_Safe void foo(int c, int *_Nullable p, int *_Nullable q) {
+  // 逗号、三元、显式类型转换都不是可跟踪表达式：
+  _Unsafe { __assume_null((p, q)); }            // error
+  _Unsafe { __assume_null(c ? p : q); }         // error
+  _Unsafe { __assume_null((int *_Nullable)p); } // error
+  int *_Nullable arr[2];
+  _Unsafe { __assume_null(arr[0]); }            // error
+}
+```
+
+`__assume_null` 的参数类型必须是 `_Nullable` 指针或结构体。其他类型不能作为`__assume_null`的参数类型。
+
+```c
+_Safe void foo(void) {
+  int x = 0;
+  _Unsafe { __assume_null(x); } // error
+}
+```
+
+##### 3.4.8.1. 用于 `_Nullable` 指针
+
 语义规则：
 
 1. 对于`_Owned _Nullable`指针`p`，使用`__assume_null(p)`后，认为该指针必定为空，不持有所有权。
@@ -5139,21 +5163,61 @@ void bar(int x) {
 }
 ```
 
-3. 对于其他类型的指针`p`，使用`__assume_null(p)`时，编译器认为是非法参数类型，报错。
+3. `_Nonnull`指针`p`不能作为`__assume_null`的参数。
 
 ```c
 int *_Nonnull get_nonnull();
 _Safe void foo(void) {
   int *_Nonnull p = get_nonnull();
-  _Unsafe { __assume_null(p); } // error: __assume_null requires a _Nullable pointer argument
+  _Unsafe { __assume_null(p); } // error
 }
 ```
 
-**使用限制**：`__assume_null` 只接受变量（如 `p`）或结构体字段访问（如 `s.p`），可外加括号/隐式转换。其他形态的指针表达式目前暂不支持，需要时请先用临时变量承接。
+##### 3.4.8.2. 用于结构体
+
+当参数是结构体类型的可跟踪表达式时，`__assume_null` 对该结构体的所有 `_Nullable` 字段（递归，含嵌套字段）断言：每个 `_Nullable` 指针字段必定为空，每个 `_Owned _Nullable` 指针字段不持有所有权。
 
 ```c
-_Safe void foo(int *_Nullable *_Nonnull q) {
-  _Unsafe { __assume_null(*q); } // error: unsupported __assume_null argument; the argument must be a variable or struct field access
+struct S {
+  int *_Owned _Nullable p1;
+  int *_Owned _Nullable p2;
+};
+
+_Safe void consumeS(struct S *_Owned s);
+
+_Safe void foo(struct S *_Owned s) {
+  _Unsafe { __assume_null(*s); } // s->p1/s->p2 被断言为空
+  *(s->p1) = 1; // error: 空指针解引用
+  consumeS(s); // 移出 s 所有权 → 无泄漏
+}
+```
+
+对于结构体类型的参数，适用以下检查规则：
+
+1. 结构体类型不能直接或递归地包含任何 `_Nonnull` 字段。因为断言一个 `_Nonnull` 字段为 `null` 与其类型矛盾。若结构体中既有 `_Nullable` 字段又有 `_Nonnull` 字段，需对 `_Nullable` 字段逐个调用 `__assume_null(s->field)`。
+
+```c
+struct HasNonnull {
+  int *_Nonnull q;       // _Nonnull 字段
+  int *_Owned _Nullable p;
+};
+
+_Safe void baz(struct HasNonnull *_Owned s) {
+  _Unsafe { __assume_null(*s); } // error
+  // 改为逐字段假设：
+  _Unsafe { __assume_null(s->p); } // ok
+}
+```
+
+2. 若结构体的数组字段的成员类型是 `_Nullable` 指针（或数组成员是含 `_Nullable` 指针的结构体/数组），`__assume_null` 对该数组字段无效。
+
+```c
+struct HasArr {
+  int *_Owned _Nullable ya[2];  // 含 _Nullable 指针的数组
+};
+
+_Safe void qux(struct HasArr s) {
+  _Unsafe { __assume_null(s); } // warning: __assume_null has no effect on array field 'ya'
 }
 ```
 

@@ -53,4 +53,28 @@ bool Expr::isNullExpr(ASTContext &Ctx) const {
   }
   return false;
 }
+
+/// Whether this expression matches the trackable grammar:
+///   trackable_expr ::= identifier
+///                    | (trackable_expr)
+///                    | trackable_expr . identifier
+///                    | trackable_expr -> identifier
+///                    | * trackable_expr
+bool Expr::isTrackableExpr() const {
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(this)) {
+    return isa<VarDecl>(DRE->getDecl());
+  } else if (const ParenExpr *PE = dyn_cast<ParenExpr>(this)) {
+    return PE->getSubExpr()->isTrackableExpr();
+  } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(this)) {
+    if (!isa<FieldDecl>(ME->getMemberDecl()))
+      return false;
+    return ME->getBase()->isTrackableExpr();
+  } else if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(this)) {
+    return ICE->getSubExpr()->isTrackableExpr();
+  } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(this)) {
+    if (UO->getOpcode() == UO_Deref)
+      return UO->getSubExpr()->isTrackableExpr();
+  }
+  return false;
+}
 #endif // ENABLE_BSC

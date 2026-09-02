@@ -198,7 +198,7 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 
 ---
 
-## NULLABLE — nullable pointer (7 errors)
+## NULLABLE — nullable pointer (9 errors, 2 warnings)
 
 | Code | Diagnostic | Message | Notes |
 |------|------------|---------|-------|
@@ -207,8 +207,12 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | NULLABLE-003 | err_return_nullable | cannot return %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 as a '_Nonnull' pointer | — |
 | NULLABLE-004 | err_nullable_pointer_access_member | cannot access the member through %select{a possibly-null status pointer\|possibly-null status pointer '%1'}0 | — |
 | NULLABLE-005 | err_bsc_nullptr_cast | cannot cast an object of type `nullptr_t` to %1 / %1 to `nullptr_t` | — |
-| NULLABLE-006 | err_assume_null_not_nullable | __assume_null requires a _Nullable pointer argument | — |
-| NULLABLE-007 | err_assume_null_complex_arg | unsupported __assume_null argument | — |
+| NULLABLE-006 | err_assume_null_not_nullable | __assume_null requires a _Nullable pointer argument | A trackable pointer-typed argument that is not `_Nullable` (e.g. `_Nonnull`, or an unannotated `_Owned`/`_Borrow` pointer, which are `_NonNull` by default) is rejected. A non-pointer argument is rejected instead by NULLABLE-008 |
+| NULLABLE-007 | err_assume_null_not_trackable | __assume_null requires a trackable expression as argument | The argument is not a trackable expression — a variable (identifier), a struct field access (`.` / `->`), a pointer dereference (`*`), or parens/implicit casts wrapping those. Any other shape (comma, ternary, call, explicit cast, array subscript, `++`/`--`, ...) is rejected: `__assume_null` is a pure analyzer hint (codegen emits nothing) and the dataflow can only lower a trackable path to a tracked location, so anything else would be silently dropped |
+| NULLABLE-008 | err_assume_null_unsupported_type | __assume_null requires an argument of pointer or struct type | The argument is trackable but its type is neither a pointer nor a record — e.g. an `int` variable `x`, or `*p` dereferenced to a non-pointer non-record type. Pointer arguments must additionally be `_Nullable` (NULLABLE-006); record arguments are scanned for nullable fields (NULLABLE-009 / W001 / W002) |
+| NULLABLE-009 | err_assume_null_nonnull_field | __assume_null(`*p`) is invalid because the struct contains a _Nonnull field | `note_assume_null_nonnull_field_hint` — a _Nonnull field cannot be assumed null; assume each _Nullable field individually if needed. The scan recurses through embedded (sub-struct / array-element) fields but NOT through a pointer field's pointee struct (a separate allocation `__assume_null(*s)` cannot reach). Error takes precedence over the NULLABLE-W001/W002 warnings |
+| **NULLABLE-W001** | warn_assume_null_array_nullable_field | __assume_null(`*p`) has no effect on array field `%0` containing a _Nullable pointer | The dataflow has no per-element null state, so a `_Nullable` pointer array field (or an array whose element struct contains one, incl. nested) is not covered by `__assume_null(*s)` — the builtin neither rejects it (it is _Nullable, not _Nonnull) nor tracks it. `%0` is the full dotted field path (e.g. `in.arr`, `b.c.arr`). Mutually exclusive with NULLABLE-W002 (the array field implies a _Nullable field exists) |
+| **NULLABLE-W002** | warn_assume_null_no_nullable_field | __assume_null(`*p`) has no effect: the struct does not contain any _Nullable pointer field | Fires when the struct (recursively, through embedded fields) contains no `_Nullable` pointer field at all, so `__assume_null(*s)` has nothing to assert null — the call is a no-op. A bare unannotated `int *p` field is `_Nullable` by default, so a struct with only bare pointer fields does NOT trigger this warning. Mutually exclusive with NULLABLE-W001 |
 
 ---
 
@@ -222,9 +226,9 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | MISC-      | declaration / dispatch        | 7      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
 | NONNULL-   | nonnull pointer               | 3      | 0        |
-| NULLABLE-  | nullable pointer              | 7      | 0        |
-| **Total**  |                               | **125** | **1**   |
+| NULLABLE-  | nullable pointer              | 9      | 2        |
+| **Total**  |                               | **128** | **3**   |
 
-Plus **29 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
+Plus **30 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 
 Out-of-scope BSC features (not coded here): traits, async/await, generic, constexpr, operator overload, instance member functions. These contribute several more errors, one warning (`warn_type_has_not_impl_trait`), and one note (`note_no_this_parameter`).

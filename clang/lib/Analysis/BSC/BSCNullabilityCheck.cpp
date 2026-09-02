@@ -985,15 +985,43 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
   }
 }
 
+// For __assume_null on a struct-typed argument: mark every reachable _Nullable
+// pointer field as null in the field-path state. Recurses only into struct-typed
+// (by-value) fields so nested _Nullable pointers (e.g. s.in.ip) are covered; a
+// pointer field is a leaf — its pointee is a separate allocation that is
+// unreachable once the field is null, so it is not descended into.
+static void assumeNullAllNullableFields(VarDecl *VD, const RecordDecl *RD,
+                                        const std::string &prefix,
+                                        StatusFP &FPMap) {
+  if (!RD)
+    return;
+  for (const FieldDecl *FD : RD->fields()) {
+    QualType FT = FD->getType();
+    std::string path = prefix.empty() ? FD->getNameAsString()
+                                      : prefix + "." + FD->getNameAsString();
+    if (FT->isPointerType()) {
+      if (FT.getDefNullability() == NullabilityKind::Nullable) {
+        FieldPath FP = {VD, "." + path};
+        if (FPMap.count(FP))
+          FPMap[FP] = NullabilityKind::Nullable;
+      }
+    } else if (const RecordType *RT = FT->getAs<RecordType>()) {
+      assumeNullAllNullableFields(VD, RT->getDecl(), path, FPMap);
+    }
+  }
+}
+
 // NonNull parameter cannot take Nullable pointer as argument.
 void TransferFunctions::VisitCallExpr(CallExpr *CE) {
-  // __assume_null: assert the _Nullable pointer is null at this point, as if
-  // `p = nullptr` had executed. Mirror the assignment-time state update so a
-  // subsequent dereference reports a nullable dereference.
-  if (FunctionDecl *Callee = CE->getDirectCallee()) {
-    if (Callee->getBuiltinID() == Builtin::BI__assume_null) {
-      if (CE->getNumArgs() == 1) {
-        Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
+  if (FunctionDecl *FD = CE->getDirectCallee()) {
+    if (FD->getBuiltinID() == Builtin::BI__assume_null) {
+      // __assume_null: assert the _Nullable pointer is null at this point, as if
+      // `p = nullptr` had executed. Sema has already guaranteed the argument is
+      // a trackable expression whose type is either a _Nullable pointer or a
+      // struct (with no _Nonnull field reachable through embedded fields).
+      Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
+      QualType ArgTy = CE->getArg(0)->getType();
+      if (ArgTy->isPointerType()) {
         if (VarDecl *VD = getVarDeclFromExpr(Arg)) {
           if (CurrStatusVD.count(VD))
             CurrStatusVD[VD] = NullabilityKind::Nullable;
@@ -1003,12 +1031,28 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
           VisitMEForFieldPath(ME, FP);
           if (CurrStatusFP.count(FP))
             CurrStatusFP[FP] = NullabilityKind::Nullable;
+        } else if (auto *UO = dyn_cast<UnaryOperator>(Arg)) {
+          if (UO->getOpcode() == UO_Deref) {
+            DerefPathVD DP;
+            if (getDerefPathVDFromExpr(UO, DP) && CurrStatusDPVD.count(DP))
+              CurrStatusDPVD[DP] = NullabilityKind::Nullable;
+          }
         }
+      } else if (ArgTy->isStructureType()) {
+        // Mark every reachable _Nullable pointer field null.
+        const RecordType *RT = ArgTy->getAs<RecordType>();
+        FieldPath FP;
+        VisitMEForFieldPath(Arg, FP);
+        VarDecl *VD = FP.first;
+        std::string Prefix;
+        if (!FP.second.empty() && FP.second[0] == '.')
+          Prefix = FP.second.substr(1);
+        if (VD)
+          assumeNullAllNullableFields(VD, RT->getDecl(), Prefix,
+                                      CurrStatusFP);
       }
       return;
     }
-  }
-  if (FunctionDecl *FD = CE->getDirectCallee()) {
     for (unsigned i = 0; i < FD->getNumParams(); i++) {
       ParmVarDecl *PVD = FD->getParamDecl(i);
       if (PVD->getType().getDefNullability() == NullabilityKind::NonNull) {

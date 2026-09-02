@@ -5203,6 +5203,12 @@ public:
   /// Recursively check all fields in the record for borrow-ness. If any field
   /// is declared borrow, return true. Otherwise, return false.
   bool withBorrowFields() const;
+
+  /// Recursively check the record's fields (through embedded struct and array
+  /// fields, but NOT through pointer pointees, which live in separate
+  /// allocations) for a pointer field with _Nonnull / _Nullable nullability.
+  bool hasNonnullFields() const;
+  bool hasNullableFields() const;
 #endif
 
   bool isSugared() const { return false; }

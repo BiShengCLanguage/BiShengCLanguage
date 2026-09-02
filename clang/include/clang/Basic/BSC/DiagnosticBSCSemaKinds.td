@@ -301,10 +301,21 @@ def note_assume_init_complex_arg_hint : Note<
 // __assume_null
 def err_assume_null_not_nullable : Error<
   "__assume_null requires a _Nullable pointer argument">;
-def err_assume_null_complex_arg : Error<
-  "unsupported __assume_null argument">;
-def note_assume_null_complex_arg_hint : Note<
-  "the argument must be a variable or struct field access">;
+def err_assume_null_not_trackable : Error<
+  "__assume_null requires a trackable expression as argument">;
+def err_assume_null_unsupported_type : Error<
+  "__assume_null requires an argument of pointer or struct type">;
+def err_assume_null_nonnull_field : Error<
+  "__assume_null is invalid because the struct contains a _Nonnull field">;
+def note_assume_null_nonnull_field_hint : Note<
+  "a _Nonnull field cannot be assumed null; assume each _Nullable field "
+  "individually if needed">;
+def warn_assume_null_array_nullable_field : Warning<
+  "__assume_null has no effect on array field '%0' containing a _Nullable pointer">,
+  InGroup<BSCAssumeNull>;
+def warn_assume_null_no_nullable_field : Warning<
+  "__assume_null has no effect: the struct does not contain any _Nullable pointer field">,
+  InGroup<BSCAssumeNull>;
 
 // __forget
 def err_forget_not_owned : Error<

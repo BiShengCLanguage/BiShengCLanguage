@@ -1,0 +1,91 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Test __assume_null dataflow on a STRUCT-typed argument: after the call every
+// reachable _Nullable pointer field is treated as null, so a later dereference
+// of any such field (without a null check) is a nullable dereference. Covers
+// the struct-typed trackable-expression spellings — struct variable `t`,
+// struct field access `s->in` / `t.in`, deep chains `s->in.in2`, and the
+// dereference `*s` — and confirms the arrow and deref spellings resolve to the
+// same field-path key a later access uses.
+//
+// Each reachable leaf is first checked non-null, then __assume_null'd back to
+// null, so the assume (not the _Nullable default) is what produces the deref
+// error. No Sema errors appear here (a Sema error suppresses BSC CFG analyses).
+
+// Suppress "expression result unused" on the dereference performed only to
+// trigger the nullable-dereference diagnostic.
+#define DEREF(x) ((void)*(x))
+
+// Structs shared by the cases below. All contain only _Nullable pointer fields
+// and struct sub-fields, so an __assume_null on any struct form is accepted.
+struct Leaf { int *_Owned _Nullable p; };
+struct Mid {
+  struct Leaf v;                 // struct field (by value)
+  struct Leaf *_Nullable nptr;    // nullable pointer to a struct Leaf
+};
+struct Root {
+  struct Mid m;                   // struct field (by value)
+  struct Mid *_Nullable nmp;      // nullable struct pointer field
+};
+
+// === Struct variable: __assume_null(t) ===
+
+void test_struct_var(struct Mid t) {
+  if (t.nptr != nullptr && t.v.p != nullptr) {
+    _Unsafe { __assume_null(t); }
+    DEREF(t.nptr); // expected-error {{cannot dereference possibly-null status pointer 'nptr'}}
+    DEREF(t.v.p);  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// === Deref of an owned struct pointer: __assume_null(*s) ===
+
+void test_struct_deref(struct Root *_Owned s) {
+  if (s->nmp != nullptr && s->m.v.p != nullptr) {
+    _Unsafe { __assume_null(*s); }
+    DEREF(s->nmp);   // expected-error {{cannot dereference possibly-null status pointer 'nmp'}}
+    DEREF(s->m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// === Struct field access: __assume_null(s->m) / __assume_null(t.m) ===
+
+void test_struct_field_arrow(struct Root *_Owned s) {
+  if (s->m.v.p != nullptr && s->m.nptr != nullptr) {
+    _Unsafe { __assume_null(s->m); }
+    DEREF(s->m.v.p);   // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    DEREF(s->m.nptr);  // expected-error {{cannot dereference possibly-null status pointer 'nptr'}}
+  }
+}
+
+void test_struct_field_dot(struct Root t) {
+  if (t.m.v.p != nullptr && t.m.nptr != nullptr) {
+    _Unsafe { __assume_null(t.m); }
+    DEREF(t.m.v.p);  // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    DEREF(t.m.nptr); // expected-error {{cannot dereference possibly-null status pointer 'nptr'}}
+  }
+}
+
+// === Deep struct chain: __assume_null(s->m.v) / __assume_null((*s).m.v) ===
+
+void test_struct_chain_arrow(struct Root *_Owned s) {
+  if (s->m.v.p != nullptr) {
+    _Unsafe { __assume_null(s->m.v); }
+    DEREF(s->m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// === Prefix isolation: __assume_null on a sub-struct touches only that prefix ===
+// __assume_null(s->in.v) nullifies only fields under in.v; a SIBLING struct's
+// _Nullable field (s->out.p) is NOT marked null, so its deref stays clean when
+// it was independently narrowed non-null.
+
+struct SiblingRoot { struct Mid in; struct Leaf out; };
+
+void test_sibling_not_nullified(struct SiblingRoot *_Owned s) {
+  if (s->in.v.p != nullptr && s->out.p != nullptr) {
+    _Unsafe { __assume_null(s->in.v); }
+    DEREF(s->in.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+    DEREF(s->out.p);  // ok — out.p was not covered by __assume_null(s->in.v)
+  }
+}

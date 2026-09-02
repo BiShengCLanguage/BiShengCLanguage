@@ -183,6 +183,7 @@ set(BSC_TEST_DEPS
   FileCheck
   count
   not
+  llvm-config
 )
 
 add_lit_target(bsc-test "Running the BSC regression tests"

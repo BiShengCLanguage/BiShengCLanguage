@@ -1,0 +1,199 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Test __assume_null dataflow on a _Nullable POINTER argument: after the call
+// the pointer is treated as null, so a later dereference without a null check
+// is a nullable dereference.
+//
+// The argument is a trackable expression (see the Sema gate in
+// assume_null_sema.cbs). For a _Nullable POINTER result the trackable grammar
+// admits three outermost shapes (parentheses and implicit casts transparent):
+//
+//   identifier          -> bare pointer variable       (status: VarDecl)
+//   expr . identifier   -> pointer field via dot       (status: field path)
+//   expr -> identifier  -> pointer field via arrow     (status: field path)
+//   * expr              -> dereference yielding a pointer, tracked as a
+//                          dereference chain            (status: DerefPathVD)
+//
+// The sections below follow this grammar. A `*` embedded in a `.` / `->` base
+// is folded into the field-path key by VisitMEForFieldPath — see the
+// "deref folded into a member-access path" section.
+//
+// Two case styles appear: a straight-line case pins the baseline (the target
+// is _Nullable by default, so a bare deref errors whether or not the assume
+// ran), and a guarded case first narrows the target to _Nonnull via
+// `if (expr != nullptr)` then __assume_null's it back, making the assume (not
+// the default) what produces the deref error. No Sema errors appear here (a
+// Sema error suppresses BSC CFG analyses).
+
+// Suppress "expression result unused" on the dereference performed only to
+// trigger the nullable-dereference diagnostic.
+#define DEREF(x) ((void)*(x))
+
+// Structs shared by the field-chain forms below. All contain only _Nullable
+// pointer fields and struct sub-fields, so __assume_null on any access to a
+// _Nullable leaf is accepted.
+struct Leaf { int *_Owned _Nullable p; };
+struct Mid {
+  struct Leaf v;                 // struct field (by value)
+  struct Leaf *_Nullable nptr;    // nullable pointer to a struct Leaf
+};
+struct Root {
+  struct Mid m;                   // struct field (by value)
+  struct Mid *_Nullable nmp;      // nullable struct pointer field
+};
+
+// === identifier: bare pointer variable ===
+
+// Non-_Safe function so the safe-zone raw-deref ban does not shadow the
+// nullable diagnostic.
+void test_raw_pointer_straightline(void) {
+  int *_Nullable p = (int *_Nullable)0;
+  _Unsafe { __assume_null(p); }
+  *p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+// After __assume_null on an owned nullable pointer (baseline: the default
+// nullable state makes the later deref a mistake).
+void test_owned_pointer(void) {
+  int *_Owned _Nullable p = nullptr;
+  _Unsafe { __assume_null(p); }
+  *p = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+// === expr . identifier: pointer field via dot ===
+
+// Straight-line: a nullable pointer field on a struct value.
+struct S { int *_Nullable p; };
+void test_field_straightline(void) {
+  struct S s = {};
+  _Unsafe { __assume_null(s.p); }
+  *(s.p) = 1; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+}
+
+// Nullable pointer field on a struct value: t.nptr.
+void test_field_value(struct Mid t) {
+  if (t.nptr != nullptr) {
+    _Unsafe { __assume_null(t.nptr); }
+    DEREF(t.nptr); // expected-error {{cannot dereference possibly-null status pointer 'nptr'}}
+  }
+}
+
+// Nullable pointer field deep in a struct-value chain: t.m.v.p.
+void test_field_chain_value(struct Root t) {
+  if (t.m.v.p != nullptr) {
+    _Unsafe { __assume_null(t.m.v.p); }
+    DEREF(t.m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// === expr -> identifier: pointer field via arrow ===
+
+// Nullable struct pointer field on an owned struct pointer: s->nmp.
+void test_field_arrow(struct Root *_Owned s) {
+  if (s->nmp != nullptr) {
+    _Unsafe { __assume_null(s->nmp); }
+    DEREF(s->nmp); // expected-error {{cannot dereference possibly-null status pointer 'nmp'}}
+  }
+}
+
+// Same access via arrow chain: s->m.v.p.
+void test_field_arrow_chain(struct Root *_Owned s) {
+  if (s->m.v.p != nullptr) {
+    _Unsafe { __assume_null(s->m.v.p); }
+    DEREF(s->m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// Nullable pointer field reached through a nullable struct pointer that has
+// been independently null-checked: s->nmp->nptr.
+void test_field_chain_arrow(struct Root *_Owned s) {
+  if (s->nmp != nullptr) {
+    if (s->nmp->nptr != nullptr) {
+      _Unsafe { __assume_null(s->nmp->nptr); }
+      DEREF(s->nmp->nptr); // expected-error {{cannot dereference possibly-null status pointer 'nptr'}}
+    }
+  }
+}
+
+// === * expr: dereference yielding a pointer (dereference chain) ===
+// When a dereference itself yields a _Nullable pointer (e.g. *p for int **p),
+// the assumption targets the dereference-chain state keyed by (root, depth):
+//   *p => (p, 1), **p => (p, 2). __assume_null(*p) marks (p, 1) null, so the
+// next dereference *(*p) reports a nullable dereference.
+
+// Establish *p non-null, then assume it null, then deref it again.
+void test_deref_chain(void) {
+  int x = 0;
+  int *px = &x;
+  int **p = &px;
+  if (*p != nullptr) {              // *p non-null in this branch
+    _Unsafe { __assume_null(*p); }  // assume the (p, 1) deref-chain state null
+    DEREF(*p); // expected-error {{cannot dereference a possibly-null status pointer}}
+  }
+}
+
+// === deref folded into a member-access path ===
+// VisitMEForFieldPath folds a `*` in a `.` / `->` base into the field-path
+// key: a `*` on a bare identifier contributes no segment (so (*s).m.v.p and
+// s->m.v.p share one key), while a `*` on a field path keeps a `*` segment.
+
+// (*s).m.v.p: dot chain whose base embeds a struct-deref of a bare variable —
+// equivalent to the arrow spelling s->m.v.p.
+void test_field_deref_dot(struct Root *_Owned s) {
+  if ((*s).m.v.p != nullptr) {
+    _Unsafe { __assume_null((*s).m.v.p); }
+    DEREF((*s).m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// Cross-form: assume via arrow, access via deref-dot — one key.
+void test_cross_arrow_to_deref(struct Root *_Owned s) {
+  if (s->m.v.p != nullptr) {
+    _Unsafe { __assume_null(s->m.v.p); }
+    DEREF((*s).m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// Cross-form: assume via deref-dot, access via arrow — one key.
+void test_cross_deref_to_arrow(struct Root *_Owned s) {
+  if ((*s).m.v.p != nullptr) {
+    _Unsafe { __assume_null((*s).m.v.p); }
+    DEREF(s->m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// Double indirection: (*(base.f1))->f2. `*(base.f1)` dereferences the pointer
+// field f1 (loading an Inner*) and then accesses the leaf f2 through it. The
+// `*` on a field path is kept, so the whole chain resolves to the field-path
+// key {base, ".f1*.f2"}. f1 and *f1 are declared _Nonnull, so the
+// intermediate deref is clean and the f2 deref is the sole expected error.
+struct Inner { int *_Nullable f2; };                   // f2: _Nullable leaf
+struct Outer {
+  struct Inner *_Nonnull * _Nonnull f1;                // f1: Nonnull -> Nonnull Inner*
+};
+
+// Establish f2 non-null by assignment, then assume it null, then deref.
+void test_double_indirection_assign(void) {
+  struct Inner in;
+  struct Inner *_Nonnull inner_ptr = &in;
+  struct Outer base;
+  base.f1 = &inner_ptr;
+  int x; int *_Nonnull nn = &x;
+  (*(base.f1))->f2 = nn;                   // f2 now non-null
+  _Unsafe { __assume_null((*(base.f1))->f2); }
+  DEREF((*(base.f1))->f2); // expected-error {{cannot dereference possibly-null status pointer 'f2'}}
+}
+
+// Same shape, but the non-null state comes from a null-check branch (condition
+// propagation) rather than assignment, exercising the other path-sensitive
+// entry into the same field-path key.
+void test_double_indirection_branch(void) {
+  struct Inner in;
+  struct Inner *_Nonnull inner_ptr = &in;
+  struct Outer base;
+  base.f1 = &inner_ptr;
+  if ((*(base.f1))->f2 != nullptr) {       // f2 non-null in this branch
+    _Unsafe { __assume_null((*(base.f1))->f2); }
+    DEREF((*(base.f1))->f2); // expected-error {{cannot dereference possibly-null status pointer 'f2'}}
+  }
+}

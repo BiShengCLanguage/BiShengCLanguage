@@ -1,0 +1,49 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Test ownership dataflow for __assume_null on struct-typed arguments: the
+// builtin drops ownership of the owned fields reachable through the argument
+// (the no-leak cases live in Positive/NullabilityCheck/assume_null.cbs), but a
+// struct POINTER variable itself still holds its allocation and is reported as
+// a leak if not freed. No Sema errors here (they suppress BSC CFG analyses).
+
+_Safe T *_Owned safe_malloc<T>(T t);
+_Safe void safe_free(void *_Owned p);
+
+// __assume_null(s->in) on an owned struct pointer: drops ownership of fields
+// under s->in. s itself still holds its allocation and leaks if not freed.
+struct Outer { struct { int *_Owned _Nullable ip; } in; };
+void test_struct_field_ptr_drop(struct Outer *_Owned s) {
+  _Unsafe { __assume_null(s->in); }
+} // expected-error {{memory leak because 's' is not freed or moved before it goes out of scope}}
+
+// __assume_null on a deep field chain `s->in.in2`: drops ownership of fields
+// under in.in2, but s itself still holds the struct allocation and leaks.
+struct Leaf { int *_Owned _Nullable p; };
+struct Mid { struct Leaf in2; };
+struct Root { struct Mid in; };
+void test_struct_field_chain_ptr_drop(struct Root *_Owned s) {
+  _Unsafe { __assume_null(s->in.in2); }
+} // expected-error {{memory leak because 's' is not freed or moved before it goes out of scope}}
+
+// __assume_null(s->in.in2) drops ONLY fields under in.in2; a sibling sub-struct
+// field s->out.p still holds ownership and is reported as a leak, while the
+// dropped in.in2.p is NOT reported — confirming prefix isolation.
+struct SibLeaf { int *_Owned _Nullable p; };
+struct SibRoot { struct Mid in; struct SibLeaf out; };
+void test_chain_sibling_not_dropped(struct SibRoot *_Owned s) {
+  _Unsafe { __assume_null(s->in.in2); }
+} // expected-error {{memory leak because 's' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because s.out.p is not freed or moved before 's' goes out of scope}}
+
+// __assume_null must NOT drop ownership of an array field (owned-element
+// arrays carry per-element state that a bare aggregate null cannot describe;
+// Sema emits W001 to say so). The scalar field is dropped, but the array field
+// still leaks. The pointer-host and field-access spellings are covered by the
+// Sema W001 cases in assume_null_sema.cbs; this is the struct-value dataflow.
+struct ArrNode { int *_Owned _Nullable arr[2]; int *_Owned _Nullable p; };
+void test_struct_var_array_not_dropped(void) {
+  struct ArrNode t = {0};
+  for (int i = 0; i < 2; i++) t.arr[i] = safe_malloc(1);
+  t.p = safe_malloc(1);
+  _Unsafe { __assume_null(t); } // expected-warning {{__assume_null has no effect on array field 'arr' containing a _Nullable pointer}}
+} // expected-error {{memory leak because t.arr[] is not freed or moved before 't' goes out of scope}}

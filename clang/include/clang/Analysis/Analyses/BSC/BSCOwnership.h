@@ -416,6 +416,15 @@ public:
     void setToNull(const VarDecl *VD);
     void setToNull(const Expr *E);
     void setOwnedFieldNull(const VarDecl *VD, const std::string &fieldPath);
+    void assumeAllOwnedFieldsNull(const VarDecl *VD);
+    // __assume_null(t) on a struct-value variable (VD in SStatus): drop ownership
+    // of every registered owned field of the struct value.
+    void assumeAllSFieldsNull(const VarDecl *VD);
+    // __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
+    // ownership of every owned field nested under `fieldPath` (prefix match),
+    // on whichever host (OPS owned struct pointer or S struct value) tracks VD.
+    void assumeOwnedFieldsUnderNull(const VarDecl *VD,
+                                   const std::string &fieldPath);
     void setToMoved(const VarDecl *VD);
     void setToMoved(const Expr *E);
 

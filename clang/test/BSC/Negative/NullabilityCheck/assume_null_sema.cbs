@@ -30,40 +30,325 @@ _Safe void test_non_nullable_arg(void) {
 // Rule 4 variant: non-pointer argument is rejected.
 _Safe void test_non_pointer_arg(void) {
   int x = 0;
-  _Unsafe { __assume_null(x); } // expected-error {{__assume_null requires a _Nullable pointer argument}}
+  _Unsafe { __assume_null(x); } // expected-error {{__assume_null requires an argument of pointer or struct type}}
 }
 
-// Argument-shape: only a variable or struct field access is accepted. Any
-// compound expression is rejected because __assume_null is a pure analyzer
-// hint (codegen emits nothing) and the dataflow only tracks per-variable
-// null state; a compound expression would be silently dropped.
+// Argument-shape: only a trackable expression is accepted.
 
 // Comma expression: must not be mis-lowered to the left operand.
 _Safe void test_comma_arg(int *_Nullable a, int *_Nullable p) {
-  _Unsafe { __assume_null((a, p)); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}} expected-warning {{left operand of comma operator has no effect}}
+  _Unsafe { __assume_null((a, p)); } // expected-error {{__assume_null requires a trackable expression as argument}} expected-warning {{left operand of comma operator has no effect}}
 }
 
 // Ternary expression.
 _Safe void test_ternary_arg(int c, int *_Nullable p, int *_Nullable q) {
-  _Unsafe { __assume_null(c ? p : q); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+  _Unsafe { __assume_null(c ? p : q); } // expected-error {{__assume_null requires a trackable expression as argument}}
 }
 
 // Explicit cast to a nullable pointer type.
 _Safe void test_cast_arg(int *_Nonnull p) {
-  _Unsafe { __assume_null((int *_Nullable)p); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+  _Unsafe { __assume_null((int *_Nullable)p); } // expected-error {{__assume_null requires a trackable expression as argument}}
 }
 
-// Array subscript.
+// Array subscript: __assume_null cannot act on a single array element (the
+// dataflow tracks arrays as whole units), so any ArraySubscriptExpr in the
+// argument is rejected with a specific error.
 _Safe void test_array_subscript_arg(void) {
   int *_Nullable arr[2];
-  _Unsafe { __assume_null(arr[0]); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+  _Unsafe { __assume_null(arr[0]); } // expected-error {{__assume_null requires a trackable expression as argument}}
 }
 
-// Dereference chain (*q): rejected. Dropping ownership of an inner pointee
-// through a _Borrow/_Nonnull outer pointer would require alias analysis
-// (borrow-checker scope), which the ownership analysis does not perform —
-// silently accepting it would let the real owner leak. Use __assume_null(p)
-// or free(p) on the owned variable itself.
-_Safe void test_deref_chain_arg(int *_Nullable *_Nonnull q) {
-  _Unsafe { __assume_null(*q); } // expected-error {{unsupported __assume_null argument}} expected-note {{the argument must be a variable or struct field access}}
+// __assume_null(*s) where s is an _Owned pointer to a non-struct (here an
+// _Owned int pointer): the dereference is not a struct, so the *s form does
+// not apply.
+_Safe void test_deref_non_struct(void *_Owned p) {
+  _Unsafe { __assume_null(*p); } // expected-error {{__assume_null requires an argument of pointer or struct type}}
 }
+
+// __assume_null(*s) on a struct that directly contains a _Nonnull pointer
+// field: rejected, since asserting that field null would contradict its type.
+struct HasNonnull { int *_Nonnull q; int *_Owned _Nullable p; };
+_Safe void test_deref_nonnull_field(struct HasNonnull *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// __assume_null(*s) where the _Nonnull field is nested inside a sub-struct:
+// the recursive scan must still reject it.
+struct InnerN { int *_Nonnull n; };
+struct HasNestedNonnull { struct InnerN in; int *_Owned _Nullable p; };
+_Safe void test_deref_nested_nonnull_field(struct HasNestedNonnull *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A _Nonnull field reachable ONLY through a _Nullable pointer field is NOT a
+// contradiction: the pointee struct lives in a separate allocation that
+// __assume_null(*s) cannot reach, so the call is accepted. (The pointer field
+// itself is _Nullable, so assuming it null is consistent.) The scan must NOT
+// descend through a pointer field's pointee struct.
+struct InnerP { int *_Nonnull n; };
+struct HasNonnullViaPtr { struct InnerP *_Borrow _Nullable ip; };
+_Safe void test_deref_nonnull_via_pointer_field(struct HasNonnullViaPtr *_Owned s) {
+  _Unsafe { __assume_null(*s); }
+}
+
+// === Array fields ===
+// The dataflow has no per-element null state, so __assume_null(*s) cannot
+// track array fields. A _Nonnull pointer element is rejected (error) just
+// like a scalar _Nonnull field; a _Nullable pointer element is warned about
+// (the builtin has no effect on it), since it is neither rejected nor covered.
+
+// An array of _Nonnull pointers: the recursive scan peels to the element
+// type and rejects, just as it would for a scalar _Nonnull field.
+struct HasNonnullArr { int *_Nonnull na[2]; };
+_Safe void test_deref_nonnull_array_field(struct HasNonnullArr *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// An array whose element is a struct that contains a _Nonnull pointer field:
+// the scan recurses through the element struct and rejects.
+struct InnerNonnArr { int *_Nonnull p; };
+struct HasNonnullArrElem { struct InnerNonnArr ea[2]; };
+_Safe void test_deref_nonnull_array_elem_struct(struct HasNonnullArrElem *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// An array of _Nullable pointers-to-struct: the _Nonnull field inside the
+// pointee is reachable only through the (separately allocated) pointee, so
+// the call is NOT rejected for that. The array's elements are _Nullable
+// pointers though, so the array-field warning still fires.
+struct HasNonnullViaArrPtr { struct InnerNonnArr *_Borrow _Nullable pa[2]; };
+_Safe void test_deref_nonnull_via_array_of_pointers(struct HasNonnullViaArrPtr *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect on array field 'pa' containing a _Nullable pointer}}
+}
+
+// An array of _Nullable owned pointers: __assume_null(*s) cannot track the
+// elements, so a warning notes the builtin has no effect on this field.
+struct HasNullableArr { int *_Owned _Nullable ya[2]; };
+_Safe void test_deref_nullable_array_field(struct HasNullableArr *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect on array field 'ya' containing a _Nullable pointer}}
+}
+
+// A multi-dimensional array of _Nullable pointers: the warning still fires.
+struct HasNullableArr2D { int *_Owned _Nullable m[2][3]; };
+_Safe void test_deref_nullable_array_field_2d(struct HasNullableArr2D *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect on array field 'm' containing a _Nullable pointer}}
+}
+
+// An array whose element is a struct that contains a _Nullable pointer field:
+// the whole element is opaque to __assume_null, so the warning fires for the
+// array field.
+struct InnerNullArr { int *_Owned _Nullable p; };
+struct HasNullableArrElem { struct InnerNullArr ea[2]; };
+_Safe void test_deref_nullable_array_elem_struct(struct HasNullableArrElem *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect on array field 'ea' containing a _Nullable pointer}}
+}
+
+// A _Nullable array field nested inside a sub-struct: the recursive scan
+// descends into the sub-struct and warns on the inner array field. The warning
+// reports the full dotted access path (in.arr), not just the leaf field.
+struct InnerNullableArr { int *_Owned _Nullable arr[2]; };
+struct HasNestedNullableArr { struct InnerNullableArr in; };
+_Safe void test_deref_nested_nullable_array_field(struct HasNestedNullableArr *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect on array field 'in.arr' containing a _Nullable pointer}}
+}
+
+// A _Nullable array field nested two struct levels deep: the path is built
+// through every enclosing struct field (b.c.arr), not collapsed to the leaf.
+struct LeafArr { int *_Owned _Nullable arr[2]; };
+struct MidArr { struct LeafArr c; };
+struct HasDeepNestedNullableArr { struct MidArr b; };
+_Safe void test_deref_deep_nested_nullable_array_field(struct HasDeepNestedNullableArr *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect on array field 'b.c.arr' containing a _Nullable pointer}}
+}
+
+// Error takes precedence over warning: when the struct has both a _Nonnull
+// array field and a _Nullable array field, only the error is emitted.
+struct HasMixedArr { int *_Nonnull na[2]; int *_Owned _Nullable ya[2]; };
+_Safe void test_deref_mixed_array_fields(struct HasMixedArr *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A plain scalar _Nullable pointer field (the normal target of
+// __assume_null(*s)) produces NO warning — only array fields are warned
+// about. This function has no expected diagnostics: if a warning were
+// emitted, -verify would flag it as "seen but not expected".
+struct HasScalarNullable { int *_Owned _Nullable p; };
+_Safe void test_deref_scalar_nullable_no_warning(struct HasScalarNullable *_Owned s) {
+  _Unsafe { __assume_null(*s); }
+}
+
+// === No _Nullable pointer field ===
+// A struct with no pointer fields at all: __assume_null(*s) has no _Nullable
+// field to assume null, so the call is a no-op and a warning is emitted.
+struct NoPtrFields { int x; int y; };
+_Safe void test_deref_no_nullable_field(struct NoPtrFields *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect: the struct does not contain any _Nullable pointer field}}
+}
+
+// A struct with only non-pointer fields (scalars/arrays of non-pointers) also
+// has no _Nullable pointer field, so the no-op warning fires.
+struct OnlyNonPtrFields { int a; double b; int arr[3]; };
+_Safe void test_deref_only_non_pointer_fields(struct OnlyNonPtrFields *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-warning {{__assume_null has no effect: the struct does not contain any _Nullable pointer field}}
+}
+
+// A struct whose only pointer field is _Nonnull is already rejected with an
+// error (precedence); the no-Nullable warning does NOT fire alongside it.
+struct OnlyNonnull { int *_Nonnull p; };
+_Safe void test_deref_only_nonnull_field(struct OnlyNonnull *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A struct whose only pointer field is a bare (unannotated) `int *p` is treated
+// as _Nullable by default, so __assume_null(*s) DOES have an effect (it marks
+// p null) — the no-Nullable warning does NOT fire.
+struct OnlyBarePtr { int *p; };
+_Safe void test_deref_bare_ptr_no_warning(struct OnlyBarePtr *_Owned s) {
+  _Unsafe { __assume_null(*s); }
+}
+
+// === Struct-typed arguments (variable and field access) ===
+// __assume_null accepts a struct variable `t`, a struct field access
+// `s->in` / `t.in`, and chains thereof, applying the same three-level scan
+// (_Nonnull error → array-nullable warning → no-Nullable warning) as the
+// `*s` form.
+
+// A struct variable with a _Nullable pointer field: accepted, no warning.
+struct StructVar { int *_Owned _Nullable p; };
+_Safe void test_struct_var_ok(struct StructVar t) {
+  _Unsafe { __assume_null(t); }
+}
+
+// A struct variable with no _Nullable pointer field: no-op warning.
+struct StructVarNoNullable { int x; };
+_Safe void test_struct_var_no_nullable(struct StructVarNoNullable t) {
+  _Unsafe { __assume_null(t); } // expected-warning {{__assume_null has no effect: the struct does not contain any _Nullable pointer field}}
+}
+
+// A struct variable with a _Nonnull field: rejected with an error.
+struct StructVarNonnull { int *_Nonnull q; };
+_Safe void test_struct_var_nonnull(struct StructVarNonnull t) {
+  _Unsafe { __assume_null(t); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A struct field access on an owned struct pointer: `__assume_null(s->in)`.
+// The scan recurses into the sub-struct.
+struct InnerStruct { int *_Owned _Nullable ip; };
+struct OuterStruct { struct InnerStruct in; };
+_Safe void test_struct_field_ptr_ok(struct OuterStruct *_Owned s) {
+  _Unsafe { __assume_null(s->in); }
+}
+
+// A struct field access on a struct value: `__assume_null(t.in)`.
+_Safe void test_struct_field_val_ok(struct OuterStruct t) {
+  _Unsafe { __assume_null(t.in); }
+}
+
+// A struct field access where the sub-struct has a _Nonnull field: rejected.
+struct InnerNonnull { int *_Nonnull n; };
+struct OuterNonnull { struct InnerNonnull in; };
+_Safe void test_struct_field_nonnull(struct OuterNonnull *_Owned s) {
+  _Unsafe { __assume_null(s->in); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A struct field access where the sub-struct has no _Nullable pointer field:
+// no-op warning.
+struct InnerNoNullable { int x; };
+struct OuterNoNullable { struct InnerNoNullable in; };
+_Safe void test_struct_field_no_nullable(struct OuterNoNullable *_Owned s) {
+  _Unsafe { __assume_null(s->in); } // expected-warning {{__assume_null has no effect: the struct does not contain any _Nullable pointer field}}
+}
+
+// A struct field chain `s->in.in2` / `t.in.in2` where the leaf has a _Nullable
+// field: accepted, no warning.
+struct Leaf { int *_Owned _Nullable p; };
+struct Mid { struct Leaf in2; };
+struct Root { struct Mid in; };
+_Safe void test_struct_field_chain_ptr(struct Root *_Owned s) {
+  _Unsafe { __assume_null(s->in.in2); }
+}
+_Safe void test_struct_field_chain_val(struct Root t) {
+  _Unsafe { __assume_null(t.in.in2); }
+}
+
+// An array subscript inside a struct-typed field access is still rejected.
+struct ArrHolder { int *_Nullable arr[2]; };
+struct OuterArr { struct ArrHolder in; };
+_Safe void test_struct_field_array_subscript(struct OuterArr *_Owned s) {
+  _Unsafe { __assume_null(s->in.arr[0]); } // expected-error {{__assume_null requires a trackable expression as argument}}
+}
+
+// === Scan-rule coverage for the struct variable and field forms ===
+// The three-level scan (_Nonnull error, array-nullable warning, no-Nullable
+// warning) is the same code path for every struct form. The cases below cover
+// the array-nullable and nested-nonnull branches for the new forms, which are
+// otherwise only exercised on the `*s` form.
+
+// A _Nullable pointer array field in a struct variable: the array-nullable
+// warning fires (the dataflow has no per-element state).
+struct VarArrNullable { int *_Owned _Nullable ya[2]; };
+_Safe void test_struct_var_nullable_array_field(struct VarArrNullable t) {
+  _Unsafe { __assume_null(t); } // expected-warning {{__assume_null has no effect on array field 'ya' containing a _Nullable pointer}}
+}
+
+// A _Nullable pointer array field in a struct field access: the array-nullable
+// warning fires for the sub-struct.
+struct OuterArrNullable { struct VarArrNullable in; };
+_Safe void test_struct_field_nullable_array_field(struct OuterArrNullable *_Owned s) {
+  _Unsafe { __assume_null(s->in); } // expected-warning {{__assume_null has no effect on array field 'ya' containing a _Nullable pointer}}
+}
+// And on a struct-value field access.
+_Safe void test_struct_field_val_nullable_array_field(struct OuterArrNullable t) {
+  _Unsafe { __assume_null(t.in); } // expected-warning {{__assume_null has no effect on array field 'ya' containing a _Nullable pointer}}
+}
+
+// A _Nonnull field nested inside a sub-struct, on a struct variable: the
+// recursive scan must still reject it (not just the top-level field).
+struct InnerNestedNonnull { int *_Nonnull n; };
+struct VarNestedNonnull { struct InnerNestedNonnull in; };
+_Safe void test_struct_var_nested_nonnull(struct VarNestedNonnull t) {
+  _Unsafe { __assume_null(t); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A _Nonnull field nested inside a sub-struct, on a struct-value field access:
+// the recursive scan rejects it.
+struct OuterValNestedNonnull { struct InnerNestedNonnull in; };
+_Safe void test_struct_field_val_nested_nonnull(struct OuterValNestedNonnull t) {
+  _Unsafe { __assume_null(t.in); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A chain `t.in.in2` where the leaf sub-struct has no _Nullable pointer field:
+// the no-Nullable warning fires (the recursive scan found nothing to assume).
+struct LeafNoNullable { int x; };
+struct MidNoNullable { struct LeafNoNullable in2; };
+struct RootNoNullable { struct MidNoNullable in; };
+_Safe void test_struct_field_chain_no_nullable(struct RootNoNullable t) {
+  _Unsafe { __assume_null(t.in.in2); } // expected-warning {{__assume_null has no effect: the struct does not contain any _Nullable pointer field}}
+}
+
+// A _Nonnull field at the leaf of a chain `t.in.in2`: the recursive scan
+// rejects it.
+struct LeafNonnull { int *_Nonnull n; };
+struct MidNonnull { struct LeafNonnull in2; };
+struct RootNonnull { struct MidNonnull in; };
+_Safe void test_struct_field_chain_nonnull(struct RootNonnull *_Owned s) {
+  _Unsafe { __assume_null(s->in.in2); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
+// A _Nonnull field reachable ONLY through a _Nullable pointer field in a
+// struct variable: the scan must NOT descend through the pointer pointee, so
+// the call is accepted (the pointer field itself is _Nullable).
+struct InnerPtrN { int *_Nonnull n; };
+struct VarNonnullViaPtr { struct InnerPtrN *_Borrow _Nullable ip; };
+_Safe void test_struct_var_nonnull_via_pointer_field(struct VarNonnullViaPtr t) {
+  _Unsafe { __assume_null(t); }
+}
+
+// A struct variable whose only pointer field is a bare (unannotated) `int *p`:
+// bare pointers are _Nullable by default, so __assume_null(t) DOES have an
+// effect — the no-Nullable warning does NOT fire.
+struct VarBarePtr { int *p; };
+_Safe void test_struct_var_bare_ptr_no_warning(struct VarBarePtr t) {
+  _Unsafe { __assume_null(t); }
+}
+

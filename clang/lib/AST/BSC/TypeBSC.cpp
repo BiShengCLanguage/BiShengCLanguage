@@ -991,6 +991,46 @@ bool RecordType::hasBorrowFields() const {
   return false;
 }
 
+// Recursively determine whether a record contains a pointer field with the
+// given nullability, reachable through embedded struct/array fields but NOT
+// through pointer pointees (which live in separate allocations and are not
+// reachable from the record itself).
+static bool hasFieldWithNullability(const RecordDecl *RD,
+                                    NullabilityKind Kind) {
+  if (!RD)
+    return false;
+  for (const FieldDecl *FD : RD->fields()) {
+    QualType FT = FD->getType();
+    if (FT->isPointerType()) {
+      if (FT.getDefNullability() == Kind)
+        return true;
+    } else if (FT->isArrayType()) {
+      QualType ElemTy = FT;
+      while (const auto *AT = dyn_cast<ArrayType>(ElemTy))
+        ElemTy = AT->getElementType();
+      if (ElemTy->isPointerType()) {
+        if (ElemTy.getDefNullability() == Kind)
+          return true;
+      } else if (const RecordType *RT = ElemTy->getAs<RecordType>()) {
+        if (hasFieldWithNullability(RT->getDecl(), Kind))
+          return true;
+      }
+    } else if (const RecordType *RT = FT->getAs<RecordType>()) {
+      if (hasFieldWithNullability(RT->getDecl(), Kind))
+        return true;
+    }
+  }
+  return false;
+}
+
+bool RecordType::hasNonnullFields() const {
+  return hasFieldWithNullability(getDecl(), NullabilityKind::NonNull);
+}
+
+bool RecordType::hasNullableFields() const {
+  return hasFieldWithNullability(getDecl(), NullabilityKind::Nullable);
+}
+
 bool RecordType::withBorrowFields() const {
   llvm::SmallPtrSet<const RecordType *, 16> Visited;
   return withBorrowFieldsImpl(QualType(this, 0), Visited);

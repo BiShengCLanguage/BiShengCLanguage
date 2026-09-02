@@ -1178,10 +1178,95 @@ void Ownership::OwnershipStatus::setOwnedFieldNull(const VarDecl *VD,
   }
 }
 
+// __assume_null(*s) on an owned struct pointer: drop ownership of every
+// registered owned field of the struct.
+void Ownership::OwnershipStatus::assumeAllOwnedFieldsNull(
+    const VarDecl *VD) {
+  if (!OPSStatus.count(VD))
+    return;
+  llvm::SmallVector<string, 16> paths(OPSAllOwnedFields[VD].begin(),
+                                       OPSAllOwnedFields[VD].end());
+  for (const string &path : paths) {
+    // Array fields ("arr[]", "arr[].a") carry their own element-wise
+    // ownership; an aggregate __assume_null cannot drop them (the W001
+    // warning already reports this in Sema). Skip them so a qualifying-loop
+    // element transfer is not laundered as null.
+    if (path.find("[]") != string::npos)
+      continue;
+    setOwnedFieldNull(VD, path);
+  }
+}
+
+// __assume_null(t) on a struct-value variable (VD in SStatus): drop ownership
+// of every registered owned field of the struct value, mirroring
+// assumeAllOwnedFieldsNull for the owned-struct-pointer (OPS) host.
+void Ownership::OwnershipStatus::assumeAllSFieldsNull(const VarDecl *VD) {
+  if (!SStatus.count(VD))
+    return;
+  llvm::SmallVector<string, 16> paths(SAllOwnedFields[VD].begin(),
+                                       SAllOwnedFields[VD].end());
+  for (const string &path : paths) {
+    // Array fields carry element-wise ownership; an aggregate __assume_null
+    // cannot drop them (W001 already reports this). Skip so a qualifying-loop
+    // element transfer is not laundered as null.
+    if (path.find("[]") != string::npos)
+      continue;
+    if (SAllOwnedFields[VD].count(path)) {
+      SOwnedOwnedFields[VD].erase(path);
+      SNullOwnedFields[VD].insert(path);
+      SUninitOwnedFields[VD].erase(path);
+      auto allPrefixStrs =
+          findPrefixStrings(SAllOwnedFields[VD], path + ".");
+      for (const string &str : allPrefixStrs) {
+        SOwnedOwnedFields[VD].erase(str);
+        SNullOwnedFields[VD].insert(str);
+        SUninitOwnedFields[VD].erase(str);
+      }
+    }
+  }
+}
+
+// __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
+// ownership of every owned field nested under `fieldPath` (prefix match) on
+// whichever host tracks VD — an owned struct pointer (OPS) or a struct value
+// (S). `fieldPath` is e.g. "in"; fields under it are "in.ip", "in.x.y".
+void Ownership::OwnershipStatus::assumeOwnedFieldsUnderNull(
+    const VarDecl *VD, const string &fieldPath) {
+  string prefix = fieldPath + ".";
+  if (OPSStatus.count(VD)) {
+    auto allPrefixStrs = findPrefixStrings(OPSAllOwnedFields[VD], prefix);
+    for (const string &str : allPrefixStrs) {
+      if (str.find("[]") != string::npos)
+        continue;
+      setOwnedFieldNull(VD, str);
+    }
+  }
+  if (SStatus.count(VD)) {
+    auto allPrefixStrs = findPrefixStrings(SAllOwnedFields[VD], prefix);
+    for (const string &str : allPrefixStrs) {
+      if (str.find("[]") != string::npos)
+        continue;
+      if (SAllOwnedFields[VD].count(str)) {
+        SOwnedOwnedFields[VD].erase(str);
+        SNullOwnedFields[VD].insert(str);
+        SUninitOwnedFields[VD].erase(str);
+      }
+    }
+  }
+}
+
 void Ownership::OwnershipStatus::setToNull(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    // __assume_null(t) on a struct-value variable: drop ownership of every owned
+    // field of the struct value. (A plain `t = nullptr` is ill-formed for a
+    // struct value, so this path is only reached via __assume_null.) Pointer
+    // variables fall through to setToNull(VD) below.
+    if (E->getType()->isRecordType() && SStatus.count(VD)) {
+      assumeAllSFieldsNull(VD);
+      return;
+    }
     setToNull(VD);
     return;
   }
@@ -1229,6 +1314,16 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
     // resolve to the same root DeclRefExpr as `s.p` does for a struct value.
     if (const DeclRefExpr *DRE = getRootDREFromMemberBase(memberField.first)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      // __assume_null(s->in) / __assume_null(t.in) where the member is a
+      // (sub-)struct: drop ownership of every owned field nested under it on
+      // whichever host tracks VD. (A plain `s->in = nullptr` / `t.in = nullptr`
+      // is ill-formed for a struct member, so this path is only reached via
+      // __assume_null.) Pointer-typed members fall through to the single-field
+      // drop below.
+      if (E->getType()->isRecordType()) {
+        assumeOwnedFieldsUnderNull(VD, memberField.second);
+        return;
+      }
       if (OPSStatus.count(VD))
         setOwnedFieldNull(VD, memberField.second);
       if (SStatus.count(VD)) {
@@ -1263,6 +1358,15 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
     }
     if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(e)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      // __assume_null(*s) on an owned struct pointer (`struct S *_Owned s`):
+      // drop ownership of every _Nullable owned field. Sema has already
+      // rejected structs with a _Nonnull field, so every trackable owned field
+      // here is _Nullable.
+      if (suffix == "*" && OPSStatus.count(VD)) {
+        QualType PointeeTy = VD->getType()->getPointeeType();
+        if (PointeeTy->isRecordType())
+          assumeAllOwnedFieldsNull(VD);
+      }
       if (BOPStatus.count(VD)) {
         if (BOPAllOwnedFields[VD].count(suffix)) {
           BOPOwnedOwnedFields[VD].erase(suffix);

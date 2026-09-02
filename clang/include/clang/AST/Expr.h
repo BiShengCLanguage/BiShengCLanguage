@@ -582,6 +582,7 @@ public:
 
 #if ENABLE_BSC
   bool isNullExpr(ASTContext &Ctx) const;
+  bool isTrackableExpr() const;
 #endif
 
   /// isConstantInitializer - Returns true if this expression can be emitted to

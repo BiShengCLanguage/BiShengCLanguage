@@ -57,8 +57,9 @@ _Safe int assume_on_field(void) {
 }
 
 // __assume_null on a field of an owned pointer to a struct (q->p, where q is
-// struct T *_Owned): the field is null / handled, so the whole pointer holds no
-// ownership and may be borrowed and moved afterwards — mirroring `q->p = nullptr`.
+// struct T *_Owned): the field is null / handled, so it does not block a later
+// move of the whole pointer. q itself still owns the struct allocation; the
+// field having been assumed null (not moved) means consuming q is allowed.
 struct T {
   int *_Owned _Nullable p;
 };
@@ -95,4 +96,136 @@ _Safe void borrow_after_assume_null_field(void *_Owned p) {
 void test_unsafe_func(void) {
   int *_Nullable p = (int *_Nullable)0;
   __assume_null(p);
+}
+
+// __assume_null(*s) on an owned struct pointer: asserts that every _Nullable
+// field of *s is null. Ownership of all owned _Nullable fields is dropped, so
+// no leak is reported for any field. The struct pointer s itself, however,
+// still holds the struct allocation's ownership — it is not set to null by the
+// builtin — so s must still be moved or freed before it goes out of scope.
+// The struct must not contain a _Nonnull field (see the sema test file for
+// that rejection).
+struct W {
+  int *_Owned _Nullable p1;
+  int *_Owned _Nullable p2;
+};
+
+struct Inner {
+  int *_Owned _Nullable ip;
+};
+
+struct Nested {
+  struct Inner in;
+  int *_Owned _Nullable p;
+};
+
+void consume_W(struct W *_Owned);
+void consume_Nested(struct Nested *_Owned);
+
+void assume_on_deref_struct(struct W *_Owned s) {
+  _Unsafe { __assume_null(*s); }
+  // No leak for s.p1, s.p2: the builtin dropped their ownership. s itself is
+  // still owned, so it must be moved out to avoid leaking the struct.
+  consume_W(s);
+}
+
+void assume_on_deref_struct_nested(struct Nested *_Owned s) {
+  _Unsafe { __assume_null(*s); }
+  // No leak for s.in.ip, s.p: nested fields are covered too. s itself is still
+  // owned and must be moved out.
+  consume_Nested(s);
+}
+
+// __assume_null on a struct VARIABLE `t`: every _Nullable field is asserted
+// null and its ownership dropped — no leak for the fields, no use afterwards.
+struct Vv { int *_Owned _Nullable p; };
+void assume_on_struct_var(struct Vv t) {
+  _Unsafe { __assume_null(t); }
+  // No leak for t.p: the builtin dropped its ownership.
+}
+
+// __assume_null on a struct-typed FIELD ACCESS: `s->in` and `t.in`. The
+// sub-struct's _Nullable fields are asserted null and dropped; the host
+// (s) must still be moved/freed.
+struct InnerV { int *_Owned _Nullable ip; };
+struct OuterV { struct InnerV in; };
+void consume_OuterV(struct OuterV *_Owned);
+
+void assume_on_struct_field_ptr(struct OuterV *_Owned s) {
+  _Unsafe { __assume_null(s->in); }
+  // No leak for s->in.ip: dropped. s itself still owned → consume it.
+  consume_OuterV(s);
+}
+
+void assume_on_struct_field_val(struct OuterV t) {
+  _Unsafe { __assume_null(t.in); }
+  // No leak for t.in.ip: dropped.
+}
+
+// __assume_null on a deep field CHAIN `s->in.in2` / `t.in.in2`: the leaf
+// sub-struct's _Nullable field is asserted null and dropped.
+struct LeafV { int *_Owned _Nullable p; };
+struct MidV { struct LeafV in2; };
+struct RootV { struct MidV in; };
+void consume_RootV(struct RootV *_Owned);
+
+void assume_on_chain_ptr(struct RootV *_Owned s) {
+  _Unsafe { __assume_null(s->in.in2); }
+  consume_RootV(s);
+}
+
+void assume_on_chain_val(struct RootV t) {
+  _Unsafe { __assume_null(t.in.in2); }
+}
+
+// === Ownership DROP for struct-typed arguments (the no-leak half) ===
+// These inject real non-null ownership via make_owned so the drop is actually
+// observable: without __assume_null each owned field would leak. The leak half
+// — where a struct POINTER itself still leaks — lives in
+// Negative/NullabilityCheck/assume_null_struct_leak.cbs.
+
+int *_Owned make_owned(void);
+
+// __assume_null(t) on a struct-value variable: the owned field's ownership is
+// dropped, so no leak is reported for it at scope end.
+struct V { int *_Owned _Nullable p; };
+void test_struct_var_drop(void) {
+  struct V t;
+  t.p = make_owned();
+  _Unsafe { __assume_null(t); }
+} // no leak error: t.p ownership dropped by __assume_null
+
+// __assume_null(t) nested: sub-struct owned field dropped too.
+struct NestedV { struct { int *_Owned _Nullable ip; } in; };
+void test_struct_var_nested_drop(void) {
+  struct NestedV t;
+  t.in.ip = make_owned();
+  _Unsafe { __assume_null(t); }
+} // no leak error: t.in.ip ownership dropped
+
+// __assume_null(t.in): drops ownership of fields under t.in on the struct
+// value; no leak for t.in.ip.
+struct Outer { struct { int *_Owned _Nullable ip; } in; };
+void test_struct_field_val_drop(void) {
+  struct Outer t;
+  t.in.ip = make_owned();
+  _Unsafe { __assume_null(t.in); }
+} // no leak error: t.in.ip ownership dropped
+
+// __assume_null on a deep field chain `t.in.in2`: drops ownership of the leaf
+// field t.in.in2.p; no leak for it.
+struct Leaf { int *_Owned _Nullable p; };
+struct Mid { struct Leaf in2; };
+struct Root { struct Mid in; };
+void test_struct_field_chain_val_drop(void) {
+  struct Root t;
+  t.in.in2.p = make_owned();
+  _Unsafe { __assume_null(t.in.in2); }
+} // no leak error: t.in.in2.p ownership dropped
+
+// The sibling builtin gates in the same Sema switch — va_end and the
+// raw-transfer builtins — relax via IsInEvaluatedSafeZone() in unevaluated
+// contexts; this spelling must likewise compile.
+_Safe int f(int *_Nullable p) {
+  return (int)sizeof(__assume_null(p));
 }
