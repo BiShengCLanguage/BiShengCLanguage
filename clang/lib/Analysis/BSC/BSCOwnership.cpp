@@ -1080,6 +1080,25 @@ void Ownership::OwnershipStatus::setToNull(const VarDecl *VD) {
   }
 }
 
+// Mark a single owned field of an owned-pointer-to-struct (VD in OPSStatus) as
+// null: remove it from OwnedOwned, add it to NullOwned, and propagate to any
+// fields nested below it (prefix matches).
+void Ownership::OwnershipStatus::setOwnedFieldNull(const VarDecl *VD,
+                                                  const string &fieldPath) {
+  if (!OPSStatus.count(VD))
+    return;
+  if (OPSAllOwnedFields[VD].count(fieldPath)) {
+    OPSOwnedOwnedFields[VD].erase(fieldPath);
+    OPSNullOwnedFields[VD].insert(fieldPath);
+    auto allPrefixStrs = findPrefixStrings(OPSAllOwnedFields[VD],
+                                           fieldPath + ".");
+    for (const string &str : allPrefixStrs) {
+      OPSOwnedOwnedFields[VD].erase(str);
+      OPSNullOwnedFields[VD].insert(str);
+    }
+  }
+}
+
 void Ownership::OwnershipStatus::setToNull(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
@@ -1131,36 +1150,8 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
     // resolve to the same root DeclRefExpr as `s.p` does for a struct value.
     if (const DeclRefExpr *DRE = getRootDREFromMemberBase(memberField.first)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
-      if (OPSStatus.count(VD)) {
-        if (OPSAllOwnedFields[VD].count(memberField.second)) {
-          OPSOwnedOwnedFields[VD].erase(memberField.second);
-          OPSNullOwnedFields[VD].insert(memberField.second);
-          auto allPrefixStrs = findPrefixStrings(OPSAllOwnedFields[VD],
-                                                 memberField.second + ".");
-          for (const string &str : allPrefixStrs) {
-            OPSOwnedOwnedFields[VD].erase(str);
-            OPSNullOwnedFields[VD].insert(str);
-          }
-        }
-        // The field is now null / handled. When every owned field has been
-        // assumed null, the whole owned-pointer-to-struct holds no ownership
-        // and may be moved or go out of scope without a leak — mirror the
-        // whole-variable Null state set by setToNull(VD). __assume_null(q->p)
-        // thus behaves like `q->p = nullptr` for the purposes of a later
-        // consume(q). Relying on NullOwned (not OwnedOwned being empty, which
-        // also holds for the AllMoved state) avoids prematurely marking a
-        // pointer Null when other owned fields still need freeing.
-        bool allFieldsNull = true;
-        for (const string &f : OPSAllOwnedFields[VD])
-          if (!OPSNullOwnedFields[VD].count(f)) {
-            allFieldsNull = false;
-            break;
-          }
-        if (allFieldsNull && !OPSAllOwnedFields[VD].empty()) {
-          resetAll(VD);
-          set(VD, Ownership::Status::Null);
-        }
-      }
+      if (OPSStatus.count(VD))
+        setOwnedFieldNull(VD, memberField.second);
       if (SStatus.count(VD)) {
         if (SAllOwnedFields[VD].count(memberField.second)) {
           SOwnedOwnedFields[VD].erase(memberField.second);
@@ -1564,9 +1555,21 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSUse(
           OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfPartiallyMoved,
                             VD->getNameAsString(), collectMovedFields(VD)));
     } else if (is(VD, Ownership::Status::AllMoved)) {
-      diags.push_back(
-          OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfAllMoved,
-                            VD->getNameAsString(), collectMovedFields(VD)));
+      // Allow consuming the whole pointer when every owned field was dropped
+      // via __assume_null (sits in NullOwned) rather than genuinely moved out.
+      // Such fields are null/handled, not moved, so moving the struct pointer
+      // is safe; only report AllMoved when some field is neither owned nor
+      // assumed-null.
+      bool allFieldsAssumedNull = !OPSAllOwnedFields[VD].empty();
+      for (const string &f : OPSAllOwnedFields[VD])
+        if (!OPSNullOwnedFields[VD].count(f)) {
+          allFieldsAssumedNull = false;
+          break;
+        }
+      if (!allFieldsAssumedNull)
+        diags.push_back(
+            OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfAllMoved,
+                              VD->getNameAsString(), collectMovedFields(VD)));
     }
   }
   if (isAddrMut) {

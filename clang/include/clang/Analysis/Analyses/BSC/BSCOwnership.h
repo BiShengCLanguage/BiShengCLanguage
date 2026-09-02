@@ -415,6 +415,7 @@ public:
     void setToAllMoved(const Expr *E);
     void setToNull(const VarDecl *VD);
     void setToNull(const Expr *E);
+    void setOwnedFieldNull(const VarDecl *VD, const std::string &fieldPath);
     void setToMoved(const VarDecl *VD);
     void setToMoved(const Expr *E);
 

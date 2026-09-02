@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+// expected-no-diagnostics
+
+// Regression: after the owned _Nullable field of an _Owned struct pointer is
+// moved out and then set to null, consuming the whole struct pointer must NOT
+// be rejected as "use after all its fields were moved". Setting the last owned
+// field to null drops its ownership (records it in NullOwned) rather than
+// laundering the whole-pointer ownership away, so the pointer still owns its
+// struct allocation and may be moved/returned.
+typedef struct {
+  int *_Owned _Nullable p;
+  int a;
+} S;
+
+S *_Owned test_move_field_then_null_consume(S *_Owned s) {
+  if ((s->p) != nullptr) {
+    int *tmp = __move_to_raw((s->p));
+    (void)tmp;
+    s->p = nullptr;
+  }
+  s->a = 2;
+  return s;
+}
