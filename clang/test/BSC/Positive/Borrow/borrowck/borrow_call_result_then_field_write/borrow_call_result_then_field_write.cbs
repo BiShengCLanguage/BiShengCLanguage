@@ -1,0 +1,24 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+typedef struct {
+  int a;
+} S;
+
+int foo(S *_Borrow);
+
+void test(S *_Borrow p) {
+  p->a = 1;
+  p->a = foo(p);
+}
+
+int foo(S *_Borrow p) {
+  return p->a + 1;
+}
+
+int main(void) {
+  S s = { 0 };
+  test(&_Mut s);
+  return s.a == 2 ? 0 : 1;
+}

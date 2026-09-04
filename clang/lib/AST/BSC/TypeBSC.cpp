@@ -119,25 +119,22 @@ class RecordRegionLayoutBuilder {
       return;
     }
 
-    const RecordType *RT = Type->getAs<RecordType>();
-    if (!RT)
-      return;
-    const RecordDecl *Definition = RT->getDecl()->getDefinition();
-    if (!Definition)
-      return;
-    const RecordDecl *Record = GetCanonicalRecord(Definition);
-    if (Layouts.find(Record) != Layouts.end())
-      return;
-
-    RegionLayoutGraphNode *Target = GetOrCreateNode(Record, Definition);
-    if (Source)
-      AddEdge(Source, Target);
-    if (Target->Scanned)
-      return;
-    Target->Scanned = true;
-
-    for (const FieldDecl *FD : Definition->fields())
-      CollectType(FD->getType(), Target);
+    if (const RecordType *RT = Type->getAs<RecordType>()) {
+      if (const RecordDecl *Definition = RT->getDecl()->getDefinition()) {
+        const RecordDecl *Record = GetCanonicalRecord(Definition);
+        if (Layouts.find(Record) == Layouts.end()) {
+          RegionLayoutGraphNode *Target =
+              GetOrCreateNode(Record, Definition);
+          if (Source)
+            AddEdge(Source, Target);
+          if (!Target->Scanned) {
+            Target->Scanned = true;
+            for (const FieldDecl *FD : Definition->fields())
+              CollectType(FD->getType(), Target);
+          }
+        }
+      }
+    }
   }
 
   unsigned AllocateRegion(unsigned &NextRegion, bool &HasFieldRegion) {
@@ -182,27 +179,25 @@ class RecordRegionLayoutBuilder {
       return;
     }
 
-    const RecordType *RT = Type->getAs<RecordType>();
-    if (!RT)
-      return;
-    const RecordDecl *Definition = RT->getDecl()->getDefinition();
-    if (!Definition)
-      return;
-    const RecordDecl *Record = GetCanonicalRecord(Definition);
-    auto NodeIt = RecordNodes.find(Record);
-    if (NodeIt != RecordNodes.end() && SCCNodes.count(NodeIt->second)) {
-      // A record in the same SCC is a recursive tail. Its complete parameter
-      // list is appended after the SCC's region count becomes known.
-      FieldLayout.AppendSCCRegions = true;
-      return;
-    }
-
-    auto LayoutIt = Layouts.find(Record);
-    assert(LayoutIt != Layouts.end() &&
-           "dependency layout should be computed before its user");
-    for (unsigned I = 0; I < LayoutIt->second.getNumRegions(); ++I) {
-      FieldLayout.Indices.push_back(
-          AllocateRegion(NextRegion, HasFieldRegion));
+    if (const RecordType *RT = Type->getAs<RecordType>()) {
+      if (const RecordDecl *Definition = RT->getDecl()->getDefinition()) {
+        const RecordDecl *Record = GetCanonicalRecord(Definition);
+        auto NodeIt = RecordNodes.find(Record);
+        if (NodeIt != RecordNodes.end() && SCCNodes.count(NodeIt->second)) {
+          // A record in the same SCC is a recursive tail. Its complete
+          // parameter list is appended after the SCC's region count becomes
+          // known.
+          FieldLayout.AppendSCCRegions = true;
+        } else {
+          auto LayoutIt = Layouts.find(Record);
+          assert(LayoutIt != Layouts.end() &&
+                 "dependency layout should be computed before its user");
+          for (unsigned I = 0; I < LayoutIt->second.getNumRegions(); ++I) {
+            FieldLayout.Indices.push_back(
+                AllocateRegion(NextRegion, HasFieldRegion));
+          }
+        }
+      }
     }
   }
 

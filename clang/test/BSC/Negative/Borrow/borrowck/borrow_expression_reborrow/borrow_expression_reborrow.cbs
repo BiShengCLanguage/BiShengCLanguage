@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+
+void statement_expression_preserves_borrow(void) {
+  int x = 1;
+  // expected-note@+2 {{'x' is borrowed here}}
+  int *_Borrow bp =
+      ({ int *_Borrow tmp = &_Mut x; tmp; });
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  *bp = 3;
+}
+
+void conditional_statement_expression_preserves_borrow(void) {
+  int x = 1, y = 2;
+  int cond = 1;
+  // expected-note@+2 {{'x' is borrowed here}}
+  int *_Borrow b =
+      ({ int *_Borrow tmp = (cond ? &_Mut x : &_Mut y); tmp; });
+  x = 99; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  *b = 3;
+}
+
+void borrow_cast_preserves_borrow(void) {
+  int x = 1;
+  int *_Borrow r = &_Mut x; // expected-note {{'x' is borrowed here}}
+  int *_Borrow q = (int *_Borrow)r;
+  x = 2; // expected-error {{cannot assign to 'x' because it is borrowed}}
+  *q = 3;
+}

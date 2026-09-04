@@ -1,0 +1,13 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+int null_pointer_comma_is_lowered(void) {
+  int x = 1;
+  int *_Borrow bp = (x = 2, nullptr);
+  return x == 2 && bp == nullptr ? 0 : 1;
+}
+
+int main(void) {
+  return null_pointer_comma_is_lowered();
+}

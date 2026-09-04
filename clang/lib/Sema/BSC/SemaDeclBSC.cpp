@@ -912,7 +912,8 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
         // A discarded assignment only performs the write; its result does not
         // need to be forwarded through a temporary.
         if (!Dest) {
-          ExprIntoDest(LHS.get(), BO->getRHS());
+          ExprResult RHS = AsOperand(BO->getRHS());
+          PushAssignOrExpr(LHS.get(), RHS.get());
           return;
         }
 
@@ -1088,10 +1089,6 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
     }
     case Stmt::ImplicitCastExprClass: {
       ImplicitCastExpr *ICE = cast<ImplicitCastExpr>(E);
-      if (ICE->getCastKind() == CK_NullToPointer) {
-        PushAssignOrExpr(Dest, ICE);
-        return;
-      }
       ExprResult SubExpr = AsOperand(ICE->getSubExpr());
       ICE->setSubExpr(SubExpr.get());
       PushAssignOrExpr(Dest, ICE);
@@ -1240,8 +1237,6 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
         replacedNodesMap.Insert(Result.get(), ICE);
         return Result;
       }
-      if (ICE->getCastKind() == CK_NullToPointer)
-        return ICE;
       ExprResult SubExpr = AsOperand(ICE->getSubExpr());
       ICE->setSubExpr(SubExpr.get());
       return ICE;
