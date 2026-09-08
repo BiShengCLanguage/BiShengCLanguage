@@ -47,3 +47,31 @@ _Safe void test_multi_param(void) {
     FP3 p1 = baz; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
     FP3 p2 = qux; // ok
 }
+
+// The rule is a type rule, so implicit conversions are rejected outside the
+// safe zone too; only an explicit cast in an unsafe zone is exempt.
+void unsafe_foo(int *_Borrow);
+void unsafe_bar(int *_Borrow __attribute__((ensure_init)));
+typedef void (*UFP1)(int *_Borrow __attribute__((ensure_init)));
+typedef void (*UFP2)(int *_Borrow);
+struct Holder { UFP1 cb; };
+void unsafe_take_fp1(UFP1 fn);
+
+UFP1 unsafe_global = unsafe_foo; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+
+void test_unsafe_zone(void) {
+    UFP1 p1 = unsafe_foo; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    UFP1 p2;
+    p2 = unsafe_foo; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    unsafe_take_fp1(unsafe_foo); // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    struct Holder h = { unsafe_foo }; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    UFP1 arr[1] = { unsafe_foo }; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+    UFP1 p3 = (UFP1)unsafe_foo; // ok: explicit cast in an unsafe zone
+    UFP1 p4 = unsafe_bar; // ok
+    UFP2 p5 = unsafe_bar; // ok: stronger to weaker
+    (void)p1; (void)p2; (void)h; (void)arr; (void)p3; (void)p4; (void)p5;
+}
+
+UFP1 test_unsafe_return(void) {
+    return unsafe_foo; // expected-error {{incompatible function pointer types: target expects __attribute__((ensure_init)) on parameter 0 but source does not have it}}
+}
