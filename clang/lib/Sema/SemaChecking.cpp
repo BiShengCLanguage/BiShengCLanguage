@@ -205,6 +205,14 @@ static bool checkTakeFromRawArgumentShape(Sema &S, CallExpr *TheCall,
       S.Diag(ArgLoc, diag::err_bsc_take_from_raw_not_raw) << ArgTy;
     return true;
   }
+  // A cast to a raw pointer type does not end the borrow of its operand.
+  if (TheCall->getArg(0)
+          ->IgnoreParenCastsSafe()
+          ->getType()
+          .isBorrowQualified()) {
+    S.Diag(ArgLoc, diag::err_move_borrow);
+    return true;
+  }
   if (ArgTy->isFunctionPointerType()) {
     if (ForArray)
       S.Diag(ArgLoc, diag::err_bsc_take_array_from_raw_function_pointer) << ArgTy;
