@@ -1,0 +1,67 @@
+// RUN: %clang_cc1 -verify %s
+
+// The condition of a conditional or logical operator reads its operands
+// without consuming ownership; a moved `_Owned` pointer there is
+// use-after-move.
+
+_Safe T *_Owned safe_malloc<T>(T);
+void safe_free(void *_Owned);
+void *malloc(unsigned long);
+void free(void *);
+
+_Unsafe int ternary_condition_after_move_to_raw(void) {
+  int *raw = (int *)malloc(sizeof(int));
+  int *_Owned _Nullable p = __take_from_raw(raw);
+  free(__move_to_raw(p));
+  int x = (p ? 1 : 0); // expected-error {{use of moved value: 'p'}}
+  int y = (*p ? 1 : 2); // expected-error {{use of moved value: 'p'}}
+  return x + y;
+}
+
+// The report's controls: an operator in the condition was already caught.
+_Unsafe int comparison_condition_after_move_to_raw(void) {
+  int *raw = (int *)malloc(sizeof(int));
+  int *_Owned _Nullable p = __take_from_raw(raw);
+  free(__move_to_raw(p));
+  int x = ((p != 0) ? 1 : 0); // expected-error {{use of moved value: 'p'}}
+  int y = (p && 1); // expected-error {{use of moved value: 'p'}}
+  return x + y;
+}
+
+int ternary_condition(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  safe_free((void *_Owned)p);
+  return p ? 1 : 0; // expected-error {{use of moved value: 'p'}}
+}
+
+int ternary_condition_deref(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free((void *_Owned)p);
+  return *p ? 1 : 2; // expected-error {{use of moved value: 'p'}}
+}
+
+int gnu_conditional(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  safe_free((void *_Owned)p);
+  return (p ?: 0) != 0; // expected-error {{use of moved value: 'p'}}
+}
+
+int logical_and_deref(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  safe_free((void *_Owned)p);
+  return p && *p; // expected-error 2 {{use of moved value: 'p'}}
+}
+
+int logical_or_deref(void) {
+  int *_Owned _Nullable q = safe_malloc<int>(1);
+  safe_free((void *_Owned)q);
+  return !q || *q; // expected-error 2 {{use of moved value: 'q'}}
+}
+
+// An owned pointer that was not moved may be tested.
+int owned_condition(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int x = p ? 1 : 0;
+  safe_free((void *_Owned)p);
+  return x;
+}

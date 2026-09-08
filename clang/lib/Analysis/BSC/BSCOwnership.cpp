@@ -3733,7 +3733,7 @@ void TransferFunctions::VisitAbstractConditionalOperator(
     AbstractConditionalOperator *ACO) {
   Operation Inherited = op;
 
-  op = None;
+  op = GetAddr;
   Visit(ACO->getCond());
   Ownership::OwnershipStatus StatAfterCond = stat;
 
@@ -3755,7 +3755,7 @@ void TransferFunctions::VisitBinaryConditionalOperator(
     BinaryConditionalOperator *BCO) {
   Operation Inherited = op;
 
-  op = None;
+  op = GetAddr;
   Visit(BCO->getCond());
   Ownership::OwnershipStatus StatAfterCond = stat;
 
