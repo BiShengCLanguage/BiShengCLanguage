@@ -1,0 +1,105 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+
+void safe_free(void *_Owned p);
+int *_Owned make(void);
+
+struct S {
+  int *_Owned p;
+};
+
+_Owned struct A {
+_Public:
+  int *_Owned p;
+  ~A(A this) { safe_free((void *_Owned)this.p); }
+};
+
+void goto_over_owned_pointer(void) {
+  goto skip;
+  int *_Owned p = make();
+skip:
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned' because it is uninitialized}}
+}
+
+void goto_over_owned_pointer_move_to_raw(void) {
+  goto skip;
+  int *_Owned p = make();
+skip:
+  __move_to_raw(p); // expected-error {{use of uninitialized value: 'p'}}
+}
+
+void conditional_goto_over_owned_pointer(int c) {
+  if (c)
+    goto skip;
+  int *_Owned p = make();
+skip:
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned' because it is uninitialized}}
+}
+
+void switch_over_owned_pointer(int c) {
+  switch (c) {
+  case 0:;
+    int *_Owned p = make();
+  default:
+    safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned' because it is uninitialized}}
+  }
+}
+
+void goto_over_struct_initializer(int c) {
+  if (c)
+    goto skip;
+  struct S s = {.p = make()};
+skip:
+  safe_free((void *_Owned)s.p); // expected-error {{cannot cast 's.p' to 'void * _Owned' because it is uninitialized}}
+}
+
+void goto_over_owned_struct_initializer(int c) {
+  if (c)
+    goto skip;
+  A a = {.p = make()};
+skip:
+  return; // expected-error {{use of possibly uninitialized value: 'a'}}
+}
+
+void goto_over_owned_struct_initializer_unconditional(void) {
+  goto skip;
+  A a = {.p = make()};
+skip:
+  return; // expected-error {{partially moved _Owned struct: 'a' at scope end, a.p is moved}}
+}
+
+void owned_pointer_initialized_after_label(int c) {
+  int *_Owned p;
+  if (c)
+    goto skip;
+skip:
+  p = make();
+  safe_free((void *_Owned)p);
+}
+
+void owned_pointer_declared_in_loop(int n) {
+  for (int i = 0; i < n; ++i) {
+    int *_Owned p = make();
+    safe_free((void *_Owned)p);
+  }
+}
+
+_Safe void safe_free_s(void *_Owned p);
+_Safe int *_Owned make_s(void);
+
+_Safe void safe_goto_over_owned_pointer(int c) {
+  if (c)
+    goto skip;
+  int *_Owned p = make_s();
+skip:
+  safe_free_s((void *_Owned)p); // expected-error {{use of possibly uninitialized value: 'p'}} expected-error {{cannot cast 'p' to 'void * _Owned' because it is uninitialized}}
+}
+
+void safe_block_goto_over_owned_pointer(int c) {
+  _Safe {
+    if (c)
+      goto skip;
+    int *_Owned p = make_s();
+  skip:
+    safe_free_s((void *_Owned)p); // expected-error {{use of possibly uninitialized value: 'p'}} expected-error {{cannot cast 'p' to 'void * _Owned' because it is uninitialized}}
+  }
+}

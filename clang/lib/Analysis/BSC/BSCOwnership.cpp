@@ -2623,6 +2623,10 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
       diags.push_back(OwnershipDiagInfo(
           Loc, Kind,
           moveAsterisksToFront(VD->getNameAsString() + "." + fullFieldName)));
+    } else if (overlapsOwnedFields(SUninitOwnedFields[VD], fullFieldName)) {
+      diags.push_back(OwnershipDiagInfo(
+          Loc, InvalidCastUninit,
+          moveAsterisksToFront(VD->getNameAsString() + "." + fullFieldName)));
     }
     // calculate the fields with fullFieldName prefix
     auto allPrefixStrs =
@@ -2719,6 +2723,12 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
             SOwnedOwnedFields[VD].clear();
           }
         }
+      } else if (has(VD, Uninitialized)) {
+        // Initialized on some path only: the destructor reads the object.
+        diags.push_back(OwnershipDiagInfo(
+            Loc, OwnershipDiagKind::InvalidUseOfPossiblyUninit,
+            VD->getNameAsString()));
+        SOwnedOwnedFields[VD].clear();
       } else {
         if ((SOwnedOwnedFields[VD].size() + SNullOwnedFields[VD].size() <
              SAllOwnedFields[VD].size()) &&
@@ -4563,6 +4573,21 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
     for (const CFGBlock *Succ : B->succs())
       enqueueBlock(Succ);
   };
+
+  // Locals exist from entry: a goto/switch that jumps over a declaration
+  // must meet the variable as uninitialized at the join, not as absent.
+  for (const CFGBlock *B : cfg) {
+    for (const CFGElement &E : *B) {
+      Optional<CFGStmt> CS = E.getAs<CFGStmt>();
+      const auto *DS = CS ? dyn_cast<DeclStmt>(CS->getStmt()) : nullptr;
+      if (!DS)
+        continue;
+      for (const Decl *D : DS->decls())
+        if (const auto *VD = dyn_cast<VarDecl>(D))
+          if (IsTrackedType(VD->getType()))
+            OS->blocksEndStatus[entry].init(VD);
+    }
+  }
 
   // Mark all owned parameter Owned at the entry
   for (ParmVarDecl *PVD : fd.parameters()) {
