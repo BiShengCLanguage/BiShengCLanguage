@@ -132,6 +132,17 @@ static bool overlapsOwnedFields(const llvm::SmallSet<string, 10> &ownedFields,
   return false;
 }
 
+// Enclosing path of a field path: "a.b" -> "a", "p*" -> "p"; "" at the root.
+// A trailing '.' is an access marker (see overlapsOwnedFields).
+static string parentFieldPath(string path) {
+  if (!path.empty() && (path.back() == '*' || path.back() == '.')) {
+    path.pop_back();
+    return path;
+  }
+  size_t pos = path.find_last_of('.');
+  return pos == string::npos ? string() : path.substr(0, pos);
+}
+
 // Deref uses append trailing '*' markers to the field path, e.g. **q.pp is
 // encoded as "pp**". The ownership sets may also contain real '*' keys for
 // nested owned fields, such as "pp*" for the inner owned pointer of pp, so we
@@ -1916,26 +1927,16 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
   // 3. the field and the field's subfields must be all moved
 
   // check condition 1
-  int index = fullFieldName.length() - 2;
-  string current = fullFieldName;
-  while (index > 0) {
-    if (current[index] == '*') {
-      current = current.substr(0, index + 1);
-      index--;
-    } else {
-      size_t pos = current.find_last_of('.');
-      if (pos != string::npos) {
-        current = current.substr(0, pos);
-        index = pos;
-      } else {
-        break;
-      }
-    }
-    if (OPSAllOwnedFields[VD].count(current) &&
-        !OPSOwnedOwnedFields[VD].count(current)) {
+  for (string parent = parentFieldPath(fullFieldName); !parent.empty();
+       parent = parentFieldPath(parent)) {
+    if (OPSAllOwnedFields[VD].count(parent) &&
+        !OPSOwnedOwnedFields[VD].count(parent)) {
+      OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
+                                   ? OwnershipDiagKind::InvalidUseOfUninit
+                                   : OwnershipDiagKind::InvalidUseOfMoved;
       diags.push_back(OwnershipDiagInfo(
-          Loc, OwnershipDiagKind::InvalidAssignFieldOfMoved,
-          moveAsterisksToFront(VD->getNameAsString() + "." + current)));
+          Loc, Kind,
+          moveAsterisksToFront(VD->getNameAsString() + "." + parent)));
       return diags;
     }
   }
@@ -2200,26 +2201,16 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   // 2. the field and the field's subfields must be all moved
 
   // check condition 1
-  int index = fullFieldName.length() - 2;
-  string current = fullFieldName;
-  while (index > 0) {
-    if (current[index] == '*') {
-      current = current.substr(0, index + 1);
-      index--;
-    } else {
-      size_t pos = current.find_last_of('.');
-      if (pos != string::npos) {
-        current = current.substr(0, pos);
-        index = pos;
-      } else {
-        break;
-      }
-    }
-    if (SAllOwnedFields[VD].count(current) &&
-        !SOwnedOwnedFields[VD].count(current) && diags.empty()) {
+  for (string parent = parentFieldPath(fullFieldName); !parent.empty();
+       parent = parentFieldPath(parent)) {
+    if (SAllOwnedFields[VD].count(parent) &&
+        !SOwnedOwnedFields[VD].count(parent) && diags.empty()) {
+      OwnershipDiagKind Kind = overlapsOwnedFields(SUninitOwnedFields[VD], parent)
+                                   ? OwnershipDiagKind::InvalidUseOfUninit
+                                   : OwnershipDiagKind::InvalidUseOfMoved;
       diags.push_back(OwnershipDiagInfo(
-          Loc, OwnershipDiagKind::InvalidAssignFieldOfMoved,
-          moveAsterisksToFront(VD->getNameAsString() + "." + current)));
+          Loc, Kind,
+          moveAsterisksToFront(VD->getNameAsString() + "." + parent)));
       return diags;
     }
   }

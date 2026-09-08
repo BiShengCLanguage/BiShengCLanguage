@@ -1,0 +1,104 @@
+// RUN: %clang_cc1 -verify %s
+
+// Writing through a moved `_Owned` struct field (`*s.p = v`) must be
+// diagnosed like reading through it or writing through a moved scalar.
+
+_Safe T *_Owned safe_malloc<T>(T);
+void safe_free(void *_Owned);
+void sink(int *_Owned);
+
+struct Inner { int *_Owned p; };
+struct Outer { struct Inner inner; };
+struct W { int *_Owned _Nullable p; };
+
+// The reported shapes: assignment-initialised nullable field, freed, moved
+// out, or forgotten, then written through.
+_Safe int report_free_then_write(void) {
+  _Unsafe {
+    struct W w;
+    w.p = (int *_Owned)safe_malloc<int>(42);
+    safe_free((void *_Owned)w.p);
+    *(w.p) = 99; // expected-error {{use of moved value: 'w.p'}}
+    return 0;
+  }
+}
+
+_Safe int report_free_then_read(void) {
+  _Unsafe {
+    struct W w;
+    w.p = (int *_Owned)safe_malloc<int>(42);
+    safe_free((void *_Owned)w.p);
+    return *w.p; // expected-error {{use of moved value: 'w.p'}}
+  }
+}
+
+int report_move_out_then_write(void) {
+  struct W s;
+  s.p = (int *_Owned)safe_malloc<int>(42);
+  int *_Owned r = s.p;
+  safe_free((void *_Owned)r);
+  *s.p = 5; // expected-error {{use of moved value: 's.p'}}
+  return 0;
+}
+
+int report_forget_then_write(void) {
+  struct W s;
+  s.p = (int *_Owned)safe_malloc<int>(42);
+  _Unsafe { __forget(s.p); }
+  *s.p = 5; // expected-error {{use of moved value: 's.p'}}
+  return 0;
+}
+
+void write_after_free(void) {
+  struct Inner s = { safe_malloc<int>(1) };
+  safe_free((void *_Owned)s.p);
+  *(s.p) = 99; // expected-error {{use of moved value: 's.p'}}
+}
+
+void write_after_move_out(void) {
+  struct Inner s = { safe_malloc<int>(1) };
+  int *_Owned r = s.p;
+  safe_free((void *_Owned)r);
+  *s.p = 5; // expected-error {{use of moved value: 's.p'}}
+}
+
+void write_after_forget(void) {
+  struct Inner s = { safe_malloc<int>(1) };
+  _Unsafe { __forget(s.p); }
+  *s.p = 5; // expected-error {{use of moved value: 's.p'}}
+}
+
+void write_nested_after_move(void) {
+  struct Outer o = { { safe_malloc<int>(1) } };
+  sink(o.inner.p);
+  *o.inner.p = 5; // expected-error {{use of moved value: 'o.inner.p'}}
+}
+
+void write_through_moved_field_of_owned_pointer(struct Inner *_Owned s) {
+  sink(s->p);
+  *s->p = 5; // expected-error {{use of moved value: 's.p'}}
+  safe_free((void *_Owned)s);
+}
+
+void scalar_write_after_free(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free((void *_Owned)p);
+  *p = 99; // expected-error {{use of moved value: 'p'}}
+}
+
+// A field that was never assigned is uninitialized, not moved; the write
+// path must say so like the read path does.
+void write_through_uninit_field(void) {
+  struct W w;
+  *(w.p) = 1; // expected-error {{use of uninitialized value: 'w.p'}}
+}
+
+void write_through_uninit_nested_field(void) {
+  struct Outer o;
+  *o.inner.p = 5; // expected-error {{use of uninitialized value: 'o.inner.p'}}
+}
+
+void write_through_uninit_field_of_owned_pointer(void) {
+  struct Inner *_Owned s;
+  *s->p = 5; // expected-error {{use of uninitialized value: 's.p'}}
+}

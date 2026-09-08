@@ -105,7 +105,7 @@ void test14(R* _Owned r) {
 
 void test15(R* _Owned r) {
     S* _Owned tmp = r->sp;
-    *r->sp = *tmp; // expected-error {{cannot assign to 'r.sp' because the value it belongs to was moved}}
+    *r->sp = *tmp; // expected-error {{use of moved value: 'r.sp'}}
 } // expected-error {{memory leak because 'tmp' is not freed or moved before it goes out of scope}}
   // expected-error@-1 {{memory leak because 'r' is not freed or moved before it goes out of scope}}
-  // expected-error@-2 {{memory leak because r.s, r.s.a, *r.sp are not freed or moved before 'r' goes out of scope}}
+  // expected-error@-2 {{memory leak because r.s, r.s.a are not freed or moved before 'r' goes out of scope}}
