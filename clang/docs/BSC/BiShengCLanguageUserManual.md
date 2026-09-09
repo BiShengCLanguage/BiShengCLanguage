@@ -272,496 +272,623 @@ const char* int::to_string(const int* this){
 
 ### 2.2. 泛型
 
-#### 2.2.1. 概述
+泛型用于定义一组结构或实现相同、但所使用的类型或常量值不同的函数和类型。定义泛型时，使用泛型形参表示这些差异；使用泛型时，通过泛型实参确定具体的函数或类型。
+这样，同一算法或数据结构只需定义一次，编译器仍可以根据具体的泛型实参进行静态类型检查。
 
-泛型是一种编程技术，允许将类型（如整数、字符串等基本类型，或者用户自定义的类型）作为参数传递给函数或结构体，从而实现代码复用、提升灵活性，并在保持类型安全的前提下，提高开发效率。
-
-毕昇 C 的泛型是一种编译时的泛型机制，它可以定义一个通用的函数或类，然后根据不同的类型参数生成不同的实例。
-
-目前，毕昇 C 已支持**泛型函数**、**泛型结构体**和**泛型类型别名**。
-
-##### 2.2.1.1. 实现动机
-
-泛型的目的是为了提高代码的**效率**和**重用性**而实现的，其优点在于：
-
-- 避免了代码冗余
-- 提高了代码的可读性和可维护性
-- 实现了类型安全和编译时检查
-- ...
-
-泛型编程使开发者能够编写适用于任意数据类型的通用算法，无需为不同类型（如整数、字符串或自定义类型）分别实现相同逻辑。
-
-通过泛型，用户可以为函数或结构体定义通用模板，使得类中的某些数据成员或成员函数的参数、返回值取得任意类型。
-
-##### 2.2.1.2. 示例
-
-以下方的代码为例：
+例如，在标准 C 代码中，对`int`和`double`执行加法需要分别定义函数：
 
 ```c
-int sum_int(int a, int b) {
-    int c = a + b;
-    return c;
+int add_int(int lhs, int rhs) {
+  return lhs + rhs;
 }
 
-float sum_float(float a, float b) {
-    float c = a + b;
-    return c;
-}
-
-int main() {
-    int sum1 = sum_int(1, 2);
-    float sum2 = sum_float(1.2, 2.5);
+double add_double(double lhs, double rhs) {
+  return lhs + rhs;
 }
 ```
 
-可以看出，对于sum方法，如果要实现返回值分别为 **float** 和 **int** 两种情况，普通的 C 语言需要为同样实现的方法定义两次。
-
-但是如果使用毕昇 C 的泛型语法，则只需定义一次，即可在实例化时重复使用，如下：
+两个函数除参数和返回值类型外完全相同。当同一算法需要支持更多类型时，这种写法会带来大量重复代码。
+使用毕昇 C 的泛型函数，只需定义一次上述加法操作：
 
 ```c
-#include<stdio.h>
-T sum_t<T>(T a, T b) {
-    T c = a + b;
-    return c;
+T add<T>(T lhs, T rhs) {
+  return lhs + rhs;
 }
 
-int main() {
-    int sum1 = sum_t<int>(1, 2);
-    float sum2 = sum_t<float>(1.2, 2.5);
-    printf("%d\n",sum1); // expected result: 3
-    printf("%f\n",sum2); // expected result: 3.700000
-    return 0;
+int main(void) {
+  int sum1 = add<int>(1, 2);
+  double sum2 = add<double>(1.0, 2.0);
+  return sum1 + (int)sum2 - 6;
 }
 ```
 
-可以看出，泛型功能的引入，对于用了相同算法的声明场景，其代码量有明显的减少。
+泛型函数`add<T>`不依赖某个具体类型。同一定义既可用于`int`，也可用于`double`，因而无须针对每种类型重复编写函数。
 
-#### 2.2.2. 语法规则
+毕昇 C 支持泛型函数、泛型结构体、泛型联合体和泛型类型别名四种泛型，以下代码进一步展示了泛型的定义和使用：
 
-对于毕昇 C 泛型，我们设计了如下的语法规则：
+```c
+T add<T>(T lhs, T rhs) { // 泛型函数 add
+  return lhs + rhs;
+}
 
-- 在声明泛型函数、结构体或类型别名时，泛型参数列表要用尖括号 '<>' 包裹起来，尖括号内部的类型一般是 identifier ，如 'T1', 'T2' 之类 。
+struct Array<T, int N> { // 泛型结构体 Array
+  T data[N];
+};
 
+typedef Pointer<T> = T *; // 泛型类型别名 Pointer
 
-- 在实例化时，既可以在尖括号内部传入具体的类型，如 int, float, struct S 等，也可以省略尖括号的书写，编译器会根据实际传入的参数进行隐式的类型推导。此外，如果将现有类型 typedef 为其他别名后，同样可以在实例化时用作泛型实参。
+int main(void) {
+  int sum1 = add<int>(1, 2); // 显式指定泛型实参 int
+  double sum2 = add<double>(1.0, 2.0); // 显式指定泛型实参 double
 
+  struct Array<int, 4> values = {{1, 2, 3, 4}}; // 使用泛型结构体类型声明对象
+  Pointer<int> pointer = &values.data[0]; // 使用泛型类型别名声明对象
 
-- 同时，毕昇 C 的泛型函数、泛型结构体和泛型类型别名也支持使用**常量参数**作为泛型的形参。
+  return 0;
+}
+```
 
-下面我们将分为五个部分详细说明。
+上述示例中，`add<T>`是泛型函数，尖括号`<>`是泛型形参列表，其中声明了类型泛型形参`T`。
+调用`add<int>(1, 2)`和`add<double>(1.0, 2.0)`时，分别通过泛型实参列表`<int>`和`<double>`指定泛型实参。
+`Array<T, int N>`是同时包含类型泛型形参`T`和常量泛型形参`N`的泛型结构体，`Array<int, 4>`中的`int`和`4`是它的泛型实参。
+`Pointer<T>`是泛型类型别名，`Pointer<int>`表示`int *`类型。使用确定的泛型实参替换泛型形参并形成具体函数或类型的过程称为泛型实例化。
+
+本章以下各节从泛型的声明与定义以及泛型的使用两部分介绍泛型函数、泛型结构体和联合体以及泛型类型别名。
+
+#### 2.2.1. 泛型的声明与定义
+
+##### 2.2.1.1. 泛型函数
+
+1. 在声明或定义函数时，在函数名之后、`(`之前添加由`<>`包裹的**泛型形参列表**，即可将该函数声明或定义为泛型函数。
+   泛型函数声明和定义的具体语法如下：
+
+   ```text
+   direct-declarator :
+     ....
+     direct-declarator < generic-parameter-list > ( parameter-type-list_opt )
+
+   function-definition :
+     declaration-specifiers declarator compound-statement
+   ```
+
+   ```c
+   T f1<T>(T a, int b); // 声明泛型函数 f1，有一个类型泛型形参 T
+   T f2<T, int N>(T a, int b); // 声明泛型函数 f2，有一个类型泛型形参 T 和常量泛型形参 N
+   T f3<T, U>(T a, U b) { // 声明并定义泛型函数 f3，有两个类型泛型形参 T 和 U
+     return a;
+   }
+   ```
+
+   其中，泛型形参列表由一个或多个**泛型形参**组成，多个泛型形参之间使用逗号`,`进行分隔。
+   毕昇 C 支持两种泛型形参，即类型泛型形参和常量泛型形参。其中类型泛型形参由单个标识符声明，常量泛型形参由类型和标识符组成。
+   泛型形参列表及泛型形参的具体语法表示如下：
+
+   ```text
+   generic-parameter-list :
+     generic-parameter
+     generic-parameter-list , generic-parameter
+
+   generic-parameter :
+     identifier
+     parameter-declaration
+   ```
+
+   对于泛型形参，还有以下规则：
+   1. 对于类型泛型形参，在声明时不能带类型限定符。
+   2. 对于常量泛型形参，其类型可以是整数类型，也可以由其前面声明的类型泛型形参指定。
+   3. 在泛型形参列表中，泛型形参从声明之后可见，后面的形参可以使用前面的形参。
+   4. 在泛型形参列表之外，泛型形参在其所属的泛型声明或定义中可见。对于泛型函数，这包括泛型函数的返回类型、函数形参列表和函数体；对于泛型结构体或联合体，这包括成员声明；对于泛型类型别名，这包括别名表示的类型。
+   5. 同一泛型形参列表中的形参不能同名。在形参的作用域内，不能再次声明同名标识符；若外层作用域已有同名标识符，该名称指代泛型形参。
+
+   ```c
+   void f1<const T>(void); // error: 类型泛型形参的声明不能带有类型限定符
+   void f2<float N>(void); // error: 常量泛型形参不支持 float 类型
+   void f3<_Bool N>(void); // ok, 常量泛型形参支持 _Bool 类型
+   void f4<T, T N>(void) { // ok, N 的类型由前面声明的类型泛型形参 T 指定
+     int a[N];
+   }
+
+   T f5<T, T N>(T a[N]) { // N 可以使用此前声明的 T；T 可用于返回类型
+     T result = a[N - 1]; // T 和 N 在函数体中可见
+     return result;
+   }
+
+   void f6<T, T>(void); // error: 泛型形参不得同名
+
+   void f7<T>(void) {
+     int T = 2; // error: 不能再次声明同名标识符
+   }
+
+   typedef int T;
+   T f8<T>(T t) { // 返回类型使用泛型形参 T
+     return t;
+   }
+   ```
+
+2. 泛型函数只能声明或定义在文件作用域。
+
+   ```c
+   void f1(void) {
+     void f2<T>(void); // error: 在非文件作用域声明泛型函数
+   }
+   ```
+
+3. 在一条函数声明中可同时声明多个非泛型函数或一个泛型函数，不允许在一条函数声明中声明多个泛型函数或同时声明泛型函数和非泛型函数。
+
+   ```c
+   void f1(void), f2(int, int); // ok
+   void f3<T>(T a), f4(void); // error: 一条函数声明中同时声明了泛型函数和非泛型函数
+   void f5<T>(T a), f6<U>(U a, U b); // error: 一条函数声明中声明了多个泛型函数
+   ```
+
+4. 在一个翻译单元内，泛型函数不能与非泛型函数同名。
+
+   ```c
+   void f1(void); // 声明非泛型函数 f1
+   void f1<T>(void); // error: 泛型函数不能与非泛型函数同名
+
+   struct f2{};
+   T f2<T>(T a); // 泛型函数与结构体不在同一命名空间，可同名
+
+   struct f3<T>{};
+   T f3<T>(T a); // error: 泛型函数与泛型结构体不可同名
+   ```
+
+5. 在一个翻译单元内，一个泛型函数只能有一个定义，泛型函数可以在首次声明时直接定义，也可以先声明、后定义。
+
+   ```c
+   T f1<T>(void) { // f1 在首次声明时直接定义
+     T t;
+     return t;
+   }
+
+   T f1<T>(void) { // error: f1 只能有一个定义
+     T t1, t2;
+     return t1;
+   }
+
+   U f2<U>(U a);
+   U f2<U>(U a) { // f2 先声明后定义
+     return a;
+   }
+   ```
+
+6. 在一个翻译单元内，一个泛型函数允许有多个声明，只要这些声明之间是等价的。同名的两个泛型函数的声明是等价的，当满足以下条件时：
+
+   - 他们要么都是`_Safe`修饰的，要么都是`_Unsafe`修饰或无显式`_Safe/_Unsafe`修饰的；
+   - 他们要么都有`constexpr`修饰，要么都没有`constexpr`修饰；
+   - 他们的泛型形参列表是等价的；
+   - 将对应的泛型形参视为同一形参后，返回类型和函数形参类型满足普通函数声明的类型兼容规则。
+
+   对于两个泛型形参列表，当满足以下条件时，他们是等价的：
+
+   1. 他们包含相同数量的泛型形参；
+   2. 他们在相同位置上的泛型形参等价。
+
+   对于两个泛型形参，当满足以下条件时，他们是等价的：
+
+   1. 他们属于相同的泛型形参种类；
+   2. 如果他们是常量泛型形参，则他们的类型要求是等价的。当比较两个常量泛型形参的类型时，要先将两个泛型形参列表中位于相同位置的类型泛型形参视为同一类型。
+
+   ```c
+   T f1<T>(T value);
+   R f1<R>(R value); // ok
+   U f1<U>(U value) { // ok
+     return value;
+   }
+
+   void f2<T>(T value);
+   void f2<T, U>(T value); // error: 泛型形参列表不等价
+
+   T f3<T>(T value);
+   U f3<U>(int value); // error: 函数形参类型不满足类型兼容规则
+
+   T f4<T>(T value);
+   int f4<T>(T value); // error: 返回类型不满足类型兼容规则
+
+   _Safe void f5<T>(T t);
+   _Unsafe void f5<T>(T t); // error: 安全修饰符不同
+
+   void f6<T>(void);
+   _Safe void f6<T>(void); // error: 安全修饰符不同
+   ```
+
+##### 2.2.1.2. 泛型结构体和联合体
+
+1. 声明或定义结构体或联合体时，在结构体或联合体名称之后添加`<>`包裹的泛型形参列表，即可声明或定义泛型结构体或泛型联合体。
+   泛型结构体和泛型联合体声明与定义的具体语法如下：
+
+   ```
+   struct-or-union-specifier :
+       ....
+       struct-or-union _identifier < generic-parameter-list > { struct-declaration-list }
+       struct-or-union _identifier < generic-parameter-list >
+   ```
+
+   ```c
+   struct S1<T>; // 声明泛型结构体 S1，有一个类型泛型形参 T
+   union U1<T1, T2>; // 声明泛型联合体 U1，有两个类型泛型形参 T1 和 T2
+   struct S3<T, int N> { // 声明并定义泛型结构体 S3，有一个类型泛型形参 T 和一个常量泛型形参 N
+     T a;
+     int b[N];
+   };
+   ```
+
+   泛型结构体和泛型联合体的泛型形参遵循[前述泛型形参规则](#2211-泛型函数)。
+   在泛型形参列表之外，这些泛型形参在该结构体或联合体的成员声明中可见。
+
+   ```c
+   struct Array<T, T N> { // T 和 N 在成员声明中可见
+     T a;
+     T b[N];
+   };
+   ```
+
+2. 泛型结构体和泛型联合体只能声明或定义在文件作用域。
+
+   ```c
+   void f1(void) {
+     struct S6<T>; // error: 在非文件作用域声明泛型结构体
+   }
+   ```
+
+3. 声明或定义泛型结构体或泛型联合体时，只能声明或定义该泛型类型本身，不能同时声明变量。
+
+   ```c
+   struct S<T> {
+     T a;
+   } s1; // error: 不能在定义泛型结构体时同时声明变量 s1
+   ```
+
+4. 在一个翻译单元内，泛型结构体或泛型联合体不能与非泛型结构体或非泛型联合体同名。
+
+   ```c
+   struct S {};
+   struct S<T>; // error: 泛型结构体不能与非泛型结构体同名
+   ```
+
+5. 在一个翻译单元内，一个泛型结构体或泛型联合体只能有一个定义，泛型结构体或泛型联合体可以在首次声明时直接定义，也可以先声明、后定义。
+
+   ```c
+   struct S1<T> { // 在首次声明时直接定义泛型结构体 S1
+     T value;
+   };
+
+   struct S1<U> { // error: S1 只能有一个定义
+     U value;
+   };
+
+   struct S2<T1, T2>;
+   struct S2<T1, T2> { // S2 先声明后定义
+     T1 a;
+     T2 b;
+   };
+   ```
+
+6. 在一个翻译单元内，一个泛型结构体或泛型联合体允许有多个声明，只要这些声明之间是等价的。同名的两个泛型结构体或泛型联合体的声明是等价的，当他们均声明结构体或者均声明联合体，并且他们的泛型形参列表是等价的。
+
+   ```c
+   struct S1<T>;
+   struct S1<U>; // ok
+   struct S1<R> { // ok
+     R value;
+   };
+
+   struct S2<T>;
+   struct S2<T, U>; // error: 泛型形参列表不等价
+
+   struct S3<T, int N>;
+   struct S3<T, unsigned N>; // error: 对应的常量泛型形参类型不同
+
+   struct S4<T>;
+   union S4<T>; // error: 声明的类型种类不同
+
+   struct S5<T1, T2, T1 N>;
+   struct S5<T3, T4, T3 M>; // ok, T1 与 T3 对应，第三个泛型形参的类型等价
+
+   struct S6<T1, T2, T1 N>;
+   struct S6<T3, T4, T4 M>; // error: T1 与 T4 不对应，第三个泛型形参的类型不等价
+   ```
+
+##### 2.2.1.3. 泛型类型别名
+
+1. 在声明类型别名时，在类型别名名称之后添加由`<>`包裹的泛型形参列表，即可将该类型别名声明为泛型类型别名。泛型类型别名声明的具体语法如下：
+
+   ```text
+   generic-type-alias-declaration :
+     typedef identifier < generic-parameter-list > = type-name ;
+   ```
+
+   ```c
+   typedef T1<T> = T *; // 声明泛型类型别名 T1，有一个类型泛型形参 T
+   typedef T2<T, int N> = T[N]; // 声明泛型类型别名 T2，有一个类型泛型形参 T 和常量泛型形参 N
+   ```
+
+   泛型类型别名的泛型形参遵循[前述泛型形参规则](#2211-泛型函数)。
+   在泛型形参列表之外，这些泛型形参在该类型别名所表示的类型中可见。
+
+   ```c
+   typedef T1<T, int N> = T[N]; // T 和 N 在该类型别名所表示的类型 T[N] 中可见
+   ```
+
+2. 泛型类型别名只能声明在文件作用域。
+
+   ```c
+   void f() {
+     typedef Type1<T> = T; //error: 在非文件作用域声明泛型类型别名
+     typedef Type2<T1> = T1<T>; //error: 在非文件作用域声明泛型类型别名
+   }
+   ```
+
+#### 2.2.2. 泛型的使用
 
 ##### 2.2.2.1. 泛型函数
 
-对于泛型函数，我们对语法规则的设计，主要体现在两个方面：
+1. 泛型函数的使用包含**函数调用**和**取函数地址**，共两种使用方式。
+   调用泛型函数时，需要在函数名和`(`之间添加由`<>`包裹的**泛型实参列表**。取泛型函数地址时，需要在函数名后添加由`<>`包裹的泛型实参列表。
+   泛型函数使用的具体语法如下：
 
-1. 声明时，区别于普通函数声明，我们需要在**函数名**和**函数入参**之间，添加一对尖括号 '<>' ，并在尖括号中写明泛型函数的**泛型形参**，其中形参可以为任何合法的名字（此处的合法指的是不会导致语义冲突的情况）；
+   ```text
+   primary-expression :
+     ....
+     identifier
+     identifier < generic-argument-list >
 
-   同时，对于函数返回值的类型，可以是普通的 builtin 类型，可以是用户已经定义过的结构体，也可以是泛型形参中的一个（如 T）。
+   postfix-expression :
+     ....
+     postfix-expression ( argument-expression-list_opt )
+   ```
 
-2. 实例化时，类型既可以在尖括号中显式指定，也可以省略尖括号以及其中的内容，由编译器进行隐式推导：
+   ```c
+   T f1<T>(T a) {
+     return a;
+   }
 
-   1. 显式指定类型时，区别于普通的函数调用，同样需要在被调用的**函数名**与**函数入参**之间添加一对尖括号 '<>' ，且中间无空格；然后在尖括号中传入**泛型实参**，此处的实参可以是 builtin 类型，也可以是用户已经定义过的结构体。
-   2. 隐式推导时，写法与普通的函数调用相同，毕昇 C 编译器会根据函数调用传入的参数类型，自动推导**泛型实参**的类型。不过为了代码可读性等，推荐使显式指定类型。
+   void f2(void) {
+     int a = f1<int>(1); // 调用泛型函数 f1
+     a = f1(1); // error: 未指定泛型实参
+     int (*b)(int) = &f1<int>; // 取函数 f1 的地址
+     b = f1<int>; // 取函数 f1 的地址
+     b = f1; // error: 未指定泛型实参
+     int c = b(2);
+   }
+   ```
 
-下面是一些用法示例：
+   其中，泛型实参列表由一个或多个**泛型实参**组成，多个泛型实参之间使用逗号`,`分隔。
+   毕昇 C 支持两种泛型实参，即类型泛型实参和常量泛型实参。类型泛型实参由类型名指定，常量泛型实参由常量表达式指定。
+   泛型实参列表及泛型实参的具体语法如下：
 
-```c
-typedef long int LT;
+   ```text
+   generic-argument-list :
+     generic-argument
+     generic-argument-list , generic-argument
 
-// 泛型函数
-T max<T>(T a, T b) {						// 开头的'T'为函数返回值类型，而'<>'中的'T'泛型函数'max'的泛型形参
-    T Max = a > b ? a : b;
-    return Max;
-}
+   generic-argument :
+     type-name
+     constant-expression
+   ```
 
-int main() {
-    int a = 3;
-    int b = 5;
-    int c = 4;
+   ```c
+   constexpr int a = 1;
+   constexpr int f1(void) { return 1; }
 
-    // 泛型函数 实例化
-    int max1 = max<int>(a, b);				// 显示指定泛型实参类型
-    int max3 = max(a, c);				    // 隐式推导，编译器自动推导'T'为 int 类型
+   void f2<T, int N>(void);
 
-	return 0;
-}
-```
+   void test(void) {
+     f2<int, 4>();       // int 是类型泛型实参，4 是常量泛型实参
+     f2<int *, a>();     // int * 是类型泛型实参，a 是常量泛型实参
+     f2<double, f1()>(); // double 是类型泛型实参，f1() 是常量泛型实参
+   }
+   ```
 
-##### 2.2.2.2. 泛型结构体
+   对于泛型实参列表和泛型实参，还有以下规则：
+   1. 在常量泛型实参中，未用小括号`()`括起的`>`会被解析为泛型实参子句的结束符，不能作为大于运算符使用。如果常量表达式中包含`>`运算符，必须使用小括号将该表达式括起。
+   2. 泛型实参列表中的泛型实参按书写顺序依次对应泛型形参列表中的泛型形参。
+   3. 泛型实参列表中的泛型实参数量必须与对应的泛型形参列表中的泛型形参数量相同。
+   4. 泛型实参的种类必须与对应泛型形参的种类一致：类型泛型实参对应类型泛型形参，常量泛型实参对应常量泛型形参，否则该泛型实参不合法。
+   5. 常量泛型实参必须是整数类型的常量表达式，且隐式转换为对应常量泛型形参的类型时，实参的值必须在该类型的表示范围内。
 
-对于泛型结构体，我们对语法规则的设计，同样体现在两个方面：
+   ```c
+   void f1<int N>(void);
 
-1. 声明时，区别于普通结构体声明，我们需要在**结构体名**的后面之间，添加一对尖括号 '<>' ，并在尖括号中写明泛型结构体的**泛型形参**。
-2. 实例化时，泛型结构体仅支持显式指定类型，即：显示指定类型时，区别于普通的结构体的构造，同样需要在被构造的**结构体名**后面添加一对尖括号 '<>' ，且中间无空格；然后在尖括号中传入**泛型实参**，此处的实参可以是 builtin 类型，也可以是用户已经定义过的结构体。
-3. 在使用泛型结构体类型时，如声明泛型结构体类型的变量、声明泛型结构体类型的成员、声明参数、声明返回值、扩展成员函数时，可以省略 struct。即在使用形如`struct S<T>`的类型时，可以简写为`S<T>`，但在声明该类型时不允许省略。
+   void test1(void) {
+     f1<(3 > 2)>(); // ok, 使用小括号将包含 > 运算符的表达式括起
+     f1<3 > 2>(); // error: 未用小括号括起大于号
+   }
 
-下面是一些用法示例：
+   void f2<T, int N>(void);
 
-```c
-typedef long int LT;
+   void test2(void) {
+     f2<int, 2>(); // ok
+     f2(); // error: 未指定泛型实参
+     f2<>(); // error: 泛型实参列表不能为空
+     f2<int>(); // error: 未指定全部泛型实参
+     f2<int, 2, 3>(); // error: 泛型实参数量超过泛型形参数量
+   }
 
-// 泛型struct
-struct S<T, B>{
-    T a;
-    B b;
-};
+   void f3<int N, T>(void);
 
-// 泛型union
-union MyUnion<T1, T2> {
-    T1 u1;
-    T2 u2;
-};
+   void test3(void) {
+     f3<2, int>(); // ok, int 对应 T，2对应 N
+     f3<int, 2>(); // error: 实参种类与形参种类不对应
+   }
 
-// 返回类型为'泛型union'的泛型函数'foo_union'
-union MyUnion<T1, T2> foo_union<T1, T2>(union MyUnion<T1, T2> *this) {
-    return *this;
-}
+   void f4<unsigned int N>(void) {}
 
-int main() {
-    // 泛型struct 实例化
-    struct S<int, LT> s1 = {.a = 42, .b = 5};		// 使用 typedef 后的类型作为泛型实参
+   void test4(void) {
+     f4<0>();   // ok: 实参的值在 unsigned int 的表示范围内
+     f4<-1>();  // error: 实参的值超出 unsigned int 的表示范围
+     f4<1.0>(); // error: 实参不是整数类型的常量表达式
+   }
+   ```
 
-    // 泛型union 实例化
-    union MyUnion<int, float> p;
-    foo_union(&p);		// 泛型函数 foo_union 的隐式类型推导
+2. 使用泛型函数时，传入全部泛型实参且泛型实参与对应的泛型形参匹配后，会触发泛型函数的**实例化**。
+   泛型实例化是指根据已经确定的泛型实参替换对应的泛型形参形成泛型函数实例或泛型类型实例的过程。同一个泛型声明及同一组泛型实参唯一确定一个泛型实例。
+   对于泛型实例化，有以下通用规则：
+   1. 毕昇 C 不支持泛型的显式实例化，仅支持在使用处触发泛型的隐式实例化。
+   2. 发生泛型实例化时，先实例化其声明；如果在泛型实例的使用处需要其定义，则也会实例化对应的泛型定义。
+      对于泛型函数，当前仅在`sizeof`、`typeof`等非求值上下文内不实例化泛型函数定义。
+   3. 实例化泛型声明或定义时，由泛型实参确定的类型、声明和表达式必须合法；若不合法，则相应的实例化失败。
+   4. 泛型实例化可递归进行，在实例化泛型定义时，若其中使用到了其他泛型实例，则这些泛型实例也会被实例化，这些泛型实例的实例化仍遵循前述规则。
+   5. 泛型递归实例化的总深度上限由实现定义，无限递归实例化的结果未定义。
 
-    return 0;
-}
-```
+   ```c
+   int f1<T>(T a) {
+     return *a;
+   }
 
-##### 2.2.2.3. 泛型成员函数
+   void test1(void) {
+     int a = 1;
+     unsigned long size1 = sizeof(f1<int>(0)); // 只实例化 f1<int> 的声明
+     unsigned long size2 = sizeof(&f1<double>); // 只实例化 f1<double> 的声明
+     int b = f1<int *>(&a); // ok, 实例化 f1<int *> 的定义
+     b = f1<int>(a); // error: 实例化 f1<int> 的定义时，int 类型的值不能解引用，实例化失败
+     int (*c)(int *) = &f1<int *>; // ok, 实例化 f1<int *> 的定义
+     int (*d)(double) = &f1<double>; // error: 实例化 f1<double> 的定义时，double 类型的值不能解引用
+   }
 
-在支持定义泛型 struct 和泛型 union 类型的基础上，还可以为它们扩展普通成员函数。
+   T f2<T>(T a) {
+     return a;
+   }
 
-如下是一个用法示例，该示例包含了声明泛型成员函数、定义泛型成员函数及实例化调用泛型成员函数：
+   T f3<T>(T a) {
+     return f2<T>(a);
+   }
 
-```c
-struct MyStruct<T> {
-    T res;
-};
+   int test2(void) {
+     return f3<int>(1); // 依次实例化 f3<int> 和 f2<int> 的定义
+   }
 
-union MyUnion<T> {
-    T res;
-};
+   int f4<int N>(void) {
+     return f4<N + 1>();
+   }
 
-T struct MyStruct<T>::foo(struct MyStruct<T>* this, T a) { // 定义泛型成员函数
-    this->res = this->res + a;
-    return this->res;
-}
+   int test3(void) {
+     return f4<0>(); // 无限递归实例化，结果未定义
+   }
+   ```
 
-T union MyUnion<T>::foo(union MyUnion<T>* this, T a) {
-    this->res = this->res + a;
-    return this->res;
-}
+##### 2.2.2.2. 泛型结构体和联合体
 
-int main() {
-    struct MyStruct<int> s = { .res = 1 };
-    union MyUnion<int> u = { .res = 5 };
-    int res1 = s.foo(2); // 调用泛型成员函数
-    int res2 = u.foo(6);
-    return 0;
-}
-```
+1. 将泛型结构体或联合体作为类型使用时，在其名称后添加由`<>`包裹的泛型实参列表，得到泛型结构体或联合体的类型实例。
+   泛型结构体和联合体使用的具体语法如下：
 
-关于泛型成员函数，还有以下几点需要注意：
+   ```text
+   struct-or-union-specifier :
+     ....
+     struct-or-union identifier < generic-argument-list >
+   ```
 
-1. 泛型成员函数可以是静态函数，即第一个参数可以不为`this`；
-2. 不允许泛型成员函数的重载，这与成员函数的规则相同；
-
-```
-   
-   struct MyStruct<T> {
-       T val;
+   ```c
+   struct S<T, int N> {
+     T a[N];
    };
-   
-   T static struct MyStruct<T>::static_add(T a, T b) {
-       return a + b;
-   }
-   
-   
-   T struct MyStruct<T>::static_add(T a);  // expected result: error: conflicting types for 'static_add'
-   
-   
-   int main() {
-       int sum = MyStruct<int>::static_add(10, 20);   // 静态泛型成员函数
-       return 0;
-   }
-```
 
-
-3. 泛型成员函数的返回类型可以是泛型 struct 或泛型 union类型。
-
-```
-   
-   struct MyStruct<T> {
-       T val;
+   union U<T> {
+     T a;
+     int b;
    };
-    
-   struct MyStruct<T> struct MyStruct<T>::make_struct(T x) {
-       struct MyStruct<T> result = { .val = x };
-       return result;
+
+   void test(void) {
+     struct S<int, 4> s1 = {{1, 2, 3, 4}}; // 声明对象
+     union U<double> u1 = {.a = 1.0}; // 声明对象
    }
-   
-   
-   int main() {
-       MyStruct<int> s = MyStruct<int>::make_struct(42);
-       return 0;
+   ```
+
+   泛型结构体和联合体的泛型实参遵循[前述泛型实参规则](#2221-泛型函数)。
+
+   ```c
+   struct S<T, int N> {
+     T a[N];
+   };
+
+   struct S<int, (3 > 2)> s1; // ok, 常量实参中的 > 运算符用小括号括起
+   struct S<int, 3 > 2> s2; // error: 未用小括号括起大于号
+   struct S<int, 4> s3; // ok, 实参按顺序对应类型形参和常量形参
+   struct S<int> s4; // error: 泛型实参数量不足
+   struct S<int, 4, 5> s5; // error: 泛型实参数量过多
+   struct S<4, int> s6; // error: 泛型实参和形参的种类不对应
+   struct S<> s7; // error: 泛型实参列表不能为空
+   struct S s8; // error: 未指定泛型实参
+   ```
+
+2. 泛型结构体和联合体的实例化遵循[前述通用规则](#2221-泛型函数)。指定全部泛型实参后，先形成相应的类型实例；当使用处要求完整类型时，再实例化其定义。是否要求完整类型，遵循普通结构体或联合体类型的规则。
+
+   ```c
+   struct S1<T>;
+   union U1<T>;
+
+
+   void test1(void) {
+     struct S1<int> *sp; // 不要求完整类型，只实例化声明
+     union U1<double> *up; // 不要求完整类型，只实例化声明
+     struct S1<int> s; // error: 声明对象要求完整类型，但泛型结构体没有定义
+     union U1<double> u; // error: 声明对象要求完整类型，但泛型联合体没有定义
    }
-```
 
-##### 2.2.2.4. 常量泛型
+   struct S2<T> {
+     T value;
+   };
 
-除了基础泛型的实现，毕昇 C 还引入了常量泛型的功能。具体来说，常量泛型是一种允许程序项在常量值上泛型化的特性。也就是说，常量可以作为泛型参数传递到泛型变量中，代码会根据常量参数而进行特化，从而确保无开销，并可以直接在代码中作为常量来使用。
+   union U2<T> {
+     T value;
+   };
 
-例如，在 毕昇 C  中，可以定义一个泛型结构体，其中一个泛型参数是一个**常量泛型参数**，该参数可以用于表示结构体内定义的数组的大小。
+   void test2(void) {
+     struct S2<int> *sp; // 不要求完整类型，只实例化声明
+     union U2<int> *up; // 不要求完整类型，只实例化声明
+     struct S2<int> s; // 实例化 S2<int> 的定义
+     union U2<double> u; // 实例化 U2<double> 的定义
+   }
+   ```
 
-这样，通过在实例化时传入不同的常量值，便可以生成多个不同大小的数组对象，如：
+##### 2.2.2.3. 泛型类型别名
 
-```c
-struct Array<T, int N> {
-    T data[N];
-};
+1. 将泛型类型别名作为类型使用时，在别名名称后添加由`<>`包裹的泛型实参列表。泛型类型别名使用的具体语法如下：
 
-int main() {
-    struct Array<int, 5> arr1;
-    struct Array<int, 10> arr2;
-    return 0;
-}
-```
+   ```text
+   typedef-name :
+     ....
+     identifier < generic-argument-list >
+   ```
 
-如上，这里的 '10' 和 '5' 就是常量泛型参数 'int N' 的实参，它们决定了数组的大小。
+   ```c
+   typedef T1<T> = T *;
+   typedef T2<T, int N> = T[N];
 
-目前，泛型常量的规则如下：
+   void test(void) {
+     int a = 1;
+     T1<int> p = &a; // T1<int> 表示 int * 类型
+     T2<int, 4> b = {1, 2, 3, 4}; // T2<int, 4> 表示 int[4] 类型
+     unsigned long c = sizeof(T2<int, 4>); // 在需要类型名的表达式中使用
+   }
+   ```
 
-- 常量泛型的形参只支持“可编译时计算的类型”，目前只支持整数类型
-- 常量泛型的实参只能是“编译时可计算”的常量表达式
-- 语法上，如果只是 int 字面量、constexpr 常量，那么可以不需要小括号，其它常量表达式一律需要用小括号
+   泛型类型别名的泛型实参遵循[前述泛型实参规则](#2221-泛型函数)。
 
-目前，毕昇 C 对于常量泛型的实现仅限于整形的“整数常量”：
+   ```c
+   typedef T1<T> = T *;
+   typedef T2<T, int N> = T[N];
 
-- 对于声明时，形参列表仅接受 int 及其修饰符 long、short、unsigned、signed，以及上述关键字的各种组合。同时也支持将上述关键字 typedef 成其他别名再做为形参。
-- 对于实例化时，目前泛型实参列表支持 IntegerLiteral （即常量1，2之类），同时也支持 constexpr修饰的变量与常量表达式。
+   void test(void) {
+     T1<int> p1; // ok
+     T1 p2; // error: 未指定泛型实参
+     T2<int> a; // error: 未指定全部泛型实参
+     T2<int, 4, 5> b; // error: 泛型实参数量过多
+     T2<4, int> c; // error: 泛型实参和形参的种类不对应
+   }
+   ```
 
-下面是一些用法示例：
+2. 泛型类型别名的实例化遵循[前述通用规则](#2221-泛型函数)。指定全部泛型实参后，实例化泛型类型别名的声明，确定该别名表示的类型。
 
-```c
-#include <stdio.h>
+   ```c
+   typedef T1<T> = T[2];
 
-typedef long long int LLInt;
-
-// 使用了泛型常量的泛型函数
-int print_dataSize<T, int B>()
-{
-    T data[B];
-    printf("the size of data is %d\n", B);
-  	return B;
-}
-
-// 使用了 typedef别名 作为泛型常量的泛型函数
-void print_const<LLInt B>() {
-    printf("the const is %d\n", B);
-}
-
-// 使用了泛型常量的泛型struct
-struct Array_1<T, int N>
-{
-  	T data[N];
-};
-
-// 使用了 typedef别名 作为泛型常量的泛型struct
-struct Array_2<LLInt B, int C, T>
-{
-  	LLInt data1[B];
-  	int data2[C];
-  	T a;
-};
-
-int main() {
-  	int a1 = print_dataSize<int, 5>();
-  	print_const<20>();
-
-  	struct Array_1<int, 5> arr1;
-  	struct Array_2<5, 6, int> arr2 = {.a = 1};
-
-    return 0;
-}
-```
-
-##### 2.2.2.5. 泛型类型别名
-
-标准 C 已有类型别名的功能，语法为：
-```c
-typedef OldType NewType;
-```
-为了使类型别名能够与泛型一起配合使用，BSC 引入与标准 C 语法不同的类型别名语法：
-```c
-typedef NewType = OldType ;
-```
-加上泛型参数就形成了泛型类型别名，例如：
-```c
-typedef MyPointerType<T> = T*;
-```
-泛型类型别名的使用可以简化类型的书写，还可以为类型赋予更具描述性的名称，使代码更易于阅读和理解，举例来说：
-
-我们可以使用 HashMap 来记录某年级学生的各科成绩，Key 表示学生的学号，Value 表示学生的各科成绩，根据实际情况的不同，学生的学号可以用 int、string 等类型表示，成绩可以用 int、float 等类型表示，科目数量也可能发生变化，使用泛型类型别名有助于我们根据实际需求进行定制：
-
-```C
-//辅助类及成员方法
-struct HashMap<K, V> {
-   //省略实现
-};
-void struct HashMap<K, V>::insert(This* this, K key, V value) {
-   //省略实现
-}
-struct Array<T, int N> {
-    T a[N];
-};
-//使用泛型类型别名定义一个特殊的HashMap类型，它的key是T1类型，value是一个长度为N，元素类型为T2的数组类型：
-typedef GenericGrade<T1, T2, int N> = struct HashMap<T1, struct Array<T2, N>>;
-//继续使用类型别名，针对不同的年级进行定制：
-typedef Grade1 = GenericGrade<int, int, 3>;  //一年级学生学号为int，成绩为int，科目数量为3
-typedef Grade3 = GenericGrade<int, float, 4>;//三年级学生学号为int，成绩为float，科目数量为4
-typedef Grade6 = GenericGrade<int, float, 5>;//六年级学生学号为int，成绩为float，科目数量为5
-
-int main() {
-    Grade1 grade1;
-    grade1.insert(10, {80, 90, 95});
-    grade1.insert(11, {80, 95, 90});
-    Grade3 grade3;
-    grade3.insert(12, {90.0, 95.5, 90.0, 85.0});
-    grade3.insert(13, {80.0, 90.0, 95.5, 90.0});
-    Grade6 grade6;
-    grade6.insert(15, {80.0, 90.0, 95.5, 90.0, 85.0});
-    grade6.insert(16, {80.0, 90.0, 95.5, 90.0, 85.0});
-    return 0;
-}
-```
-
-对于类型别名，有以下规则：
-1. 不允许为泛型类型别名扩展成员函数。
-```C
-struct S<T> {};
-typedef MyS<T> = struct S<T>;
-
-void MyS<T>::foo(This* this) {} //error: extended type of a BSC member function cannot be a generic typealias
-```
-2. 不允许在结构体类型内部定义类型别名。
-```C
-struct S<T> {
-    typedef type = T;    //error: type name does not allow storage class to be specified
-    typedef Int64 = int; //error: expected ';' at end of declaration list
-};
-```
-3. 不允许在函数体内定义泛型类型别名，但可以定义普通类型别名。
-```C
-void foo<T>() {
-    typedef type = T;
-    typedef Int64 = int;
-
-    typedef MyType1<T> = T;   //error: no template named 'MyType1'
-    typedef MyType2<T1> = T1; //error: BSC generic typealias cannot be declared within a function
-}
-```
-
-下面是一些用法示例：
-```C
-struct S<T> {};
-struct V<T1, T2> {
-    T1 a;
-    T2 b;
-};
-
-// 普通类型别名
-typedef Int64 = long int;   //等价于 typedef long int Int64;
-typedef MyS = struct S<int>;//等价于 typedef struct S<int> MyS;
-
-// 泛型类型别名
-typedef MyPointerType<T> = T*;
-typedef Array_3<T> = T[3];
-typedef Array_N<T, int N> = T[N]; //支持带常量泛型参数
-
-typedef MyS_T_T<T> = struct V<T, T>;
-typedef MyS_T_int<T> = struct V<T, int>;
-
-int main() {
-    Int64 a = 5;  //等价于int a = 5;
-    MyS s;        //等价于struct S<int> s;
-    int b = 2;
-    MyPointerType<int> c = &b;  //等价于int* c = &b;
-    Array_3<int> d = {1,2,3};   //等价于int d[3] = {1,2,3};
-    Array_N<int, 3> e= {1,2,3}; //等价于int e[3] = {1,2,3};
-    MyS_T_T<int> s2;
-    MyS_T_int<int> s3;
-    return 0;
-}
-```
-
-###### __conditional 与 conditional 泛型类型别名
-
-毕昇C语言引入了 `__conditional` 以支持类型层面的“分支逻辑”：
-
-```c
-int main() {
-    __conditional(1, int, double) a = 1;   //等价于int a = 1;
-    __conditional(0, int, double) b = 1.0; //等价于double b = 1.0;
-    return 0;
-}
-```
-
-`__conditional(C, T, F)` 是一个类型表达式，`C`是整数常量表达式，`T` 与 `F` 是类型表达式。当`C`非零时，`__conditional`指代`T`类型，否则指代`F`类型。
-
-毕昇C也在 `bsc_conditional.hbs` 这一 BSC 标准库中提供了 conditional 泛型类型别名对其进行封装：
-```c
-// bsc_conditional.hbs
-typedef conditional<int C, T, F> = __conditional(C, T, F);
-```
-
-使用 `conditional` 可以通过泛型的语法使用 `__conditional` 的类型分支功能：
-```c
-#include<bsc_conditional.hbs>  //使用conditional需要导入头文件
-int main() {
-    conditional<1, int, double> a = 1;   //等价于int a = 1;
-    conditional<0, int, double> b = 1.0; //等价于double b = 1.0;
-    return 0;
-}
-```
-
-除了语法外，`conditional` 与 `__conditional` 语义上有以下区别：
-* 对于 `conditional`，不论`C`的取值，编译器总是要求类型`T`与`F`都能够成功实例化。
-* `__conditional`只要求被选中的分支能够成功实例化：当 `C` 非零时，实例化 `T`、不实例化 `F`；当 `C` 为零时，实例化 `F`、不实例化 `T`。未选中的分支不做任何语法或语义检查（但不能为空），编译器仅跳过其内容，因此即使未选中分支中包含未定义的名字或非法的类型表达式，也不会报错。
-
-```c
-#include <bsc_conditional.hbs>
-typedef Owned<T> = T _Owned; // 函数指针不允许 _Owned 修饰，实例化会报错
-typedef Identity1<T> = __conditional(1, T, Owned<T>);
-typedef Identity2<T> = conditional<1, T, Owned<T>>;
-void foo(void) {
-  Identity1<void(*)(void)> a = nullptr; // ok, T 为函数指针时不会实例化 Owned<T>、不报错
-  Identity2<void(*)(void)> b = nullptr; // error, 实例化 Owned<T> 时报错
-}
-```
-
-使用conditional，不仅可以简化书写，可以在编译时根据条件选择不同的类型，避免了运行时的条件分支，提高代码的效率，以下是一个关于选择函数返回类型的使用案例：
-
-定义一个泛型函数，它的返回值类型取决于泛型参数 T ，如果 T 是指针类型，则返回值类型仍然是 T ，否则，返回 T 的指针类型。
-
-C++ 中需要借助泛型特化和 concept 来实现：
-```cpp
-// T 是指针类型时，std::is_pointer_v<T> == true，匹配该版本:
-template<typename T> requires std::is_pointer_v<T>
-T foo() { ... }
-
-// T 不是指针类型时，匹配该版本:
-template<typename T>
-T* foo() { ... }
-```
-
-在 BSC 中，我们可以借助 conditional 很方便地实现这样的功能，相比C++更加方便易用：
-```c
-typedef PointerType<T> = conditional<is_pointer<T>(), T, T*>;
-
-PointerType<T> foo<T>() { ... }
-```
+   void test(void) {
+     T1<int> a; // ok, 实例化 T3<int> 的声明，得到 int[2] 类型
+     T1<void> b; // error: void[2] 不是合法类型，实例化失败
+   }
+   ```
 
 ### 2.3. 常量计算
 
@@ -774,7 +901,7 @@ PointerType<T> foo<T>() { ... }
 定义“编译时计算”的类型：
 bool,char(signed char, unsigned char), 整数类型（包括 int 以及被 short/signed/unsigned/long/long long 等修饰的 int 类型，不包括 enum 类型），以及这些类型的别名。
 
-定义“常量计算”上下文：凡是毕昇C要求“整型常量表达式”的位置，都属于“常量计算”上下文，constexpr 修饰的变量和 constexpr 函数调用都可以用在这些位置。常见场景包括：
+定义“常量计算”上下文：凡是毕昇C要求表达式在编译时求值的位置，都属于“常量计算”上下文，constexpr 修饰的变量和 constexpr 函数调用都可以用在这些位置。常见场景包括：
 - `_Static_assert` 的条件表达式
 - 定长数组的数组长度
 - 初始化其它 constexpr 常量
@@ -1202,6 +1329,73 @@ int main() {
     _Static_assert(is_integral<float>() == false, "fail");
     return 0;
 }
+```
+
+##### 2.3.2.1 __conditional 与 conditional 泛型类型别名
+
+毕昇C语言引入了 `__conditional` 以支持类型层面的“分支逻辑”：
+
+```c
+int main() {
+    __conditional(1, int, double) a = 1;   //等价于int a = 1;
+    __conditional(0, int, double) b = 1.0; //等价于double b = 1.0;
+    return 0;
+}
+```
+
+`__conditional(C, T, F)` 是一个类型表达式，`C`是整数常量表达式，`T` 与 `F` 是类型表达式。当`C`非零时，`__conditional`指代`T`类型，否则指代`F`类型。
+
+毕昇C也在 `bsc_conditional.hbs` 这一 BSC 标准库中提供了 conditional 泛型类型别名对其进行封装：
+```c
+// bsc_conditional.hbs
+typedef conditional<int C, T, F> = __conditional(C, T, F);
+```
+
+使用 `conditional` 可以通过泛型的语法使用 `__conditional` 的类型分支功能：
+```c
+#include<bsc_conditional.hbs>  //使用conditional需要导入头文件
+int main() {
+    conditional<1, int, double> a = 1;   //等价于int a = 1;
+    conditional<0, int, double> b = 1.0; //等价于double b = 1.0;
+    return 0;
+}
+```
+
+除了语法外，`conditional` 与 `__conditional` 语义上有以下区别：
+* 对于 `conditional`，不论`C`的取值，编译器总是要求类型`T`与`F`都能够成功实例化。
+* `__conditional`只要求被选中的分支能够成功实例化：当 `C` 非零时，实例化 `T`、不实例化 `F`；当 `C` 为零时，实例化 `F`、不实例化 `T`。未选中的分支不做任何语法或语义检查（但不能为空），编译器仅跳过其内容，因此即使未选中分支中包含未定义的名字或非法的类型表达式，也不会报错。
+
+```c
+#include <bsc_conditional.hbs>
+typedef Owned<T> = T _Owned; // 函数指针不允许 _Owned 修饰，实例化会报错
+typedef Identity1<T> = __conditional(1, T, Owned<T>);
+typedef Identity2<T> = conditional<1, T, Owned<T>>;
+void foo(void) {
+  Identity1<void(*)(void)> a = nullptr; // ok, T 为函数指针时不会实例化 Owned<T>、不报错
+  Identity2<void(*)(void)> b = nullptr; // error, 实例化 Owned<T> 时报错
+}
+```
+
+使用conditional，不仅可以简化书写，可以在编译时根据条件选择不同的类型，避免了运行时的条件分支，提高代码的效率，以下是一个关于选择函数返回类型的使用案例：
+
+定义一个泛型函数，它的返回值类型取决于泛型参数 T ，如果 T 是指针类型，则返回值类型仍然是 T ，否则，返回 T 的指针类型。
+
+C++ 中需要借助泛型特化和 concept 来实现：
+```cpp
+// T 是指针类型时，std::is_pointer_v<T> == true，匹配该版本:
+template<typename T> requires std::is_pointer_v<T>
+T foo() { ... }
+
+// T 不是指针类型时，匹配该版本:
+template<typename T>
+T* foo() { ... }
+```
+
+在 BSC 中，我们可以借助 conditional 很方便地实现这样的功能，相比C++更加方便易用：
+```c
+typedef PointerType<T> = conditional<is_pointer<T>(), T, T*>;
+
+PointerType<T> foo<T>() { ... }
 ```
 
 #### 2.3.3. constexpr if
