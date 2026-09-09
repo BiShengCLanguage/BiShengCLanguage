@@ -554,6 +554,19 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
     bool LeakFalse = CheckTemporaryVarMemoryLeak(CO->getFalseExpr());
     return LeakCond || LeakTrue || LeakFalse;
   }
+  if (auto *SE = dyn_cast<StmtExpr>(E)) {
+    // A discarded StmtExpr discards its trailing expression's value; the
+    // trailing statement itself skips this check (see ActOnExprStmt).
+    const CompoundStmt *CS = SE->getSubStmt();
+    if (CS->body_empty())
+      return false;
+    if (const ValueStmt *VS =
+            dyn_cast<ValueStmt>(CS->getStmtExprResult()))
+      if (const Expr *Tail = VS->getExprStmt())
+        return CheckTemporaryVarMemoryLeak(
+            const_cast<Expr *>(Tail));
+    return false;
+  }
   if (!isa<CallExpr>(E) && !isa<CompoundLiteralExpr>(E))
     return false;
   QualType RetType = E->getType().getCanonicalType();

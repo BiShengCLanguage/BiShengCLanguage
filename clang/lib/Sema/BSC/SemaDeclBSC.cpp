@@ -1677,9 +1677,13 @@ public:
       CS = cast<CompoundStmt>(replacedNodesMap.Get(CS));
     }
 
-    // Traverse and transform all statements in the compound statement.
+    // The trailing statement of a statement expression is its result, not a
+    // discard; SDK_Discarded here would re-run the owned-temporary leak
+    // check on a result that the enclosing expression consumes.
+    const Stmt *ExprResult = IsStmtExpr ? CS->getStmtExprResult() : nullptr;
     for (Stmt *S : CS->body()) {
-      BaseTransform::TransformStmt(S);
+      BaseTransform::TransformStmt(
+          S, S == ExprResult ? SDK_StmtExprResult : SDK_Discarded);
     }
 
     return CS;
@@ -2033,7 +2037,7 @@ public:
   }
 
   ExprResult TransformStmtExpr(StmtExpr *SE) {
-    StmtResult Res = getDerived().TransformStmt(SE->getSubStmt());
+    StmtResult Res = getDerived().TransformCompoundStmt(SE->getSubStmt(), true);
     SE->setSubStmt(Res.getAs<CompoundStmt>());
     return SE;
   }

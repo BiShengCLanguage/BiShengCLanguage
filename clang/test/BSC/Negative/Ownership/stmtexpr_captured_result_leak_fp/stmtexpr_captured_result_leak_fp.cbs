@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -fsyntax-only -verify -x bsc %s
+
+T *_Owned safe_malloc<T>(T t);
+void safe_free<T>(T *_Owned p);
+
+int *_Owned make_int(void) { return safe_malloc<int>(9); }
+
+void false_discard(void) {
+    // Captured as an initializer: clean.
+    int *_Owned tmp = ({ make_int(); });
+    (void)tmp;
+    safe_free((void *_Owned)tmp);
+
+    // Captured trailing variable move-out: clean.
+    int *_Owned p = ({ int *_Owned q = safe_malloc<int>(1); q; });
+    safe_free((void *_Owned)p);
+}
+
+void true_discard(void) {
+    ({ make_int(); }); // expected-error {{the _Owned value of 'make_int()' is discarded and would leak}}
+}

@@ -52,7 +52,10 @@ StmtResult Sema::ActOnExprStmt(ExprResult FE, bool DiscardedValue) {
     return StmtError();
 
   #if ENABLE_BSC
-  if (CheckTemporaryVarMemoryLeak(FE.get()))
+  // !DiscardedValue marks a StmtExpr's trailing statement: the enclosing
+  // expression consumes its value, so it is not a discard. A discarded
+  // StmtExpr is checked as a whole via its StmtExpr arm.
+  if (DiscardedValue && CheckTemporaryVarMemoryLeak(FE.get()))
     return StmtError();
   #endif
 
