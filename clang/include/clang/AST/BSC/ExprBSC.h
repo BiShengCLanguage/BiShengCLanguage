@@ -27,6 +27,7 @@ public:
   explicit AwaitExpr(SourceLocation AwaitLoc, Expr *Se, QualType Ty)
       : Expr(AwaitExprClass, Ty, VK_PRValue, OK_Ordinary), AwaitLoc(AwaitLoc) {
     SubExpr = Se;
+    setDependence(Se->getDependence());
   }
 
   explicit AwaitExpr(EmptyShell Empty) : Expr(AwaitExprClass, Empty) {}
@@ -65,14 +66,19 @@ public:
   SafeExpr(SourceLocation loc, SafeZoneSpecifier safeZoneSpec, Expr *val)
       : Expr(SafeExprClass, val->getType(), val->getValueKind(),
              val->getObjectKind()),
-        SafeZoneSpec(safeZoneSpec), Loc(loc), SubExpr(val) {}
+        SafeZoneSpec(safeZoneSpec), Loc(loc), SubExpr(val) {
+    setDependence(val->getDependence());
+  }
 
   /// Construct an empty safe expression.
   explicit SafeExpr(EmptyShell Empty) : Expr(SafeExprClass, Empty) {}
 
   const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
   Expr *getSubExpr() { return cast<Expr>(SubExpr); }
-  void setSubExpr(Expr *E) { SubExpr = E; }
+  void setSubExpr(Expr *E) {
+    SubExpr = E;
+    setDependence(E->getDependence());
+  }
 
   SafeZoneSpecifier getSafeZoneSpecifier() const { return SafeZoneSpec; }
   void setSafeZoneSpecifier(SafeZoneSpecifier sz) { SafeZoneSpec = sz; }

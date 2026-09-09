@@ -1,0 +1,19 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// _Safe/_Unsafe are transparent expression wrappers, so they must propagate
+// the wrapped expression's template dependence. Otherwise a static assertion
+// such as the one below is evaluated while T is still an unknown template
+// parameter and is incorrectly rejected as "not an integral constant
+// expression" at the generic definition.
+
+void foo<T>() {
+  _Static_assert(_Safe(sizeof(T)) > 0, "sizeof(T) must be positive");
+}
+
+int main() {
+  foo<int>();
+  foo<double>();
+  return 0;
+}

@@ -98,6 +98,14 @@ bool StmtTreeHasErrors(const Stmt *S, SourceLocation *Loc = nullptr) {
       setInvalidLocIfUnset(Loc, E->getExprLoc());
       return true;
     }
+    // A function body that survived template instantiation should not contain
+    // dependent expressions. If it does (e.g. an instantiation failed while an
+    // expression was only partially substituted), AST-walking analyses may feed
+    // such expressions to the constant evaluator and crash.
+    if (E->isValueDependent() || E->isInstantiationDependent()) {
+      setInvalidLocIfUnset(Loc, E->getExprLoc());
+      return true;
+    }
     if (TypeHasCyclicRecord(E->getType())) {
       setInvalidLocIfUnset(Loc, E->getExprLoc());
       return true;
@@ -137,6 +145,18 @@ bool StmtTreeHasErrors(const Stmt *S, SourceLocation *Loc = nullptr) {
       if (D->isInvalidDecl()) {
         setInvalidLocIfUnset(Loc, D->getLocation());
         return true;
+      }
+      // A failed static assertion carries an already-diagnosed invalid
+      // requirement. Its condition may also contain error-recovery or
+      // not-fully-substituted expressions, so inspect it explicitly instead of
+      // treating the StaticAssertDecl as a plain opaque declaration.
+      if (const auto *SAD = dyn_cast<StaticAssertDecl>(D)) {
+        if (SAD->isFailed()) {
+          setInvalidLocIfUnset(Loc, SAD->getBeginLoc());
+          return true;
+        }
+        if (StmtTreeHasErrors(SAD->getAssertExpr(), Loc))
+          return true;
       }
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
         if (TypeHasCyclicRecord(VD->getType())) {

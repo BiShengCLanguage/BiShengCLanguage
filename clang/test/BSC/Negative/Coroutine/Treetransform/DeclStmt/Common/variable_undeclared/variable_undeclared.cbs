@@ -8,7 +8,6 @@ _Async int f(int start) {
 }
 
 // expected-error@#1 {{use of undeclared identifier 'r1'}}
-// expected-error@#1 {{initializing 'int' with an expression of incompatible type '<dependent type>'}}  
 
 int main() {
   return 0;
