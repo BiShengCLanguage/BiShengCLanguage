@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
+
+// In exhaustive mode, a _Static_assert that fails during instantiation because
+// its condition is not a constant expression must also retain its
+// instantiation note, even when an earlier error in the same instantiation
+// already printed one.
+
+void foo<T>(T x, T v) {
+  x.missing; // expected-error {{no member named 'missing' in type 'int'}}
+  _Static_assert(v == 0, "fail"); // expected-error {{static assertion expression is not an integral constant expression}}
+}
+
+int main() {
+  int x = 1;
+  int v = 1;
+  foo<int>(x, v); // #call-site
+  return 0;
+}
+
+// expected-note@#call-site {{in instantiation of function template specialization 'foo<int>' requested here}}
+// expected-note@#call-site {{in instantiation of function template specialization 'foo<int>' requested here}}

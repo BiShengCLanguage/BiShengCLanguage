@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -verify %s
+
+// In default mode, when an earlier diagnostic in the same instantiation
+// context already emitted the instantiation note, a later failing
+// _Static_assert is not given another note.
+
+struct S { int a; };
+
+void foo<T>(T x) {
+  x.missing; // expected-error {{no member named 'missing' in 'struct S'}}
+  _Static_assert(__is_same(T, int), "fail"); // expected-error {{static assertion failed due to requirement '__is_same(struct S, int)': fail}}
+}
+
+int main() {
+  struct S s = {1};
+  foo<struct S>(s); // expected-note {{in instantiation of function template specialization 'foo<struct S>' requested here}}
+  return 0;
+}

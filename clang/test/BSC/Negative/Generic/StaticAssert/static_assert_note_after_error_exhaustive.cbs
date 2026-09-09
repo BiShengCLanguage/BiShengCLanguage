@@ -1,0 +1,21 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
+
+// In exhaustive mode, every failing _Static_assert in a generic must still
+// point at its instantiation location, even if an earlier diagnostic in the
+// same instantiation context already emitted the instantiation note.
+
+struct S { int a; };
+
+void foo<T>(T x) {
+  x.missing; // expected-error {{no member named 'missing' in 'struct S'}}
+  _Static_assert(__is_same(T, int), "fail"); // expected-error {{static assertion failed due to requirement '__is_same(struct S, int)': fail}}
+}
+
+int main() {
+  struct S s = {1};
+  foo<struct S>(s); // #call-site
+  return 0;
+}
+
+// expected-note@#call-site {{in instantiation of function template specialization 'foo<struct S>' requested here}}
+// expected-note@#call-site {{in instantiation of function template specialization 'foo<struct S>' requested here}}

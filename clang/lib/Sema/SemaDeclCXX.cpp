@@ -16609,13 +16609,52 @@ Decl *Sema::BuildStaticAssertDeclaration(SourceLocation StaticAssertLoc,
       AssertExpr = FullAssertExpr.get();
 
     llvm::APSInt Cond;
+#if ENABLE_BSC
+    if (!Failed) {
+      // See the same reset in the false-condition branch below: the "not an
+      // integral constant expression" diagnostic is also a _Static_assert
+      // failure, so in exhaustive mode it must retain its instantiation note.
+      unsigned SavedLastEmittedCodeSynthesisContextDepth =
+          LastEmittedCodeSynthesisContextDepth;
+      if (getLangOpts().BSC &&
+          getLangOpts().getBSCDiag() == LangOptions::BSCDiagExhaustive &&
+          !CodeSynthesisContexts.empty())
+        LastEmittedCodeSynthesisContextDepth = 0;
+
+      ExprResult VerifyResult = VerifyIntegerConstantExpression(AssertExpr,
+          &Cond, diag::err_static_assert_expression_is_not_constant);
+
+      // If verification succeeded, no static-assert diagnostic was emitted;
+      // restore the suppression state so later unrelated diagnostics in the
+      // same context keep their original behavior.
+      if (!VerifyResult.isInvalid())
+        LastEmittedCodeSynthesisContextDepth =
+            SavedLastEmittedCodeSynthesisContextDepth;
+
+      if (VerifyResult.isInvalid())
+        Failed = true;
+    }
+#else
     if (!Failed && VerifyIntegerConstantExpression(
                        AssertExpr, &Cond,
                        diag::err_static_assert_expression_is_not_constant)
                        .isInvalid())
       Failed = true;
+#endif
 
     if (!Failed && !Cond) {
+#if ENABLE_BSC
+      // In BSC exhaustive diagnostic mode, a failed _Static_assert in a
+      // generic should always point at its instantiation location, even if an
+      // earlier diagnostic in the same code-synthesis context already printed
+      // the instantiation backtrace. Without this reset, Sema::PrintContextStack
+      // suppresses the note because LastEmittedCodeSynthesisContextDepth still
+      // equals the current context depth.
+      if (getLangOpts().BSC &&
+          getLangOpts().getBSCDiag() == LangOptions::BSCDiagExhaustive &&
+          !CodeSynthesisContexts.empty())
+        LastEmittedCodeSynthesisContextDepth = 0;
+#endif
       SmallString<256> MsgBuffer;
       llvm::raw_svector_ostream Msg(MsgBuffer);
       if (AssertMessage) {
