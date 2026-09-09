@@ -132,6 +132,39 @@ static bool overlapsOwnedFields(const llvm::SmallSet<string, 10> &ownedFields,
   return false;
 }
 
+static void eraseFieldAndDescendants(llvm::SmallSet<string, 10> &fields,
+                                     const string &fieldName) {
+  llvm::SmallVector<string, 10> toErase;
+  for (const string &field : fields)
+    if (isFieldPathPrefix(fieldName, field))
+      toErase.push_back(field);
+  for (const string &field : toErase)
+    fields.erase(field);
+}
+
+static void
+markFieldAndDescendantsMoved(const llvm::SmallSet<string, 10> &allFields,
+                             llvm::SmallSet<string, 10> &movedFields,
+                             const string &fieldName) {
+  for (const string &field : allFields)
+    if (isFieldPathPrefix(fieldName, field))
+      movedFields.insert(field);
+}
+
+static string
+findExplicitMovedFieldKey(const llvm::SmallSet<string, 10> &movedFields,
+                          string fieldName) {
+  string movedFieldName;
+  while (!fieldName.empty()) {
+    if (movedFields.count(fieldName))
+      movedFieldName = fieldName;
+    if (fieldName.back() != '*')
+      break;
+    fieldName.pop_back();
+  }
+  return movedFieldName;
+}
+
 // Enclosing path of a field path: "a.b" -> "a", "p*" -> "p"; "" at the root.
 // A trailing '.' is an access marker (see overlapsOwnedFields).
 static string parentFieldPath(string path) {
@@ -324,9 +357,11 @@ static string moveAsterisksToFront(string str) {
 
 static string concatFields(const VarDecl *VD,
                            const llvm::SmallSet<string, 10> &fields) {
+  llvm::SmallVector<string, 10> orderedFields(fields.begin(), fields.end());
+  std::sort(orderedFields.begin(), orderedFields.end());
   string contactedFields = "";
   size_t count = 0;
-  for (const string &element : fields) {
+  for (const string &element : orderedFields) {
     if (count++ != 0) {
       contactedFields += ", ";
     }
@@ -404,9 +439,9 @@ static bool IsCastFromVoidPointer(Expr *E) {
 bool Ownership::OwnershipStatus::empty() const {
   return OPSStatus.empty() && OPSAllOwnedFields.empty() &&
          OPSOwnedOwnedFields.empty() && OPSNullOwnedFields.empty() &&
-         SStatus.empty() &&
-         SAllOwnedFields.empty() && SOwnedOwnedFields.empty() &&
-         SNullOwnedFields.empty() && BOPStatus.empty() &&
+         SStatus.empty() && SAllOwnedFields.empty() &&
+         SOwnedOwnedFields.empty() && SNullOwnedFields.empty() &&
+         SMovedOwnedFields.empty() && BOPStatus.empty() &&
          BOPAllOwnedFields.empty() && BOPOwnedOwnedFields.empty();
 }
 
@@ -417,9 +452,9 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
     return Ownership::OwnershipStatus(
         statsB.OPSStatus, statsB.OPSAllOwnedFields, statsB.OPSOwnedOwnedFields,
         statsB.OPSNullOwnedFields, statsB.SStatus, statsB.SAllOwnedFields,
-        statsB.SOwnedOwnedFields,
-        statsB.SNullOwnedFields, statsB.SUninitOwnedFields,
-        statsB.BOPStatus, statsB.BOPAllOwnedFields, statsB.BOPOwnedOwnedFields);
+        statsB.SOwnedOwnedFields, statsB.SNullOwnedFields,
+        statsB.SUninitOwnedFields, statsB.SMovedOwnedFields, statsB.BOPStatus,
+        statsB.BOPAllOwnedFields, statsB.BOPOwnedOwnedFields);
 
   for (auto it = statsB.OPSStatus.begin(), ei = statsB.OPSStatus.end();
        it != ei; ++it) {
@@ -507,6 +542,14 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
        it != ei; ++it)
     for (const auto &s : it->second)
       statsA.SUninitOwnedFields[it->first].insert(s);
+  // A field moved on either branch remains unsafe to use after the join.  It
+  // may simultaneously remain in SOwnedOwnedFields when the other branch
+  // still owns it; that possible ownership is needed by leak checking.
+  for (auto it = statsB.SMovedOwnedFields.begin(),
+            ei = statsB.SMovedOwnedFields.end();
+       it != ei; ++it)
+    for (const auto &s : it->second)
+      statsA.SMovedOwnedFields[it->first].insert(s);
 
   for (auto it = statsB.BOPStatus.begin(), ei = statsB.BOPStatus.end();
        it != ei; ++it) {
@@ -538,8 +581,8 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
       statsA.OPSStatus, statsA.OPSAllOwnedFields, statsA.OPSOwnedOwnedFields,
       statsA.OPSNullOwnedFields, statsA.SStatus, statsA.SAllOwnedFields,
       statsA.SOwnedOwnedFields, statsA.SNullOwnedFields,
-      statsA.SUninitOwnedFields, statsA.BOPStatus, statsA.BOPAllOwnedFields,
-      statsA.BOPOwnedOwnedFields);
+      statsA.SUninitOwnedFields, statsA.SMovedOwnedFields, statsA.BOPStatus,
+      statsA.BOPAllOwnedFields, statsA.BOPOwnedOwnedFields);
 }
 
 bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
@@ -550,7 +593,7 @@ bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
          SOwnedOwnedFields == V.SOwnedOwnedFields &&
          SNullOwnedFields == V.SNullOwnedFields &&
          SUninitOwnedFields == V.SUninitOwnedFields &&
-         BOPStatus == V.BOPStatus &&
+         SMovedOwnedFields == V.SMovedOwnedFields && BOPStatus == V.BOPStatus &&
          BOPAllOwnedFields == V.BOPAllOwnedFields &&
          BOPOwnedOwnedFields == V.BOPOwnedOwnedFields;
 }
@@ -1060,6 +1103,7 @@ void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
     SOwnedOwnedFields[VD] = SAllOwnedFields[VD];
     SNullOwnedFields[VD].clear();
     SUninitOwnedFields[VD].clear();
+    SMovedOwnedFields[VD].clear();
   }
 
   if (BOPStatus.count(VD)) {
@@ -1125,12 +1169,14 @@ void Ownership::OwnershipStatus::setToAllMoved(const Expr *E) {
           SOwnedOwnedFields[VD].insert(memberField.second);
           SNullOwnedFields[VD].erase(memberField.second);
           SUninitOwnedFields[VD].erase(memberField.second);
+          SMovedOwnedFields[VD].erase(memberField.second);
           auto allPrefixStrs =
               findPrefixStrings(SAllOwnedFields[VD], memberField.second + ".");
           for (const string &str : allPrefixStrs) {
             SOwnedOwnedFields[VD].erase(str);
             SNullOwnedFields[VD].erase(str);
             SUninitOwnedFields[VD].erase(str);
+            SMovedOwnedFields[VD].insert(str);
           }
           resetAll(VD);
           if (SOwnedOwnedFields[VD].size() == 0) {
@@ -1331,6 +1377,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
           SOwnedOwnedFields[VD].erase(memberField.second);
           SNullOwnedFields[VD].insert(memberField.second);
           SUninitOwnedFields[VD].erase(memberField.second);
+          eraseFieldAndDescendants(SMovedOwnedFields[VD], memberField.second);
           auto allPrefixStrs =
               findPrefixStrings(SAllOwnedFields[VD], memberField.second + ".");
           for (const string &str : allPrefixStrs) {
@@ -1445,6 +1492,8 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E) {
           SOwnedOwnedFields[VD].erase(memberField.second);
           SNullOwnedFields[VD].erase(memberField.second);
           SUninitOwnedFields[VD].erase(memberField.second);
+          markFieldAndDescendantsMoved(
+              SAllOwnedFields[VD], SMovedOwnedFields[VD], memberField.second);
           auto allPrefixStrs =
               findPrefixStrings(SAllOwnedFields[VD], memberField.second + ".");
           for (const string &str : allPrefixStrs) {
@@ -1474,6 +1523,7 @@ void Ownership::OwnershipStatus::setArrayElemMoved(const VarDecl *VD) {
     // tracked field of every element as moved out.
     for (const string &field : SAllOwnedFields[VD])
       SOwnedOwnedFields[VD].erase(field);
+    SMovedOwnedFields[VD] = SAllOwnedFields[VD];
     resetAll(VD);
     set(VD, Ownership::Status::AllMoved);
   }
@@ -1498,6 +1548,7 @@ void Ownership::OwnershipStatus::setArrayElemNull(const VarDecl *VD) {
   }
   if (SStatus.count(VD)) {
     SOwnedOwnedFields[VD].clear();
+    SMovedOwnedFields[VD].clear();
     if (SNullOwnedFields.count(VD))
       SNullOwnedFields[VD] = SAllOwnedFields[VD];
     resetAll(VD);
@@ -1512,6 +1563,8 @@ void Ownership::OwnershipStatus::setArrayFieldMoved(const VarDecl *VD,
       return;
     SOwnedOwnedFields[VD].erase(fieldName);
     SNullOwnedFields[VD].erase(fieldName);
+    markFieldAndDescendantsMoved(SAllOwnedFields[VD], SMovedOwnedFields[VD],
+                                 fieldName);
     for (const string &str :
          findPrefixStrings(SAllOwnedFields[VD], fieldName + ".")) {
       SOwnedOwnedFields[VD].erase(str);
@@ -1543,6 +1596,7 @@ void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
     if (SAllOwnedFields[VD].count(fieldName)) {
       SOwnedOwnedFields[VD].insert(fieldName);
       SNullOwnedFields[VD].erase(fieldName);
+      SMovedOwnedFields[VD].erase(fieldName);
       Found = true;
     }
     // A mutable borrow of an aggregate field path (e.g. "arr[]" or "inner")
@@ -1552,6 +1606,7 @@ void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
          findPrefixStrings(SAllOwnedFields[VD], fieldName + ".")) {
       SOwnedOwnedFields[VD].insert(F);
       SNullOwnedFields[VD].erase(F);
+      SMovedOwnedFields[VD].erase(F);
       Found = true;
     }
     if (!Found)
@@ -1584,6 +1639,7 @@ void Ownership::OwnershipStatus::setArrayFieldNull(const VarDecl *VD,
       return;
     SOwnedOwnedFields[VD].erase(fieldName);
     SNullOwnedFields[VD].insert(fieldName);
+    eraseFieldAndDescendants(SMovedOwnedFields[VD], fieldName);
     refreshArrayFieldState(VD, SOwnedOwnedFields[VD], SAllOwnedFields[VD]);
   }
   if (OPSStatus.count(VD)) {
@@ -1698,6 +1754,7 @@ void Ownership::OwnershipStatus::removeArraysOne(const VarDecl *VD) {
   SOwnedOwnedFields.erase(VD);
   SNullOwnedFields.erase(VD);
   SUninitOwnedFields.erase(VD);
+  SMovedOwnedFields.erase(VD);
   BOPStatus.erase(VD);
   BOPAllOwnedFields.erase(VD);
   BOPOwnedOwnedFields.erase(VD);
@@ -1725,6 +1782,7 @@ void Ownership::OwnershipStatus::takeArraysFrom(
       SOwnedOwnedFields[VD] = Other.SOwnedOwnedFields.lookup(VD);
       SNullOwnedFields[VD] = Other.SNullOwnedFields.lookup(VD);
       SUninitOwnedFields[VD] = Other.SUninitOwnedFields.lookup(VD);
+      SMovedOwnedFields[VD] = Other.SMovedOwnedFields.lookup(VD);
     }
     if (Other.BOPStatus.count(VD)) {
       BOPStatus[VD] = Other.BOPStatus.lookup(VD);
@@ -1735,13 +1793,14 @@ void Ownership::OwnershipStatus::takeArraysFrom(
 }
 
 string Ownership::OwnershipStatus::collectMovedFields(const VarDecl *VD) {
-  llvm::SmallSet<string, 10> allFields, ownedFields;
+  llvm::SmallSet<string, 10> allFields, ownedFields, explicitMovedFields;
   if (OPSStatus.count(VD)) {
     allFields = OPSAllOwnedFields[VD];
     ownedFields = OPSOwnedOwnedFields[VD];
   } else if (SStatus.count(VD)) {
     allFields = SAllOwnedFields[VD];
     ownedFields = SOwnedOwnedFields[VD];
+    explicitMovedFields = SMovedOwnedFields[VD];
   } else if (BOPStatus.count(VD)) {
     allFields = BOPAllOwnedFields[VD];
     ownedFields = BOPOwnedOwnedFields[VD];
@@ -1749,7 +1808,8 @@ string Ownership::OwnershipStatus::collectMovedFields(const VarDecl *VD) {
   string movedFields = "";
   int count = 0;
   for (const auto &element : allFields) {
-    if (ownedFields.count(element) == 0) {
+    if (explicitMovedFields.count(element) != 0 ||
+        ownedFields.count(element) == 0) {
       if (count++ != 0) {
         movedFields += ", ";
       }
@@ -2148,8 +2208,11 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSUse(
     }
   }
 
-  if (SAllOwnedFields[VD].size() - SOwnedOwnedFields[VD].size() - SNullOwnedFields[VD].size() != 0 &&
-      SAllOwnedFields[VD].size()!= SOwnedOwnedFields[VD].size() &&
+  if ((!SMovedOwnedFields[VD].empty() ||
+       ((SAllOwnedFields[VD].size() - SOwnedOwnedFields[VD].size() -
+             SNullOwnedFields[VD].size() !=
+         0) &&
+        SAllOwnedFields[VD].size() != SOwnedOwnedFields[VD].size())) &&
       diags.empty()) {
     diags.push_back(OwnershipDiagInfo(Loc, InvalidUseOfPartiallyMoved,
                                       VD->getNameAsString(),
@@ -2162,8 +2225,10 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSUse(
       SNullOwnedFields[VD].clear();
     }
   }
-  if (!isGetAddr)
+  if (!isGetAddr) {
+    SMovedOwnedFields[VD] = SAllOwnedFields[VD];
     SOwnedOwnedFields[VD].clear();
+  }
   return diags;
 }
 
@@ -2196,8 +2261,11 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
   }
 
   string movedFieldName =
-      findMovedFieldKey(SAllOwnedFields[VD], SOwnedOwnedFields[VD],
-                        &SNullOwnedFields[VD], fullFieldName);
+      findExplicitMovedFieldKey(SMovedOwnedFields[VD], fullFieldName);
+  if (movedFieldName.empty())
+    movedFieldName =
+        findMovedFieldKey(SAllOwnedFields[VD], SOwnedOwnedFields[VD],
+                          &SNullOwnedFields[VD], fullFieldName);
   if (!movedFieldName.empty() && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
@@ -2226,12 +2294,25 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
   for (const auto &elem : ownedPrefixStrsStar) {
     ownedPrefixStrs.insert(elem);
   }
-  if (allPrefixStrs.size() != ownedPrefixStrs.size() && diags.empty()) {
+  bool hasExplicitMovedChild = false;
+  for (const string &field : SMovedOwnedFields[VD]) {
+    if (field != fullFieldName && isFieldPathPrefix(fullFieldName, field)) {
+      hasExplicitMovedChild = true;
+      break;
+    }
+  }
+  // A CFG merge may restore a child to may-own while it remains moved on
+  // another path.
+  if ((allPrefixStrs.size() != ownedPrefixStrs.size() ||
+       hasExplicitMovedChild) &&
+      diags.empty()) {
     diags.push_back(OwnershipDiagInfo(
         Loc, OwnershipDiagKind::InvalidUseOfPartiallyMoved,
         VD->getNameAsString() + "." + fullFieldName, collectMovedFields(VD)));
   }
   if (!isGetAddr) {
+    markFieldAndDescendantsMoved(SAllOwnedFields[VD], SMovedOwnedFields[VD],
+                                 fullFieldName);
     SOwnedOwnedFields[VD].erase(fullFieldName);
     for (const auto &str : ownedPrefixStrs) {
       SOwnedOwnedFields[VD].erase(str);
@@ -2260,7 +2341,11 @@ Ownership::OwnershipStatus::checkSAssign(const VarDecl *VD,
   // owned struct does not abide with this rule.
   if (!VD->getType().getTypePtr()->isOwnedStructureType()) {
     if (!SOwnedOwnedFields[VD].empty() && diags.empty()) {
-      if (SAllOwnedFields[VD].size() == SOwnedOwnedFields[VD].size()) {
+      if (!SMovedOwnedFields[VD].empty()) {
+        diags.push_back(OwnershipDiagInfo(
+            Loc, OwnershipDiagKind::InvalidAssignOfPartiallyMoved,
+            VD->getNameAsString(), collectMovedFields(VD)));
+      } else if (SAllOwnedFields[VD].size() == SOwnedOwnedFields[VD].size()) {
         diags.push_back(
             OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignOfOwned,
                               VD->getNameAsString()));
@@ -2277,6 +2362,7 @@ Ownership::OwnershipStatus::checkSAssign(const VarDecl *VD,
   SOwnedOwnedFields[VD] = SAllOwnedFields[VD];
   SNullOwnedFields[VD].clear();
   SUninitOwnedFields[VD].clear();
+  SMovedOwnedFields[VD].clear();
 
   return diags;
 }
@@ -2308,10 +2394,13 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   for (string parent = parentFieldPath(fullFieldName); !parent.empty();
        parent = parentFieldPath(parent)) {
     if (SAllOwnedFields[VD].count(parent) &&
-        !SOwnedOwnedFields[VD].count(parent) && diags.empty()) {
-      OwnershipDiagKind Kind = overlapsOwnedFields(SUninitOwnedFields[VD], parent)
-                                   ? OwnershipDiagKind::InvalidUseOfUninit
-                                   : OwnershipDiagKind::InvalidUseOfMoved;
+        (SMovedOwnedFields[VD].count(parent) ||
+         !SOwnedOwnedFields[VD].count(parent)) &&
+        diags.empty()) {
+      OwnershipDiagKind Kind =
+          overlapsOwnedFields(SUninitOwnedFields[VD], parent)
+              ? OwnershipDiagKind::InvalidUseOfUninit
+              : OwnershipDiagKind::InvalidUseOfMoved;
       diags.push_back(OwnershipDiagInfo(
           Loc, Kind,
           moveAsterisksToFront(VD->getNameAsString() + "." + parent)));
@@ -2362,6 +2451,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   }
   SNullOwnedFields[VD].erase(fullFieldName);
   SUninitOwnedFields[VD].erase(fullFieldName);
+  eraseFieldAndDescendants(SMovedOwnedFields[VD], fullFieldName);
   for (const auto &str : allPrefixStrs) {
     SNullOwnedFields[VD].erase(str);
     SUninitOwnedFields[VD].erase(str);
@@ -2711,7 +2801,13 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
     // element-granularity moved detection cannot distinguish arr[0].a from
     // arr[1].a; skip the error and keep erasing the aggregate field.
     bool ArrayFieldPath = fullFieldName.find("[]") != std::string::npos;
-    if (!SOwnedOwnedFields[VD].count(fullFieldName) && !ArrayFieldPath) {
+    string movedFieldName =
+        findExplicitMovedFieldKey(SMovedOwnedFields[VD], fullFieldName);
+    if (!movedFieldName.empty() && !ArrayFieldPath) {
+      diags.push_back(OwnershipDiagInfo(
+          Loc, OwnershipDiagKind::InvalidCastMoved,
+          moveAsterisksToFront(VD->getNameAsString() + "." + movedFieldName)));
+    } else if (!SOwnedOwnedFields[VD].count(fullFieldName) && !ArrayFieldPath) {
       OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
@@ -2735,6 +2831,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
           concatFields(VD, ownedPrefixStrs)));
     }
     SOwnedOwnedFields[VD].erase(fullFieldName);
+    markFieldAndDescendantsMoved(SAllOwnedFields[VD], SMovedOwnedFields[VD],
+                                 fullFieldName);
     for (const auto &str : ownedPrefixStrs) {
       SOwnedOwnedFields[VD].erase(str);
     }

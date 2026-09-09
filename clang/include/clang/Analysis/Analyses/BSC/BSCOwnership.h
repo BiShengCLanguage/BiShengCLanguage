@@ -394,6 +394,7 @@ public:
     // Owned field paths never yet assigned; distinguishes uninitialized from
     // moved-out at field granularity.
     llvm::DenseMap<const VarDecl *, SOwnedField> SUninitOwnedFields;
+    llvm::DenseMap<const VarDecl *, SOwnedField> SMovedOwnedFields;
 
     // basic owned pointer status, e.g. int * owned p
     using BOPOwnedField = llvm::SmallSet<std::string, 10>;
@@ -515,8 +516,8 @@ public:
 
     OwnershipStatus()
         : OPSStatus(0), OPSAllOwnedFields(0), OPSOwnedOwnedFields(0),
-          OPSNullOwnedFields(0),
-          SStatus(0), SAllOwnedFields(0), SOwnedOwnedFields(0), BOPStatus(0),
+          OPSNullOwnedFields(0), SStatus(0), SAllOwnedFields(0),
+          SOwnedOwnedFields(0), SMovedOwnedFields(0), BOPStatus(0),
           BOPAllOwnedFields(0), BOPOwnedOwnedFields(0) {}
 
     OwnershipStatus(llvm::DenseMap<const VarDecl *, OwnershipSet> opss,
@@ -528,15 +529,16 @@ public:
                     llvm::DenseMap<const VarDecl *, SOwnedField> soof,
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> snof,
                     llvm::DenseMap<const VarDecl *, SOwnedField> sunof,
+                    llvm::DenseMap<const VarDecl *, SOwnedField> smof,
                     llvm::DenseMap<const VarDecl *, OwnershipSet> bops,
                     llvm::DenseMap<const VarDecl *, BOPOwnedField> bopaof,
                     llvm::DenseMap<const VarDecl *, BOPOwnedField> bopoof)
         : OPSStatus(opss), OPSAllOwnedFields(opsaof),
-          OPSOwnedOwnedFields(opsoof), OPSNullOwnedFields(opsofn),
-          SStatus(ss), SAllOwnedFields(saof),
-          SOwnedOwnedFields(soof), SNullOwnedFields(snof),
-          SUninitOwnedFields(sunof), BOPStatus(bops),
-          BOPAllOwnedFields(bopaof), BOPOwnedOwnedFields(bopoof) {}
+          OPSOwnedOwnedFields(opsoof), OPSNullOwnedFields(opsofn), SStatus(ss),
+          SAllOwnedFields(saof), SOwnedOwnedFields(soof),
+          SNullOwnedFields(snof), SUninitOwnedFields(sunof),
+          SMovedOwnedFields(smof), BOPStatus(bops), BOPAllOwnedFields(bopaof),
+          BOPOwnedOwnedFields(bopoof) {}
 
   private:
     void initOPS(const RecordDecl *RD, const VarDecl *VD, Source source,

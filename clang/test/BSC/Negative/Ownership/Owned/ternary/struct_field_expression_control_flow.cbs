@@ -1,0 +1,72 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+_Safe int *_Owned make(void);
+_Safe void take(int *_Owned);
+
+struct S {
+  int *_Owned _Nullable p;
+  int *_Owned _Nullable q;
+  int *_Owned _Nullable r;
+};
+
+_Safe void stmt_arm(_Bool a, _Bool b, _Bool c) {
+  struct S s = {0};
+  s.p = make();
+  s.q = make();
+  s.r = make();
+
+  take(c ? ({ a ? s.p : s.q; }) : ({ b ? s.q : s.r; }));
+  take(s.p); // expected-error {{use of moved value: 's.p'}}
+  take(s.q); // expected-error {{use of moved value: 's.q'}}
+  take(s.r); // expected-error {{use of moved value: 's.r'}}
+}
+
+_Safe void nested(_Bool a, _Bool b, _Bool c) {
+  struct S s = {0};
+  s.p = make();
+  s.q = make();
+  s.r = make();
+
+  take(a ? (b ? s.p : s.q) : (c ? s.q : s.r));
+  take(s.p); // expected-error {{use of moved value: 's.p'}}
+  take(s.q); // expected-error {{use of moved value: 's.q'}}
+  take(s.r); // expected-error {{use of moved value: 's.r'}}
+}
+
+_Safe void comma_arm(_Bool c) {
+  struct S s = {0};
+  s.p = make();
+  s.q = make();
+  s.r = make();
+
+  take(c ? ((void)0, s.p) : ((void)0, s.q));
+  take(s.p); // expected-error {{use of moved value: 's.p'}}
+  take(s.q); // expected-error {{use of moved value: 's.q'}}
+  take(s.r);
+}
+
+_Safe void comma_outer(_Bool c) {
+  struct S s = {0};
+  s.p = make();
+  s.q = make();
+  s.r = make();
+
+  // expected-warning@+1 {{left operand of comma operator has no effect}}
+  take((c ? s.p : s.q, s.r));
+  take(s.p);
+  take(s.q);
+  take(s.r); // expected-error {{use of moved value: 's.r'}}
+}
+
+_Safe void mixed(_Bool a, _Bool b) {
+  struct S s = {0};
+  s.p = make();
+  s.q = make();
+  s.r = make();
+
+  take(a ? ({ b ? ((void)0, s.p) : ((void)0, s.q); })
+         : ((void)0, s.r));
+  take(s.p); // expected-error {{use of moved value: 's.p'}}
+  take(s.q); // expected-error {{use of moved value: 's.q'}}
+  take(s.r); // expected-error {{use of moved value: 's.r'}}
+}

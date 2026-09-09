@@ -89,7 +89,7 @@ void test12(int *_Owned p, int *_Owned q) {
     foo3(&_Mut s);
     s.a = nullptr; // expected-error {{cannot assign to 's.a' because it still holds an _Owned value; move or free it first}}
   }
-} // expected-error {{memory leak because s.b, s.a are not freed or moved before 's' goes out of scope}}
+} // expected-error {{memory leak because s.a, s.b are not freed or moved before 's' goes out of scope}}
 
 void test13(int *_Owned p, int *_Owned q) {
   S s;
@@ -97,7 +97,7 @@ void test13(int *_Owned p, int *_Owned q) {
   s.b = q;
   if (s.a == nullptr) {
     foo3(&_Mut s);
-    return; // expected-error {{memory leak because s.b, s.a are not freed or moved before 's' goes out of scope}}
+    return; // expected-error {{memory leak because s.a, s.b are not freed or moved before 's' goes out of scope}}
   }
 } // expected-error {{memory leak because s.a, s.b are not freed or moved before 's' goes out of scope}}
 

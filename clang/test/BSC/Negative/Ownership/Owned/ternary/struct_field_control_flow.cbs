@@ -1,0 +1,187 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+_Safe void safe_free(void *_Owned);
+_Safe int *_Owned safe_malloc<T>(T);
+_Safe int *_Owned make_int(void);
+_Safe void consume(int *_Owned);
+
+struct Pair {
+  int *_Owned _Nullable p;
+  int *_Owned _Nullable q;
+};
+
+struct Single {
+  int *_Owned _Nullable p;
+};
+
+struct T {
+  int *_Owned _Nullable p;
+};
+
+struct S {
+  struct T t;
+};
+
+struct W {
+  int *_Owned _Nullable p;
+};
+
+struct S2 {
+  int *_Owned _Nullable q;
+};
+
+_Safe void conditional_field_move_then_free(void) {
+  struct Pair s = {0};
+  s.p = make_int();
+  s.q = make_int();
+  safe_free((void *_Owned)(1 ? s.p : s.q));
+  safe_free((void *_Owned)s.p); // expected-error {{cannot cast 's.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)s.q); // expected-error {{cannot cast 's.q' to 'void * _Owned' because it was moved}}
+}
+
+_Safe void conditional_field_move_preserves_possible_ownership(_Bool cond) {
+  struct Pair s = {0};
+  s.p = make_int();
+  s.q = make_int();
+  safe_free((void *_Owned)(cond ? s.p : s.q));
+} // expected-error {{memory leak because s.p, s.q are not freed or moved before 's' goes out of scope}}
+
+_Safe int branch_field_move_preserves_possible_ownership(_Bool cond) {
+  struct Single s = {0};
+  s.p = make_int();
+  if (cond) {
+    safe_free((void *_Owned)s.p);
+  }
+  return 0; // expected-error {{memory leak because s.p is not freed or moved before 's' goes out of scope}}
+}
+
+_Safe int branch_field_move_then_free(_Bool cond) {
+  struct Single s = {0};
+  s.p = make_int();
+  if (cond) {
+    safe_free((void *_Owned)s.p);
+  }
+  safe_free((void *_Owned)s.p); // expected-error {{cannot cast 's.p' to 'void * _Owned' because it was moved}}
+  return 0;
+}
+
+void switch_field_move_then_free(int x) {
+  struct Single s = {0};
+  s.p = make_int();
+  switch (x) {
+  case 1:
+    safe_free((void *_Owned)s.p);
+    break;
+  default:
+    break;
+  }
+
+  // expected-error@+1 {{cannot cast 's.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)s.p);
+}
+
+void branch_cast_move_then_use(_Bool cond) {
+  struct Single s = {0};
+  s.p = make_int();
+  if (!cond) {
+    int *_Owned tmp = (int *_Owned)s.p;
+    consume(tmp);
+  }
+  // expected-error@+1 {{use of moved value: 's.p'}}
+  int *_Owned a = (int *_Owned)s.p;
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+int f(int c) {
+  struct W s;
+  s.p = safe_malloc<int>(1);
+  if (c) {
+    int *_Owned r = s.p;
+    safe_free((void *_Owned)r);
+  }
+
+  // expected-error@+1 {{cannot cast 's.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)s.p);
+  return 0;
+}
+
+_Safe int trigger(void) {
+  _Unsafe {
+    struct S2 s2;
+    s2.q = (int *_Owned)safe_malloc<int>(1);
+    int c = 1;
+    if (c) {
+    } else {
+      int *_Owned tmp = (int *_Owned)s2.q;
+      consume(tmp);
+    }
+
+    // expected-error@+1 {{use of moved value: 's2.q'}}
+    int *_Owned a2 = (int *_Owned)s2.q;
+    consume(a2);
+    return 0;
+  }
+}
+
+_Safe int nested_branch_field_move_preserves_possible_ownership(_Bool cond) {
+  struct S s = {0};
+  s.t.p = make_int();
+  if (cond) {
+    safe_free((void *_Owned)s.t.p);
+  }
+  return 0; // expected-error {{memory leak because s.t.p is not freed or moved before 's' goes out of scope}}
+}
+
+_Safe int nested_branch_field_move_then_free(_Bool cond) {
+  struct S s = {0};
+  s.t.p = make_int();
+  if (cond) {
+    safe_free((void *_Owned)s.t.p);
+  }
+  safe_free((void *_Owned)s.t.p); // expected-error {{cannot cast 's.t.p' to 'void * _Owned' because it was moved}}
+  return 0;
+}
+
+_Safe void nested_conditional_field_move_then_free(_Bool cond) {
+  struct S left = {0};
+  struct S right = {0};
+  left.t.p = make_int();
+  right.t.p = make_int();
+  safe_free((void *_Owned)(cond ? left.t.p : right.t.p));
+  // expected-error@+1 {{cannot cast 'left.t.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)left.t.p);
+  // expected-error@+1 {{cannot cast 'right.t.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)right.t.p);
+}
+
+_Safe void
+nested_conditional_field_move_preserves_possible_ownership(_Bool cond) {
+  struct S left = {0};
+  struct S right = {0};
+  left.t.p = make_int();
+  right.t.p = make_int();
+  safe_free((void *_Owned)(cond ? left.t.p : right.t.p));
+  // expected-error@+2 {{memory leak because right.t.p is not freed or moved before 'right' goes out of scope}}
+  // expected-error@+1 {{memory leak because left.t.p is not freed or moved before 'left' goes out of scope}}
+}
+
+_Safe void loop_field_move_for(_Bool cond) {
+  struct Pair s = {0};
+  s.p = make_int();
+  s.q = make_int();
+  for (int i = 0; i < 10; ++i) {
+    if (cond)
+      consume(s.p); // expected-error {{use of moved value: 's.p'}}
+  }
+} // expected-error {{memory leak because s.p, s.q are not freed or moved before 's' goes out of scope}}
+
+_Safe void loop_field_move_while(_Bool cond) {
+  struct Pair s = {0};
+  s.p = make_int();
+  s.q = make_int();
+  int i = 0;
+  while (i < 10) {
+    if (cond)
+      consume(s.p); // expected-error {{use of moved value: 's.p'}}
+    ++i;
+  }
+} // expected-error {{memory leak because s.p, s.q are not freed or moved before 's' goes out of scope}}

@@ -117,7 +117,7 @@ void test_deep_mixed() {
     // OK: all fields initialized
     struct Level1Mixed v6 = {.b = &_Mut x, .l2 = {.o = nullptr, .l3 = {.b = &_Mut y, .o = nullptr}}};
 } // expected-error {{memory leak because v3.l2.l3.o is not freed or moved before 'v3' goes out of scope}}
-  // expected-error@-1 {{memory leak because v2.l2.o, v2.l2.l3.o are not freed or moved before 'v2' goes out of scope}}
+  // expected-error@-1 {{memory leak because v2.l2.l3.o, v2.l2.o are not freed or moved before 'v2' goes out of scope}}
 
 struct Interleaved {
     int *_Owned o1;

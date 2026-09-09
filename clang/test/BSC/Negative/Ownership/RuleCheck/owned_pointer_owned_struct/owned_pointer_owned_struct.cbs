@@ -76,7 +76,7 @@ void test9(R r) {
 void test10(R r) {
     S tmp1 = *r.sp;
     *r.sp = tmp1;
-} // expected-error {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
+} // expected-error {{memory leak because r.s, r.s.a, r.sp, *r.sp, r.sp.a are not freed or moved before 'r' goes out of scope}}
 
 void test11(R r) {
     S tmp1 = *r.sp;
@@ -84,24 +84,24 @@ void test11(R r) {
     S tmp2 = {};
     *r.sp = tmp2; // expected-error {{cannot assign to 'r': r.sp.a is still _Owned and would leak}}
                   // expected-error@-1 {{cannot assign to '*r.sp' because it still holds an _Owned value; move or free it first}}
-} // expected-error {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
+} // expected-error {{memory leak because r.s, r.s.a, r.sp, *r.sp, r.sp.a are not freed or moved before 'r' goes out of scope}}
 
 void test12(R r) {
     S tmp1 = *r.sp;
     r.sp = initS();  // expected-error {{cannot assign to 'r.sp' because it still holds an _Owned value; move or free it first}}
-} // expected-error {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
+} // expected-error {{memory leak because r.s, r.s.a, r.sp, *r.sp, r.sp.a are not freed or moved before 'r' goes out of scope}}
 
 void test13(R* _Owned r) {
     R tmp = *r;
     *r = tmp;
 } // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
-  // expected-error@-1 {{memory leak because r.sp, *r.sp, r.sp.a, r.s, r.s.a are not freed or moved before 'r' goes out of scope}}
+  // expected-error@-1 {{memory leak because r.s, r.s.a, r.sp, *r.sp, r.sp.a are not freed or moved before 'r' goes out of scope}}
 
 void test14(R* _Owned r) {
     S tmp = *r->sp;
     *r->sp = tmp;
 } // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
-  // expected-error@-1 {{memory leak because r.sp, r.s, r.s.a, r.sp.a, *r.sp are not freed or moved before 'r' goes out of scope}}
+  // expected-error@-1 {{memory leak because r.s, r.s.a, r.sp, *r.sp, r.sp.a are not freed or moved before 'r' goes out of scope}}
 
 void test15(R* _Owned r) {
     S* _Owned tmp = r->sp;

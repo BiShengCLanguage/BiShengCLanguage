@@ -1,0 +1,17 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+_Safe int *_Owned *_Owned make(void);
+_Safe void take<T>(T *_Owned);
+
+struct S {
+  int *_Owned *_Owned _Nullable p;
+};
+
+_Safe void take_inner_if(_Bool c) {
+  struct S s = {0};
+  s.p = make();
+  if (c)
+    take(*s.p);
+  // expected-error@+1 {{use of partially moved value: 's.p', *s.p is moved}}
+  take(s.p);
+}

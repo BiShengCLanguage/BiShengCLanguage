@@ -134,7 +134,7 @@ void func24(struct B b) {
   int num = 1;
   int * p1 = __move_to_raw(b.b1);
   b.b1 = __take_from_raw(&num);
-} // expected-error {{memory leak because b.b2, b.b3, b.b3.c1, b.b3.c2, b.b1 are not freed or moved before 'b' goes out of scope}}
+} // expected-error {{memory leak because b.b1, b.b2, b.b3, b.b3.c1, b.b3.c2 are not freed or moved before 'b' goes out of scope}}
 
 void func25(struct A a, struct B b) {
   int * p = __move_to_raw(a.a1.b1);
