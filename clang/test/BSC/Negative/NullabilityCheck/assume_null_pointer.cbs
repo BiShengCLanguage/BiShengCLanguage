@@ -6,17 +6,18 @@
 //
 // The argument is a trackable expression (see the Sema gate in
 // assume_null_sema.cbs). For a _Nullable POINTER result the trackable grammar
-// admits three outermost shapes (parentheses and implicit casts transparent):
+// admits these outermost shapes (parentheses and implicit casts transparent).
+// All of them track down to one field-path key {Variable, path} — variables,
+// field access, and dereference are no longer separate state spaces:
 //
-//   identifier          -> bare pointer variable       (status: VarDecl)
-//   expr . identifier   -> pointer field via dot       (status: field path)
-//   expr -> identifier  -> pointer field via arrow     (status: field path)
-//   * expr              -> dereference yielding a pointer, tracked as a
-//                          dereference chain            (status: DerefPathVD)
+//   identifier          -> bare pointer variable                 -> {p, ""}
+//   expr . identifier   -> pointer field via dot                 -> {s, ".p"}
+//   expr -> identifier  -> pointer field via arrow               -> {s, ".*.p"}
+//   * expr              -> dereference yielding a pointer        -> {p, ".*"}
 //
-// The sections below follow this grammar. A `*` embedded in a `.` / `->` base
-// is folded into the field-path key by VisitMEForFieldPath — see the
-// "deref folded into a member-access path" section.
+// The sections below follow this grammar. A dereference is a ".*" segment, so
+// a `*` embedded in a `.` / `->` base folds into the same key — see the "deref
+// folded into a member-access path" section.
 //
 // Two case styles appear: a straight-line case pins the baseline (the target
 // is _Nullable by default, so a bare deref errors whether or not the assume
@@ -117,9 +118,10 @@ void test_field_chain_arrow(struct Root *_Owned s) {
 
 // === * expr: dereference yielding a pointer (dereference chain) ===
 // When a dereference itself yields a _Nullable pointer (e.g. *p for int **p),
-// the assumption targets the dereference-chain state keyed by (root, depth):
-//   *p => (p, 1), **p => (p, 2). __assume_null(*p) marks (p, 1) null, so the
-// next dereference *(*p) reports a nullable dereference.
+// the assumption targets the field-path key rooted at the variable with a
+// ".*" segment per dereference level:
+//   *p => {p, ".*"}, **p => {p, ".*.*"}. __assume_null(*p) marks {p, ".*"}
+// null, so the next dereference *(*p) reports a nullable dereference.
 
 // Establish *p non-null, then assume it null, then deref it again.
 void test_deref_chain(void) {
@@ -127,15 +129,16 @@ void test_deref_chain(void) {
   int *px = &x;
   int **p = &px;
   if (*p != nullptr) {              // *p non-null in this branch
-    _Unsafe { __assume_null(*p); }  // assume the (p, 1) deref-chain state null
+    _Unsafe { __assume_null(*p); }  // assume the {p, ".*"} state null
     DEREF(*p); // expected-error {{cannot dereference a possibly-null status pointer}}
   }
 }
 
 // === deref folded into a member-access path ===
-// VisitMEForFieldPath folds a `*` in a `.` / `->` base into the field-path
-// key: a `*` on a bare identifier contributes no segment (so (*s).m.v.p and
-// s->m.v.p share one key), while a `*` on a field path keeps a `*` segment.
+// getFieldPath folds a `*` in a `.` / `->` base into the field-path key as a
+// ".*" segment: a dereference of a bare identifier and an arrow both become
+// ".*" (so (*s).m.v.p and s->m.v.p share one key), while a dereference of a
+// field path stacks an extra ".*" in place of the field name.
 
 // (*s).m.v.p: dot chain whose base embeds a struct-deref of a bare variable —
 // equivalent to the arrow spelling s->m.v.p.
@@ -164,9 +167,10 @@ void test_cross_deref_to_arrow(struct Root *_Owned s) {
 
 // Double indirection: (*(base.f1))->f2. `*(base.f1)` dereferences the pointer
 // field f1 (loading an Inner*) and then accesses the leaf f2 through it. The
-// `*` on a field path is kept, so the whole chain resolves to the field-path
-// key {base, ".f1*.f2"}. f1 and *f1 are declared _Nonnull, so the
-// intermediate deref is clean and the f2 deref is the sole expected error.
+// `.f1` dereference and the `->` arrow each contribute a ".*" segment, so the
+// whole chain resolves to the field-path key {base, ".f1.*.*.f2"}. f1 and *f1
+// are declared _Nonnull, so the intermediate deref is clean and the f2 deref
+// is the sole expected error.
 struct Inner { int *_Nullable f2; };                   // f2: _Nullable leaf
 struct Outer {
   struct Inner *_Nonnull * _Nonnull f1;                // f1: Nonnull -> Nonnull Inner*

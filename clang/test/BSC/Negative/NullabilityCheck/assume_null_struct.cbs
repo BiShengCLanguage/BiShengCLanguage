@@ -66,12 +66,46 @@ void test_struct_field_dot(struct Root t) {
   }
 }
 
+void test_struct_field_deref_dot(struct Root *_Owned s) {
+  if ((*s).m.v.p != nullptr) {
+    _Unsafe { __assume_null((*s).m); }
+    DEREF((*s).m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
 // === Deep struct chain: __assume_null(s->m.v) / __assume_null((*s).m.v) ===
 
 void test_struct_chain_arrow(struct Root *_Owned s) {
   if (s->m.v.p != nullptr) {
     _Unsafe { __assume_null(s->m.v); }
     DEREF(s->m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+void test_struct_chain_deref(struct Root *_Owned s) {
+  if ((*s).m.v.p != nullptr) {
+    _Unsafe { __assume_null((*s).m.v); }
+    DEREF((*s).m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// === Cross-form access (arrow <-> deref) ===
+// The field-path keys must match across spellings: assuming the struct via one
+// spelling and accessing a leaf via another must both observe the assumption.
+
+// Assume the struct via deref, access a field via arrow.
+void test_cross_struct_deref_arrow(struct Root *_Owned s) {
+  if (s->m.v.p != nullptr) {
+    _Unsafe { __assume_null((*s).m.v); }
+    DEREF(s->m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
+  }
+}
+
+// Assume the struct via arrow, access a field via deref.
+void test_cross_struct_arrow_deref(struct Root *_Owned s) {
+  if ((*s).m.v.p != nullptr) {
+    _Unsafe { __assume_null(s->m.v); }
+    DEREF((*s).m.v.p); // expected-error {{cannot dereference possibly-null status pointer 'p'}}
   }
 }
 

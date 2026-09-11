@@ -2389,7 +2389,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     QualType ArgTy = TheCall->getArg(0)->getType();
     const Expr *ArgE = TheCall->getArg(0)->IgnoreParenImpCasts();
     // __assume_null only accepts a trackable expression
-    if (!ArgE->isTrackableExpr()) {
+    if (!ArgE->isNullabilityTrackableExpr()) {
       Diag(ArgE->getBeginLoc(), diag::err_assume_null_not_trackable);
       return ExprError();
     }

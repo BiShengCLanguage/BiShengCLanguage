@@ -60,20 +60,20 @@ bool Expr::isNullExpr(ASTContext &Ctx) const {
 ///                    | trackable_expr . identifier
 ///                    | trackable_expr -> identifier
 ///                    | * trackable_expr
-bool Expr::isTrackableExpr() const {
+bool Expr::isNullabilityTrackableExpr() const {
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(this)) {
     return isa<VarDecl>(DRE->getDecl());
   } else if (const ParenExpr *PE = dyn_cast<ParenExpr>(this)) {
-    return PE->getSubExpr()->isTrackableExpr();
+    return PE->getSubExpr()->isNullabilityTrackableExpr();
   } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(this)) {
     if (!isa<FieldDecl>(ME->getMemberDecl()))
       return false;
-    return ME->getBase()->isTrackableExpr();
+    return ME->getBase()->isNullabilityTrackableExpr();
   } else if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(this)) {
-    return ICE->getSubExpr()->isTrackableExpr();
+    return ICE->getSubExpr()->isNullabilityTrackableExpr();
   } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(this)) {
     if (UO->getOpcode() == UO_Deref)
-      return UO->getSubExpr()->isTrackableExpr();
+      return UO->getSubExpr()->isNullabilityTrackableExpr();
   }
   return false;
 }
