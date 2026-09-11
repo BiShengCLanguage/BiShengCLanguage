@@ -46,12 +46,12 @@ using namespace std;
 // isFieldPathPrefix). This guards against a field named "mv" reading as a
 // descendant of a field named "m".
 using FieldPath = std::pair<VarDecl *, std::string>;
-using StatusFP = std::map<FieldPath, NullabilityKind>;
+using NullabilityState = std::map<FieldPath, NullabilityKind>;
 
 class NullabilityCheckImpl {
 public:
-  llvm::DenseMap<const CFGBlock *, StatusFP> BlocksBeginStatusFP;
-  llvm::DenseMap<const CFGBlock *, StatusFP> BlocksEndStatusFP;
+  llvm::DenseMap<const CFGBlock *, NullabilityState> BlocksBeginState;
+  llvm::DenseMap<const CFGBlock *, NullabilityState> BlocksEndState;
 
   // For branch statement with condition, such as IfStmt, WhileStmt,
   // true branch and else branch may have different status.
@@ -70,23 +70,23 @@ public:
   //        B3      B2
   //          \    /
   //            B1
-  // BlocksConditionStatus records condition status:
+  // BlocksConditionState records condition status:
   // Key is current BB, value is condition status passed from pred BB to current
-  // BB, for this example, BlocksConditionStatusFP will be:
+  // BB, for this example, BlocksConditionState will be:
   // B3 : { B4 : { p NonNull } }  B2 : { B4 : { p Nullable } }
-  llvm::DenseMap<const CFGBlock *, llvm::DenseMap<const CFGBlock *, StatusFP>>
-      BlocksConditionStatusFP;
+  llvm::DenseMap<const CFGBlock *, llvm::DenseMap<const CFGBlock *, NullabilityState>>
+      BlocksConditionState;
 
-  StatusFP mergeFP(StatusFP statusA, StatusFP statusB);
+  NullabilityState mergeState(NullabilityState stateA, NullabilityState stateB);
 
-  StatusFP runOnBlock(const CFGBlock *block, StatusFP statusFP,
+  NullabilityState runOnBlock(const CFGBlock *block, NullabilityState state,
                       NullabilityCheckDiagReporter &reporter,
                       ASTContext &ctx, const FunctionDecl &fd, ParentMap &PM);
-  void initStatus(const CFG &cfg);
+  void initState(const CFG &cfg);
 
   NullabilityCheckImpl()
-      : BlocksBeginStatusFP(0), BlocksEndStatusFP(0),
-        BlocksConditionStatusFP(0) {}
+      : BlocksBeginState(0), BlocksEndState(0),
+        BlocksConditionState(0) {}
 };
 
 //===----------------------------------------------------------------------===//
@@ -96,7 +96,7 @@ namespace {
 class TransferFunctions : public StmtVisitor<TransferFunctions> {
   NullabilityCheckImpl &NCI;
   const CFGBlock *Block;
-  StatusFP &CurrStatusFP;
+  NullabilityState &CurrState;
   NullabilityCheckDiagReporter &Reporter;
   ASTContext &Ctx;
   const FunctionDecl &Fd;
@@ -104,10 +104,10 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
 
 public:
   TransferFunctions(NullabilityCheckImpl &nci, const CFGBlock *block,
-                    StatusFP &statusFP,
+                    NullabilityState &state,
                     NullabilityCheckDiagReporter &reporter, ASTContext &ctx,
                     const FunctionDecl &fd, ParentMap &pm)
-      : NCI(nci), Block(block), CurrStatusFP(statusFP), Reporter(reporter),
+      : NCI(nci), Block(block), CurrState(state), Reporter(reporter),
         Ctx(ctx), Fd(fd), PM(pm) {}
 
   bool IsStmtInSafeZone(Stmt *S);
@@ -130,8 +130,8 @@ public:
   NullabilityKind getExprPathNullability(Expr *E);
   void SetCFGBlocksByExpr(Expr *PtrE, const CFGBlock *NonNullBlock,
                           const CFGBlock *NullableBlock);
-  void PassConditionStatusToSuccBlocks(Expr *CondExpr);
-  void UpdateDerefStatusFromRHS(VarDecl *VD, QualType RHSType);
+  void PassConditionStateToSuccBlocks(Expr *CondExpr);
+  void UpdateDerefStateFromRHS(VarDecl *VD, QualType RHSType);
 };
 
 // Whether \p prefix is a strict ancestor of (or equal to) \p path. Paths are
@@ -211,13 +211,13 @@ llvm::Optional<FieldPath> getFieldPath(Expr *E) {
 // Erase only the strict descendants of \p Path, preserving \p Path itself (used
 // when the cell named by \p Path is overwritten but its own nullability is
 // refreshed rather than dropped).
-void eraseDeeperPaths(StatusFP &Status, const FieldPath &Path) {
-  auto It = Status.begin();
-  while (It != Status.end()) {
+void eraseDeeperPaths(NullabilityState &state, const FieldPath &Path) {
+  auto It = state.begin();
+  while (It != state.end()) {
     if (It->first.first == Path.first &&
         It->first.second != Path.second &&
         isFieldPathPrefix(Path.second, It->first.second))
-      It = Status.erase(It);
+      It = state.erase(It);
     else
       ++It;
   }
@@ -238,13 +238,13 @@ bool isDerefChainPath(const std::string &Path) {
 // cells reachable through \p VD ("*.name", "" ), whose defaultability comes
 // from the field type rather than VD's rebound pointee. Used on a plain-variable
 // rebind (VD = RHS), which replaces the dereference target but not the pointee's
-// field layout; UpdateDerefStatusFromRHS re-seeds the deref chain.
-void eraseDerefChainCells(StatusFP &Status, VarDecl *VD) {
-  auto It = Status.begin();
-  while (It != Status.end()) {
+// field layout; UpdateDerefStateFromRHS re-seeds the deref chain.
+void eraseDerefChainCells(NullabilityState &state, VarDecl *VD) {
+  auto It = state.begin();
+  while (It != state.end()) {
     if (It->first.first == VD && !It->first.second.empty() &&
         isDerefChainPath(It->first.second))
-      It = Status.erase(It);
+      It = state.erase(It);
     else
       ++It;
   }
@@ -562,8 +562,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         // Prefer path-sensitive state produced by condition propagation (if
         // (*p), if (**p), ...). Fall back to declaration/default semantics.
         if (auto FP = getFieldPath(E)) {
-          auto It = CurrStatusFP.find(*FP);
-          if (It != CurrStatusFP.end())
+          auto It = CurrState.find(*FP);
+          if (It != CurrState.end())
             return It->second;
         }
         return cast<UnaryOperator>(E)->getType().getDefNullability();
@@ -610,8 +610,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
           return NullabilityKind::NonNull;
         if (NK == NullabilityKind::Nullable) {
           FieldPath FP(VD, "");
-          if (CurrStatusFP.count(FP))
-            return CurrStatusFP[FP];
+          if (CurrState.count(FP))
+            return CurrState[FP];
         }
       }
       break;
@@ -639,8 +639,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
           return NullabilityKind::NonNull;
         if (NK == NullabilityKind::Nullable) {
           if (auto FP = getFieldPath(ME)) {
-            if (CurrStatusFP.count(*FP))
-              return CurrStatusFP[*FP];
+            if (CurrState.count(*FP))
+              return CurrState[*FP];
           }
         }
       }
@@ -827,9 +827,9 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       }
     } else {
       FieldPath FP(VD, path);
-      if (CurrStatusFP.count(FP)) {
+      if (CurrState.count(FP)) {
         // Here we update PathNullability of nullable pointer.
-        CurrStatusFP[FP] = RHSKind;
+        CurrState[FP] = RHSKind;
       }
     }
     if (path.empty()) {
@@ -837,8 +837,8 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       // Example:
       //   if (*p) { /* (*p) is NonNull on this path */ }
       //   int **p = q; // root pointer changes, old (*p) fact must be dropped.
-      eraseDerefChainCells(CurrStatusFP, VD);
-      UpdateDerefStatusFromRHS(VD, Init->IgnoreParenImpCasts()->getType());
+      eraseDerefChainCells(CurrState, VD);
+      UpdateDerefStateFromRHS(VD, Init->IgnoreParenImpCasts()->getType());
     }
 
     // --- Inner-pointer check for init expressions ---
@@ -920,7 +920,7 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
 /// nullability of RHS's pointee levels rather than VD's declared type — the
 /// runtime target of `*p`, `**p`, ... is whatever RHS pointed at. Each pointer
 /// level contributes a ".*" segment ("*p" => ".*" at Depth+1 = 1).
-void TransferFunctions::UpdateDerefStatusFromRHS(VarDecl *VD,
+void TransferFunctions::UpdateDerefStateFromRHS(VarDecl *VD,
                                                   QualType RHSType) {
   unsigned Depth = 0;
   for (QualType QT = RHSType.getCanonicalType(); QT->isPointerType();
@@ -932,7 +932,7 @@ void TransferFunctions::UpdateDerefStatusFromRHS(VarDecl *VD,
     std::string Path;
     for (unsigned I = 0; I <= Depth; ++I)
       Path += ".*";
-    CurrStatusFP[FieldPath(VD, Path)] = QT.getDefNullability();
+    CurrState[FieldPath(VD, Path)] = QT.getDefNullability();
   }
 }
 
@@ -962,9 +962,9 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
                                         SourceName);
             Reporter.addDiagInfo(DI);
           }
-        } else if (CurrStatusFP.count(*FP)) {
+        } else if (CurrState.count(*FP)) {
           // Here we update PathNullability of nullable pointer.
-          CurrStatusFP[*FP] = RHSKind;
+          CurrState[*FP] = RHSKind;
         }
 
         // Invalidate stale descendants based on the LHS spelling's shape. A
@@ -973,11 +973,11 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
         // overwritten cell and clears only deeper cells; a member access clears
         // nothing (its pointee is a separate allocation).
         if (VarDecl *VD = getVarDeclFromExpr(LHS)) {
-          eraseDerefChainCells(CurrStatusFP, VD); // FP == {VD, ""}
-          UpdateDerefStatusFromRHS(
+          eraseDerefChainCells(CurrState, VD); // FP == {VD, ""}
+          UpdateDerefStateFromRHS(
               VD, BO->getRHS()->IgnoreParenImpCasts()->getType());
         } else if (!FP->second.empty() && FP->second.back() == '*') {
-          eraseDeeperPaths(CurrStatusFP, *FP);
+          eraseDeeperPaths(CurrState, *FP);
         }
       }
 
@@ -1011,7 +1011,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
 // "prefix.f".
 static void assumeAllNullableFieldsNull(VarDecl *VD, const RecordDecl *RD,
                                         const std::string &prefix,
-                                        StatusFP &FPMap) {
+                                        NullabilityState &state) {
   if (!RD)
     return;
   for (const FieldDecl *FD : RD->fields()) {
@@ -1020,11 +1020,11 @@ static void assumeAllNullableFieldsNull(VarDecl *VD, const RecordDecl *RD,
     if (FT->isPointerType()) {
       if (FT.getDefNullability() == NullabilityKind::Nullable) {
         FieldPath FP = {VD, path};
-        if (FPMap.count(FP))
-          FPMap[FP] = NullabilityKind::Nullable;
+        if (state.count(FP))
+          state[FP] = NullabilityKind::Nullable;
       }
     } else if (const RecordType *RT = FT->getAs<RecordType>()) {
-      assumeAllNullableFieldsNull(VD, RT->getDecl(), path, FPMap);
+      assumeAllNullableFieldsNull(VD, RT->getDecl(), path, state);
     }
   }
 }
@@ -1041,8 +1041,8 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
       QualType ArgTy = CE->getArg(0)->getType();
       if (ArgTy->isPointerType()) {
         if (auto FP = getFieldPath(Arg)) {
-          if (CurrStatusFP.count(*FP))
-            CurrStatusFP[*FP] = NullabilityKind::Nullable;
+          if (CurrState.count(*FP))
+            CurrState[*FP] = NullabilityKind::Nullable;
         }
       } else if (ArgTy->isStructureType()) {
         // Mark every reachable _Nullable pointer field null. getFieldPath on
@@ -1050,7 +1050,7 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
         const RecordType *RT = ArgTy->getAs<RecordType>();
         if (auto FP = getFieldPath(Arg))
           assumeAllNullableFieldsNull(FP->first, RT->getDecl(), FP->second,
-                                      CurrStatusFP);
+                                      CurrState);
       }
       return;
     }
@@ -1215,11 +1215,11 @@ void TransferFunctions::SetCFGBlocksByExpr(Expr *PtrE,
                                            const CFGBlock *NullableBlock) {
   if (auto FP = getFieldPath(PtrE)) {
     if (PtrE->getType().getDefNullability() == NullabilityKind::Nullable &&
-        CurrStatusFP.count(*FP) &&
-        CurrStatusFP[*FP] != NullabilityKind::NonNull) {
-      NCI.BlocksConditionStatusFP[NonNullBlock][Block][*FP] =
+        CurrState.count(*FP) &&
+        CurrState[*FP] != NullabilityKind::NonNull) {
+      NCI.BlocksConditionState[NonNullBlock][Block][*FP] =
           NullabilityKind::NonNull;
-      NCI.BlocksConditionStatusFP[NullableBlock][Block][*FP] =
+      NCI.BlocksConditionState[NullableBlock][Block][*FP] =
           NullabilityKind::Nullable;
     }
   }
@@ -1227,7 +1227,7 @@ void TransferFunctions::SetCFGBlocksByExpr(Expr *PtrE,
 
 // This function handles condition expression and
 // pass the conditions to successor block.
-void TransferFunctions::PassConditionStatusToSuccBlocks(Expr *CondExpr) {
+void TransferFunctions::PassConditionStateToSuccBlocks(Expr *CondExpr) {
   if (!CondExpr)
     return;
   CondExpr = CondExpr->IgnoreParenImpCasts();
@@ -1259,7 +1259,7 @@ void TransferFunctions::PassConditionStatusToSuccBlocks(Expr *CondExpr) {
   }
 }
 
-/// Recursively walk \p S while initStatus pre-scans the CFG. The caller passes
+/// Recursively walk \p S while initState pre-scans the CFG. The caller passes
 /// the entry-state map, so cells discovered in any ordinary block are seeded at
 /// the function entry rather than in the block being scanned. Variables, field
 /// paths, and dereference cells use their declared Nullable default. A
@@ -1268,34 +1268,34 @@ void TransferFunctions::PassConditionStatusToSuccBlocks(Expr *CondExpr) {
 /// from contributing a missing map entry at a CFG join; initialization,
 /// assignments, and branch conditions may subsequently refine or replace the
 /// seeded state.
-static void collectNullableDecls(Stmt *S, StatusFP &FPMap) {
+static void collectNullableDecls(Stmt *S, NullabilityState &state) {
   if (!S)
     return;
   if (auto *DRE = dyn_cast<DeclRefExpr>(S)) {
     if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
       if (VD->getType().getDefNullability() == NullabilityKind::Nullable)
-        FPMap[FieldPath(VD, "")] = NullabilityKind::Nullable;
+        state[FieldPath(VD, "")] = NullabilityKind::Nullable;
   } else if (auto *ME = dyn_cast<MemberExpr>(S)) {
     if (auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       if (FD->getType().getDefNullability() == NullabilityKind::Nullable) {
         if (auto FP = getFieldPath(ME))
-          FPMap[*FP] = NullabilityKind::Nullable;
+          state[*FP] = NullabilityKind::Nullable;
       }
     }
   } else if (auto *UO = dyn_cast<UnaryOperator>(S)) {
     if (UO->getOpcode() == UO_Deref &&
         UO->getType().getDefNullability() == NullabilityKind::Nullable) {
       if (auto FP = getFieldPath(UO))
-        FPMap[*FP] = NullabilityKind::Nullable;
+        state[*FP] = NullabilityKind::Nullable;
     }
   }
   for (Stmt *Child : S->children())
-    collectNullableDecls(Child, FPMap);
+    collectNullableDecls(Child, state);
 }
 
 // Traverse the CFG once and seed entry PathNullability for every trackable
 // declaration, field path, and dereference path with Nullable DefNullability.
-void NullabilityCheckImpl::initStatus(const CFG &cfg) {
+void NullabilityCheckImpl::initState(const CFG &cfg) {
   const CFGBlock *entry = &cfg.getEntry();
   for (const CFGBlock *B : cfg.const_nodes()) {
     if (B != entry && B != &cfg.getExit() && !B->succ_empty() &&
@@ -1305,33 +1305,33 @@ void NullabilityCheckImpl::initStatus(const CFG &cfg) {
         const CFGElement &elem = *it;
         if (elem.getAs<CFGStmt>()) {
           Stmt *S = const_cast<Stmt *>(elem.castAs<CFGStmt>().getStmt());
-          collectNullableDecls(S, BlocksEndStatusFP[entry]);
+          collectNullableDecls(S, BlocksEndState[entry]);
         }
       }
     }
   }
 }
 
-StatusFP NullabilityCheckImpl::mergeFP(StatusFP statusA, StatusFP statusB) {
-  if (statusA.empty())
-    return statusB;
-  for (auto NullabilityOfFP : statusB) {
-    FieldPath FP = NullabilityOfFP.first;
-    NullabilityKind NK = NullabilityOfFP.second;
-    if (statusA.count(FP)) {
-      statusA[FP] = NK == NullabilityKind::Nullable ? NullabilityKind::Nullable
-                                                    : statusA[FP];
+NullabilityState NullabilityCheckImpl::mergeState(NullabilityState stateA, NullabilityState stateB) {
+  if (stateA.empty())
+    return stateB;
+  for (auto Entry : stateB) {
+    FieldPath FP = Entry.first;
+    NullabilityKind NK = Entry.second;
+    if (stateA.count(FP)) {
+      stateA[FP] = NK == NullabilityKind::Nullable ? NullabilityKind::Nullable
+                                                    : stateA[FP];
     } else {
-      statusA[FP] = NK;
+      stateA[FP] = NK;
     }
   }
-  return statusA;
+  return stateA;
 }
 
-StatusFP NullabilityCheckImpl::runOnBlock(
-    const CFGBlock *block, StatusFP statusFP, NullabilityCheckDiagReporter &reporter,
+NullabilityState NullabilityCheckImpl::runOnBlock(
+    const CFGBlock *block, NullabilityState state, NullabilityCheckDiagReporter &reporter,
     ASTContext &ctx, const FunctionDecl &fd, ParentMap &PM) {
-  TransferFunctions TF(*this, block, statusFP, reporter, ctx, fd, PM);
+  TransferFunctions TF(*this, block, state, reporter, ctx, fd, PM);
 
   for (CFGBlock::const_iterator it = block->begin(), ei = block->end();
        it != ei; ++it) {
@@ -1345,15 +1345,15 @@ StatusFP NullabilityCheckImpl::runOnBlock(
   // Here we will handle the condition in IfStmt, or other branch stmts
   // which will change the nullability of a field path.
   // Limit block's successor to 2 to ensure compatibility of existing
-  // implementation of PassConditionStatusToSuccBlocks, which assumes the first
+  // implementation of PassConditionStateToSuccBlocks, which assumes the first
   // successor is true branch and the second successor is false branch.
   if (block->succ_size() == 2) {
     // Use block-local last condition instead of terminator condition to be
     // consistent for conditions already split in CFG (&& ||).
     Expr *CondExpr = const_cast<Expr *>(block->getLastCondition());
-    TF.PassConditionStatusToSuccBlocks(CondExpr);
+    TF.PassConditionStateToSuccBlocks(CondExpr);
   }
-  return statusFP;
+  return state;
 }
 
 void clang::runNullabilityCheck(const FunctionDecl &fd, const CFG &cfg,
@@ -1366,7 +1366,7 @@ void clang::runNullabilityCheck(const FunctionDecl &fd, const CFG &cfg,
     return;
 
   NullabilityCheckImpl NCI;
-  NCI.initStatus(cfg);
+  NCI.initState(cfg);
 
   // Proceed with the worklist.
   ForwardDataflowWorklist worklist(cfg, ac);
@@ -1376,31 +1376,31 @@ void clang::runNullabilityCheck(const FunctionDecl &fd, const CFG &cfg,
       worklist.enqueueBlock(B);
 
   while (const CFGBlock *block = worklist.dequeue()) {
-    StatusFP &preValFP = NCI.BlocksBeginStatusFP[block];
-    StatusFP valFP;
+    NullabilityState &PrevState = NCI.BlocksBeginState[block];
+    NullabilityState InState;
     for (CFGBlock::const_pred_iterator it = block->pred_begin(),
                                        ei = block->pred_end();
          it != ei; ++it) {
       if (const CFGBlock *pred = *it) {
-        StatusFP predValFP = NCI.BlocksEndStatusFP[pred];
-        if (NCI.BlocksConditionStatusFP.count(block)) {
-          if (NCI.BlocksConditionStatusFP[block].count(pred)) {
-            for (auto &CondState : NCI.BlocksConditionStatusFP[block][pred]) {
-              predValFP[CondState.first] = CondState.second;
+        NullabilityState PredState = NCI.BlocksEndState[pred];
+        if (NCI.BlocksConditionState.count(block)) {
+          if (NCI.BlocksConditionState[block].count(pred)) {
+            for (auto &CondState : NCI.BlocksConditionState[block][pred]) {
+              PredState[CondState.first] = CondState.second;
             }
           }
         }
-        valFP = NCI.mergeFP(valFP, predValFP);
+        InState = NCI.mergeState(InState, PredState);
       }
     }
 
-    StatusFP val = NCI.runOnBlock(block, valFP, reporter, ctx, fd,
+    NullabilityState OutState = NCI.runOnBlock(block, InState, reporter, ctx, fd,
                                   ac.getParentMap());
-    NCI.BlocksEndStatusFP[block] = val;
-    if (preValFP == val)
+    NCI.BlocksEndState[block] = OutState;
+    if (PrevState == OutState)
       continue;
 
-    preValFP = val;
+    PrevState = OutState;
 
     // Enqueue the value to the successors.
     worklist.enqueueSuccessors(block);
