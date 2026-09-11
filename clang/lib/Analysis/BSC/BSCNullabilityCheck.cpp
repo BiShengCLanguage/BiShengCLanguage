@@ -15,8 +15,8 @@
 #include "clang/AST/BSC/ExprBSC.h"
 #include "clang/AST/ParentMap.h"
 #include "clang/AST/StmtVisitor.h"
-#include "clang/Analysis/Analyses/BSC/BSCNullabilityCheck.h"
 #include "clang/Analysis/Analyses/BSC/BSCNullCheckInfo.h"
+#include "clang/Analysis/Analyses/BSC/BSCNullabilityCheck.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
@@ -251,31 +251,29 @@ void eraseDerefChainCells(StatusFP &Status, VarDecl *VD) {
 }
 
 VarDecl *getVarDeclFromExpr(Expr *E) {
-  if (auto DRE = dyn_cast<DeclRefExpr>(E)) {
+  if (auto *DRE = dyn_cast<DeclRefExpr>(E))
     if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
       return VD;
-  } else if (auto ICE = dyn_cast<ImplicitCastExpr>(E)) {
+  if (auto *ICE = dyn_cast<ImplicitCastExpr>(E))
     return getVarDeclFromExpr(ICE->getSubExpr());
-  } else if (auto PE = dyn_cast<ParenExpr>(E)) {
+  if (auto *PE = dyn_cast<ParenExpr>(E))
     return getVarDeclFromExpr(PE->getSubExpr());
-  } else if (auto SE = dyn_cast<SafeExpr>(E)) {
+  if (auto *SE = dyn_cast<SafeExpr>(E))
     return getVarDeclFromExpr(SE->getSubExpr());
-  } else if (auto BO = dyn_cast<BinaryOperator>(E)) {
+  if (auto *BO = dyn_cast<BinaryOperator>(E))
     return getVarDeclFromExpr(BO->getLHS());
-  }
   return nullptr;
 }
 
 MemberExpr *getMemberExprFromExpr(Expr *E) {
-  if (auto ME = dyn_cast<MemberExpr>(E)) {
+  if (auto *ME = dyn_cast<MemberExpr>(E))
     return ME;
-  } else if (auto ICE = dyn_cast<ImplicitCastExpr>(E)) {
+  if (auto *ICE = dyn_cast<ImplicitCastExpr>(E))
     return getMemberExprFromExpr(ICE->getSubExpr());
-  } else if (auto PE = dyn_cast<ParenExpr>(E)) {
+  if (auto *PE = dyn_cast<ParenExpr>(E))
     return getMemberExprFromExpr(PE->getSubExpr());
-  } else if (auto SE = dyn_cast<SafeExpr>(E)) {
+  if (auto *SE = dyn_cast<SafeExpr>(E))
     return getMemberExprFromExpr(SE->getSubExpr());
-  }
   return nullptr;
 }
 
@@ -385,14 +383,15 @@ static std::string getDiagNameFromExpr(Expr *E) {
 namespace clang {
 bool FindNonnull(QualType QT, const ASTContext &Ctx) {
   QualType CanQT = QT.getCanonicalType();
-  if (CanQT->isPointerType()) {
+  if (CanQT->isPointerType())
     return QT.getDefNullability() == NullabilityKind::NonNull;
-  } else if (CanQT->isArrayType()) {
-    auto ArrayTy = QT->getAsArrayTypeUnsafe();
+  if (CanQT->isArrayType()) {
+    const auto *ArrayTy = QT->getAsArrayTypeUnsafe();
     QualType ElemTy = ArrayTy->getElementType();
     return FindNonnull(ElemTy, Ctx);
-  } else if (CanQT->isRecordType()) {
-    auto RT = QT->getAs<RecordType>();
+  }
+  if (CanQT->isRecordType()) {
+    const auto *RT = QT->getAs<RecordType>();
     if (RecordDecl *RD = RT->getDecl()) {
       for (FieldDecl *FD : RD->fields()) {
         QualType FieldTy = FD->getType();
@@ -478,8 +477,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       if (LHSNK == NullabilityKind::Nullable ||
           RHSNK == NullabilityKind::Nullable)
         return NullabilityKind::Nullable;
-      else if (LHSNK == NullabilityKind::NonNull &&
-               RHSNK == NullabilityKind::NonNull)
+      if (LHSNK == NullabilityKind::NonNull &&
+          RHSNK == NullabilityKind::NonNull)
         return NullabilityKind::NonNull;
       break;
     }
@@ -609,7 +608,7 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         NullabilityKind NK = VD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
-        else if (NK == NullabilityKind::Nullable) {
+        if (NK == NullabilityKind::Nullable) {
           FieldPath FP(VD, "");
           if (CurrStatusFP.count(FP))
             return CurrStatusFP[FP];
@@ -631,14 +630,14 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     }
     case Expr::MemberExprClass: {
       auto *ME = cast<MemberExpr>(E);
-      if (auto FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+      if (auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
         if (Expr *InitE = getCompoundLiteralInitElem(
                 ME->getBase(), /*IndexE=*/nullptr, FD, Ctx))
           return getExprPathNullability(InitE);
         NullabilityKind NK = FD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
-        else if (NK == NullabilityKind::Nullable) {
+        if (NK == NullabilityKind::Nullable) {
           if (auto FP = getFieldPath(ME)) {
             if (CurrStatusFP.count(*FP))
               return CurrStatusFP[*FP];
@@ -662,27 +661,24 @@ bool TransferFunctions::IsStmtInSafeZone(Stmt *S) {
   while (ParentStmt) {
     if (auto *CS = dyn_cast<CompoundStmt>(ParentStmt)) {
       SafeZoneSpecifier SafeZoneSpec = CS->getCompSafeZoneSpecifier();
-      if (SafeZoneSpec == SZ_Safe) {
+      if (SafeZoneSpec == SZ_Safe)
         return true;
-      } else if (SafeZoneSpec == SZ_Unsafe) {
+      if (SafeZoneSpec == SZ_Unsafe)
         return false;
-      }
     }
     if (auto *SS = dyn_cast<SafeStmt>(ParentStmt)) {
       SafeZoneSpecifier SafeZoneSpec = SS->getSafeZoneSpecifier();
-      if (SafeZoneSpec == SZ_Safe) {
+      if (SafeZoneSpec == SZ_Safe)
         return true;
-      } else if (SafeZoneSpec == SZ_Unsafe) {
+      if (SafeZoneSpec == SZ_Unsafe)
         return false;
-      }
     }
     if (auto *SE = dyn_cast<SafeExpr>(ParentStmt)) {
       SafeZoneSpecifier SafeZoneSpec = SE->getSafeZoneSpecifier();
-      if (SafeZoneSpec == SZ_Safe) {
+      if (SafeZoneSpec == SZ_Safe)
         return true;
-      } else if (SafeZoneSpec == SZ_Unsafe) {
+      if (SafeZoneSpec == SZ_Unsafe)
         return false;
-      }
     }
     ParentStmt = PM.getParent(ParentStmt);
   }
@@ -1275,18 +1271,18 @@ void TransferFunctions::PassConditionStatusToSuccBlocks(Expr *CondExpr) {
 static void collectNullableDecls(Stmt *S, StatusFP &FPMap) {
   if (!S)
     return;
-  if (auto DRE = dyn_cast<DeclRefExpr>(S)) {
+  if (auto *DRE = dyn_cast<DeclRefExpr>(S)) {
     if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
       if (VD->getType().getDefNullability() == NullabilityKind::Nullable)
         FPMap[FieldPath(VD, "")] = NullabilityKind::Nullable;
-  } else if (auto ME = dyn_cast<MemberExpr>(S)) {
-    if (auto FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+  } else if (auto *ME = dyn_cast<MemberExpr>(S)) {
+    if (auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       if (FD->getType().getDefNullability() == NullabilityKind::Nullable) {
         if (auto FP = getFieldPath(ME))
           FPMap[*FP] = NullabilityKind::Nullable;
       }
     }
-  } else if (auto UO = dyn_cast<UnaryOperator>(S)) {
+  } else if (auto *UO = dyn_cast<UnaryOperator>(S)) {
     if (UO->getOpcode() == UO_Deref &&
         UO->getType().getDefNullability() == NullabilityKind::Nullable) {
       if (auto FP = getFieldPath(UO))
