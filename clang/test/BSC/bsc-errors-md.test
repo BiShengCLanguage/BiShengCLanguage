@@ -1,0 +1,21 @@
+// Check that the BSC diagnostic reference (bsc-errors.md) can be generated from
+// the real diagnostic metadata.  clang-tblgen fails if any BSC error/warning
+// lacks BSCDiag<>/BSCOutOfScope, if codes collide within a feature, or if the
+// Notes column refers to an unknown note, so a successful run validates the
+// metadata; the FileCheck lines additionally pin down the document's shape.
+//
+// RUN: clang-tblgen -gen-bsc-diag-docs -DBSC \
+// RUN:   -I%src_include_dir -I%src_include_dir/clang/Basic \
+// RUN:   %src_include_dir/clang/Basic/Diagnostic.td -o %t.md
+// RUN: FileCheck %s < %t.md
+
+// CHECK: # BSC-Specific Diagnostics by Feature
+// CHECK: ## OWN — owned
+// CHECK: ## BOR — borrow
+// CHECK: ## INIT — initialization
+// CHECK: ## MISC — declaration / dispatch consistency
+// CHECK: ## SZONE — safe zone
+// CHECK: ## NONNULL — nonnull pointer
+// CHECK: ## NULLABLE — nullable pointer
+// CHECK: ## Summary
+// CHECK: | **Total** | |

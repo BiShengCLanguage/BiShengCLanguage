@@ -155,6 +155,12 @@ class DefaultWarnNoWerror {
 }
 class DefaultRemark { Severity DefaultSeverity = SEV_Remark; }
 
+#ifdef BSC
+// This defines the metadata used by -gen-bsc-diag-docs to generate the BSC
+// diagnostic reference (bsc-errors.md).
+include "clang/Basic/BSC/BSCDiagDocs.td"
+#endif
+
 // Definitions for Diagnostics.
 include "DiagnosticASTKinds.td"
 include "DiagnosticAnalysisKinds.td"

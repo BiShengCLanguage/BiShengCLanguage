@@ -180,6 +180,7 @@ set_target_properties(clang-test PROPERTIES FOLDER "Clang tests")
 set(BSC_TEST_DEPS
   clang
   clang-resource-headers
+  clang-tblgen
   FileCheck
   count
   not

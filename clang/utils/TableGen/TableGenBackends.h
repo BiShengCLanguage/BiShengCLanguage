@@ -120,6 +120,9 @@ void EmitCdeBuiltinAliases(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 
 void EmitClangAttrDocs(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 void EmitClangDiagDocs(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
+#if ENABLE_BSC
+void EmitBSCDiagDocs(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
+#endif
 void EmitClangOptDocs(llvm::RecordKeeper &Records, llvm::raw_ostream &OS);
 
 void EmitClangOpenCLBuiltins(llvm::RecordKeeper &Records,

@@ -133,3 +133,25 @@ if (LLVM_ENABLE_SPHINX)
     endif()
   endif()
 endif()
+
+# Generate the BSC diagnostic reference (bsc-errors.md) from the BSC diagnostic
+# metadata in clang/include/clang/Basic/BSC/*.td.  This is an on-demand build
+# artifact, not maintained in the source tree: build it with
+# `ninja bsc-errors-md`, and it is written to
+# <build>/tools/clang/docs/BSC/bsc-errors.md.  Generation is validated as part
+# of `bsc-test` by clang/test/BSC/bsc-errors-md.test, which runs clang-tblgen
+# over the real metadata.
+if (BSC_OPTION)
+  file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/BSC)
+  # Diagnostic.td includes sibling .td files relative to itself (e.g.
+  # "DiagnosticDocs.td"), so its directory must be an include directory.
+  list(APPEND LLVM_TABLEGEN_FLAGS
+    "-I${CMAKE_CURRENT_SOURCE_DIR}/../include/clang/Basic")
+  clang_tablegen(BSC/bsc-errors.md
+    -gen-bsc-diag-docs ${BSC_OPTION}
+    SOURCE ../include/clang/Basic/Diagnostic.td
+    TARGET gen-bsc-errors-md)
+  add_custom_target(bsc-errors-md
+    COMMENT "Building BSC diagnostic reference (bsc-errors.md)"
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/BSC/bsc-errors.md)
+endif()

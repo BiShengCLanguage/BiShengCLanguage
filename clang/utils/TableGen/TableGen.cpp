@@ -91,6 +91,9 @@ enum ActionType {
   GenRISCVVectorBuiltinSema,
   GenAttrDocs,
   GenDiagDocs,
+#if ENABLE_BSC
+  GenBSCDiagDocs,
+#endif
   GenOptDocs,
   GenDataCollectors,
   GenTestPragmaAttributeSupportedAttributes
@@ -250,6 +253,10 @@ cl::opt<ActionType> Action(
                    "Generate attribute documentation"),
         clEnumValN(GenDiagDocs, "gen-diag-docs",
                    "Generate diagnostic documentation"),
+#if ENABLE_BSC
+        clEnumValN(GenBSCDiagDocs, "gen-bsc-diag-docs",
+                   "Generate BSC diagnostic documentation (bsc-errors.md)"),
+#endif
         clEnumValN(GenOptDocs, "gen-opt-docs", "Generate option documentation"),
         clEnumValN(GenDataCollectors, "gen-clang-data-collectors",
                    "Generate data collectors for AST nodes"),
@@ -470,6 +477,11 @@ bool ClangTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
   case GenDiagDocs:
     EmitClangDiagDocs(Records, OS);
     break;
+#if ENABLE_BSC
+  case GenBSCDiagDocs:
+    EmitBSCDiagDocs(Records, OS);
+    break;
+#endif
   case GenOptDocs:
     EmitClangOptDocs(Records, OS);
     break;

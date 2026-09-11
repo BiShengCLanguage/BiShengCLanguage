@@ -1837,3 +1837,309 @@ void clang::EmitClangDiagDocs(RecordKeeper &Records, raw_ostream &OS) {
     OS << "\n";
   }
 }
+
+#if ENABLE_BSC
+
+//===----------------------------------------------------------------------===//
+// BSC diagnostic documentation generation (-gen-bsc-diag-docs).
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+/// Return the source file a record was defined in, or "" if unknown.
+std::string getBSCSourceFile(const Record *R) {
+  ArrayRef<SMLoc> Locs = R->getLoc();
+  if (Locs.empty())
+    return "";
+  unsigned Buf = SrcMgr.FindBufferContainingLoc(Locs.front());
+  if (Buf == 0)
+    return "";
+  return SrcMgr.getMemoryBuffer(Buf)->getBufferIdentifier().str();
+}
+
+/// Escape text so that it can live inside a markdown table cell.
+std::string escapeMarkdownCell(StringRef Text) {
+  std::string Out;
+  Out.reserve(Text.size());
+  for (size_t I = 0, E = Text.size(); I != E; ++I) {
+    char C = Text[I];
+    if (C == '\n' || C == '\r')
+      Out += ' ';
+    else if (C == '|' && (I == 0 || Text[I - 1] != '\\'))
+      Out += "\\|";
+    else
+      Out += C;
+  }
+  return Out;
+}
+
+std::string zeroPad3(int N) {
+  std::string S = std::to_string(N);
+  while (S.size() < 3)
+    S.insert(S.begin(), '0');
+  return S;
+}
+
+std::string countString(int N, StringRef Noun) {
+  return (Twine(N) + " " + Noun + (N == 1 ? "" : "s")).str();
+}
+
+/// Record every `note_*` identifier mentioned in \p Text and make sure it names
+/// an existing Note definition.  When \p Notes is non-null the referenced notes
+/// are also collected.  This keeps the hand-written prose (Notes column,
+/// section notes and footnotes) from referring to removed or renamed notes;
+/// only the Notes column feeds the note count.
+void checkNoteRefs(const Record *R, StringRef Text, RecordKeeper &Records,
+                   std::set<std::string> *Notes) {
+  size_t Pos = 0;
+  while ((Pos = Text.find("note_", Pos)) != StringRef::npos) {
+    size_t End = Pos + 5;
+    while (End < Text.size() &&
+           (std::isalnum(static_cast<unsigned char>(Text[End])) ||
+            Text[End] == '_'))
+      ++End;
+    StringRef Name = Text.substr(Pos, End - Pos);
+    const Record *Note = Records.getDef(Name);
+    if (!Note || !Note->getValue("Class") ||
+        Note->getValueAsDef("Class")->getName() != "CLASS_NOTE")
+      PrintFatalError(R, Twine("references '") + Name +
+                             "', which is not a Note definition");
+    if (Notes)
+      Notes->insert(Name.str());
+    Pos = End;
+  }
+}
+
+/// One documented diagnostic row.
+struct BSCRow {
+  const Record *Diag;
+  const Record *Feature;
+  std::string Code;
+  int Number;
+  bool IsWarning;
+  std::string Doc;
+  std::string SectionFooter;
+};
+
+/// A feature section: the feature record, its rows in order, and the
+/// error/warning counts used for the heading and the summary table.
+struct BSCFeatureInfo {
+  const Record *Feature;
+  std::vector<const BSCRow *> Rows;
+  int Errors;
+  int Warnings;
+};
+
+/// The validated contents of bsc-errors.md.  `Rows` owns the rows; the
+/// per-feature lists point into it and stay valid because `Rows` is not
+/// modified after `collectBSCDocData` returns.
+struct BSCDocData {
+  const Record *Documentation = nullptr;
+  std::vector<BSCFeatureInfo> Features;
+  std::vector<BSCRow> Rows;
+  int TotalErrors = 0;
+  int TotalWarnings = 0;
+  std::set<std::string> Notes;
+};
+
+/// Collect and validate the BSC diagnostic metadata.  Any inconsistency that
+/// would make the generated document wrong or non-deterministic is reported as
+/// a fatal error: unclassified diagnostics, duplicate feature names/orders,
+/// unknown features, out-of-range or duplicate codes, dangling note
+/// references, metadata attached to the wrong kind of record, and so on.
+BSCDocData collectBSCDocData(RecordKeeper &Records) {
+  BSCDocData Data;
+  Data.Documentation = Records.getDef("BSCDiagDocumentation");
+  if (!Data.Documentation)
+    PrintFatalError(
+        "BSCDiagDocumentation is missing; cannot generate bsc-errors.md");
+
+  // Feature sections, ordered by their `Order` field.  Names and orders must be
+  // unique so that the generated section order is deterministic.
+  std::vector<Record *> FeatureRecords =
+      Records.getAllDerivedDefinitions("BSCDiagFeature");
+  llvm::sort(FeatureRecords, [](const Record *A, const Record *B) {
+    return A->getValueAsInt("Order") < B->getValueAsInt("Order");
+  });
+  std::map<std::string, const Record *> FeatureByName;
+  std::set<int> SeenOrders;
+  for (const Record *F : FeatureRecords) {
+    std::string Name = F->getValueAsString("Name").str();
+    if (Name.empty())
+      PrintFatalError(F, "BSCDiagFeature must have a non-empty Name");
+    if (F->getValueAsString("Title").empty())
+      PrintFatalError(F, Twine("BSC diagnostic feature '") + Name +
+                             "' must have a non-empty Title");
+    if (!FeatureByName.insert({Name, F}).second)
+      PrintFatalError(F,
+                      Twine("duplicate BSC diagnostic feature name '") + Name +
+                          "'");
+    int Order = F->getValueAsInt("Order");
+    if (!SeenOrders.insert(Order).second)
+      PrintFatalError(F, Twine("duplicate BSC diagnostic feature order ") +
+                             std::to_string(Order) + " (feature '" + Name +
+                             "')");
+    checkNoteRefs(F, F->getValueAsString("SectionNote"), Records, nullptr);
+    checkNoteRefs(F, F->getValueAsString("SectionFooter"), Records, nullptr);
+  }
+
+  // BSC diagnostics explicitly marked as intentionally undocumented.
+  std::set<const Record *> OutOfScope;
+  for (const Record *R : Records.getAllDerivedDefinitions("BSCOutOfScope"))
+    OutOfScope.insert(R);
+
+  std::set<std::string> SeenCodes;
+  for (const Record *R : Records.getAllDerivedDefinitions("Diagnostic")) {
+    StringRef ClassName = R->getValueAsDef("Class")->getName();
+    bool IsWarning = ClassName == "CLASS_WARNING";
+    bool IsDocumented = R->getValue("BSCFeature") != nullptr;
+    bool IsOutOfScope = OutOfScope.count(R) != 0;
+
+    // BSCDiag<>/BSCOutOfScope only make sense on errors and warnings.
+    if (!IsWarning && ClassName != "CLASS_ERROR") {
+      if (IsDocumented || IsOutOfScope)
+        PrintFatalError(R, Twine("'") + R->getName() +
+                               "' carries BSCDiag<>/BSCOutOfScope metadata but "
+                               "is not an error or warning");
+      continue;
+    }
+    if (IsDocumented && IsOutOfScope)
+      PrintFatalError(R, Twine("'") + R->getName() +
+                             "' has both BSCDiag<> and BSCOutOfScope");
+
+    // A diagnostic is documented if it carries BSCDiag<> metadata, wherever it
+    // is defined.  Diagnostics defined in the BSC .td files must opt into
+    // either BSCDiag<> or BSCOutOfScope so that new ones cannot silently go
+    // undocumented; diagnostics defined anywhere else are ignored.
+    if (!IsDocumented) {
+      bool InBSCFile =
+          getBSCSourceFile(R).find("/Basic/BSC/") != std::string::npos;
+      if (InBSCFile && !IsOutOfScope)
+        PrintFatalError(R, Twine("BSC diagnostic '") + R->getName() +
+                               "' has neither BSCDiag<> nor BSCOutOfScope "
+                               "metadata; add one in clang/include/clang/Basic/"
+                               "BSC/");
+      continue;
+    }
+
+    std::string Feature = R->getValueAsString("BSCFeature").str();
+    auto FI = FeatureByName.find(Feature);
+    if (FI == FeatureByName.end())
+      PrintFatalError(R, Twine("unknown BSC diagnostic feature '") + Feature +
+                             "' (add a BSCDiagFeature for it)");
+    int Number = R->getValueAsInt("BSCNumber");
+    if (Number < 1 || Number > 999)
+      PrintFatalError(R, Twine("BSC diagnostic number ") +
+                             std::to_string(Number) +
+                             " is out of range; expected 1..999");
+
+    std::string Code =
+        Feature + "-" + (IsWarning ? "W" : "") + zeroPad3(Number);
+    if (!SeenCodes.insert(Code).second)
+      PrintFatalError(R, Twine("duplicate BSC diagnostic code '") + Code + "'");
+
+    std::string Doc = R->getValueAsString("BSCDoc").str();
+    std::string Footer = R->getValueAsString("SectionFooter").str();
+    checkNoteRefs(R, Doc, Records, &Data.Notes);
+    checkNoteRefs(R, Footer, Records, nullptr);
+    Data.Rows.push_back({R, FI->second, Code, Number, IsWarning, Doc, Footer});
+  }
+
+  llvm::sort(Data.Rows, [](const BSCRow &A, const BSCRow &B) {
+    int OA = A.Feature->getValueAsInt("Order");
+    int OB = B.Feature->getValueAsInt("Order");
+    if (OA != OB)
+      return OA < OB;
+    if (A.IsWarning != B.IsWarning)
+      return !A.IsWarning; // errors before warnings
+    return A.Number < B.Number;
+  });
+
+  // Group the sorted rows by feature, keeping the feature order.  Features
+  // without rows are dropped (nothing is emitted for them).
+  std::map<const Record *, size_t> IndexByFeature;
+  for (const Record *F : FeatureRecords) {
+    IndexByFeature.insert({F, Data.Features.size()});
+    Data.Features.push_back({F, {}, 0, 0});
+  }
+  for (const BSCRow &R : Data.Rows) {
+    BSCFeatureInfo &Info = Data.Features[IndexByFeature[R.Feature]];
+    Info.Rows.push_back(&R);
+    if (R.IsWarning) {
+      Info.Warnings++;
+      Data.TotalWarnings++;
+    } else {
+      Info.Errors++;
+      Data.TotalErrors++;
+    }
+  }
+  Data.Features.erase(
+      std::remove_if(Data.Features.begin(), Data.Features.end(),
+                     [](const BSCFeatureInfo &Info) {
+                       return Info.Rows.empty();
+                     }),
+      Data.Features.end());
+
+  return Data;
+}
+
+} // namespace
+
+void clang::EmitBSCDiagDocs(RecordKeeper &Records, raw_ostream &OS) {
+  BSCDocData Data = collectBSCDocData(Records);
+
+  StringRef Intro = Data.Documentation->getValueAsString("Intro");
+  OS << Intro;
+  if (!Intro.endswith("\n"))
+    OS << "\n";
+
+  for (const BSCFeatureInfo &Info : Data.Features) {
+    const Record *F = Info.Feature;
+    OS << "\n## " << F->getValueAsString("Name") << " \u2014 "
+       << F->getValueAsString("Title") << " ("
+       << countString(Info.Errors, "error");
+    if (Info.Warnings)
+      OS << ", " << countString(Info.Warnings, "warning");
+    OS << ")\n";
+
+    std::string SectionNote = F->getValueAsString("SectionNote").str();
+    if (!SectionNote.empty())
+      OS << "\n" << SectionNote << "\n";
+
+    OS << "\n| Code | Diagnostic | Message | Notes |\n"
+          "|------|------------|---------|-------|\n";
+    for (const BSCRow *R : Info.Rows) {
+      std::string Text = escapeMarkdownCell(R->Diag->getValueAsString("Text"));
+      std::string Doc = escapeMarkdownCell(R->Doc);
+      OS << "| " << R->Code << " | " << R->Diag->getName() << " | " << Text
+         << " | " << (Doc.empty() ? "\u2014" : Doc) << " |\n";
+    }
+
+    // Section footnotes: those attached to individual diagnostics first (in row
+    // order), then the feature-level footer.
+    for (const BSCRow *R : Info.Rows)
+      if (!R->SectionFooter.empty())
+        OS << "\n" << R->SectionFooter << "\n";
+    std::string SectionFooter = F->getValueAsString("SectionFooter").str();
+    if (!SectionFooter.empty())
+      OS << "\n" << SectionFooter << "\n";
+  }
+
+  // Summary table.
+  OS << "\n## Summary\n\n"
+        "| Prefix | Feature | Errors | Warnings |\n"
+        "|--------|---------|-------:|---------:|\n";
+  for (const BSCFeatureInfo &Info : Data.Features)
+    OS << "| " << Info.Feature->getValueAsString("Name") << "- | "
+       << Info.Feature->getValueAsString("Title") << " | " << Info.Errors
+       << " | " << Info.Warnings << " |\n";
+  OS << "| **Total** | | **" << Data.TotalErrors << "** | **"
+     << Data.TotalWarnings << "** |\n";
+
+  OS << "\nPlus **" << Data.Notes.size()
+     << " BSC-specific notes** referenced in the Notes column above.\n";
+
+  OS << "\n" << Data.Documentation->getValueAsString("OutOfScope");
+}
+
+#endif // ENABLE_BSC
