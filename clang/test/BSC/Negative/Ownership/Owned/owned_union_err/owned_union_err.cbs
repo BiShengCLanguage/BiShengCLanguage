@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -ast-dump -verify %s
 
 union D {
-    _Owned int a;  // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of union field cannot be qualified by '_Owned'}}
+    _Owned int a;  // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 };
 
 
@@ -20,7 +20,7 @@ union A {
 
 typedef _Owned int ownedInt; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 union B {
-    ownedInt a; //expected-error {{type of union field cannot be qualified by '_Owned' because 'ownedInt' (aka '_Owned int') contains a '_Owned' type}}
+    ownedInt a;
 };
 
 struct S {

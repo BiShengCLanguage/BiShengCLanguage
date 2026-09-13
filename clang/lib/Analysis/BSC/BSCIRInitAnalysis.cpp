@@ -1090,7 +1090,7 @@ void InitAnalysis::checkOperand(const Operand &Op, const InitLattice &State,
         return E.K == ProjectionElem::Index ||
                E.K == ProjectionElem::ConstantIndex;
       })) {
-    if (P.Ty.isOwnedQualified() || P.Ty->isMoveSemanticType())
+    if (P.Ty.isOrContainsOwned(BSCLookThrough::NoPointer))
       return;
   }
 

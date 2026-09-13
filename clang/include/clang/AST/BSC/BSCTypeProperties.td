@@ -58,3 +58,17 @@ let Class = InjectedTraitNameType in {
     return QualType(T, 0);
   }]>;
 }
+
+let Class = BSCQualifiedType in {
+  def : Property<"underlyingType", QualType> {
+    let Read = [{ node->getUnderlyingType() }];
+  }
+  def : Property<"bscProperties", UInt32> {
+    let Read = [{ node->getBSCProperties().toOpaque() }];
+  }
+
+  def : Creator<[{
+    return ctx.getBSCQualifiedType(
+        underlyingType, BSCPointerProperties::fromOpaque(bscProperties));
+  }]>;
+}

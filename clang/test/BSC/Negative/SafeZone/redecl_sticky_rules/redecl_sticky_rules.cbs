@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+
+// Manual 3.8.3: same-mode redeclarations need identical sticky qualifiers
+// once defaults are filled in (raw -> _Nullable, _Owned/_Borrow -> _Nonnull).
+void h1(int *p);            void h1(int *_Nullable p);
+void h2(int *p);            // expected-note {{previous declaration is here}}
+void h2(int *_Nonnull p);   // expected-error {{conflicting types for 'h2'}}
+void h3(int *_Nonnull p);   // expected-note {{previous declaration is here}}
+void h3(int *_Nullable p);  // expected-error {{conflicting types for 'h3'}}
+_Safe void s1(int *p);      // expected-note {{previous declaration is here}}
+_Safe void s1(int *_Nonnull p); // expected-error {{conflicting types for 's1'}}
+_Safe void s2(int *p);      _Safe void s2(int *_Nullable p);
+void n1(int **p);           // expected-note {{previous declaration is here}}
+void n1(int *_Nonnull *p);  // expected-error {{conflicting types for 'n1'}}
+void a1(int *_Borrow _ArrayElem p); // expected-note {{previous declaration is here}}
+void a1(int *_Borrow p);    // expected-error {{conflicting types for 'a1'}}
+void a2(int *_Owned *_Borrow p); // expected-note {{previous declaration is here}}
+void a2(int **_Borrow p);   // expected-error {{conflicting types for 'a2'}}
+
+// Manual 3.6.5.4: across modes the _Safe side may add or sharpen, never
+// drop a qualifier or widen _Nonnull to _Nullable.
+void x1(int *p);            _Safe void x1(int *_Nonnull p);
+void x2(int *p);            _Safe void x2(int *_Nullable p);
+void x3(int *_Nullable p);  _Safe void x3(int *_Nonnull p);
+void x5(int *p);            _Safe void x5(int *_Borrow p);
+void x4(int *_Nonnull p);   // expected-note {{previous declaration had parameter of type 'int *_Nonnull'}}
+_Safe void x4(int *_Nullable p); // expected-error {{redeclaration of 'x4' has incompatible parameter type 'int *_Nullable'}}
+void x6(int *_Owned p);     // expected-note {{previous declaration had parameter of type 'int *_Owned'}}
+_Safe void x6(int *_Borrow p); // expected-error {{redeclaration of 'x6' has incompatible parameter type 'int *_Borrow'}}

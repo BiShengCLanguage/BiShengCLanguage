@@ -409,6 +409,8 @@ namespace clang {
 #if ENABLE_BSC
     ExpectedType VisitTraitType(const TraitType *T);
     ExpectedType VisitConditionalType(const ConditionalType *T);
+    ExpectedType
+    VisitBSCQualifiedType(const BSCQualifiedType *T);
 #endif
     ExpectedType VisitEnumType(const EnumType *T);
     ExpectedType VisitAttributedType(const AttributedType *T);
@@ -1169,7 +1171,12 @@ ExpectedType ASTNodeImporter::VisitPointerType(const PointerType *T) {
   if (!ToPointeeTypeOrErr)
     return ToPointeeTypeOrErr.takeError();
 
+#if ENABLE_BSC
+  return Importer.getToContext().getPointerType(*ToPointeeTypeOrErr,
+                                                T->getBSCProperties());
+#else
   return Importer.getToContext().getPointerType(*ToPointeeTypeOrErr);
+#endif
 }
 
 ExpectedType ASTNodeImporter::VisitBlockPointerType(const BlockPointerType *T) {
@@ -1410,6 +1417,16 @@ ExpectedType ASTNodeImporter::VisitConditionalType(const ConditionalType *T) {
   return Importer.getToContext().getConditionalType(
       CondResult, *ToCondExprOrErr, *ToConditionalType1OrErr,
       *ToConditionalType2OrErr);
+}
+
+ExpectedType ASTNodeImporter::VisitBSCQualifiedType(
+    const BSCQualifiedType *T) {
+  ExpectedType ToUnderlyingTypeOrErr = import(T->getUnderlyingType());
+  if (!ToUnderlyingTypeOrErr)
+    return ToUnderlyingTypeOrErr.takeError();
+
+  return Importer.getToContext().getBSCQualifiedType(
+      *ToUnderlyingTypeOrErr, T->getBSCProperties());
 }
 #endif
 

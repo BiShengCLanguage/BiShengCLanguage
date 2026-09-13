@@ -3,10 +3,11 @@
 // Nullability qualifiers applied to a dependent type must be validated after
 // substituting the concrete template argument.
 
-void nullable_bad<T>(T _Nullable value); // expected-note {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nullable' cannot be applied to non-pointer type 'int'}}
-void nonnull_bad<T>(T _Nonnull value); // expected-note {{candidate template ignored: substitution failure [with T = int]: nullability specifier '_Nonnull' cannot be applied to non-pointer type 'int'}}
+// Deduction subtracts the written specifier, so these fail before substitution.
+void nullable_bad<T>(T _Nullable value); // expected-note {{candidate template ignored: could not match '_Nullable T' against 'int'}}
+void nonnull_bad<T>(T _Nonnull value); // expected-note {{candidate template ignored: could not match '_Nonnull T' against 'int'}}
 void null_conflict<T>(T _Nullable value); // expected-note {{candidate template ignored: substitution failure [with T = int *_Nonnull]: nullability specifier '_Nullable' conflicts with existing specifier '_Nonnull'}}
-void nonnull_conflict<T>(T _Nonnull value); // expected-note {{candidate template ignored: substitution failure [with T = int *_Nullable]: nullability specifier '_Nullable' conflicts with existing specifier '_Nonnull'}}
+void nonnull_conflict<T>(T _Nonnull value); // expected-note {{candidate template ignored: substitution failure [with T = int *_Nullable]: nullability specifier '_Nonnull' conflicts with existing specifier '_Nullable'}}
 
 void test_direct_bad(int *_Nonnull nonnull_pointer_value,
                      int *_Nullable nullable_pointer_value) {

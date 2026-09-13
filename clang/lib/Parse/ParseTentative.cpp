@@ -1561,6 +1561,8 @@ Parser::isCXXDeclarationSpecifier(Parser::TPResult BracedCastResult,
   case tok::kw_volatile:
 #if ENABLE_BSC
   case tok::kw__Owned:
+  case tok::kw__Borrow:
+  case tok::kw__ArrayElem:
 #endif
     return TPResult::True;
 

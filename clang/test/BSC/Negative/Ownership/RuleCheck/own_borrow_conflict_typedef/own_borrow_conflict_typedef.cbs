@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -verify %s
+// RUN: %clang_cc1 -ast-dump -verify %s | FileCheck %s
 
 typedef int *_Owned _Borrow InvalidPtr; // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
 typedef Invalid = int *_Owned _Borrow; // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
@@ -10,3 +11,28 @@ void demo() {
 void demo1() {
     Invalid p = nullptr;
 }
+
+typedef int *_Borrow BorrowPtr;
+typedef int *_Owned OwnedPtr;
+
+void requalify(void) {
+  _Owned BorrowPtr a;  // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
+  _Borrow OwnedPtr b;  // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
+  _Owned OwnedPtr c;
+  _Borrow BorrowPtr d;
+}
+
+void generic<T>(void) {
+  T _Owned a; // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
+}
+void instantiate(void) {
+  generic<BorrowPtr>(); // expected-note {{in instantiation of function template specialization 'generic<int *_Borrow>' requested here}}
+}
+
+// A rejected qualifier leaves no node; a redundant one is not spelled twice.
+// CHECK: VarDecl {{.*}} a 'BorrowPtr':'int *_Borrow'
+// CHECK: VarDecl {{.*}} b 'OwnedPtr':'int *_Owned'
+// CHECK: VarDecl {{.*}} c 'OwnedPtr':'int *_Owned'
+// CHECK: VarDecl {{.*}} d 'BorrowPtr':'int *_Borrow'
+// CHECK: VarDecl {{.*}} a '_Owned T'
+// CHECK: VarDecl {{.*}} a 'int *_Borrow':'int *_Borrow'

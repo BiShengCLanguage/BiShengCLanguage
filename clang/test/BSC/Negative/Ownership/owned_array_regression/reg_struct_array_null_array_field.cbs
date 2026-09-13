@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
+
+// In a struct-element array initializer with mixed elements, each owned field
+// is tracked on its own. The set of fields that can be marked null is the set
+// initS tracks, which includes owned array fields: one that is null in every
+// element owns nothing and must not be reported as leaked.
+
+int *_Owned mk(void);
+void drop(int *_Owned p);
+
+struct S {
+    int *_Owned p;
+    int *_Owned arr[2];
+};
+
+void all_null_array_field(void) {
+    struct S a[2] = { { mk(), { nullptr, nullptr } },
+                      { mk(), { nullptr, nullptr } } };
+    for (int i = 0; i < 2; i++)
+        drop(a[i].p);
+}
+
+void owned_array_field(void) {
+    struct S a[2] = { { nullptr, { mk(), nullptr } },
+                      { nullptr, { nullptr, nullptr } } };
+} // expected-error {{memory leak because a.arr[] is not freed or moved before 'a' goes out of scope}}

@@ -1,0 +1,108 @@
+// RUN: %clang_cc1 -fbsc-experimental -ast-dump %s | FileCheck %s
+
+// Borrow-address result types (manual 3.2.1.2). A borrow through a pointer --
+// `&_X *p`, `&_X p[i]`, `&_X *(p + n)` -- keeps p's explicit nullability.
+// _ArrayElem belongs to the subscript spelling alone: `&_X p[i]` is
+// _ArrayElem, `&_X *p` is a plain borrow whatever p is. A fresh borrow of an
+// lvalue is plain; of an array element, _ArrayElem.
+struct S { int x; };
+void consume(int *_Owned _ArrayElem p);
+void f(int *_Borrow b, int *_Borrow _ArrayElem ae, int *_Owned o,
+       int *_Owned _ArrayElem oae, int *raw, int *_Nullable rn,
+       int *_Nonnull rnn, int *_Borrow _Nullable bn,
+       int *_Borrow _ArrayElem _Nullable aen, const int *_Borrow cb,
+       const int *_Borrow _ArrayElem cae, struct S *_Borrow _ArrayElem sae,
+       int **_Borrow pp, int i) {
+  int arr[2] = {0}; int x = 0;
+
+  // fresh
+  (void)(&_Mut x);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut'
+  (void)(&_Const x);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const'
+  (void)(&_Mut arr[1]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem' prefix '&_Mut'
+  (void)(&_Const arr[i]);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem' prefix '&_Const'
+  (void)(&_Mut sae[0].x);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut'
+
+  // through a plain borrow
+  (void)(&_Mut *b);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+  (void)(&_Const *b);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+
+  // through an _ArrayElem borrow: *p and *(p + 1) are plain, p[0] and p[i] _ArrayElem
+  (void)(&_Mut *ae);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+  (void)(&_Mut ae[0]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem' prefix '&_Mut'
+  (void)(&_Mut ae[i]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem' prefix '&_Mut'
+  (void)(&_Mut *(ae + 1));
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+  (void)(&_Const *ae);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+  (void)(&_Const ae[i]);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem' prefix '&_Const'
+  (void)(&_Const *(ae + 1));
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+  (void)(&_Const *cae);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+  (void)(&_Const cae[0]);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem' prefix '&_Const'
+
+  // through owned pointers
+  (void)(&_Mut *o);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+  (void)(&_Const *o);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+  (void)(&_Mut *oae);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+  (void)(&_Mut oae[0]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem' prefix '&_Mut'
+  (void)(&_Const *oae);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+
+  // through raw pointers
+  (void)(&_Mut *raw);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow' prefix '&_Mut *'
+  (void)(&_Mut raw[0]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem' prefix '&_Mut'
+  (void)(&_Const raw[i]);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem' prefix '&_Const'
+
+  // explicit nullability carries over, in every spelling
+  (void)(&_Mut *rn);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _Nullable' prefix '&_Mut *'
+  (void)(&_Const *rn);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _Nullable' prefix '&_Const *'
+  (void)(&_Mut rn[0]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem _Nullable' prefix '&_Mut'
+  (void)(&_Mut *rnn);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _Nonnull' prefix '&_Mut *'
+  (void)(&_Const *rnn);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _Nonnull' prefix '&_Const *'
+  (void)(&_Mut *bn);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _Nullable' prefix '&_Mut *'
+  (void)(&_Const *bn);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _Nullable' prefix '&_Const *'
+  (void)(&_Mut *aen);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _Nullable' prefix '&_Mut *'
+  (void)(&_Mut aen[0]);
+  // CHECK: UnaryOperator {{.*}} 'int *_Borrow _ArrayElem _Nullable' prefix '&_Mut'
+  (void)(&_Const *aen);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _Nullable' prefix '&_Const *'
+  (void)(&_Const aen[i]);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow _ArrayElem _Nullable' prefix '&_Const'
+
+  // const pointee and pointer-to-pointer
+  (void)(&_Const *cb);
+  // CHECK: UnaryOperator {{.*}} 'const int *_Borrow' prefix '&_Const *'
+  (void)(&_Mut *pp);
+  // CHECK: UnaryOperator {{.*}} 'int **_Borrow' prefix '&_Mut *'
+  (void)(&_Const *pp);
+  // CHECK: UnaryOperator {{.*}} 'int *const *_Borrow' prefix '&_Const *'
+  __move_to_raw(o); consume(oae);
+}

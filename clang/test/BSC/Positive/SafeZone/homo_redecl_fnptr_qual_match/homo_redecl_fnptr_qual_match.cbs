@@ -2,7 +2,7 @@
 // expected-no-diagnostics
 
 // Companion to homo_redecl_fnptr_qual_dropped. The fnptr recursion added to
-// the homogeneous redeclaration check (HasDiffBorrorOrOwnedQualifiers) must not
+// the homogeneous redeclaration check (areBSCFunctionTypesCompatible) must not
 // over-reject: when two same-modifier declarations carry MATCHING
 // function-pointer-parameter / return qualifiers (or no BSC qualifiers at all),
 // they stay compatible per manual §7.2.

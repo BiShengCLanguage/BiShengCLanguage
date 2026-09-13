@@ -138,16 +138,6 @@ public:
     return Stored.isLocalConstQualified();
   }
 
-  #if ENABLE_BSC
-  bool isOwnedQualified() const {
-    return Stored.isLocalOwnedQualified();
-  }
-
-  bool isBorrowQualified() const {
-    return Stored.isLocalBorrowQualified();
-  }
-  #endif
-
   bool isVolatileQualified() const {
     return Stored.isLocalVolatileQualified();
   }

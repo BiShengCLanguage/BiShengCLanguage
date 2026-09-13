@@ -2017,10 +2017,20 @@ public:
   // Type Analysis / Processing: SemaType.cpp.
   //
 
+#if ENABLE_BSC
+  // BSC properties travel as themselves, not smuggled through Qualifiers.
+  QualType BuildQualifiedType(QualType T, SourceLocation Loc, Qualifiers Qs,
+                              const DeclSpec *DS = nullptr,
+                              BSCPointerProperties BP = BSCPointerProperties());
+  QualType BuildQualifiedType(QualType T, SourceLocation Loc, unsigned CVRA,
+                              const DeclSpec *DS = nullptr,
+                              BSCPointerProperties BP = BSCPointerProperties());
+#else
   QualType BuildQualifiedType(QualType T, SourceLocation Loc, Qualifiers Qs,
                               const DeclSpec *DS = nullptr);
   QualType BuildQualifiedType(QualType T, SourceLocation Loc, unsigned CVRA,
                               const DeclSpec *DS = nullptr);
+#endif
   QualType BuildPointerType(QualType T,
                             SourceLocation Loc, DeclarationName Entity);
   QualType BuildReferenceType(QualType T, bool LValueRef,
@@ -12394,16 +12404,15 @@ public:
   bool CheckOwnedQualTypeCStyleCast(QualType LHSType, QualType RHSType, SourceLocation RLoc);
   bool CheckOwnedQualTypeAssignment(QualType LHSType, Expr* RHSExpr);
   bool CheckOwnedQualTypeAssignment(QualType LHSType, QualType RHSType, SourceLocation RLoc);
-  bool CheckOwnedFunctionPointerType(QualType LHSType, Expr* RHSExpr);
+  bool getBSCFunctionProtoPair(QualType LHSType, Expr *RHSExpr,
+                               const FunctionProtoType *&LHS,
+                               const FunctionProtoType *&RHS);
   AssignConvertType CheckBSCQualTypeAssignment(QualType LHSType, ExprResult &RHS);
   AssignConvertType CheckBSCFunctionPointerType(QualType LHSType, Expr *RHSExpr);
   bool isBorrowArrayDecayTypeMatch(QualType SrcArrayType,
                                    QualType DestPtrType) const;
   ExprResult MaybeDecayArrayToBorrowArrayElemPointer(Expr *E, QualType ToType);
   void CheckOwnedOrIndirectOwnedType(SourceLocation ErrLoc, QualType T, StringRef Env);
-  void CheckOwnedQualifierOnNonPointerType(const DeclSpec &DS, QualType T);
-  void CheckArrayElemQualifierOnType(const DeclSpec &DS, QualType T,
-                                     SourceLocation DiagLoc);
   bool CheckTemporaryVarMemoryLeak(Expr* E);
   void BSCDataflowAnalysis(const Decl *D);
   void BSCBorrowChecker(FunctionDecl *FD);
@@ -12428,20 +12437,20 @@ public:
   bool IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr);
   FunctionDecl *SelectFunctionDeclForPointerAssignment(
       Expr *SrcExpr, const FunctionProtoType *DestFuncType);
-  FunctionDecl *SelectDeclForHeterogeneousRedecl(
+  FunctionDecl *SelectDeclForMixedModeRedecl(
       FunctionDecl *CurrentDecl, bool IsInSafeContext,
       llvm::function_ref<bool(FunctionDecl *)> CheckConstraints);
   void forEachZoneCallableRedecl(
       FunctionDecl *FD, bool IsCallerSafe,
       llvm::function_ref<void(FunctionDecl *)> F);
-  void noteHeterogeneousCandidates(FunctionDecl *FD, bool IsCallerSafe);
+  void noteMixedModeCandidates(FunctionDecl *FD, bool IsCallerSafe);
   /// True if a call to \p FD with \p ArgExprs matches its parameters under
   /// BSC's owned/borrow/nullability/literal-array rules.
   bool IsCallAssignmentCompatible(FunctionDecl *FD, MultiExprArg ArgExprs);
-  /// Like noteHeterogeneousCandidates, but each note explains *why* the
+  /// Like noteMixedModeCandidates, but each note explains *why* the
   /// candidate was rejected (param-count mismatch or which arg fails which
   /// param). Used by call-expression diagnostics.
-  void noteHeterogeneousCallCandidates(FunctionDecl *FD,
+  void noteMixedModeCallCandidates(FunctionDecl *FD,
                                        MultiExprArg ArgExprs);
   bool IsSafeFunctionPointerType(QualType Type);
   bool IsUnsafeType(QualType Type);
@@ -12462,16 +12471,13 @@ public:
                                           UnaryOperatorKind Opc, QualType Type,
                                           Expr *InputExpr = nullptr);
   void DiagnoseRawPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op);
-  void DiagnoseBSCPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op);
+  void DiagnoseBSCPtrArithmetic(SourceLocation OpLoc, StringRef OpSpelling,
+                                Expr *Op);
   void PushInsSafeZone(SafeZoneSpecifier SafeZoneSpec);
   void PopInsSafeZone();
   sema::InsCompoundSafeZoneInfo &getCurInsCompoundSafeZone() const;
   SafeZoneSpecifier getInstantiationSafeZoneSpecifier() const;
   void setInstantiationSafeZoneSpecifier(SafeZoneSpecifier SZ);
-  bool HasDiffBorrowOrOwnedParamsTypeAtBothFunction(QualType LHS,
-                                                    QualType RHS);
-  bool HasDiffNullabilityParamsTypeAtBothFunction(QualType LHS,
-                                                   QualType RHS);
   ExprResult CheckBSCConstexprCondition(SourceLocation Loc, Expr *CondExpr, bool IsConstexpr);
   // borrow
   bool IsAddrBorrowDerefOp(ExprResult &Operand);
@@ -12485,8 +12491,9 @@ public:
                                                 Expr *Source);
   bool CheckBorrowFunctionType(QualType ReturnTy, ArrayRef<QualType> ParamTys,
                                SourceLocation SL);
-  bool CheckBorrowFunctionPointerType(QualType LHSType, Expr* RHSExpr);
-  bool CheckEnsureInitFunctionPointerType(QualType LHSType, Expr* RHSExpr);
+  bool CheckEnsureInitFunctionPointerType(const FunctionProtoType *LHS,
+                                          const FunctionProtoType *RHS,
+                                          SourceLocation Loc);
   void CheckMoveFromBorrow(Expr* E, SourceLocation SL);
   bool CheckBorrowQualTypeCompare(QualType LHSType, QualType RHSType);
   void CheckBorrowOrIndirectBorrowType(SourceLocation ErrLoc, QualType T,

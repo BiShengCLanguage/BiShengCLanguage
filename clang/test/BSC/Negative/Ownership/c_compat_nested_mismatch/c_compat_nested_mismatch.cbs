@@ -1,0 +1,12 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -verify %s
+
+// A Kind mismatch under an outer pointer is a type mismatch for C
+// compatibility: the conditional operator gets C's pointer-mismatch warning
+// instead of a silent composite that keeps one side's properties.
+void nested(int c, int *_Owned *a, int **b) {
+  (void)(c ? a : b); // expected-warning {{pointer type mismatch ('int *_Owned *' and 'int **')}}
+}
+
+// The same holds for a redeclaration.
+void f(int *_Owned *p);  // expected-note {{previous declaration is here}}
+void f(int **p);         // expected-error {{conflicting types for 'f'}}

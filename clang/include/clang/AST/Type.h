@@ -66,11 +66,7 @@ class TemplateParameterList;
 class Type;
 
 enum {
-  #if ENABLE_BSC
-  TypeAlignmentInBits = 6,
-  #else
   TypeAlignmentInBits = 4,
-  #endif
   TypeAlignment = 1 << TypeAlignmentInBits
 };
 
@@ -141,18 +137,6 @@ class UsingShadowDecl;
 
 using CanQualType = CanQual<Type>;
 
-#if ENABLE_BSC
-struct HeterogeneousRedeclMismatchInfo;
-
-/// Check if two function types are compatible for heterogeneous redeclarations
-/// (one safe, one unsafe). This is distinct from homogeneous redeclarations
-/// (both safe or both unsafe) which use standard type compatibility rules.
-bool areFunctionTypesCompatibleForHeterogeneousRedecl(
-    ASTContext &Ctx, QualType Type1, QualType Type2,
-    SafeZoneSpecifier SZS1, SafeZoneSpecifier SZS2,
-    HeterogeneousRedeclMismatchInfo *MismatchOut);
-#endif
-
 // Provide forward declarations for all of the *Type classes.
 #define TYPE(Class, Base) class Class##Type;
 #include "clang/AST/TypeNodes.inc"
@@ -163,19 +147,102 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
 /// * MS: __unaligned
 /// * Embedded C (TR18037): address spaces
 /// * Objective C: the GC attributes (none, weak, or strong)
+#if ENABLE_BSC
+/// The BSC ownership kind of a pointer type.
+enum BSCPointerKind : unsigned {
+  BPK_None = 0,
+  BPK_Owned,
+  BPK_Borrow,
+};
+
+/// Nullability exactly as written on a pointer type.  Distinct from
+/// NullabilityKind, which folds in the BSC defaults.
+enum BSCWrittenNullability : unsigned {
+  BWN_None = 0,
+  BWN_Nullable,
+  BWN_Nonnull,
+};
+
+/// The complete set of BSC properties a pointer type can carry.  These are
+/// part of the pointer's type identity: `int *` and `int *_Owned` have
+/// different destructor behaviour and must not share a canonical type.
+struct BSCPointerProperties {
+  BSCPointerKind Kind = BPK_None;
+  bool ArrayElem = false;
+  BSCWrittenNullability Nullability = BWN_None;
+
+  bool empty() const {
+    return Kind == BPK_None && !ArrayElem && Nullability == BWN_None;
+  }
+
+  friend bool operator==(const BSCPointerProperties &L,
+                         const BSCPointerProperties &R) {
+    return L.Kind == R.Kind && L.ArrayElem == R.ArrayElem &&
+           L.Nullability == R.Nullability;
+  }
+  friend bool operator!=(const BSCPointerProperties &L,
+                         const BSCPointerProperties &R) {
+    return !(L == R);
+  }
+
+  /// Manual 3.3.1.3: _ArrayElem must match, except that a `_Borrow _ArrayElem`
+  /// source may become plain `_Borrow`.
+  bool arrayElemMatches(BSCPointerProperties Src) const {
+    return ArrayElem == Src.ArrayElem ||
+           (Kind == BPK_Borrow && Src.Kind == BPK_Borrow && !ArrayElem &&
+            Src.ArrayElem);
+  }
+
+  /// Manual 3.8.3: sticky ownership properties must match at the top level.
+  bool stickyMatches(BSCPointerProperties Src,
+                     bool AllowArrayElemDowngrade = false) const {
+    if (Kind != Src.Kind)
+      return false;
+    return AllowArrayElemDowngrade ? arrayElemMatches(Src)
+                                   : ArrayElem == Src.ArrayElem;
+  }
+
+  /// Nullability with the default filled in: safe pointers are nonnull, raw
+  /// pointers nullable.
+  BSCWrittenNullability effectiveNullability() const {
+    if (Nullability != BWN_None)
+      return Nullability;
+    return Kind != BPK_None ? BWN_Nonnull : BWN_Nullable;
+  }
+
+  /// A stable encoding for FoldingSet profiling and serialisation.
+  unsigned toOpaque() const {
+    return unsigned(Kind) | (unsigned(ArrayElem) << 2) |
+           (unsigned(Nullability) << 3);
+  }
+  static BSCPointerProperties fromOpaque(unsigned V) {
+    BSCPointerProperties P;
+    P.Kind = BSCPointerKind(V & 0x3);
+    P.ArrayElem = (V >> 2) & 0x1;
+    P.Nullability = BSCWrittenNullability((V >> 3) & 0x3);
+    return P;
+  }
+};
+
+/// The pointers a containment search follows into their pointee; members and
+/// array elements are always searched.
+enum class BSCLookThrough : unsigned {
+  NoPointer = 0,
+  RawPointers = 1 << 0,
+  OwnedPointers = 1 << 1,
+  BorrowPointers = 1 << 2,
+  AnyPointer = RawPointers | OwnedPointers | BorrowPointers,
+  LLVM_MARK_AS_BITMASK_ENUM(/*LargestValue=*/BorrowPointers)
+};
+#endif
+
 class Qualifiers {
 public:
   enum TQ { // NOTE: These flags must be kept in sync with DeclSpec::TQ.
     Const    = 0x1,
     Restrict = 0x2,
     Volatile = 0x4,
-    #if ENABLE_BSC
-    Owned    = 0x8,
-    Borrow   = 0x10,
-    CVRMask = Const | Volatile | Restrict | Owned | Borrow
-    #else
     CVRMask = Const | Volatile | Restrict
-    #endif
   };
 
   enum GC {
@@ -183,15 +250,6 @@ public:
     Weak,
     Strong
   };
-
-#if ENABLE_BSC
-  // These qualifiers do not fit in the fast qualifier mask.
-  // Layout (see Mask diagram below): ArrayElem, then Nullable/Nonnull,
-  // then ObjC GCAttr/Lifetime, then AddressSpace.
-  static const uint32_t ArrayElem = 0x40;  // bit 6
-  static const uint32_t Nullable = 0x80;   // bit 7
-  static const uint32_t Nonnull = 0x100;   // bit 8
-#endif
 
   enum ObjCLifetime {
     /// There is no lifetime qualification on this type.
@@ -217,19 +275,11 @@ public:
 
   enum {
     /// The maximum supported address space number.
-    /// 21 bits should be enough for anyone.
-    #if ENABLE_BSC
-    MaxAddressSpace = 0x1fffffu,
-    #else
+    /// 23 bits should be enough for anyone.
     MaxAddressSpace = 0x7fffffu,
-    #endif
 
     /// The width of the "fast" qualifier mask.
-    #if ENABLE_BSC
-    FastWidth = 5,
-    #else
     FastWidth = 3,
-    #endif
 
     /// The fast qualifier mask.
     FastMask = (1 << FastWidth) - 1
@@ -270,23 +320,6 @@ public:
       L.removeAddressSpace();
       R.removeAddressSpace();
     }
-#if ENABLE_BSC
-    if (L.hasArrayElem() == R.hasArrayElem() && L.hasArrayElem()) {
-      Q.addArrayElem();
-      L.removeArrayElem();
-      R.removeArrayElem();
-    }
-    if (L.hasNullable() == R.hasNullable() && L.hasNullable()) {
-      Q.addNullable();
-      L.removeNullable();
-      R.removeNullable();
-    }
-    if (L.hasNonnull() == R.hasNonnull() && L.hasNonnull()) {
-      Q.addNonnull();
-      L.removeNonnull();
-      R.removeNonnull();
-    }
-#endif
     return Q;
   }
 
@@ -329,53 +362,6 @@ public:
     Qs.addConst();
     return Qs;
   }
-
-  #if ENABLE_BSC
-  bool hasOwned() const { return Mask & Owned; }
-  bool hasOnlyOwned() const { return Mask == Owned; }
-  void removeOwned() { Mask &= ~Owned; }
-  void addOwned() { Mask |= Owned; }
-  Qualifiers withOwned() const {
-    Qualifiers Qs = *this;
-    Qs.addOwned();
-    return Qs;
-  }
-
-  bool hasBorrow() const { return Mask & Borrow; }
-  bool hasOnlyBorrow() const { return Mask == Borrow; }
-  void removeBorrow() { Mask &= ~Borrow; }
-  void addBorrow() { Mask |= Borrow; }
-  Qualifiers withBorrow() const {
-    Qualifiers Qs = *this;
-    Qs.addBorrow();
-    return Qs;
-  }
-  bool hasArrayElem() const { return Mask & ArrayElem; }
-  bool hasOnlyArrayElem() const { return Mask == ArrayElem; }
-  void removeArrayElem() { Mask &= ~ArrayElem; }
-  void addArrayElem() { Mask |= ArrayElem; }
-  Qualifiers withArrayElem() const {
-    Qualifiers Qs = *this;
-    Qs.addArrayElem();
-    return Qs;
-  }
-  bool hasNullable() const { return Mask & Nullable; }
-  void removeNullable() { Mask &= ~Nullable; }
-  void addNullable() { Mask |= Nullable; }
-  Qualifiers withNullable() const {
-    Qualifiers Qs = *this;
-    Qs.addNullable();
-    return Qs;
-  }
-  bool hasNonnull() const { return Mask & Nonnull; }
-  void removeNonnull() { Mask &= ~Nonnull; }
-  void addNonnull() { Mask |= Nonnull; }
-  Qualifiers withNonnull() const {
-    Qualifiers Qs = *this;
-    Qs.addNonnull();
-    return Qs;
-  }
-  #endif
 
   bool hasVolatile() const { return Mask & Volatile; }
   bool hasOnlyVolatile() const { return Mask == Volatile; }
@@ -553,14 +539,6 @@ public:
       Mask |= Q.Mask;
     else {
       Mask |= (Q.Mask & CVRMask);
-#if ENABLE_BSC
-      if (Q.hasArrayElem())
-        addArrayElem();
-      if (Q.hasNullable())
-        addNullable();
-      if (Q.hasNonnull())
-        addNonnull();
-#endif
       if (Q.hasAddressSpace())
         addAddressSpace(Q.getAddressSpace());
       if (Q.hasObjCGCAttr())
@@ -578,14 +556,6 @@ public:
       Mask &= ~Q.Mask;
     else {
       Mask &= ~(Q.Mask & CVRMask);
-#if ENABLE_BSC
-      if (Q.hasArrayElem())
-        removeArrayElem();
-      if (Q.hasNullable())
-        removeNullable();
-      if (Q.hasNonnull())
-        removeNonnull();
-#endif
       if (getObjCGCAttr() == Q.getObjCGCAttr())
         removeObjCGCAttr();
       if (getObjCLifetime() == Q.getObjCLifetime())
@@ -731,48 +701,19 @@ public:
   }
 
 private:
-  #if ENABLE_BSC
-  // bits:     |0 1 2 3 4|5|6|7 .. 8|9 .. 10|11 .. 13|14 ...   31|
-  //           |C R V O B|U|A|Nl  Nn|GCAttr|Lifetime|AddressSpace|
-  #else
   // bits:     |0 1 2|3|4 .. 5|6  ..  8|9   ...   31|
   //           |C R V|U|GCAttr|Lifetime|AddressSpace|
-  #endif
   uint32_t Mask = 0;
 
-  #if ENABLE_BSC
-  static const uint32_t UMask = 0x20;
-  static const uint32_t UShift = 5;
-  static const uint32_t ArrayElemMask = ArrayElem; // 0x40
-  static const uint32_t ArrayElemShift = 6;
-  static const uint32_t NullableMask = Nullable;   // 0x80
-  static const uint32_t NullableShift = 7;
-  static const uint32_t NonnullMask = Nonnull;     // 0x100
-  static const uint32_t NonnullShift = 8;
-  static const uint32_t GCAttrMask = 0x600;
-  static const uint32_t GCAttrShift = 9;
-  static const uint32_t LifetimeMask = 0x3800;
-  static const uint32_t LifetimeShift = 11;
-  #else
   static const uint32_t UMask = 0x8;
   static const uint32_t UShift = 3;
   static const uint32_t GCAttrMask = 0x30;
   static const uint32_t GCAttrShift = 4;
   static const uint32_t LifetimeMask = 0x1C0;
   static const uint32_t LifetimeShift = 6;
-  #endif
   static const uint32_t AddressSpaceMask =
-  #if ENABLE_BSC
-      ~(CVRMask | UMask | ArrayElemMask | NullableMask | NonnullMask |
-        GCAttrMask | LifetimeMask);
-  #else
       ~(CVRMask | UMask | GCAttrMask | LifetimeMask);
-  #endif
-  #if ENABLE_BSC
-  static const uint32_t AddressSpaceShift = 14;
-  #else
   static const uint32_t AddressSpaceShift = 9;
-  #endif
 };
 
 class QualifiersAndAtomic {
@@ -788,37 +729,16 @@ public:
 
   bool hasVolatile() const { return Quals.hasVolatile(); }
   bool hasConst() const { return Quals.hasConst(); }
-  #if ENABLE_BSC
-  bool hasOwned() const { return Quals.hasOwned(); }
-  bool hasBorrow() const { return Quals.hasBorrow(); }
-  bool hasArrayElem() const { return Quals.hasArrayElem(); }
-  bool hasNullable() const { return Quals.hasNullable(); }
-  bool hasNonnull() const { return Quals.hasNonnull(); }
-  #endif
   bool hasRestrict() const { return Quals.hasRestrict(); }
   bool hasAtomic() const { return HasAtomic; }
 
   void addVolatile() { Quals.addVolatile(); }
   void addConst() { Quals.addConst(); }
-  #if ENABLE_BSC
-  void addOwned() { Quals.addOwned(); }
-  void addBorrow() { Quals.addBorrow(); }
-  void addArrayElem() { Quals.addArrayElem(); }
-  void addNullable() { Quals.addNullable(); }
-  void addNonnull() { Quals.addNonnull(); }
-  #endif
   void addRestrict() { Quals.addRestrict(); }
   void addAtomic() { HasAtomic = true; }
 
   void removeVolatile() { Quals.removeVolatile(); }
   void removeConst() { Quals.removeConst(); }
-  #if ENABLE_BSC
-  void removeOwned() { Quals.removeOwned(); }
-  void removeBorrow() { Quals.removeBorrow(); }
-  void removeArrayElem() { Quals.removeArrayElem(); }
-  void removeNullable() { Quals.removeNullable(); }
-  void removeNonnull() { Quals.removeNonnull(); }
-  #endif
   void removeRestrict() { Quals.removeRestrict(); }
   void removeAtomic() { HasAtomic = false; }
 
@@ -826,13 +746,6 @@ public:
     return {Quals.withVolatile(), HasAtomic};
   }
   QualifiersAndAtomic withConst() { return {Quals.withConst(), HasAtomic}; }
-  #if ENABLE_BSC
-  QualifiersAndAtomic withOwned() { return {Quals.withOwned(), HasAtomic}; }
-  QualifiersAndAtomic withBorrow() { return {Quals.withBorrow(), HasAtomic}; }
-  QualifiersAndAtomic withArrayElem() {
-    return {Quals.withArrayElem(), HasAtomic};
-  }
-  #endif
   QualifiersAndAtomic withRestrict() {
     return {Quals.withRestrict(), HasAtomic};
   }
@@ -912,7 +825,7 @@ class QualType {
 
   // Thankfully, these are efficiently composable.
   llvm::PointerIntPair<llvm::PointerUnion<const Type *, const ExtQuals *>,
-                       Qualifiers::FastWidth> Value; // For BSC, FastWidth = 5
+                       Qualifiers::FastWidth> Value;
 
   const ExtQuals *getExtQualsUnsafe() const {
     return Value.getPointer().get<const ExtQuals*>();
@@ -931,21 +844,8 @@ class QualType {
 
 public:
   QualType() = default;
-#if ENABLE_BSC
-  QualType(const Type *Ptr, unsigned Quals, bool isOwned = false)
-      : Value(Ptr, Quals) {
-    if (isOwned)
-      addFastQualifiers(Qualifiers::Owned);
-  }
-  QualType(const ExtQuals *Ptr, unsigned Quals, bool isOwned = false)
-      : Value(Ptr, Quals) {
-    if (isOwned)
-      addFastQualifiers(Qualifiers::Owned);
-  }
-#else
   QualType(const Type *Ptr, unsigned Quals) : Value(Ptr, Quals) {}
   QualType(const ExtQuals *Ptr, unsigned Quals) : Value(Ptr, Quals) {}
-#endif
 
   unsigned getLocalFastQualifiers() const { return Value.getInt(); }
   void setLocalFastQualifiers(unsigned Quals) { Value.setInt(Quals); }
@@ -1000,52 +900,47 @@ public:
   bool isConstQualified() const;
 
   #if ENABLE_BSC
-  /// Determine whether this particular QualType instance has the
-  /// "owned" qualifier set, without looking through typedefs that may have
-  /// added "owned" at a different level.
-  bool isLocalOwnedQualified() const {
-    return (getLocalFastQualifiers() & Qualifiers::Owned);
-  }
+  /// The BSC properties at this level: those of a pointer type, or of a
+  /// BSCQualifiedType still waiting for one.  Nothing else carries any; in
+  /// particular an array does not, see the *Qualified predicates.
+  BSCPointerProperties getBSCPointerProperties() const;
 
-  /// Determine whether this type is owned-qualified.
+  /// The BSC properties of this type read as a qualifier: an array is
+  /// qualified by its element type (C 6.7.3p9), so array levels are looked
+  /// through.  Backs the *Qualified predicates.
+  BSCPointerProperties getBSCElementProperties() const;
+
+  /// This level (the type is such a pointer):
+  /// Manual 3.1: an `_Owned` pointer.
+  bool isOwnedPointer() const;
+  /// Manual 3.2: a `_Borrow` pointer.
+  bool isBorrowPointer() const;
+  /// A pointer with no BSC kind: neither `_Owned` nor `_Borrow`.
+  bool isRawPointer() const;
+
+  /// As a qualifier (the type is such a pointer, or an array of them):
   bool isOwnedQualified() const;
-
-  /// Determine whether this particular QualType instance has the
-  /// "borrow" qualifier set, without looking through typedefs that may have
-  /// added "borrow" at a different level.
-  bool isLocalBorrowQualified() const {
-    return (getLocalFastQualifiers() & Qualifiers::Borrow);
-  }
-
-  /// Determine whether this type is borrow-qualified.
   bool isBorrowQualified() const;
-
-  /// Determine whether this particular QualType instance has the
-  /// "arrayelem" qualifier set, without looking through typedefs that may have
-  /// added it at a different level.
-  bool isLocalArrayElemQualified() const;
-
-  /// Determine whether this type is arrayelem-qualified.
   bool isArrayElemQualified() const;
 
-  /// Determine whether this particular QualType instance has the
-  /// "nullable" BSC qualifier set, without looking through typedefs.
-  bool isLocalNullableQualified() const;
+  /// Either carrier, manual 3.1.4: an `_Owned` pointer or an `_Owned struct`.
+  bool isOwnedPointerOrOwnedStruct() const;
 
-  /// Determine whether this type is nullable-qualified.
-  bool isNullableQualified() const;
-
-  /// Determine whether this particular QualType instance has the
-  /// "nonnull" BSC qualifier set, without looking through typedefs.
-  bool isLocalNonnullQualified() const;
-
-  /// Determine whether this type is nonnull-qualified.
-  bool isNonnullQualified() const;
+  /// Such a value itself, or one that contains such a pointer
+  /// (Type::containsOwned / containsBorrow).  With NoPointer, the owned form
+  /// is the manual's move-semantic type: a value of this type moves rather
+  /// than copies.
+  bool isOrContainsBSC(BSCPointerKind Kind, BSCLookThrough LookThrough) const;
+  bool isOrContainsOwned(BSCLookThrough LookThrough) const;
+  bool isOrContainsBorrow(BSCLookThrough LookThrough) const;
 
   /// Explicit nullability only (qualifier bits).
   /// Does not apply owned→nonnull / raw→nullable defaults. Returns None when
   /// unspecified.
   Optional<NullabilityKind> getExplicitNullability() const;
+
+  /// Determine whether this is `const T *_Borrow`.
+  bool isConstBorrow() const;
 
   /// Effective nullability of a BSC pointer type.
   /// If the type carries an explicit _Nonnull or _Nullable annotation, returns
@@ -1154,29 +1049,6 @@ public:
     return withFastQualifiers(Qualifiers::Const);
   }
 
-  #if ENABLE_BSC
-  /// Add the `owned` type qualifier to this QualType.
-  void addOwned() {
-    addFastQualifiers(Qualifiers::Owned);
-  }
-  QualType withOwned() const {
-    return withFastQualifiers(Qualifiers::Owned);
-  }
-
-  /// Add the `borrow` type qualifier to this QualType.
-  void addBorrow() {
-    addFastQualifiers(Qualifiers::Borrow);
-  }
-  QualType withBorrow() const {
-    return withFastQualifiers(Qualifiers::Borrow);
-  }
-  bool isConstBorrow() const;
-  bool isConstPointee() const;
-  QualType addConstBorrow(const ASTContext &Context);
-  bool hasOwned() const;
-  bool hasBorrow() const;
-  #endif
-
   /// Add the `volatile` type qualifier to this QualType.
   void addVolatile() {
     addFastQualifiers(Qualifiers::Volatile);
@@ -1204,18 +1076,6 @@ public:
   }
 
   void removeLocalConst();
-  #if ENABLE_BSC
-  void removeLocalOwned();
-  void removeLocalBorrow();
-  void removeLocalArrayElem(ASTContext &Ctx);
-  void removeLocalNullable(ASTContext &Ctx);
-  void removeLocalNonnull(ASTContext &Ctx);
-  /// Remove both local _Nullable and _Nonnull qualifier bits.
-  void removeLocalNullability(ASTContext &Ctx) {
-    removeLocalNullable(Ctx);
-    removeLocalNonnull(Ctx);
-  }
-  #endif
   void removeLocalVolatile();
   void removeLocalRestrict();
   void removeLocalCVRQualifiers(unsigned Mask);
@@ -1278,37 +1138,6 @@ public:
   /// getAtomicUnqualifiedType() to strip qualifiers including _Atomic.
   inline QualType getUnqualifiedType() const;
 
-  #if ENABLE_BSC
-  /// Drop CVR (and other non-BSC) qualifiers, keeping BSC semantic qualifiers:
-  /// _Owned, _Borrow, _ArrayElem, _Nullable, and _Nonnull.
-  ///
-  /// ## getOnlyBSCQualifiedType vs getUnqualifiedType in BSC
-  ///
-  /// \c getUnqualifiedType() in BSC also tries to preserve _Owned/_Borrow, and
-  /// — when the type already carries _ArrayElem/_Nullable/_Nonnull — takes an
-  /// early path that only strips local CVR so those ExtQuals are not lost.
-  /// That early path is path-dependent (behavior changes depending on whether
-  /// any of those ExtQuals are present) and may also retain unrelated ExtQuals
-  /// such as address spaces. It exists to avoid changing \c getUnqualifiedType's
-  /// signature (no \c ASTContext) at every call site for LLVM merge friendliness.
-  ///
-  /// \c getOnlyBSCQualifiedType() is the intentional BSC API: it always rebuilds
-  /// a whitelist of BSC semantic qualifiers via \p Context, so Owned/Borrow/
-  /// ArrayElem/nullability are kept consistently and CVR is dropped.
-  ///
-  /// ## When to use which
-  /// - Use \c getOnlyBSCQualifiedType when the result should remain a BSC
-  ///   value/parameter type (lvalue conversion, parameter entities, or any
-  ///   path that must keep ownership / array-elem / nullability).
-  /// - Use \c getOnlyBSCQualifiedTypeWithoutNullability (TypeBSC.h) when
-  ///   comparing pointer kinds (SafeZone / Ownership): keep
-  ///   Owned/Borrow/ArrayElem but drop nullability (checked separately by the
-  ///   nullability analysis).
-  /// - Prefer \c getUnqualifiedType for ordinary C “ignore CVR / sugar” uses
-  ///   (arithmetic, diagnostics, trait map keys, etc.), especially in shared
-  ///   non-BSC code paths, to minimize upstream merge conflicts.
-  QualType getOnlyBSCQualifiedType(const ASTContext &Context) const;
-  #endif
 
   /// Retrieve the unqualified variant of the given type, removing as little
   /// sugar as possible.
@@ -1671,6 +1500,7 @@ public:
   QualType getAtomicUnqualifiedType() const;
 
 private:
+
   // These methods are implemented in a separate translation unit;
   // "static"-ize them to avoid creating temporary QualTypes in the
   // caller.
@@ -1690,23 +1520,6 @@ private:
 };
 
 raw_ostream &operator<<(raw_ostream &OS, QualType QT);
-
-#if ENABLE_BSC
-struct HeterogeneousRedeclMismatchInfo {
-  enum class Kind {
-    ReturnType,
-    Parameter,
-    ParamCount,
-    Variadic,
-    Other,
-  };
-  Kind MismatchKind = Kind::Other;
-  // 1-based when MismatchKind == Parameter; 0 otherwise.
-  unsigned ParamIndex = 0;
-  QualType Type1;
-  QualType Type2;
-};
-#endif
 
 } // namespace clang
 
@@ -1953,6 +1766,19 @@ protected:
     /// Actually an ArrayType::ArraySizeModifier.
     unsigned SizeModifier : 3;
   };
+
+#if ENABLE_BSC
+  /// BSC pointer properties, part of the carrying node's type identity.
+  class BSCPropertyBitfields {
+    friend class PointerType;
+    friend class BSCQualifiedType;
+
+    unsigned : NumTypeBits;
+
+    /// BSCPointerProperties::toOpaque().
+    unsigned Properties : 5;
+  };
+#endif
 
   class ConstantArrayTypeBitfields {
     friend class ConstantArrayType;
@@ -2201,6 +2027,9 @@ protected:
   union {
     TypeBitfields TypeBits;
     ArrayTypeBitfields ArrayTypeBits;
+#if ENABLE_BSC
+    BSCPropertyBitfields BSCPropertyBits;
+#endif
     ConstantArrayTypeBitfields ConstantArrayTypeBits;
     AttributedTypeBitfields AttributedTypeBits;
     AutoTypeBitfields AutoTypeBits;
@@ -2216,10 +2045,6 @@ protected:
     DependentTemplateSpecializationTypeBitfields
       DependentTemplateSpecializationTypeBits;
     PackExpansionTypeBitfields PackExpansionTypeBits;
-    // Add some debug code. Bellow will fail now.
-    // static_assert(sizeof(FunctionTypeBitfields) <= 8,
-    //               "FunctionTypeBitfields is larger than 8 bytes!");
-    // TODO: Investigate if its worth it to break above static_assert.
   };
 
 private:
@@ -2236,9 +2061,7 @@ protected:
   Type(TypeClass tc, QualType canon, TypeDependence Dependence)
       : ExtQualsTypeCommonBase(this,
                                canon.isNull() ? QualType(this_(), 0) : canon) {
-    // Add owned, borrow, sizeof(FunctionTypeBitfields) > 8 now.
-    // sizeof(Type) is larger too.
-    static_assert(sizeof(*this) <= 16 + sizeof(ExtQualsTypeCommonBase),
+    static_assert(sizeof(*this) <= 8 + sizeof(ExtQualsTypeCommonBase),
                   "changing bitfields changed sizeof(Type)!");
     static_assert(alignof(decltype(*this)) % sizeof(void *) == 0,
                   "Insufficient alignment!");
@@ -2368,14 +2191,6 @@ public:
   /// Returns true if the type is a builtin type.
   bool isBuiltinType() const;
 
-  #if ENABLE_BSC
-  bool hasOwnedFields() const;
-
-  bool hasBorrowFields() const;
-
-  bool withBorrowFields() const;
-  #endif
-
   /// Test for a particular builtin type.
   bool isSpecificBuiltinType(unsigned K) const;
 
@@ -2467,9 +2282,18 @@ public:
   bool hasTraitType() const;
   bool isBSCCalculatedTypeInCompileTime() const;
   bool checkFunctionProtoType(SafeZoneSpecifier SZS) const;
-  bool isOwnedStructureType() const;
-  bool isOwnedTemplateSpecializationType() const;
-  bool isMoveSemanticType() const;
+  /// Manual 3.5: an `_Owned struct`, plain or a generic instantiation.
+  bool isOwnedStruct() const;
+  /// Manual 3.1: does a value of this type hold a \p Kind pointer, looking as
+  /// far as \p LookThrough?  Members and array elements are always searched;
+  /// an owned struct counts when held by value, never when merely pointed to.
+  bool containsBSC(BSCPointerKind Kind, BSCLookThrough LookThrough) const;
+  bool containsOwned(BSCLookThrough LookThrough) const {
+    return containsBSC(BPK_Owned, LookThrough);
+  }
+  bool containsBorrow(BSCLookThrough LookThrough) const {
+    return containsBSC(BPK_Borrow, LookThrough);
+  }
   bool isTrivialDataType() const;
   #endif
   bool isClassType() const;
@@ -3087,9 +2911,18 @@ class PointerType : public Type, public llvm::FoldingSetNode {
 
   QualType PointeeType;
 
+#if ENABLE_BSC
+  PointerType(QualType Pointee, QualType CanonicalPtr,
+              BSCPointerProperties P = BSCPointerProperties())
+      : Type(Pointer, CanonicalPtr, Pointee->getDependence()),
+        PointeeType(Pointee) {
+    BSCPropertyBits.Properties = P.toOpaque();
+  }
+#else
   PointerType(QualType Pointee, QualType CanonicalPtr)
       : Type(Pointer, CanonicalPtr, Pointee->getDependence()),
         PointeeType(Pointee) {}
+#endif
 
 public:
   QualType getPointeeType() const { return PointeeType; }
@@ -3097,6 +2930,22 @@ public:
   bool isSugared() const { return false; }
   QualType desugar() const { return QualType(this, 0); }
 
+#if ENABLE_BSC
+  BSCPointerProperties getBSCProperties() const {
+    return BSCPointerProperties::fromOpaque(BSCPropertyBits.Properties);
+  }
+  bool hasBSCProperties() const { return !getBSCProperties().empty(); }
+
+  void Profile(llvm::FoldingSetNodeID &ID) {
+    Profile(ID, getPointeeType(), getBSCProperties());
+  }
+
+  static void Profile(llvm::FoldingSetNodeID &ID, QualType Pointee,
+                      BSCPointerProperties P = BSCPointerProperties()) {
+    ID.AddPointer(Pointee.getAsOpaquePtr());
+    ID.AddInteger(P.toOpaque());
+  }
+#else
   void Profile(llvm::FoldingSetNodeID &ID) {
     Profile(ID, getPointeeType());
   }
@@ -3104,13 +2953,9 @@ public:
   static void Profile(llvm::FoldingSetNodeID &ID, QualType Pointee) {
     ID.AddPointer(Pointee.getAsOpaquePtr());
   }
+#endif
 
   static bool classof(const Type *T) { return T->getTypeClass() == Pointer; }
-  #if ENABLE_BSC
-  bool hasOwnedFields() const;
-
-  bool hasBorrowFields() const;
-  #endif
 };
 
 /// Represents a type which was implicitly adjusted by the semantic
@@ -3594,6 +3439,61 @@ public:
 ///   typedef T __attribute__((address_space(AddrSpace))) type;
 /// }
 /// \endcode
+#if ENABLE_BSC
+/// BSC properties written on a type that cannot carry them itself: sugar
+/// over a pointer (`IP _Owned` for `typedef int *IP`), sugar over an array
+/// whose element is the carrier, or a dependent type (`_Owned T`).
+///
+/// Over a concrete type the node is sugar.  It keeps the written spelling
+/// and desugars to the underlying type rebuilt with the properties at its
+/// pointer level, which is also its canonical type, so the read path
+/// (QualType::getBSCPointerProperties) never sees it.  Over a dependent type
+/// with no pointer level yet the node is canonical and is resolved at
+/// substitution: sugar once resolved, opaque until then, like DecltypeType.
+class BSCQualifiedType : public Type, public llvm::FoldingSetNode {
+  friend class ASTContext;
+
+  QualType UnderlyingType;
+
+  /// UnderlyingType with the properties applied at its pointer level; null
+  /// while the underlying type is dependent and has no such level.
+  QualType ResolvedType;
+
+  BSCQualifiedType(QualType Underlying, BSCPointerProperties P,
+                   QualType Resolved, QualType Canonical)
+      : Type(BSCQualified, Canonical, Underlying->getDependence()),
+        UnderlyingType(Underlying), ResolvedType(Resolved) {
+    BSCPropertyBits.Properties = P.toOpaque();
+  }
+
+public:
+  QualType getUnderlyingType() const { return UnderlyingType; }
+
+  BSCPointerProperties getBSCProperties() const {
+    return BSCPointerProperties::fromOpaque(BSCPropertyBits.Properties);
+  }
+
+  bool isSugared() const { return !ResolvedType.isNull(); }
+  QualType desugar() const {
+    return isSugared() ? ResolvedType : QualType(this, 0);
+  }
+
+  void Profile(llvm::FoldingSetNodeID &ID) {
+    Profile(ID, getUnderlyingType(), getBSCProperties());
+  }
+
+  static void Profile(llvm::FoldingSetNodeID &ID, QualType Underlying,
+                      BSCPointerProperties P) {
+    ID.AddPointer(Underlying.getAsOpaquePtr());
+    ID.AddInteger(P.toOpaque());
+  }
+
+  static bool classof(const Type *T) {
+    return T->getTypeClass() == BSCQualified;
+  }
+};
+#endif
+
 class DependentAddressSpaceType : public Type, public llvm::FoldingSetNode {
   friend class ASTContext;
 
@@ -4336,18 +4236,10 @@ public:
   ExtInfo getExtInfo() const { return ExtInfo(FunctionTypeBits.ExtInfo); }
 
   static_assert((~Qualifiers::FastMask & Qualifiers::CVRMask) == 0,
-              #if ENABLE_BSC
-                "Const, volatile, restrict, owned and borrow are assumed to be a subset of "
-              #else
                 "Const, volatile and restrict are assumed to be a subset of "
-              #endif
                 "the fast qualifiers.");
 
   bool isConst() const { return getFastTypeQuals().hasConst(); }
-  #if ENABLE_BSC
-  bool isOwned() const { return getFastTypeQuals().hasOwned(); }
-  bool isBorrow() const { return getFastTypeQuals().hasBorrow(); }
-  #endif
   bool isVolatile() const { return getFastTypeQuals().hasVolatile(); }
   bool isRestrict() const { return getFastTypeQuals().hasRestrict(); }
 
@@ -4671,13 +4563,6 @@ public:
   /// Return whether this function has an instantiation-dependent exception
   /// spec.
   bool hasInstantiationDependentExceptionSpec() const;
-
-  #if ENABLE_BSC
-  // return true if any 'owned' here
-  bool hasOwnedRetOrParams() const;
-  // return true if any 'borrow' here
-  bool hasBorrowRetOrParams() const;
-  #endif
 
   /// Return all the available information about this type's exception spec.
   ExceptionSpecInfo getExceptionSpecInfo() const {
@@ -5196,14 +5081,6 @@ public:
   bool hasConstFields() const;
 
 #if ENABLE_BSC
-  bool hasOwnedFields() const;
-
-  bool hasBorrowFields() const;
-
-  /// Recursively check all fields in the record for borrow-ness. If any field
-  /// is declared borrow, return true. Otherwise, return false.
-  bool withBorrowFields() const;
-
   /// Recursively check the record's fields (through embedded struct and array
   /// fields, but NOT through pointer pointees, which live in separate
   /// allocations) for a pointer field with _Nonnull / _Nullable nullability.
@@ -7234,42 +7111,68 @@ inline bool QualType::isConstQualified() const {
 }
 
 #if ENABLE_BSC
+/// The BSC properties of \p T when it is (or desugars to) a pointer type.
+/// Concrete pointers carry their properties in the PointerType node itself;
+/// this is the single read path for them.
+inline BSCPointerProperties QualType::getBSCPointerProperties() const {
+  if (isNull())
+    return BSCPointerProperties();
+  const Type *T = getCommonPtr()->CanonicalType.getTypePtr();
+  if (const auto *PT = dyn_cast<PointerType>(T))
+    return PT->getBSCProperties();
+  if (const auto *BQ = dyn_cast<BSCQualifiedType>(T))
+    return BQ->getBSCProperties();
+  return BSCPointerProperties();
+}
+
+inline BSCPointerProperties QualType::getBSCElementProperties() const {
+  if (isNull())
+    return BSCPointerProperties();
+  QualType T = getCommonPtr()->CanonicalType;
+  while (const auto *AT = dyn_cast<ArrayType>(T.getTypePtr()))
+    T = AT->getElementType();
+  return T.getBSCPointerProperties();
+}
+
+inline bool QualType::isOwnedPointer() const {
+  return getTypePtr()->isPointerType() &&
+         getBSCPointerProperties().Kind == BPK_Owned;
+}
+
+inline bool QualType::isOwnedPointerOrOwnedStruct() const {
+  if (isOwnedPointer())
+    return true;
+  // An owned struct's ownership lives in its declaration; only record-shaped
+  // types can carry it, so skip the desugaring probe otherwise.
+  const Type *T = getTypePtrOrNull();
+  if (!T)
+    return false;
+  const Type *Canon = T->getCanonicalTypeInternal().getTypePtr();
+  if (!isa<RecordType>(Canon) && !Canon->isDependentType())
+    return false;
+  return T->isOwnedStruct();
+}
+
+inline bool QualType::isBorrowPointer() const {
+  return getTypePtr()->isPointerType() &&
+         getBSCPointerProperties().Kind == BPK_Borrow;
+}
+inline bool QualType::isRawPointer() const {
+  return getTypePtr()->isPointerType() &&
+         getBSCPointerProperties().Kind == BPK_None;
+}
+
 inline bool QualType::isOwnedQualified() const {
-  return isLocalOwnedQualified() ||
-         getCommonPtr()->CanonicalType.isLocalOwnedQualified();
+  return getBSCElementProperties().Kind == BPK_Owned;
 }
-
 inline bool QualType::isBorrowQualified() const {
-  return isLocalBorrowQualified() ||
-         getCommonPtr()->CanonicalType.isLocalBorrowQualified();
-}
-
-inline bool QualType::isLocalArrayElemQualified() const {
-  return getLocalQualifiers().hasArrayElem();
-}
-
-inline bool QualType::isLocalNullableQualified() const {
-  return getLocalQualifiers().hasNullable();
-}
-
-inline bool QualType::isLocalNonnullQualified() const {
-  return getLocalQualifiers().hasNonnull();
+  return getBSCElementProperties().Kind == BPK_Borrow;
 }
 
 inline bool QualType::isArrayElemQualified() const {
-  return isLocalArrayElemQualified() ||
-         getCommonPtr()->CanonicalType.isLocalArrayElemQualified();
+  return getBSCElementProperties().ArrayElem;
 }
 
-inline bool QualType::isNullableQualified() const {
-  return isLocalNullableQualified() ||
-         getCommonPtr()->CanonicalType.isLocalNullableQualified();
-}
-
-inline bool QualType::isNonnullQualified() const {
-  return isLocalNonnullQualified() ||
-         getCommonPtr()->CanonicalType.isLocalNonnullQualified();
-}
 #endif
 
 inline bool QualType::isRestrictQualified() const {
@@ -7289,28 +7192,10 @@ inline bool QualType::hasQualifiers() const {
 }
 
 inline QualType QualType::getUnqualifiedType() const {
-#if ENABLE_BSC
-  int addOwned = getCanonicalType().isOwnedQualified() ? Qualifiers::Owned : 0;
-  int addBorrow =
-      getCanonicalType().isBorrowQualified() ? Qualifiers::Borrow : 0;
-  // Preserve non-fast qualifiers (ArrayElem, Nullable, Nonnull) by
-  // bypassing getSplitUnqualifiedTypeImpl, which strips ExtQuals sugar.
-  if (isArrayElemQualified() || isNullableQualified() || isNonnullQualified()) {
-    QualType T = *this;
-    T.removeLocalFastQualifiers(Qualifiers::Const | Qualifiers::Restrict |
-                                Qualifiers::Volatile);
-    return T;
-  }
-  if (!getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers())
-    return QualType(getTypePtr(), addOwned | addBorrow);
-
-  return QualType(getSplitUnqualifiedTypeImpl(*this).Ty, addOwned | addBorrow);
-#else
   if (!getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers())
     return QualType(getTypePtr(), 0);
 
   return QualType(getSplitUnqualifiedTypeImpl(*this).Ty, 0);
-#endif
 }
 
 inline SplitQualType QualType::getSplitUnqualifiedType() const {
@@ -7323,17 +7208,6 @@ inline SplitQualType QualType::getSplitUnqualifiedType() const {
 inline void QualType::removeLocalConst() {
   removeLocalFastQualifiers(Qualifiers::Const);
 }
-
-#if ENABLE_BSC
-inline void QualType::removeLocalOwned() {
-  if (!this->getCanonicalType()->isOwnedStructureType())
-    removeLocalFastQualifiers(Qualifiers::Owned);
-}
-
-inline void QualType::removeLocalBorrow() {
-  removeLocalFastQualifiers(Qualifiers::Borrow);
-}
-#endif
 
 inline void QualType::removeLocalRestrict() {
   removeLocalFastQualifiers(Qualifiers::Restrict);

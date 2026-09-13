@@ -55,7 +55,7 @@ void direct_local_cases(void) {
   (void)const_borrow_from_addrconst;
 
   int (*const _Borrow illegal_const_borrow_from_addrconst)(void) = &_Const plain; // expected-error {{'&_Const' cannot be applied to a function pointer}}
-  // expected-error@-1 {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
+  // expected-error@-1 {{type of 'int (*const)(void)' cannot be qualified by '_Borrow'}}
   (void)illegal_const_borrow_from_addrconst;
 
   int (*from_addrmut)(void) = &_Mut plain;

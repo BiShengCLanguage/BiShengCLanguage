@@ -23,7 +23,7 @@ public:
 
   bool VisitMemberExpr(const MemberExpr *ME) {
     if (auto DRE = dyn_cast_or_null<DeclRefExpr>(ME->getBase())) {
-      bool isOwned = DRE->getType().getCanonicalType()->isOwnedStructureType();
+      bool isOwned = DRE->getType()->isOwnedStruct();
       if (isOwned) {
         SemaRef.Diag(DRE->getBeginLoc(), diag::err_owned_member_access_in_return)
             << DRE->getNameInfo().getAsString();

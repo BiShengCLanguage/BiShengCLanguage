@@ -15,9 +15,9 @@ int test() {
   int a = 1;
   float b = 1.0;
   int * p2 = &a;
-  int *_Borrow  p3 = &_Mut a; // expected-note 2 {{pointer 'p3' declared here}}
+  int *_Borrow  p3 = &_Mut a; // expected-note 4 {{pointer 'p3' declared here}}
   int *_Borrow  p4 = &_Mut a;
-  const int *_Borrow p5 = &_Const a; // expected-note 2 {{pointer 'p5' declared here}}
+  const int *_Borrow p5 = &_Const a; // expected-note 3 {{pointer 'p5' declared here}}
   const int *_Borrow p6 = &_Const a;
   float *_Borrow p7 = &_Mut b;
   if (p3 == p4) {} // legal
@@ -32,7 +32,7 @@ int test() {
 
   int (* _Borrow p8)() = &_Mut f; // expected-error {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
                                   // expected-error@-1 {{'&_Mut' cannot be applied to a function}}
-  int (* const _Borrow p9)() = &_Const f; // expected-error {{type of 'int (*)(void)' cannot be qualified by '_Borrow'}}
+  int (* const _Borrow p9)() = &_Const f; // expected-error {{type of 'int (*const)(void)' cannot be qualified by '_Borrow'}}
                                   // expected-error@-1 {{'&_Const' cannot be applied to a function pointer}}
   a = p9();
 
@@ -75,8 +75,8 @@ int test() {
 
   // binary - +
   a = *p3 + *p5;
-  p3 + p5; // expected-error {{invalid operands to binary expression ('int *_Borrow' and 'const int *_Borrow')}}
-  p3 = p3 + 1; // expected-error {{invalid operands to binary expression ('int *_Borrow' and 'int')}}
-  p5 = p5 - 1; // expected-error {{nvalid operands to binary expression ('const int *_Borrow' and 'int')}}
+  p3 + p5; // expected-error {{'+' is not supported on 'int *_Borrow'}} expected-note {{declare 'p3' as a raw pointer for pointer arithmetic}}
+  p3 = p3 + 1; // expected-error {{'+' is not supported on 'int *_Borrow'}} expected-note {{declare 'p3' as a raw pointer for pointer arithmetic}}
+  p5 = p5 - 1; // expected-error {{'-' is not supported on 'const int *_Borrow'}} expected-note {{declare 'p5' as a raw pointer for pointer arithmetic}}
   return 0;
 }

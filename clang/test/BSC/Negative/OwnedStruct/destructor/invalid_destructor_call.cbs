@@ -14,7 +14,7 @@ _Owned struct B {
 
 int main() {
    A a = {3};
-   a.~A(); // expected-error {{'~A' is a private member of 'struct A'}}
+   a.~A(); // expected-error {{'~A' is a private member of '_Owned struct A'}}
    B b = {3};
    B::~B(); // expected-error {{expected identifier}}
   return 0;

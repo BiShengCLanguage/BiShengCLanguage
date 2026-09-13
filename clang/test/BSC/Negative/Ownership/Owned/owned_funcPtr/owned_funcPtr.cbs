@@ -30,7 +30,7 @@ void test2() {
 // case3: inner _Owned check
 void test3() {
     FTP ftp1 = myadd;
-    FTP ftp2 = myadd2;  //expected-error {{cannot cast '_Owned int (int *, int *)' to 'FTP' (aka 'int (*)(int *, int *)')}}
+    FTP ftp2 = myadd2;
     FTPO ftpo1 = ftp1;  //expected-error {{cannot cast 'FTP' (aka 'int (*)(int *, int *)') to 'FTPO' (aka 'int (*)(int *_Owned, int *)')}}
     FTPO ftpo2 = (FTPO)ftp1;
 }

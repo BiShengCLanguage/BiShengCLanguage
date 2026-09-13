@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Variable redeclarations must agree on defaulted nullability (manual 3.4.2).
+
+typedef int *_Nonnull NPTy;
+
+// Tentative definitions.
+NPTy p1; // expected-note {{previous definition is here}}
+int *p1; // expected-error {{redefinition of 'p1' with a different type: 'int *' vs 'NPTy' (aka 'int *_Nonnull')}}
+
+// Extern declarations.
+extern NPTy p2; // expected-note {{previous declaration is here}}
+extern int *p2; // expected-error {{redeclaration of 'p2' with a different type: 'int *' vs 'NPTy' (aka 'int *_Nonnull')}}
+
+// Both sides written explicitly.
+extern int *_Nonnull p3;  // expected-note {{previous declaration is here}}
+extern int *_Nullable p3; // expected-error {{redeclaration of 'p3' with a different type: 'int *_Nullable' vs 'int *_Nonnull'}}
+
+// Nullability nested under an outer pointer.
+extern int *_Nonnull *p4; // expected-note {{previous declaration is here}}
+extern int **p4;          // expected-error {{redeclaration of 'p4' with a different type: 'int **' vs 'int *_Nonnull *'}}
+
+// A _Nullable typedef against an unwritten raw pointer agrees, so no
+// diagnostic here; see Positive/NullabilityCheck/typedef_nullability_redecl.cbs.
+typedef int *_Nullable NBTy;
+extern NBTy ok1;
+extern int *ok1;
+
+// An identical redeclaration keeps the property, so a later conflict is
+// still caught.
+extern int *_Nonnull p5;
+extern int *_Nonnull p5; // expected-note {{previous declaration is here}}
+extern int *p5;          // expected-error {{redeclaration of 'p5' with a different type: 'int *' vs 'int *_Nonnull'}}

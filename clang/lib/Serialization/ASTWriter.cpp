@@ -345,6 +345,13 @@ void TypeLocWriter::VisitDependentSizedArrayTypeLoc(
   VisitArrayTypeLoc(TL);
 }
 
+#if ENABLE_BSC
+void TypeLocWriter::VisitBSCQualifiedTypeLoc(
+    BSCQualifiedTypeLoc TL) {
+  addSourceLocation(TL.getKeywordLoc());
+}
+#endif
+
 void TypeLocWriter::VisitDependentAddressSpaceTypeLoc(
     DependentAddressSpaceTypeLoc TL) {
   addSourceLocation(TL.getAttrNameLoc());

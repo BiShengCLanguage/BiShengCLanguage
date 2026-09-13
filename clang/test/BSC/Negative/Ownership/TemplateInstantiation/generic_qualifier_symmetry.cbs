@@ -1,0 +1,9 @@
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
+
+// A qualifier written on a type parameter is rejected where the rule forbids
+// it, for _Owned exactly as for _Borrow, at the pattern.
+union UO<T> { _Owned T p; };  // expected-error {{type of union field cannot be qualified by '_Owned'}}
+union UB<T> { _Borrow T p; }; // expected-error {{type of union field cannot be qualified by '_Borrow'}}
+
+void f<T>(void) { static _Owned T x; }  // expected-error {{type of static local variable cannot be qualified by '_Owned'}}
+void g<T>(void) { static _Borrow T y; } // expected-error {{type of static local variable cannot be qualified by '_Borrow'}}

@@ -7,8 +7,8 @@ void test1(int* _Owned p, int _Owned a, int* p2) { // expected-error {{type of '
     func1(p);   // expected-error {{the _Owned value of 'func1(p)' is discarded and would leak}}
     *func1(p);  // expected-error {{the _Owned value of 'func1(p)' is discarded and would leak}}
     int res1 = *func1(p);   // expected-error {{the _Owned value of 'func1(p)' is discarded and would leak}}
-    func2(a);   // expected-error {{the _Owned value of 'func2(a)' is discarded and would leak}}
-    *func2(a);  // expected-error {{indirection requires pointer operand ('_Owned int' invalid)}}
+    func2(a);
+    *func2(a);  // expected-error {{indirection requires pointer operand ('int' invalid)}}
     func3(p2);
     *func3(p2); // expected-warning {{expression result unused}}
     int res2 = *func3(p2);

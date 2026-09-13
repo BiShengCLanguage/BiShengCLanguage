@@ -2918,16 +2918,16 @@ void CastOperation::CheckCStyleCast() {
       return;
     }
     // bsc owned type CStyleCast
-    if (SrcExpr.get()->getType().getCanonicalType().isOwnedQualified() ||
-       DestType.getCanonicalType().isOwnedQualified()) {
+    if (SrcExpr.get()->getType().isOwnedPointerOrOwnedStruct() ||
+        DestType.isOwnedPointerOrOwnedStruct()) {
       if (!Self.CheckOwnedQualTypeCStyleCast(DestType, SrcExpr.get()->getType(), SrcExpr.get()->getExprLoc())) {
         SrcExpr = ExprError();
         return;
       }
     }
     // bsc borrow type CStyleCast
-    if (SrcExpr.get()->getType().getCanonicalType().isBorrowQualified() ||
-        DestType.getCanonicalType().isBorrowQualified()) {
+    if (SrcExpr.get()->getType().isBorrowQualified() ||
+        DestType.isBorrowQualified()) {
       if (!Self.CheckBorrowQualTypeCStyleCast(DestType,
                                               SrcExpr.get()->getType(),
                                               SrcExpr.get()->getExprLoc())) {
@@ -2939,7 +2939,7 @@ void CastOperation::CheckCStyleCast() {
       auto hasOwnedInPtrChain = [](const PointerType *PT) -> bool {
         QualType Pointee = PT->getPointeeType();
         while (true) {
-          if (Pointee.isOwnedQualified())
+          if (Pointee.isOwnedPointerOrOwnedStruct())
             return true;
           if (const auto *InnerPT = Pointee->getAs<PointerType>()) {
             Pointee = InnerPT->getPointeeType();

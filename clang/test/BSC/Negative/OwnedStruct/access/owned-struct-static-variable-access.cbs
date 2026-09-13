@@ -2,5 +2,5 @@
 
 _Owned struct A {};
 
-int A::a = 2; // expected-error {{no member named 'a' in 'struct A'}}
+int A::a = 2; // expected-error {{no member named 'a' in '_Owned struct A'}}
 

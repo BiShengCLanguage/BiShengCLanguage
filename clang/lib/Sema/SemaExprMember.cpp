@@ -1251,8 +1251,7 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   // Check access if base is owned structure type and instance member is
   // private.
   if (getLangOpts().BSC &&
-      (BaseType->isOwnedStructureType() ||
-       BaseType->isOwnedTemplateSpecializationType()) &&
+      BaseType->isOwnedStruct() &&
       MemberDecl->getAccess() == AS_private) {
     if (getCurFunctionDecl() && getCurFunctionDecl()->getParent() &&
         isa<RecordDecl>(getCurFunctionDecl()->getParent())) {
@@ -2131,13 +2130,6 @@ Sema::BuildFieldReferenceExpr(Expr *BaseExpr, bool IsArrow,
 
     assert(!MemberQuals.hasAddressSpace());
 
-    #if ENABLE_BSC
-    // BSC ownership: unlike other quals, owned cannot inherit from base
-    // struct A owned a; a.b has not owned if b is not owned qualified
-    if (BaseQuals.hasOwned()) {
-      BaseQuals.removeOwned();
-    }
-    #endif
     Qualifiers Combined = BaseQuals + MemberQuals;
     if (Combined != MemberQuals)
       MemberType = Context.getQualifiedType(MemberType, Combined);

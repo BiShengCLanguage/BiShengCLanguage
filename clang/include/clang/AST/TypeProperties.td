@@ -21,8 +21,18 @@ let Class = PointerType in {
   def : Property<"pointeeType", QualType> {
     let Read = [{ node->getPointeeType() }];
   }
+#ifdef BSC
+  def : Property<"bscProperties", UInt32> {
+    let Read = [{ node->getBSCProperties().toOpaque() }];
+  }
 
+  def : Creator<[{
+    return ctx.getPointerType(pointeeType,
+                              BSCPointerProperties::fromOpaque(bscProperties));
+  }]>;
+#else
   def : Creator<[{ return ctx.getPointerType(pointeeType); }]>;
+#endif
 }
 
 let Class = AdjustedType in {

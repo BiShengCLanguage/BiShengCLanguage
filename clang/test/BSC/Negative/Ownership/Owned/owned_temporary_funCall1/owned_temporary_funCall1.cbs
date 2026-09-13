@@ -63,5 +63,5 @@ D C::createD(This* this) {
 
 
 void test5(C c1) {
-    c1.createD();   // // expected-error {{the _Owned value of 'C_createD(&c1)' is discarded and would leak}}
+    c1.createD();
 }

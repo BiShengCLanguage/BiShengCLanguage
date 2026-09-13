@@ -781,7 +781,7 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
   if (Policy.RewriteBSC) {
     bool OwnedStructFlag = false;
     if (const RecordDecl *RD = dyn_cast<RecordDecl>(D->getDeclContext())) {
-        if (RD->getTypeForDecl() && RD->getTypeForDecl()->isOwnedStructureType() && !D->isOutOfLine()) {
+        if (RD->getTypeForDecl() && RD->getTypeForDecl()->isOwnedStruct() && !D->isOutOfLine()) {
           OwnedStructFlag = true;
         }
     }

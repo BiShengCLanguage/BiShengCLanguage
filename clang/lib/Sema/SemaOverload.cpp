@@ -8043,28 +8043,12 @@ BuiltinCandidateTypeSet::AddPointerWithMoreQualifiedTypeVariants(QualType Ty,
   unsigned BaseCVR = PointeeTy.getCVRQualifiers();
   bool hasVolatile = VisibleQuals.hasVolatile();
   bool hasRestrict = VisibleQuals.hasRestrict();
-  #if ENABLE_BSC
-  bool hasOwned = VisibleQuals.hasOwned();
-  bool hasBorrow = VisibleQuals.hasBorrow();
-  bool hasArrayElem = VisibleQuals.hasArrayElem();
-  #endif
 
   // Iterate through all strict supersets of BaseCVR.
   for (unsigned CVR = BaseCVR+1; CVR <= Qualifiers::CVRMask; ++CVR) {
     if ((CVR | BaseCVR) != CVR) continue;
     // Skip over volatile if no volatile found anywhere in the types.
     if ((CVR & Qualifiers::Volatile) && !hasVolatile) continue;
-
-    #if ENABLE_BSC
-    // Skip over owned if no owned found anywhere in the types.
-    if ((CVR & Qualifiers::Owned) && !hasOwned) continue;
-
-    // Skip over borrow if no borrow found anywhere in the types.
-    if ((CVR & Qualifiers::Borrow) && !hasBorrow) continue;
-
-    // Skip over _ArrayElem if no _ArrayElem found anywhere in the types.
-    if ((CVR & Qualifiers::ArrayElem) && !hasArrayElem) continue;
-    #endif
 
     // Skip over restrict if no restrict found anywhere in the types, or if
     // the type cannot be restrict-qualified.

@@ -225,6 +225,10 @@ class ASTContext : public RefCountedBase<ASTContext> {
   mutable llvm::FoldingSet<DependentSizedArrayType> DependentSizedArrayTypes;
   mutable llvm::FoldingSet<DependentSizedExtVectorType>
     DependentSizedExtVectorTypes;
+#if ENABLE_BSC
+  mutable llvm::FoldingSet<BSCQualifiedType>
+      BSCQualifiedTypes;
+#endif
   mutable llvm::FoldingSet<DependentAddressSpaceType>
       DependentAddressSpaceTypes;
   mutable llvm::FoldingSet<VectorType> VectorTypes;
@@ -1368,6 +1372,55 @@ public:
   /// Return the uniqued reference to the type for a pointer to
   /// the specified type.
   QualType getPointerType(QualType T) const;
+#if ENABLE_BSC
+  QualType getPointerType(QualType T, BSCPointerProperties P) const;
+
+  /// Return \p T with its BSC properties replaced by \p P, using whichever
+  /// carrier applies and keeping any sugar written over it.  The single BSC
+  /// write path.
+  QualType getTypeWithBSCProperties(QualType T, BSCPointerProperties P) const;
+
+  /// The type of `&_Mut *p` / `&_Const *p` (manual 3.2.1.2): a plain borrow
+  /// of the same value with \p Operand's nullability; _ArrayElem is not kept.
+  QualType getDerefReborrowType(QualType Operand, bool Const) const;
+
+  /// The type of `&_Mut p[i]` / `&_Const p[i]` (manual 3.2.1.2): as above,
+  /// and _ArrayElem, the subscript spelling.
+  QualType getSubscriptReborrowType(QualType Operand, bool Const) const;
+
+  /// Return \p T with every BSC property removed.  The single BSC eraser:
+  /// comparisons that miss a carrier silently fail.
+  QualType getTypeWithoutBSCProperties(QualType T) const;
+
+  /// Return \p T with \p NK as its written nullability (NullableResult counts
+  /// as Nullable); \p T unchanged when already so or when \p NK is neither.
+  QualType getTypeWithNullability(QualType T, NullabilityKind NK) const;
+
+  /// Return \p T with the written nullability of \p Src, if \p Src has one.
+  QualType getTypeWithNullabilityOf(QualType T, QualType Src) const;
+
+  /// Return \p T with written nullability removed at every pointer level.
+  QualType getTypeWithoutAnyNullability(QualType T) const;
+
+  /// \c getUnqualifiedType then \c getTypeWithoutAnyNullability: only the
+  /// sticky BSC properties remain, for kind comparisons.
+  QualType getTypeWithoutCVRAndNullability(QualType T) const;
+
+  /// Rewrite the BSC properties at every pointer level of \p T, through
+  /// array elements and function-prototype return and parameter slots.
+  QualType mapBSCPropertiesAtEveryPointerLevel(
+      QualType T,
+      llvm::function_ref<BSCPointerProperties(BSCPointerProperties)> Fn)
+      const;
+
+  /// Manual 3.3.1.3: `_Borrow _ArrayElem` implicitly becomes `_Borrow`.
+  QualType getArrayElemDowngradedType(QualType T) const;
+
+  /// \p T with \p P written on it: a BSCQualifiedType when \p T is sugar or
+  /// dependent, so the spelling survives, else the pointer rebuilt with \p P.
+  /// Prefer getTypeWithBSCProperties, which also short-circuits "already so".
+  QualType getBSCQualifiedType(QualType T, BSCPointerProperties P) const;
+#endif
   CanQualType getPointerType(CanQualType T) const {
     return CanQualType::CreateUnsafe(getPointerType((QualType) T));
   }

@@ -1198,7 +1198,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclOrFunctionDefInternal(
     }
 #if ENABLE_BSC
     if (DS.getTypeSpecType() == DeclSpec::TST_struct &&
-        (DS.getTypeQualifiers() & DeclSpec::TQ_owned)) {
+        (DS.getBSCQualifiers() & DeclSpec::BSCQ_owned)) {
       Actions.DesugarDestructor(dyn_cast<RecordDecl>(TheDecl));
     }
 #endif

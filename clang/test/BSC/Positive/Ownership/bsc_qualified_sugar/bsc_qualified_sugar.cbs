@@ -1,0 +1,42 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -ast-dump %s | FileCheck %s
+
+// A BSC property written over a typedef keeps the typedef: the type is a
+// BSCQualifiedType whose canonical form is the pointer with the property.
+
+typedef int *IP;
+typedef int *_Nonnull NP;
+
+void spelled(void) {
+  IP _Owned p = 0;
+  IP _Nullable q = 0;
+  (void)p; (void)q;
+}
+// CHECK: FunctionDecl {{.*}} spelled
+// CHECK: VarDecl {{.*}} p '_Owned IP':'int *_Owned'
+// CHECK: VarDecl {{.*}} q '_Nullable IP':'int *_Nullable'
+
+// A typedef that already carries the property is used as is.
+void carried(void) {
+  NP r = 0;
+  (void)r;
+}
+// CHECK: FunctionDecl {{.*}} carried
+// CHECK: VarDecl {{.*}} r 'NP':'int *_Nonnull'
+
+// The chunk form writes straight onto the pointer: no sugar, no node.
+void chunk(void) {
+  int *_Owned s = 0;
+  (void)s;
+}
+// CHECK: FunctionDecl {{.*}} chunk
+// CHECK: VarDecl {{.*}} s 'int *_Owned' cinit
+
+// `_Owned T` after substitution keeps a node over the substituted type and
+// prints as the resolved pointer, the same spelling as its canonical form.
+void take<T>(_Owned T a);
+void call(int *_Owned o) {
+  take(o);
+}
+// CHECK: FunctionDecl {{.*}} used take 'void (int *_Owned)'
+// CHECK: TemplateArgument type 'int *'
+// CHECK: ParmVarDecl {{.*}} a 'int *_Owned':'int *_Owned'

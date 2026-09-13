@@ -91,7 +91,7 @@ int main() {
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:{{[0-9]+}}> 'int' lvalue Var 0x{{[^ ]*}} 'x1' 'int'
 // CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <line:[[@LINE-55]]:3, col:{{[0-9]+}}>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:{{[0-9]+}}, col:{{[0-9]+}}> col:{{[0-9]+}} b6 'const int *_Borrow' cinit
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:{{[0-9]+}}> 'int *_Borrow' <LValueToRValue>
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:{{[0-9]+}}> 'myInt':'int *_Borrow' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:{{[0-9]+}}> 'myInt':'int *_Borrow' lvalue Var 0x{{[^ ]*}} 'p3' 'myInt':'int *_Borrow'
 // CHECK-NEXT: BinaryOperator 0x{{[^ ]*}} <line:[[@LINE-58]]:3, col:{{[0-9]+}}> 'int *_Borrow' '='
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:{{[0-9]+}}> 'int *_Borrow' lvalue Var 0x{{[^ ]*}} 'p7' 'int *_Borrow'

@@ -1,9 +1,9 @@
 // RUN: %clang_cc1 -verify %s
 
 // Companion to the heterogeneous fnptr case. The commit that fixed
-// AreTypesCompatibleForUnsafeToSafeRefinement only touched the heterogeneous
+// functionTypeSatisfiesUnsafeSafeRefinement only touched the heterogeneous
 // (safe/unsafe) path. The HOMOGENEOUS paths — two _Safe decls, two _Unsafe
-// decls, or _Unsafe-vs-no-attribute — go through HasDiffBorrorOrOwnedQualifiers,
+// decls, or _Unsafe-vs-no-attribute — go through areBSCFunctionTypesCompatible,
 // which had the same blind spot: it recursed through plain pointer levels but
 // not into function-pointer parameter/return types, so a qualifier buried
 // inside a fnptr parameter was dropped silently and the two decls merged.

@@ -2106,6 +2106,45 @@ static Sema::TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
     //     (clang extension)
     //
     //     T __attribute__(((address_space(N))))
+#if ENABLE_BSC
+    // `_Owned T`: the argument must carry what is spelled; T deduces against
+    // the argument minus it (qualifier subtraction); substitution re-applies.
+    case Type::BSCQualified: {
+      const auto *DP = P->castAs<BSCQualifiedType>();
+      BSCPointerProperties PP = DP->getBSCProperties();
+      // The written property is a qualifier, so an array argument matches
+      // through its element (C 6.7.3p9), like cv-qualifiers do.
+      BSCPointerProperties AP = A.getBSCElementProperties();
+      bool OwnedByDecl =
+          PP.Kind == BPK_Owned && AP.Kind == BPK_None && A->isOwnedStruct();
+      if (PP.Kind != BPK_None && AP.Kind != PP.Kind && !OwnedByDecl)
+        return Sema::TDK_NonDeducedMismatch;
+      if (PP.ArrayElem && !AP.ArrayElem)
+        return Sema::TDK_NonDeducedMismatch;
+      if (PP.Nullability != BWN_None && AP.Nullability != PP.Nullability)
+        return Sema::TDK_NonDeducedMismatch;
+      BSCPointerProperties Sub = AP;
+      if (PP.Kind != BPK_None)
+        Sub.Kind = BPK_None;
+      if (PP.ArrayElem)
+        Sub.ArrayElem = false;
+      if (PP.Nullability != BWN_None)
+        Sub.Nullability = BWN_None;
+      // `_Owned T` cannot spell an _ArrayElem argument, and the residual
+      // `T *_ArrayElem` is not a type.  A _Borrow argument may still downgrade
+      // to plain _Borrow at the call (manual 3.3.1.3); anything else cannot.
+      if (Sub.ArrayElem && Sub.Kind == BPK_None) {
+        if (PP.Kind != BPK_Borrow)
+          return Sema::TDK_NonDeducedMismatch;
+        Sub.ArrayElem = false;
+      }
+      QualType Arg =
+          Sub == AP ? A : S.Context.getTypeWithBSCProperties(A, Sub);
+      return DeduceTemplateArgumentsByTypeMatch(
+          S, TemplateParams, DP->getUnderlyingType(), Arg, Info, Deduced, TDF);
+    }
+#endif
+
     case Type::DependentAddressSpace: {
       const auto *ASP = P->castAs<DependentAddressSpaceType>();
 
@@ -5776,6 +5815,14 @@ MarkUsedTemplateParameters(ASTContext &Ctx, QualType T,
                                Depth, Used);
     break;
   }
+
+#if ENABLE_BSC
+  case Type::BSCQualified:
+    MarkUsedTemplateParameters(
+        Ctx, cast<BSCQualifiedType>(T)->getUnderlyingType(),
+        OnlyDeduced, Depth, Used);
+    break;
+#endif
 
   case Type::DependentAddressSpace: {
     const DependentAddressSpaceType *DependentASType =

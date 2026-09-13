@@ -10,5 +10,5 @@ void test_owned_diag_order(void) {
 
 void test_borrow_diag_order(void) {
   _Safe void (*dst)(const char * _Borrow) = 0;
-  dst = take_borrow; // expected-error {{incompatible _Borrow function pointer types, cannot cast '_Safe void (char *_Borrow)' to '_Safe void (*)(const char *_Borrow)'}}
+  dst = take_borrow; // expected-error {{conversion from type '_Safe void (*)(char *_Borrow)' to '_Safe void (*)(const char *_Borrow)' is forbidden}}
 }

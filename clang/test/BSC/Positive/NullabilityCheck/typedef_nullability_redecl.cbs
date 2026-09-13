@@ -1,13 +1,13 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 // expected-no-diagnostics
 
+// A raw pointer defaults to _Nullable (user manual 3.4.2 rule 1), so writing
+// _Nullable explicitly does not change the type. Mismatching cases live in
+// Negative/NullabilityCheck/var_redecl_nullability_mismatch.cbs.
+
 typedef _Safe unsigned (* _Nullable FPTy)(void);
 FPTy p1;                        // tentative definition
 _Safe unsigned (* p1)(void);    // redeclaration differing only in _Nullable
-
-typedef int * _Nonnull NPTy;
-NPTy p2;
-int * p2;
 
 // Function redeclarations whose function type differs only in a
 // typedef-carried _Nullable on the function pointer.

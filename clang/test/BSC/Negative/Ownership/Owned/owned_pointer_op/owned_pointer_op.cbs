@@ -1,9 +1,9 @@
 // RUN: %clang_cc1 -fbsc-diag=exhaustive -ast-dump -verify %s
 
 void test1() {
-    int* _Owned p1;
-    int* _Owned p2 = p1 + 1; //expected-error {{'+' is not supported on 'int *_Owned'}}
-    int* _Owned p3 = 1 + p1; //expected-error {{'+' is not supported on 'int *_Owned'}}
+    int* _Owned p1; // expected-note 2 {{pointer 'p1' declared here}}
+    int* _Owned p2 = p1 + 1; //expected-error {{'+' is not supported on 'int *_Owned'}} expected-note {{declare 'p1' as a raw pointer for pointer arithmetic}}
+    int* _Owned p3 = 1 + p1; //expected-error {{'+' is not supported on 'int *_Owned'}} expected-note {{declare 'p1' as a raw pointer for pointer arithmetic}}
     int* _Owned p4;
 
     if (p1 == p4) {

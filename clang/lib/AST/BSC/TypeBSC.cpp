@@ -109,7 +109,7 @@ class RecordRegionLayoutBuilder {
   void CollectType(QualType Type, RegionLayoutGraphNode *Source = nullptr) {
     Type = Type.getCanonicalType();
     if (Type->isPointerType()) {
-      if (Type.isBorrowQualified() || Type.isOwnedQualified())
+      if (!Type.isRawPointer())
         CollectType(Type->getPointeeType(), Source);
       return;
     }
@@ -160,7 +160,7 @@ class RecordRegionLayoutBuilder {
             AllocateRegion(NextRegion, HasFieldRegion));
         BuildFieldLayout(Type->getPointeeType(), SCCNodes, NextRegion,
                          HasFieldRegion, FieldLayout);
-      } else if (Type.isOwnedQualified()) {
+      } else if (Type.isOwnedPointer()) {
         BuildFieldLayout(Type->getPointeeType(), SCCNodes, NextRegion,
                          HasFieldRegion, FieldLayout);
       }
@@ -264,118 +264,123 @@ public:
   }
 };
 
-bool withBorrowFieldsImpl(QualType QT,
-                          llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
-  if (QT.isBorrowQualified())
-    return true;
+bool holdsBSC(QualType QT, BSCPointerKind Kind, BSCLookThrough LookThrough,
+              bool ViaPointer,
+              llvm::SmallPtrSetImpl<const RecordType *> &Visited);
 
-  if (QT->isPointerType() && QT.isOwnedQualified())
-    QT = QT->getPointeeType();
-
-  QT = QT.getCanonicalType();
-  const auto *RT = QT->getAs<RecordType>();
-  if (!RT)
-    return false;
-
-  // Avoid revisiting records in self-referential owned-pointer graphs.
-  if (!Visited.insert(RT).second)
-    return false;
-
-  RecordDecl *RD = RT->getDecl();
-  if (!RD)
-    return false;
-
-  for (FieldDecl *FD : RD->fields()) {
-    if (withBorrowFieldsImpl(FD->getType(), Visited))
-      return true;
+BSCLookThrough lookThroughBitFor(QualType Pointer) {
+  switch (Pointer.getBSCPointerProperties().Kind) {
+  case BPK_Owned:
+    return BSCLookThrough::OwnedPointers;
+  case BPK_Borrow:
+    return BSCLookThrough::BorrowPointers;
+  case BPK_None:
+    return BSCLookThrough::RawPointers;
   }
+  llvm_unreachable("bad BSCPointerKind");
+}
 
+// The members of \p QT, looking through \p LookThrough pointers.
+bool containsBSCImpl(QualType QT, BSCPointerKind Kind,
+                     BSCLookThrough LookThrough,
+                     llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
+  QT = QT.getCanonicalType();
+  if (const auto *AT = dyn_cast<ArrayType>(QT))
+    return holdsBSC(AT->getElementType(), Kind, LookThrough, false, Visited);
+  if (QT->isPointerType()) {
+    bool Cross =
+        (LookThrough & lookThroughBitFor(QT)) != BSCLookThrough::NoPointer;
+    return Cross &&
+           holdsBSC(QT->getPointeeType(), Kind, LookThrough, true, Visited);
+  }
+  const auto *RT = dyn_cast<RecordType>(QT);
+  if (!RT || !RT->getDecl() || !Visited.insert(RT).second)
+    return false;
+  // A union may not hold such a pointer, so only error-recovery ASTs get here.
+  if (RT->getDecl()->isUnion())
+    return false;
+  for (FieldDecl *FD : RT->getDecl()->fields())
+    if (holdsBSC(FD->getType(), Kind, LookThrough, false, Visited))
+      return true;
   return false;
+}
+
+// \p QT itself, or its members.  A decl-owned struct is an owned member only
+// when held by value, never when merely pointed to.
+bool holdsBSC(QualType QT, BSCPointerKind Kind, BSCLookThrough LookThrough,
+              bool ViaPointer,
+              llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
+  QT = QT.getCanonicalType();
+  // As written for either kind; ownership also comes from a declaration.
+  bool Self = Kind == BPK_Owned
+                  ? (QT.isOwnedQualified() || (!ViaPointer && QT->isOwnedStruct()))
+                  : QT.isBorrowQualified();
+  return Self || containsBSCImpl(QT, Kind, LookThrough, Visited);
 }
 } // namespace
 
-// hasOwnedFields is used to determine whether a type has a field
-// that is directly or indirectly qualified by owned.
-// If you want to determine whether a type is a move semantic type,
-// use isMoveSemanticType instead.
-bool PointerType::hasOwnedFields() const {
-  QualType R = getPointeeType();
-  if (R.isOwnedQualified()) {
-    return true;
-  }
-  if (R.getTypePtr()->hasOwnedFields()) {
-    return true;
-  }
-  return false;
+bool Type::containsBSC(BSCPointerKind Kind, BSCLookThrough LookThrough) const {
+  llvm::SmallPtrSet<const RecordType *, 16> Visited;
+  return containsBSCImpl(QualType(this, 0), Kind, LookThrough, Visited);
 }
 
-// hasOwnedFields is used to determine whether a type has a field
-// that is directly or indirectly qualified by owned.
-// If you want to determine whether a type is a move semantic type,
-// use isMoveSemanticType instead.
-bool Type::hasOwnedFields() const {
-  if (const auto *RecTy = dyn_cast<RecordType>(CanonicalType)) {
-    return RecTy->hasOwnedFields();
-  } else if (const auto *PointerTy = dyn_cast<PointerType>(CanonicalType)) {
-    return PointerTy->hasOwnedFields();
-  } else if (const auto *ArrTy = dyn_cast<ArrayType>(CanonicalType)) {
-    return ArrTy->getElementType().getTypePtr()->hasOwnedFields();
-  }
-  return false;
+bool QualType::isOrContainsBSC(BSCPointerKind Kind,
+                               BSCLookThrough LookThrough) const {
+  llvm::SmallPtrSet<const RecordType *, 16> Visited;
+  return holdsBSC(*this, Kind, LookThrough, false, Visited);
 }
 
-bool PointerType::hasBorrowFields() const {
-  QualType R = getPointeeType();
-  if (R.isBorrowQualified()) {
-    return true;
-  }
-  if (R.getTypePtr()->hasBorrowFields()) {
-    return true;
-  }
-  return false;
+bool QualType::isOrContainsOwned(BSCLookThrough LookThrough) const {
+  return isOrContainsBSC(BPK_Owned, LookThrough);
 }
 
-bool Type::hasBorrowFields() const {
-  if (const auto *RecTy = dyn_cast<RecordType>(CanonicalType)) {
-    return RecTy->hasBorrowFields();
-  } else if (const auto *PointerTy = dyn_cast<PointerType>(CanonicalType)) {
-    return PointerTy->hasBorrowFields();
-  } else if (const auto *ArrTy = dyn_cast<ArrayType>(CanonicalType)) {
-    return ArrTy->getElementType().getTypePtr()->hasBorrowFields();
-  }
-  return false;
+bool QualType::isOrContainsBorrow(BSCLookThrough LookThrough) const {
+  return isOrContainsBSC(BPK_Borrow, LookThrough);
 }
 
-bool Type::withBorrowFields() const {
-  if (!isa<RecordType>(CanonicalType))
+namespace {
+bool isTrivialDataTypeImpl(QualType QT, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
+  if (QT->isFunctionType()) {
+    return false;
+  }
+  if (QT->isPointerType()) {
+    return false;
+  }
+  if (const auto *ArrTy = dyn_cast<ArrayType>(QT)) {
+    QualType ET = ArrTy->getElementType().getCanonicalType();
+    return isTrivialDataTypeImpl(ET, Visited);
+  }
+  if (QT->isIncompleteType())
     return false;
 
-  llvm::SmallPtrSet<const RecordType *, 16> Visited;
-  return withBorrowFieldsImpl(CanonicalType, Visited);
-}
-
-bool FunctionProtoType::hasOwnedRetOrParams() const {
-  if (getReturnType().isOwnedQualified()) {
-    return true;
-  }
-  for (auto ParamType : getParamTypes()) {
-    if (ParamType.isOwnedQualified()) {
+  if (const auto *RecTy = dyn_cast<RecordType>(QT)) {
+    // Every element in Visited is either:
+    // 1. `T t2`   in `struct S { T t1; T t2; };`
+    //    In this case, T t1 is visited means T is trivial data. It is safe to return true for `T t2`.
+    // 2. `S s`    in `struct S { struct S s; };`
+    //    In this case, it is a faulty C program. Return something to prevent infinite loop.
+    if (!Visited.insert(RecTy).second)
       return true;
+    if (RecordDecl *RD = RecTy->getDecl()) {
+      for (FieldDecl *FD : RD->fields()) {
+        QualType FQT = FD->getType().getCanonicalType();
+        if (FQT->isOwnedStruct())
+          return false;
+        if (!isTrivialDataTypeImpl(FQT, Visited)) {
+          return false;
+        }
+      }
     }
   }
-  return false;
+  return true;
 }
+} // namespace
 
-bool FunctionProtoType::hasBorrowRetOrParams() const {
-  if (getReturnType().hasBorrow()) {
-    return true;
-  }
-  for (auto ParamType : getParamTypes()) {
-    if (ParamType.hasBorrow()) {
-      return true;
-    }
-  }
-  return false;
+bool Type::isTrivialDataType() const {
+  if (CanonicalType->isOwnedStruct())
+    return false;
+  llvm::SmallPtrSet<const RecordType *, 8> Visited;
+  return isTrivialDataTypeImpl(CanonicalType, Visited);
 }
 
 bool Type::checkFunctionProtoType(SafeZoneSpecifier SZS) const {
@@ -422,7 +427,7 @@ unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type,
   if (Type->isPointerType()) {
     if (Type.isBorrowQualified())
       return ComputeNumRegions(Ctx, Type->getPointeeType(), Layouts) + 1;
-    if (Type.isOwnedQualified())
+    if (Type.isOwnedPointer())
       return ComputeNumRegions(Ctx, Type->getPointeeType(), Layouts);
     return 0;
   }
@@ -439,88 +444,126 @@ unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type,
   return 0;
 }
 
-/// Check that SafeType is a valid _Safe-side refinement of UnsafeType
-/// for heterogeneous redeclarations.  The _Safe redeclaration may add
-/// qualifiers (_Owned, _Borrow, _ArrayElem) but must not drop them.
-/// Additionally: the _Unsafe side must not be _Nonnull when the _Safe
-/// side is _Nullable.
-static bool AreTypesCompatibleForUnsafeToSafeRefinement(QualType UnsafeType,
-                                                       QualType SafeType,
-                                                       ASTContext &Ctx) {
-  bool UnsafeIsOwned =
-      UnsafeType->isPointerType() && UnsafeType.isOwnedQualified();
-  bool UnsafeIsBorrow =
-      UnsafeType->isPointerType() && UnsafeType.isBorrowQualified();
-  bool UnsafeIsArrayElem =
-      UnsafeType->isPointerType() && UnsafeType.isArrayElemQualified();
-  bool SafeIsOwned = SafeType->isPointerType() && SafeType.isOwnedQualified();
-  bool SafeIsBorrow = SafeType->isPointerType() && SafeType.isBorrowQualified();
-  bool SafeIsArrayElem =
-      SafeType->isPointerType() && SafeType.isArrayElemQualified();
+using TypePairPred = llvm::function_ref<bool(QualType, QualType)>;
 
-  // Safe redecl must not drop a qualifier present in the unsafe decl.
-  if (UnsafeIsOwned && !SafeIsOwned)
+// Applies Ok here, then through array elements, pointees and prototype return
+// and parameter slots, so a qualifier buried under a pointer is never skipped.
+static bool holdsAtEveryPointerLevel(QualType L, QualType R, TypePairPred Ok) {
+  if (!Ok(L, R))
     return false;
-  if (UnsafeIsBorrow && !SafeIsBorrow)
-    return false;
-  if (UnsafeIsArrayElem && !SafeIsArrayElem)
-    return false;
-  if ((UnsafeIsOwned || UnsafeIsBorrow) &&
-      !UnsafeIsArrayElem && SafeIsArrayElem)
-    return false;
-
-  // Nullability check:
-  // A (_Unsafe) being _Nonnull while B (_Safe) is _Nullable is forbidden.
-  if (UnsafeType->isPointerType() && SafeType->isPointerType()) {
-    if (UnsafeType.getDefNullability() == NullabilityKind::NonNull &&
-        SafeType.getDefNullability() == NullabilityKind::Nullable)
-      return false;
-  }
-
-  // Peel one pointer layer and recurse so a buried qualifier is not dropped:
-  // into the pointee's function prototype if it has one, else into the pointee.
-  if (UnsafeType->isPointerType() && SafeType->isPointerType()) {
-    QualType UnsafePointee = UnsafeType->getPointeeType();
-    QualType SafePointee = SafeType->getPointeeType();
-    const auto *UnsafeFn = UnsafePointee->getAs<FunctionProtoType>();
-    const auto *SafeFn = SafePointee->getAs<FunctionProtoType>();
-    if (UnsafeFn && SafeFn &&
-        UnsafeFn->getNumParams() == SafeFn->getNumParams()) {
-      if (!AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeFn->getReturnType(),
-                                              SafeFn->getReturnType(), Ctx))
-        return false;
-      for (unsigned I = 0, E = UnsafeFn->getNumParams(); I != E; ++I)
-        if (!AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeFn->getParamType(I),
-                                                SafeFn->getParamType(I), Ctx))
-          return false;
+  if (L->isArrayType() && R->isArrayType())
+    return holdsAtEveryPointerLevel(
+        L->getAsArrayTypeUnsafe()->getElementType(),
+        R->getAsArrayTypeUnsafe()->getElementType(), Ok);
+  const auto *LFn = L->getAs<FunctionProtoType>();
+  const auto *RFn = R->getAs<FunctionProtoType>();
+  if (LFn && RFn) {
+    if (LFn->getNumParams() != RFn->getNumParams())
       return true;
-    }
-    return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafePointee, SafePointee, Ctx);
+    if (!holdsAtEveryPointerLevel(LFn->getReturnType(), RFn->getReturnType(),
+                                  Ok))
+      return false;
+    for (unsigned I = 0, E = LFn->getNumParams(); I != E; ++I)
+      if (!holdsAtEveryPointerLevel(LFn->getParamType(I), RFn->getParamType(I),
+                                    Ok))
+        return false;
+    return true;
   }
-
-  // Arrays: recurse into element types so BSC qualifiers inside array elements
-  // (e.g. int *_Owned arr[10]) are checked too.
-  if (UnsafeType->isArrayType() && SafeType->isArrayType()) {
-    return AreTypesCompatibleForUnsafeToSafeRefinement(
-        UnsafeType->getAsArrayTypeUnsafe()->getElementType(),
-        SafeType->getAsArrayTypeUnsafe()->getElementType(), Ctx);
-  }
-
-  return true;
+  if (!L->isPointerType() || !R->isPointerType())
+    return true;
+  return holdsAtEveryPointerLevel(L->getPointeeType(), R->getPointeeType(), Ok);
 }
 
-/// Check if two function types are compatible for heterogeneous redeclarations
-/// where one is declared safe and the other unsafe.
-///
-/// Strategy:
-/// 1. Use Clang's typesAreCompatible (which automatically strips owned/borrow
-///    via mergeTypes, while preserving const/volatile/restrict checking)
-/// 2. Add BSC-specific check: ensure owned and borrow are not mixed
-bool areFunctionTypesCompatibleForHeterogeneousRedecl(
+QualType mergeNullabilityAtEveryPointerLevel(const ASTContext &Ctx, QualType T,
+                                             QualType L, QualType R) {
+  const auto *TP = T->getAs<PointerType>();
+  const auto *LP = L->getAs<PointerType>();
+  const auto *RP = R->getAs<PointerType>();
+  if (!TP || !LP || !RP)
+    return T;
+  QualType Pointee = mergeNullabilityAtEveryPointerLevel(
+      Ctx, TP->getPointeeType(), LP->getPointeeType(), RP->getPointeeType());
+  BSCPointerProperties P = T.getBSCPointerProperties();
+  // A level that already reads as nullable keeps the spelling it was given.
+  if ((L.getDefNullability() == NullabilityKind::Nullable ||
+       R.getDefNullability() == NullabilityKind::Nullable) &&
+      T.getDefNullability() != NullabilityKind::Nullable)
+    P.Nullability = BWN_Nullable;
+  if (Pointee == TP->getPointeeType() && P == T.getBSCPointerProperties())
+    return T;
+  return Ctx.getQualifiedType(Ctx.getPointerType(Pointee, P),
+                              T.getQualifiers());
+}
+
+// Manual 3.8.3 rule 3: same qualifiers once nullability defaults are filled.
+static bool stickyQualifiersEqual(QualType L, QualType R) {
+  return L.getBSCPointerProperties().stickyMatches(
+             R.getBSCPointerProperties()) &&
+         L.getDefNullability() == R.getDefNullability();
+}
+
+// Manual 3.6.5.4 rule 2: _Unsafe may omit a sticky qualifier, else must match;
+// _Unsafe _Nonnull against _Safe _Nullable is not allowed.
+static bool unsafeSafeRefinementAtLevel(QualType Unsafe, QualType Safe) {
+  BSCPointerProperties U = Unsafe.getBSCPointerProperties();
+  BSCPointerProperties S = Safe.getBSCPointerProperties();
+  if (U.Kind != BPK_None && !U.stickyMatches(S))
+    return false;
+  return !(Unsafe.getDefNullability() == NullabilityKind::NonNull &&
+           Safe.getDefNullability() == NullabilityKind::Nullable);
+}
+
+bool areBSCTypesCompatible(QualType L, QualType R) {
+  return holdsAtEveryPointerLevel(L, R, stickyQualifiersEqual);
+}
+
+bool satisfiesUnsafeSafeRefinement(QualType Unsafe, QualType Safe) {
+  return holdsAtEveryPointerLevel(Unsafe, Safe, unsafeSafeRefinementAtLevel);
+}
+
+static bool carriesOwnership(const FunctionProtoType *F) {
+  auto Carries = [](QualType T) {
+    return T.isOrContainsOwned(BSCLookThrough::AnyPointer) ||
+           T.isOrContainsBorrow(BSCLookThrough::AnyPointer);
+  };
+  return Carries(F->getReturnType()) || llvm::any_of(F->param_types(), Carries);
+}
+
+BSCFunctionMismatch firstBSCFunctionTypeMismatch(const ASTContext &Ctx,
+                                                 const FunctionProtoType *L,
+                                                 const FunctionProtoType *R) {
+  if (L->getNumParams() != R->getNumParams())
+    return carriesOwnership(L) || carriesOwnership(R)
+               ? BSCFunctionMismatch::Incompatible
+               : BSCFunctionMismatch::None;
+  BSCFunctionMismatch M = BSCFunctionMismatch::None;
+  holdsAtEveryPointerLevel(QualType(L, 0), QualType(R, 0), [&](QualType A,
+                                                                QualType B) {
+    bool HasOwned =
+        A.isOwnedPointerOrOwnedStruct() || B.isOwnedPointerOrOwnedStruct();
+    BSCPointerProperties PA = A.getBSCPointerProperties();
+    BSCPointerProperties PB = B.getBSCPointerProperties();
+    if (!PA.stickyMatches(PB))
+      M = HasOwned ? BSCFunctionMismatch::Owned : BSCFunctionMismatch::Borrow;
+    else if (A->isPointerType() && B->isPointerType() &&
+             A.getDefNullability() != B.getDefNullability())
+      M = BSCFunctionMismatch::Incompatible;
+    else if ((HasOwned || PA.Kind == BPK_Borrow) &&
+             Ctx.getTypeWithoutCVRAndNullability(A).getCanonicalType() !=
+                 Ctx.getTypeWithoutCVRAndNullability(B).getCanonicalType())
+      M = BSCFunctionMismatch::Incompatible;
+    return M == BSCFunctionMismatch::None;
+  });
+  return M;
+}
+
+/// Manual 3.6.5.4, unsafe-safe refinement relation: the _Safe type, with the
+/// BiSheng C safety features removed, is compatible with the _Unsafe type.
+bool functionTypeSatisfiesUnsafeSafeRefinement(
     ASTContext &Ctx, QualType Type1, QualType Type2,
     SafeZoneSpecifier SZS1, SafeZoneSpecifier SZS2,
-    HeterogeneousRedeclMismatchInfo *MismatchOut) {
-  using Kind = HeterogeneousRedeclMismatchInfo::Kind;
+    UnsafeSafeRefinementMismatchInfo *MismatchOut) {
+  using Kind = UnsafeSafeRefinementMismatchInfo::Kind;
   auto Report = [&](Kind K, QualType T1, QualType T2, unsigned Idx = 0) {
     if (MismatchOut) {
       MismatchOut->MismatchKind = K;
@@ -556,37 +599,30 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
   const FunctionProtoType *UnsafeFPT = Type1IsSafe ? FPT2 : FPT1;
   const FunctionProtoType *SafeFPT = Type1IsSafe ? FPT1 : FPT2;
 
-  // Helper lambda: check if two (possibly function-pointer) types are compatible
-  // in the context of a heterogeneous redeclaration. For function pointer types
-  // that differ only in SafeZoneSpecifier, we apply the heterogeneous check
-  // recursively instead of relying on typesAreCompatible (which rejects
-  // safe/unsafe mismatches unconditionally).
+  // Function-pointer parameters differing only in _Safe recurse into the
+  // relation; typesAreCompatible would reject the _Safe mismatch outright.
   auto AreParamTypesCompatible = [&](QualType UnsafeT, QualType SafeT) -> bool {
     // Save originals for owned/borrow check.
     QualType UnsafeTOrig = UnsafeT;
     QualType SafeTOrig = SafeT;
 
-    // Strip nullability and owned/borrow for base type compatibility checking.
+    // C compatibility treats a Kind mismatch as incompatible, but the
+    // refinement lets the _Unsafe side omit a Kind at any pointer level, so
+    // strip the properties everywhere before asking; the relation itself is
+    // checked on the originals below.
     AttributedType::stripOuterNullability(UnsafeT);
     AttributedType::stripOuterNullability(SafeT);
-    UnsafeT.removeLocalNullability(Ctx);
-    SafeT.removeLocalNullability(Ctx);
-    UnsafeT.removeLocalOwned();
-    UnsafeT.removeLocalBorrow();
-    UnsafeT.removeLocalArrayElem(Ctx);
-    SafeT.removeLocalOwned();
-    SafeT.removeLocalBorrow();
-    SafeT.removeLocalArrayElem(Ctx);
+    auto Erase = [](BSCPointerProperties) { return BSCPointerProperties(); };
+    UnsafeT = Ctx.mapBSCPropertiesAtEveryPointerLevel(UnsafeT, Erase);
+    SafeT = Ctx.mapBSCPropertiesAtEveryPointerLevel(SafeT, Erase);
 
     // Fast path: identical canonical unqualified types.
     if (UnsafeT.getCanonicalType().getUnqualifiedType() ==
         SafeT.getCanonicalType().getUnqualifiedType()) {
-      return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeTOrig, SafeTOrig, Ctx);
+      return satisfiesUnsafeSafeRefinement(UnsafeTOrig, SafeTOrig);
     }
 
-    // If both are function pointer types, check heterogeneous compatibility
-    // recursively so that e.g. `func` and `func_safe` are accepted as a
-    // compatible pair when used as parameters in a heterogeneous redeclaration.
+    // Manual 3.6.5.4 rule 1 applied to a function-pointer parameter pair.
     if (UnsafeT->isFunctionPointerType() && SafeT->isFunctionPointerType()) {
       QualType UnsafePointee = UnsafeT->getPointeeType();
       QualType SafePointee = SafeT->getPointeeType();
@@ -597,12 +633,11 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
       if (UnsafeFP && SafeFP) {
         SafeZoneSpecifier UnsafeFPSZS = UnsafeFP->getFunSafeZoneSpecifier();
         SafeZoneSpecifier SafeFPSZS = SafeFP->getFunSafeZoneSpecifier();
-        // Only treat as a heterogeneous function-pointer pair when one side is
-        // safe and the other is not.
+        // Only a pair with exactly one _Safe side is a refinement pair.
         bool UnsafeFPIsSafe = (UnsafeFPSZS == SZ_Safe);
         bool SafeFPIsSafe = (SafeFPSZS == SZ_Safe);
         if (UnsafeFPIsSafe != SafeFPIsSafe) {
-          return areFunctionTypesCompatibleForHeterogeneousRedecl(
+          return functionTypeSatisfiesUnsafeSafeRefinement(
               Ctx, UnsafePointee, SafePointee, UnsafeFPSZS, SafeFPSZS,
               /*MismatchOut=*/nullptr);
         }
@@ -613,7 +648,7 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
     if (!Ctx.typesAreCompatible(UnsafeT, SafeT))
       return false;
 
-    return AreTypesCompatibleForUnsafeToSafeRefinement(UnsafeTOrig, SafeTOrig, Ctx);
+    return satisfiesUnsafeSafeRefinement(UnsafeTOrig, SafeTOrig);
   };
 
   if (!AreParamTypesCompatible(UnsafeFPT->getReturnType(),
@@ -634,361 +669,49 @@ bool areFunctionTypesCompatibleForHeterogeneousRedecl(
   return true;
 }
 
-QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
-                                ASTContext &Ctx) {
-  if (NK != NullabilityKind::Nullable && NK != NullabilityKind::NonNull)
-    return QT;
+} // namespace clang
 
-  // Prefer QualType ExtQuals bits (BSC's representation) over AttributedType.
-  if ((NK == NullabilityKind::Nullable && QT.isNullableQualified()) ||
-      (NK == NullabilityKind::NonNull && QT.isNonnullQualified()))
-    return QT;
-
-  // Also accept legacy AttributedType sugar with the same kind.
-  if (Optional<NullabilityKind> Current = QT->getNullability(Ctx)) {
-    if (*Current == NK ||
-        (*Current == NullabilityKind::NullableResult &&
-         NK == NullabilityKind::Nullable))
-      return QT;
+bool Type::isOwnedStruct() const {
+  if (const auto *RT = getAs<RecordType>())
+    return RT->getDecl()->isStruct() && RT->getDecl()->isOwnedDecl();
+  if (const auto *TST = getAs<TemplateSpecializationType>()) {
+    if (TST->isTypeAlias())
+      return TST->getAliasedType()->isOwnedStruct();
+    if (TemplateDecl *TD = TST->getTemplateName().getAsTemplateDecl())
+      if (const auto *RD = dyn_cast_or_null<RecordDecl>(TD->getTemplatedDecl()))
+        return RD->isOwnedDecl();
   }
-
-  QualType BaseTy = QT;
-  BaseTy.removeLocalNullability(Ctx);
-  while (BaseTy->getNullability(Ctx))
-    BaseTy = BaseTy.getSingleStepDesugaredType(Ctx);
-
-  Qualifiers Qs = BaseTy.getQualifiers();
-  Qs.removeNullable();
-  Qs.removeNonnull();
-  if (NK == NullabilityKind::Nullable)
-    Qs.addNullable();
-  else
-    Qs.addNonnull();
-  return Ctx.getQualifiedType(BaseTy.getTypePtr(), Qs);
+  return false;
 }
 
-QualType transferExplicitNullability(QualType Src, QualType Dest,
-                                     ASTContext &Ctx) {
-  if (Optional<NullabilityKind> NK = Src.getExplicitNullability())
-    return applyNullabilityToType(Dest, *NK, Ctx);
-  return Dest;
-}
-
-QualType stripAllNullabilityQualifiers(QualType T, ASTContext &Ctx) {
-  T.removeLocalNullability(Ctx);
-
-  if (const auto *PT = T->getAs<PointerType>()) {
-    QualType OldPointee = PT->getPointeeType();
-    QualType NewPointee = stripAllNullabilityQualifiers(OldPointee, Ctx);
-    if (NewPointee.getAsOpaquePtr() == OldPointee.getAsOpaquePtr())
-      return T;
-    Qualifiers Qs = T.getQualifiers();
-    Qs.removeNullable();
-    Qs.removeNonnull();
-    return Ctx.getQualifiedType(Ctx.getPointerType(NewPointee).getTypePtr(),
-                                Qs);
-  }
-
-  // Recurse into array element types so pointer nullability inside arrays
-  // (e.g. int *_Nullable arr[10]) is stripped too.
-  if (const auto *AT = T->getAsArrayTypeUnsafe()) {
-    QualType OldElem = AT->getElementType();
-    QualType NewElem = stripAllNullabilityQualifiers(OldElem, Ctx);
-    if (NewElem.getAsOpaquePtr() == OldElem.getAsOpaquePtr())
-      return T;
-    if (const auto *CAT = dyn_cast<ConstantArrayType>(AT))
-      return Ctx.getConstantArrayType(NewElem, CAT->getSize(),
-                                      CAT->getSizeExpr(), CAT->getSizeModifier(),
-                                      CAT->getIndexTypeCVRQualifiers());
-    if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
-      return Ctx.getVariableArrayType(NewElem, VAT->getSizeExpr(),
-                                      VAT->getSizeModifier(),
-                                      VAT->getIndexTypeCVRQualifiers(),
-                                      VAT->getBracketsRange());
-    if (const auto *IAT = dyn_cast<IncompleteArrayType>(AT))
-      return Ctx.getIncompleteArrayType(NewElem, IAT->getSizeModifier(),
-                                        IAT->getIndexTypeCVRQualifiers());
-    if (const auto *DSAT = dyn_cast<DependentSizedArrayType>(AT))
-      return Ctx.getDependentSizedArrayType(NewElem, DSAT->getSizeExpr(),
-                                            DSAT->getSizeModifier(),
-                                            DSAT->getIndexTypeCVRQualifiers(),
-                                            DSAT->getBracketsRange());
-    return T;
-  }
-
-  // Recurse into function return/parameter types so pointer nullability inside
-  // function types is stripped too.
-  if (const auto *FPT = T->getAs<FunctionProtoType>()) {
-    QualType OldRet = FPT->getReturnType();
-    QualType NewRet = stripAllNullabilityQualifiers(OldRet, Ctx);
-    SmallVector<QualType, 4> NewParams;
-    bool ParamsChanged = false;
-    for (QualType P : FPT->getParamTypes()) {
-      QualType NP = stripAllNullabilityQualifiers(P, Ctx);
-      NewParams.push_back(NP);
-      if (NP.getAsOpaquePtr() != P.getAsOpaquePtr())
-        ParamsChanged = true;
-    }
-    if (NewRet.getAsOpaquePtr() == OldRet.getAsOpaquePtr() && !ParamsChanged)
-      return T;
-    return Ctx.getFunctionType(NewRet, NewParams, FPT->getExtProtoInfo());
-  }
-
-  if (const auto *FNPT = T->getAs<FunctionNoProtoType>()) {
-    QualType OldRet = FNPT->getReturnType();
-    QualType NewRet = stripAllNullabilityQualifiers(OldRet, Ctx);
-    if (NewRet.getAsOpaquePtr() == OldRet.getAsOpaquePtr())
-      return T;
-    return Ctx.getFunctionNoProtoType(NewRet, FNPT->getExtInfo());
-  }
-
+QualType clang::getInnermostPointeeType(QualType T) {
+  while (T->isPointerType())
+    T = T->getPointeeType();
   return T;
 }
 
-QualType getOnlyBSCQualifiedTypeWithoutNullability(QualType T,
-                                                    ASTContext &Ctx) {
-  return stripAllNullabilityQualifiers(T.getOnlyBSCQualifiedType(Ctx), Ctx);
-}
-
-/// Recursively check that LHS and RHS have the same effective nullability
-/// at every pointer level where both sides are pointer types. Function
-/// pointer pointees are traversed too, so nullability inside their return
-/// types and parameters is compared recursively.
-static bool areTypesNullabilityCompatibleRec(QualType LHS, QualType RHS,
-                                             ASTContext &Ctx) {
-  if (LHS->isPointerType() && RHS->isPointerType()) {
-    if (LHS.getDefNullability() != RHS.getDefNullability())
-      return false;
-    QualType LPointee = LHS->getPointeeType();
-    QualType RPointee = RHS->getPointeeType();
-    const auto *LFn = LPointee->getAs<FunctionProtoType>();
-    const auto *RFn = RPointee->getAs<FunctionProtoType>();
-    if (LFn && RFn) {
-      if (LFn->getNumParams() != RFn->getNumParams())
-        return false;
-      if (!areTypesNullabilityCompatibleRec(LFn->getReturnType(),
-                                            RFn->getReturnType(), Ctx))
-        return false;
-      for (unsigned I = 0, N = LFn->getNumParams(); I != N; ++I)
-        if (!areTypesNullabilityCompatibleRec(LFn->getParamType(I),
-                                              RFn->getParamType(I), Ctx))
-          return false;
-      return true;
-    }
-    return areTypesNullabilityCompatibleRec(LPointee, RPointee, Ctx);
-  }
-  return true;
-}
-
-bool AreFunctionTypesNullabilityCompatible(const FunctionProtoType *LHS,
-                                            const FunctionProtoType *RHS,
-                                            ASTContext &Ctx) {
-  if (!areTypesNullabilityCompatibleRec(LHS->getReturnType(),
-                                        RHS->getReturnType(), Ctx))
-    return false;
-  for (unsigned I = 0, N = LHS->getNumParams();
-       I < N && I < RHS->getNumParams(); ++I)
-    if (!areTypesNullabilityCompatibleRec(LHS->getParamType(I),
-                                          RHS->getParamType(I), Ctx))
-      return false;
-  return true;
-}
-
-} // namespace clang
-
-bool Type::isOwnedStructureType() const {
-  if (const auto *RT = getAs<RecordType>())
-    return RT->getDecl()->isStruct() && RT->getDecl()->isOwnedDecl();
-  return false;
-}
-
-bool Type::isOwnedTemplateSpecializationType() const {
-  if (const auto *RT = getAs<TemplateSpecializationType>()) {
-    if (RT->getTemplateName().getAsTemplateDecl() &&
-        RT->getTemplateName().getAsTemplateDecl()->getTemplatedDecl()) {
-      if (auto RD = dyn_cast<RecordDecl>(
-              RT->getTemplateName().getAsTemplateDecl()->getTemplatedDecl()))
-        return RD->isOwnedDecl();
+QualType clang::stripTypedefsAndAliasTemplates(QualType T) {
+  while (true) {
+    if (const auto *TST = dyn_cast<TemplateSpecializationType>(T)) {
+      if (!TST->isTypeAlias())
+        return T;
+      T = TST->getAliasedType();
+    } else if (const auto *TT = dyn_cast<TypedefType>(T)) {
+      T = TT->desugar();
+    } else {
+      return T;
     }
   }
-  return false;
 }
 
-// Return true when a type is move semantic type,
-// including owned pointer(int *owned, int **owned, ...),
-// owned struct and struct which has owned fields, for example:
-// @code
-//     owned struct S1 { };
-//     struct S2 { int* owned p; };
-//     struct S3 { S1 s; };
-//     struct S4 { struct S2 s; };
-// @endcode
-// These types are not move semantic:
-// @code
-//     struct S5 { S1* s};
-//     struct S6 { int *owned * p};
-// @endcode
-namespace {
-bool isMoveSemanticTypeImpl(QualType QT, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
-  // Owned pointer or owned struct is owned qualified.
-  if (QT.isOwnedQualified())
-    return true;
-  if (const auto *RecTy = dyn_cast<RecordType>(QT)) {
-    // Every element in Visited is either:
-    // 1. `T t2`   in `struct S { T t1; T t2; };`
-    //    In this case, T t1 is visited means T is not move semantic. It is safe to return false for `T t2`.
-    // 2. `S s`    in `struct S { S s; };`
-    //    In this case, it is a faulty C program. Return something to prevent infinite loop.
-    if (!Visited.insert(RecTy).second)
-      return false;
-    RecordDecl *RD = RecTy->getDecl();
-    if (!RD)
-      return false;
-    for (FieldDecl *FD : RD->fields()) {
-      QualType FQT = FD->getType().getCanonicalType();
-      if (FQT.isOwnedQualified())
-        return true;
-      if (const auto *AT = dyn_cast<ArrayType>(FQT)) {
-        if (isMoveSemanticTypeImpl(AT->getElementType(), Visited))
-          return true;
-        continue;
-      }
-      if (isa<RecordType>(FQT)) {
-        if (isMoveSemanticTypeImpl(FQT, Visited))
-          return true;
-      }
-    }
-  }
-  return false;
-}
-} // namespace
-
-bool Type::isMoveSemanticType() const {
-  llvm::SmallPtrSet<const RecordType *, 8> Visited;
-  return isMoveSemanticTypeImpl(CanonicalType, Visited);
-}
-
-namespace {
-bool isTrivialDataTypeImpl(QualType QT, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
-  if (QT->isFunctionType()) {
-    return false;
-  }
-  if (QT->isPointerType()) {
-    return false;
-  }
-  if (const auto *ArrTy = dyn_cast<ArrayType>(QT)) {
-    QualType ET = ArrTy->getElementType().getCanonicalType();
-    return isTrivialDataTypeImpl(ET, Visited);
-  }
-  if (QT->isIncompleteType())
-    return false;
-
-  if (const auto *RecTy = dyn_cast<RecordType>(QT)) {
-    // Every element in Visited is either:
-    // 1. `T t2`   in `struct S { T t1; T t2; };`
-    //    In this case, T t1 is visited means T is trivial data. It is safe to return true for `T t2`.
-    // 2. `S s`    in `struct S { struct S s; };`
-    //    In this case, it is a faulty C program. Return something to prevent infinite loop.
-    if (!Visited.insert(RecTy).second)
-      return true;
-    if (RecordDecl *RD = RecTy->getDecl()) {
-      for (FieldDecl *FD : RD->fields()) {
-        QualType FQT = FD->getType().getCanonicalType();
-        if (FQT.isBorrowQualified() || FQT.isOwnedQualified()) {
-          return false;
-        }
-        if (!isTrivialDataTypeImpl(FQT, Visited)) {
-          return false;
-        }
-      }
-    }
-  }
-  return true;
-}
-} // namespace
-
-bool Type::isTrivialDataType() const {
-  if (CanonicalType.isBorrowQualified() || CanonicalType.isOwnedQualified()) {
-    return false;
-  }
-  llvm::SmallPtrSet<const RecordType *, 8> Visited;
-  return isTrivialDataTypeImpl(CanonicalType, Visited);
-}
-
-// hasOwnedFields is used to determine whether a type has a field
-// that is directly or indirectly qualified by owned.
-// If you want to determine whether a type is a move semantic type,
-// use isMoveSemanticType instead.
-bool RecordType::hasOwnedFields() const {
-  llvm::SmallPtrSet<const RecordType *, 16> Visited;
-  llvm::SmallVector<const RecordType *, 16> Queue;
-  Queue.push_back(this);
-  Visited.insert(this);
-  for (unsigned i = 0; i < Queue.size(); ++i) {
-    // traverse all fields
-    for (FieldDecl *FD : Queue[i]->getDecl()->fields()) {
-      // basic case
-      QualType FieldTy = FD->getType().getCanonicalType();
-      if (FieldTy.isOwnedQualified() || FieldTy->isOwnedStructureType()) {
-        return true;
-      }
-      while (const auto *AT = dyn_cast<ArrayType>(FieldTy))
-        FieldTy = AT->getElementType().getCanonicalType();
-      if (FieldTy.isOwnedQualified() || FieldTy->isOwnedStructureType()) {
-        return true;
-      }
-      // pointer: dereference to the final pointee
-      QualType TempQT = FieldTy;
-      for (const Type *TempT = TempQT.getTypePtr(); TempT->isPointerType();
-           TempT = TempQT.getTypePtr()) {
-        TempQT = TempT->getPointeeType().getCanonicalType();
-        if (TempQT.isOwnedQualified() && !TempQT->isOwnedStructureType()) {
-          return true;
-        }
-      }
-      FieldTy = TempQT.getCanonicalType();
-      if (const auto *FieldRecTy = FieldTy->getAs<RecordType>()) {
-        if (Visited.insert(FieldRecTy).second) {
-          Queue.push_back(FieldRecTy);
-        }
-      }
-    }
-  }
-  return false;
-}
-
-bool RecordType::hasBorrowFields() const {
-  llvm::SmallPtrSet<const RecordType *, 16> Visited;
-  llvm::SmallVector<const RecordType *, 16> Queue;
-  Queue.push_back(this);
-  Visited.insert(this);
-  for (unsigned i = 0; i < Queue.size(); ++i) {
-    // traverse all fields
-    for (FieldDecl *FD : Queue[i]->getDecl()->fields()) {
-      // basic case
-      QualType FieldTy = FD->getType();
-      if (FieldTy.isBorrowQualified()) {
-        return true;
-      }
-      // pointer: dereference to the final pointee
-      QualType TempQT = FieldTy;
-      for (const Type *TempT = TempQT.getTypePtr(); TempT->isPointerType();
-           TempT = TempQT.getTypePtr()) {
-        TempQT = TempT->getPointeeType();
-        if (TempQT.isBorrowQualified()) {
-          return true;
-        }
-        TempQT = TempQT.getCanonicalType();
-      }
-      FieldTy = TempQT.getCanonicalType();
-      // extend the bfs frontier
-      if (const auto *FieldRecTy = FieldTy->getAs<RecordType>()) {
-        if (Visited.insert(FieldRecTy).second)
-          Queue.push_back(FieldRecTy);
-      }
-    }
-  }
-  return false;
+RecordDecl *clang::getRecordDeclThroughSpecialization(QualType T) {
+  RecordDecl *RD = T->getAsRecordDecl();
+  if (!RD)
+    return nullptr;
+  if (const auto *TST = dyn_cast<TemplateSpecializationType>(T))
+    if (TemplateDecl *TD = TST->getTemplateName().getAsTemplateDecl())
+      RD = dyn_cast_or_null<RecordDecl>(TD->getTemplatedDecl());
+  return RD;
 }
 
 // Recursively determine whether a record contains a pointer field with the
@@ -1031,9 +754,10 @@ bool RecordType::hasNullableFields() const {
   return hasFieldWithNullability(getDecl(), NullabilityKind::Nullable);
 }
 
-bool RecordType::withBorrowFields() const {
-  llvm::SmallPtrSet<const RecordType *, 16> Visited;
-  return withBorrowFieldsImpl(QualType(this, 0), Visited);
+bool clang::isDesugaredFromTraitType(QualType T) {
+  RecordDecl *RD =
+      getRecordDeclThroughSpecialization(getInnermostPointeeType(T));
+  return RD && RD->getDesugaredTraitDecl();
 }
 
 bool Type::isBSCFutureType() const {
@@ -1080,65 +804,12 @@ QualType ConditionalType::desugar() const {
   return QualType(this, 0);
 }
 
-bool QualType::hasOwned() const {
-  if (isOwnedQualified())
-    return true;
-  return getTypePtr()->hasOwnedFields();
-}
-
-bool QualType::hasBorrow() const {
-  if (isBorrowQualified())
-    return true;
-  return getTypePtr()->hasBorrowFields();
-}
-
 bool QualType::isConstBorrow() const {
-  if (!isBorrowQualified())
-    return false;
-  if (!getTypePtr()->isPointerType())
-    return false;
-  QualType directPointee = getTypePtr()->getPointeeType();
-  return directPointee.isConstQualified();
+  return isBorrowPointer() &&
+         getTypePtr()->getPointeeType().isConstQualified();
 }
 
-bool QualType::isConstPointee() const {
-  QualType QT = QualType(getTypePtr(), getLocalFastQualifiers());
-  while (QT->isPointerType()) {
-      QT = QT->getPointeeType();
-  }
-  if (QT.isLocalConstQualified())
-      return true;
-  return false;
-}
 
-QualType QualType::addConstBorrow(const ASTContext &Context) {
-  QualType pointee;
-  if (getTypePtr()->isPointerType()) {
-    // Use the pointee type as stored (preserve sugar) so the result type prints
-    // without an extra tag (e.g. "const s<int> *_Borrow" not "const struct s<int> *_Borrow").
-    pointee = getTypePtr()->getPointeeType();
-  } else {
-    // Non-pointer: &_Const applied to a value of type T (e.g. *a with type s<T>)
-    // yields const T* _Borrow. Use the type as-is so printing matches the
-    // operand (e.g. "s<int>" not "struct s<int>").
-    pointee = *this;
-  }
-  pointee.addConst();  // Add const to the (direct) pointee (the borrowed object)
-  QualType result = Context.getPointerType(pointee);
-  result.addBorrow();
-  // Preserve BSC semantic qualifiers that describe the borrow itself:
-  // _ArrayElem and explicit nullability (_Nullable/_Nonnull) survive a
-  // mutable-to-const reborrow. _Owned is intentionally not carried over:
-  // a const borrow is not an owned pointer (callers strip _Owned before
-  // invoking this helper).
-  Qualifiers Qs = result.getQualifiers();
-  if (isArrayElemQualified())
-    Qs.addArrayElem();
-  if (isNullableQualified())
-    Qs.addNullable();
-  if (isNonnullQualified())
-    Qs.addNonnull();
-  return Context.getQualifiedType(result.getTypePtr(), Qs);
-}
+
 
 #endif

@@ -988,6 +988,9 @@ public:
 
   void VisitPointerType(const PointerType *T) {
     AddQualType(T->getPointeeType());
+#if ENABLE_BSC
+    ID.AddInteger(T->getBSCProperties().toOpaque());
+#endif
     VisitType(T);
   }
 
@@ -1082,6 +1085,12 @@ public:
   #if ENABLE_BSC
   void VisitConditionalType(const ConditionalType *T) {
     AddQualType(T->getUnderlyingType());
+    VisitType(T);
+  }
+
+  void VisitBSCQualifiedType(const BSCQualifiedType *T) {
+    AddQualType(T->getUnderlyingType());
+    ID.AddInteger(T->getBSCProperties().toOpaque());
     VisitType(T);
   }
   #endif

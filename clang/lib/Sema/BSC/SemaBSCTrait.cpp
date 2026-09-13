@@ -15,6 +15,7 @@
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/BSC/DeclBSC.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/Basic/SourceLocation.h"
@@ -121,7 +122,7 @@ RecordDecl *Sema::ActOnDesugarVtableRecord(TraitDecl *TD) {
                 Context.ThisTy.getTypePtr()) {
           QualType ThisPT = Context.getQualifiedType(
               Context.VoidTy, T->getPointeeType().getLocalQualifiers());
-          ThisPT = Context.getPointerType(ThisPT);
+          ThisPT = Context.getPointerType(ThisPT, T.getBSCPointerProperties());
           ThisPT = Context.getQualifiedType(ThisPT, T.getLocalQualifiers());
           Args.push_back(ThisPT);
         } else {
@@ -173,11 +174,12 @@ RecordDecl *Sema::ActOnDesugarTraitRecord(TraitDecl *TD,
   TraitRD->startDefinition();
   std::string DataName = "data";
   std::string VtableName = "vtable";
-  QualType DataPT = Context.getPointerType(Context.VoidTy);
+  BSCPointerProperties DataP;
   if (addOwned)
-    DataPT.addOwned();
-  if (addBorrow)
-    DataPT.addBorrow();
+    DataP.Kind = BPK_Owned;
+  else if (addBorrow)
+    DataP.Kind = BPK_Borrow;
+  QualType DataPT = Context.getPointerType(Context.VoidTy, DataP);
   QualType RecordTy = Context.getRecordType(TraitVtableRD);
   ClassTemplateDecl *CTD = TraitVtableRD->getDescribedClassTemplate();
   if (CTD)
@@ -291,12 +293,14 @@ Expr *Sema::ConvertParmTraitToStructTrait(Expr *UO, QualType ProtoArgType,
   }
   LookupVar->setIsUsed();
 
-  QualType VoidPT = Context.getPointerType(Context.VoidTy);
-  if ((ProtoArgType.isOwnedQualified() || ProtoArgType->isMoveSemanticType()) &&
-      UO->getType().isOwnedQualified())
-    VoidPT.addOwned();
-  else if (ProtoArgType->hasBorrowFields() && UO->getType().isBorrowQualified())
-    VoidPT.addBorrow();
+  BSCPointerProperties VoidP;
+  if (ProtoArgType.isOrContainsOwned(BSCLookThrough::NoPointer) &&
+      UO->getType().isOwnedPointer())
+    VoidP.Kind = BPK_Owned;
+  else if (ProtoArgType->containsBorrow(BSCLookThrough::AnyPointer) &&
+           UO->getType().isBorrowPointer())
+    VoidP.Kind = BPK_Borrow;
+  QualType VoidPT = Context.getPointerType(Context.VoidTy, VoidP);
   QualType VtablePT = QualType();
   RecordDecl *RD = ProtoArgType->getAsRecordDecl();
   if (!RD) {
@@ -465,26 +469,9 @@ QualType Sema::CompleteRecordType(RecordDecl *RD, SourceLocation BL,
                                   SourceLocation EL, QualType QT) {
   ClassTemplateDecl *CTD = RD->getDescribedClassTemplate();
   TemplateArgumentListInfo Args(BL, EL);
-  while (QT->isPointerType())
-    QT = QT->getPointeeType();
-  while (isa<TemplateSpecializationType>(QT) || isa<TypedefType>(QT)) {
-    // In this case:
-    //   typedef G<T> = trait F<T>;
-    //   impl G<int> for int;
-    // QT is a TemplateSpecializationType but not TypedefType.
-    if (const TemplateSpecializationType *TT =
-            dyn_cast<TemplateSpecializationType>(QT)) {
-      if (TT->isTypeAlias())
-        QT = TT->getAliasedType();
-      else
-        break;
-      // In this case:
-      //   typedef G = trait F<int>;
-      //   impl G for int;
-      // QT is a TypedefType.
-    } else if (const TypedefType *TT = dyn_cast<TypedefType>(QT))
-      QT = TT->desugar();
-  }
+  // `typedef G<T> = trait F<T>; impl G<int> for int;` names the trait through
+  // an alias template, `typedef G = trait F<int>;` through a typedef.
+  QT = stripTypedefsAndAliasTemplates(getInnermostPointeeType(QT));
   // Remove ElaboratedType
   const TemplateSpecializationType *TST = dyn_cast<TemplateSpecializationType>(
       QT->getLocallyUnqualifiedSingleStepDesugaredType());
@@ -580,7 +567,8 @@ VarDecl *Sema::DesugarImplTrait(TraitDecl *TD, SourceLocation TraitLoc,
         QualType VoidPT = Context.getQualifiedType(
             Context.VoidTy,
             FPT->getParamType(0)->getPointeeType().getLocalQualifiers());
-        VoidPT = Context.getPointerType(VoidPT);
+        VoidPT = Context.getPointerType(
+            VoidPT, FPT->getParamType(0).getBSCPointerProperties());
         VoidPT = Context.getQualifiedType(
             VoidPT, FPT->getParamType(0).getLocalQualifiers());
         ParamTys.push_back(VoidPT);
@@ -637,7 +625,7 @@ VarDecl *Sema::DesugarImplTrait(TraitDecl *TD, SourceLocation TraitLoc,
 QualType Sema::DesugarTraitToStructTrait(TraitDecl *TD, QualType T,
                                          SourceLocation Loc) {
   RecordDecl *RD = nullptr;
-  if (T.isOwnedQualified())
+  if (T.isOwnedPointerOrOwnedStruct())
     RD = TD->getOwnedTrait();
   else if (T.isBorrowQualified())
     RD = TD->getBorrowTrait();
@@ -648,20 +636,8 @@ QualType Sema::DesugarTraitToStructTrait(TraitDecl *TD, QualType T,
     return T;
   }
   QualType RT = QualType();
-  QualType InnerTy = T;
-  while (InnerTy->isPointerType())
-    InnerTy = InnerTy->getPointeeType();
-  while (isa<TemplateSpecializationType>(InnerTy) ||
-         isa<TypedefType>(InnerTy)) {
-    if (const TemplateSpecializationType *TT =
-            dyn_cast<TemplateSpecializationType>(InnerTy)) {
-      if (TT->isTypeAlias())
-        InnerTy = TT->getAliasedType();
-      else
-        break;
-    } else if (const TypedefType *TT = dyn_cast<TypedefType>(InnerTy))
-      InnerTy = TT->desugar();
-  }
+  QualType InnerTy =
+      stripTypedefsAndAliasTemplates(getInnermostPointeeType(T));
   // Remove ElaboratedType
   if (dyn_cast<TemplateSpecializationType>(
           InnerTy->getLocallyUnqualifiedSingleStepDesugaredType())) {
@@ -717,7 +693,7 @@ VarDecl *Sema::ActOnDesugarTraitInstance(Decl *D) {
     TD = TryDesugarTrait(QT);
     if (TD) {
       RecordDecl *LookupTrait = nullptr;
-      if (QT.isOwnedQualified())
+      if (QT.isOwnedPointer())
         LookupTrait = TD->getOwnedTrait();
       else if (QT.isBorrowQualified())
         LookupTrait = TD->getBorrowTrait();
@@ -774,12 +750,10 @@ VarDecl *Sema::ActOnDesugarTraitInstance(Decl *D) {
   }
 
   QualType T = UO->getType();
-  QualType InnerTy = T;
-  while (InnerTy->isPointerType())
-    InnerTy = InnerTy->getPointeeType();
+  QualType InnerTy = getInnermostPointeeType(T);
 
   QualType TraitTy;
-  if (VD->getType().isOwnedQualified())
+  if (VD->getType().isOwnedPointerOrOwnedStruct())
     TraitTy = QualType(TD->getOwnedTrait()->getTypeForDecl(), 0);
   else if (VD->getType().isBorrowQualified())
     TraitTy = QualType(TD->getBorrowTrait()->getTypeForDecl(), 0);
@@ -849,11 +823,12 @@ VarDecl *Sema::ActOnDesugarTraitInstance(Decl *D) {
                                  VK_PRValue, FPOptionsOverride());
     Exprs = {UO, TraitVtable};
   } else {
-    QualType VoidPT = Context.getPointerType(Context.VoidTy);
-    if (VD->getType().isOwnedQualified())
-      VoidPT.addOwned();
-    if (VD->getType().isBorrowQualified())
-      VoidPT.addBorrow();
+    BSCPointerProperties VoidP;
+    if (VD->getType().isOwnedPointerOrOwnedStruct())
+      VoidP.Kind = BPK_Owned;
+    else if (VD->getType().isBorrowQualified())
+      VoidP.Kind = BPK_Borrow;
+    QualType VoidPT = Context.getPointerType(Context.VoidTy, VoidP);
     ImplicitCastExpr *TraitData =
         ImplicitCastExpr::Create(Context, VoidPT,
                                  /* CastKind=*/CK_BitCast,
@@ -900,10 +875,7 @@ void Sema::ActOnDesugarTraitExprInStruct(InitListExpr *IList, Expr *expr,
   }
   TraitDecl *TD = TryDesugarTrait(ElemType);
   if (!TD) {
-    QualType InnerTy = ElemType;
-    while (InnerTy->isPointerType())
-      InnerTy = InnerTy->getPointeeType();
-    TD = TryDesugarTrait(InnerTy);
+    TD = TryDesugarTrait(getInnermostPointeeType(ElemType));
     if (!TD)
       return;
   }
@@ -991,20 +963,7 @@ TraitDecl *Sema::TryDesugarTrait(QualType T) {
 
   QualType TraitTy = T;
   if (T->isPointerType()) {
-    TraitTy = T->getPointeeType();
-    while (TraitTy->isPointerType())
-      TraitTy = TraitTy->getPointeeType();
-    while (isa<TemplateSpecializationType>(TraitTy) ||
-           isa<TypedefType>(TraitTy)) {
-      if (const TemplateSpecializationType *TempTST =
-              dyn_cast<TemplateSpecializationType>(TraitTy)) {
-        if (TempTST->isTypeAlias())
-          TraitTy = TempTST->getAliasedType();
-        else
-          break;
-      } else if (const TypedefType *TT = dyn_cast<TypedefType>(TraitTy))
-        TraitTy = TT->desugar();
-    }
+    TraitTy = stripTypedefsAndAliasTemplates(getInnermostPointeeType(T));
     // Remove ElaboratedType
     const TemplateSpecializationType *TST =
         dyn_cast<TemplateSpecializationType>(
@@ -1016,31 +975,14 @@ TraitDecl *Sema::TryDesugarTrait(QualType T) {
       TD = dyn_cast_or_null<TraitDecl>(TraitTy->getAsTagDecl());
     }
   }
-  if (!TD) {
-    if (RecordDecl *RD = TraitTy->getAsRecordDecl()) {
-      if (auto *TST = dyn_cast_or_null<TemplateSpecializationType>(TraitTy)) {
-        TemplateDecl *TempT = TST->getTemplateName().getAsTemplateDecl();
-        RD = dyn_cast_or_null<RecordDecl>(TempT->getTemplatedDecl());
-      }
-      if (RD)
-        TD = RD->getDesugaredTraitDecl();
-    }
-  }
+  if (!TD)
+    if (RecordDecl *RD = getRecordDeclThroughSpecialization(TraitTy))
+      TD = RD->getDesugaredTraitDecl();
   return TD;
 }
 
 bool Sema::IsDesugaredFromTraitType(QualType T) {
-  while (T->isPointerType())
-    T = T->getPointeeType();
-  if (RecordDecl *RD = T->getAsRecordDecl()) {
-    if (auto *TST = dyn_cast_or_null<TemplateSpecializationType>(T)) {
-      TemplateDecl *TempT = TST->getTemplateName().getAsTemplateDecl();
-      RD = dyn_cast_or_null<RecordDecl>(TempT->getTemplatedDecl());
-    }
-    if (RD->getDesugaredTraitDecl())
-      return true;
-  }
-  return false;
+  return isDesugaredFromTraitType(T);
 }
 
 // Desugars complex type declarations in the following code example:
@@ -1143,9 +1085,8 @@ ExprResult Sema::ActOnTraitReassign(Scope *S, SourceLocation TokLoc,
   }
 
   RecordDecl *RD = dyn_cast<RecordType>(LTy.getCanonicalType())->getDecl();
-  QualType T =
-      RE->getType()->getPointeeType().getUnqualifiedType().getCanonicalType();
-  T.removeLocalOwned();
+  QualType T = Context.getTypeWithoutBSCProperties(
+      RE->getType()->getPointeeType().getUnqualifiedType().getCanonicalType());
   for (RecordDecl::field_iterator I = RD->field_begin(), E = RD->field_end();
        I != E; ++I) {
     Expr *NewLHSExpr = BuildMemberExpr(
@@ -1190,14 +1131,9 @@ ExprResult Sema::ActOnTraitReassign(Scope *S, SourceLocation TokLoc,
 }
 
 bool Sema::IsTraitExpr(Expr *Expr) {
-  QualType T = Expr->getType().getCanonicalType();
-  while (T->isPointerType())
-    T = T->getPointeeType();
-  if (auto RT = dyn_cast<RecordType>(T)) {
-    RecordDecl *RD = dyn_cast<RecordDecl>(RT->getDecl());
-    return (RD && RD->getDesugaredTraitDecl());
-  }
-  return false;
+  QualType T = getInnermostPointeeType(Expr->getType().getCanonicalType());
+  RecordDecl *RD = T->getAsRecordDecl();
+  return RD && RD->getDesugaredTraitDecl();
 }
 
 ExprResult Sema::ActOnTraitCompare(Scope *S, SourceLocation TokLoc,

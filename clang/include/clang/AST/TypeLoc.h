@@ -1160,6 +1160,40 @@ public:
   }
 };
 
+#if ENABLE_BSC
+struct BSCQualifiedLocInfo {
+  SourceLocation KeywordLoc;
+};
+
+/// Location info for BSC properties written over sugar or a dependent type
+/// (`IP _Owned`, `_Owned T`).  Wraps the underlying type's TypeLoc and
+/// records where the property was written.
+class BSCQualifiedTypeLoc
+    : public ConcreteTypeLoc<UnqualTypeLoc, BSCQualifiedTypeLoc,
+                             BSCQualifiedType,
+                             BSCQualifiedLocInfo> {
+public:
+  void initializeLocal(ASTContext &Context, SourceLocation Loc) {
+    setKeywordLoc(Loc);
+  }
+
+  TypeLoc getInnerLoc() const { return getInnerTypeLoc(); }
+
+  SourceLocation getKeywordLoc() const {
+    return this->getLocalData()->KeywordLoc;
+  }
+  void setKeywordLoc(SourceLocation Loc) {
+    this->getLocalData()->KeywordLoc = Loc;
+  }
+
+  QualType getInnerType() const { return getTypePtr()->getUnderlyingType(); }
+
+  SourceRange getLocalSourceRange() const {
+    return SourceRange(getKeywordLoc(), getKeywordLoc());
+  }
+};
+#endif
+
 struct ParenLocInfo {
   SourceLocation LParenLoc;
   SourceLocation RParenLoc;

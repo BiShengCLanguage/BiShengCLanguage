@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -include %s -fsyntax-only -verify %s
+// RUN: %clang_cc1 -emit-pch -o %t %s
+// RUN: %clang_cc1 -include-pch %t -fsyntax-only -verify %s
+// RUN: %clang_cc1 -emit-pch -o %t.merge %S/Inputs/consume.cbs
+// RUN: %clang_cc1 -ast-merge %t.merge -fsyntax-only -verify -DMERGED %s
+// expected-no-diagnostics
+
+#if defined(MERGED)
+// Must merge with the imported declaration of the same template.
+void consume<T>(_Owned T t);
+void use(int *_Owned p) {
+  consume(p);
+}
+#elif !defined(HEADER)
+#define HEADER
+void consume<T>(_Owned T t);
+struct Box<T> {
+  _Owned T slot;
+};
+#else
+void use(int *_Owned p) {
+  consume(p);
+}
+struct Box<int *> box_int;
+#endif

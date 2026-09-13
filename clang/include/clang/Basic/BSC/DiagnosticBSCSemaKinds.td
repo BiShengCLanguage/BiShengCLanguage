@@ -141,9 +141,9 @@ def err_safe_zone_ptr_arithmetic : Error<
   "zone; consider wrapping it in '_Unsafe { ... }'">;
 def note_bsc_ptr_declared_here : Note<
   "pointer %0 declared here">;
-def note_bsc_ptr_inc_dec_fix_named : Note<
+def note_bsc_ptr_arith_fix_named : Note<
   "%select{|use '_Borrow _ArrayElem' or }0declare %1 as a raw pointer for pointer arithmetic">;
-def note_bsc_ptr_inc_dec_fix_anon : Note<
+def note_bsc_ptr_arith_fix_anon : Note<
   "use a raw pointer for pointer arithmetic">;
 def err_return_inc_dec_void_in_safe_zone : Error<
   "result of '++' or '--' cannot be used as return value in safe zone; move the increment/decrement out of the return statement (or add an explicit cast to void to suppress)">;
@@ -154,26 +154,26 @@ def note_safe_to_unsafe_function_no_unsafe_decl : Note<
   "function %0 has no _Unsafe declaration; add an _Unsafe declaration to enable assignment to an _Unsafe function pointer">;
 def err_safe_function : Error<"%0 is forbidden in a _Safe function">;
 def err_safe_global_var : Error<"defining mutable global variables is not allowed within the safe zone"> ;
-def err_bsc_generic_heterogeneous_redecl : Error<"generic function %0 cannot have both _Safe and _Unsafe declarations">;
-def err_bsc_incompatible_heterogeneous_redecl_type : Error<
+def err_bsc_generic_mixed_mode_redecl : Error<"generic function %0 cannot have both _Safe and _Unsafe declarations">;
+def err_bsc_unsafe_safe_refinement_type : Error<
   "redeclaration of %0 has incompatible "
   "%select{parameter|return}1 type %2">;
-def err_bsc_incompatible_heterogeneous_redecl_param_count : Error<
+def err_bsc_unsafe_safe_refinement_param_count : Error<
   "redeclaration of %0 takes %1 parameter%s1 instead of %2">;
-def err_bsc_incompatible_heterogeneous_redecl_variadic : Error<
+def err_bsc_unsafe_safe_refinement_variadic : Error<
   "redeclaration of %0 %select{is not|is}1 variadic, "
   "previous declaration %select{is|is not}1 variadic">;
 def note_bsc_redecl_previous : Note<
   "previous declaration had %select{parameter of type|return type}0 %1">;
-def err_bsc_no_matching_heterogeneous_function_call : Error<
+def err_bsc_no_matching_mixed_mode_function_call : Error<
   "no matching declaration of %0 for call type %1">;
-def err_bsc_no_matching_heterogeneous_function_assign : Error<
+def err_bsc_no_matching_mixed_mode_function_assign : Error<
   "no matching declaration of %0 for assignment to %1">;
-def note_bsc_heterogeneous_candidate : Note<
+def note_bsc_mixed_mode_candidate : Note<
   "candidate declaration has type %0">;
-def note_bsc_heterogeneous_candidate_arg_mismatch : Note<
+def note_bsc_mixed_mode_candidate_arg_mismatch : Note<
   "argument %0 of type %1 doesn't match parameter type %2">;
-def note_bsc_heterogeneous_candidate_arg_count : Note<
+def note_bsc_mixed_mode_candidate_arg_count : Note<
   "call passes %0 argument%s0 but candidate takes %1">;
 def err_safe_string_init_too_long : Error<
   "too-long initializer-string for char array is forbidden in safe zone; array size %0 cannot hold string of length %1 (including null terminator)">;

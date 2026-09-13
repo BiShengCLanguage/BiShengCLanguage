@@ -40,7 +40,7 @@ BSCMethodDecl *buildBSCMethodDecl(ASTContext &C, DeclContext *DC,
 
 bool IsVarDeclWithOwnedStructureType(VarDecl *VD) {
   const Type *VDType = VD->getType().getCanonicalType().getTypePtr();
-  if (VDType->isOwnedStructureType() && !VD->hasGlobalStorage())
+  if (VDType->isOwnedStruct() && !VD->hasGlobalStorage())
     return true;
   return false;
 }
@@ -51,7 +51,7 @@ std::stack<FieldDecl *> CollectInstanceFieldWithDestructor(RecordDecl *RD) {
   for (RecordDecl::field_iterator FieldIt = RD->field_begin();
        FieldIt != RD->field_end(); ++FieldIt) {
     const Type *FieldType = FieldIt->getType().getCanonicalType().getTypePtr();
-    if (FieldType->isOwnedStructureType()) {
+    if (FieldType->isOwnedStruct()) {
       RecordDecl *RD = cast<RecordType>(FieldType)->getDecl();
       if (RD->getBSCDestructor() && !RD->getBSCDestructor()->isInvalidDecl()) {
         OwnedStructFields.push(*FieldIt);
@@ -75,7 +75,6 @@ BSCMethodDecl *Sema::getOrInsertBSCDestructor(RecordDecl *RD) {
             dyn_cast<const InjectedClassNameType>(ParamType)) {
       ParamType = ICT->getInjectedSpecializationType();
     }
-    ParamType.addOwned();
     SmallVector<QualType, 1> ParamTys;
     ParamTys.push_back(ParamType);
     QualType FuncType =
@@ -123,7 +122,7 @@ void CollectAllFieldsWithPendingInstantiatedDestructor(RecordDecl *RD,
   for (RecordDecl::field_iterator FieldIt = RD->field_begin();
        FieldIt != RD->field_end(); ++FieldIt) {
     const Type *FieldType = FieldIt->getType().getCanonicalType().getTypePtr();
-    if (FieldType->isOwnedStructureType()) {
+    if (FieldType->isOwnedStruct()) {
       RecordDecl *RD = cast<RecordType>(FieldType)->getDecl();
       if (RD->getBSCDestructor() && !RD->getBSCDestructor()->isInvalidDecl()) {
         OwnedStructFields.push(RD);
@@ -150,7 +149,7 @@ void Sema::HandleBSCDestructorBody(RecordDecl *RD, BSCMethodDecl *Destructor,
         InstanceFields.pop();
 
         const Type *FieldType = Field->getType().getCanonicalType().getTypePtr();
-        if (FieldType->isOwnedStructureType()) {
+        if (FieldType->isOwnedStruct()) {
           RecordDecl *ThisRD = cast<RecordType>(FieldType)->getDecl();
           BSCMethodDecl *DestructorToCall = ThisRD->getBSCDestructor();
           // If owned struct template field has a valid destructor declaration,
@@ -172,7 +171,6 @@ void Sema::HandleBSCDestructorBody(RecordDecl *RD, BSCMethodDecl *Destructor,
           }  
           ParmVarDecl *PVD = Destructor->getParamDecl(0);
           QualType ParamType = getASTContext().getRecordType(RD);
-          ParamType.addOwned();
 
           Expr *DRE =
               BuildDeclRefExpr(PVD, ParamType, VK_LValue, CS->getRBracLoc());
@@ -893,16 +891,19 @@ void Sema::CheckBSCDestructorDeclarator(FunctionDecl *NewFD) {
     return;
   }
 
+  // The class is the injected class name but the parameter is the
+  // specialization, so compare canonically rather than by spelling.
+  QualType SelfType = ClassType;
+  if (const auto *ICNT = dyn_cast<InjectedClassNameType>(ClassType))
+    SelfType = ICNT->getInjectedSpecializationType();
+
   bool IsEqualType = true;
-  if (isa<InjectedClassNameType>(ClassType)) {
-    IsEqualType = ("_Owned " + ClassType.getAsString()) ==
-                  NewFD->getParamDecl(0)->getType().getAsString();
-  } else {
-    auto ParamType = NewFD->getParamDecl(0)->getType().getTypePtrOrNull();
-    if (auto CT = ClassType.getTypePtrOrNull()) {
-      IsEqualType = CT->getCanonicalTypeUnqualified().getTypePtrOrNull() ==
-                    ParamType->getCanonicalTypeUnqualified().getTypePtrOrNull();
-    }
+  auto *ParamType = NewFD->getParamDecl(0)->getType().getTypePtrOrNull();
+  if (auto *CT = SelfType.getTypePtrOrNull()) {
+    IsEqualType =
+        ParamType && CT->getCanonicalTypeUnqualified().getTypePtrOrNull() ==
+                         ParamType->getCanonicalTypeUnqualified()
+                             .getTypePtrOrNull();
   }
 
   if ((!IsEqualType || NewFD->getParamDecl(0)->getName() != "this")) {

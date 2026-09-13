@@ -386,6 +386,11 @@ public:
     // FIXME: AttrKind
     Visit(T->getModifiedType());
   }
+#if ENABLE_BSC
+  void VisitBSCQualifiedType(const BSCQualifiedType *T) {
+    Visit(T->getUnderlyingType());
+  }
+#endif
   void VisitBTFTagAttributedType(const BTFTagAttributedType *T) {
     Visit(T->getWrappedType());
   }

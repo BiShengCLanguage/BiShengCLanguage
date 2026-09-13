@@ -173,7 +173,7 @@ static bool checkMoveToRawArgumentShape(Sema &S, CallExpr *TheCall,
                                         bool RequireArrayElem) {
   QualType ArgTy = TheCall->getArg(0)->getType();
   SourceLocation ArgLoc = TheCall->getArg(0)->getBeginLoc();
-  bool IsNotOwnedPtr = !ArgTy->isPointerType() || !ArgTy.isOwnedQualified();
+  bool IsNotOwnedPtr = !ArgTy.isOwnedPointer();
   if (!RequireArrayElem) {
     if (IsNotOwnedPtr || ArgTy.isArrayElemQualified()) {
       S.Diag(ArgLoc, diag::err_bsc_move_to_raw_not_owned) << ArgTy;
@@ -197,8 +197,7 @@ static bool checkTakeFromRawArgumentShape(Sema &S, CallExpr *TheCall,
                                           bool ForArray) {
   QualType ArgTy = TheCall->getArg(0)->getType();
   SourceLocation ArgLoc = TheCall->getArg(0)->getBeginLoc();
-  if (!ArgTy->isPointerType() || ArgTy.isOwnedQualified() ||
-      ArgTy.isBorrowQualified() || ArgTy.isArrayElemQualified()) {
+  if (!ArgTy.isRawPointer()) {
     if (ForArray)
       S.Diag(ArgLoc, diag::err_bsc_take_array_from_raw_not_raw) << ArgTy;
     else
@@ -229,44 +228,31 @@ static void handleBSCRawTransferBuiltin(Sema &S, CallExpr *TheCall,
   QualType ArgTy = TheCall->getArg(0)->getType();
   // Capture source nullability before desugaring/stripping.
   NullabilityKind SrcNullability = ArgTy.getDefNullability();
-  QualType ResultTy = ArgTy.getOnlyBSCQualifiedType(S.Context);
+  QualType ResultTy = ArgTy.getUnqualifiedType();
   while (const auto *Typedef = ResultTy->getAs<TypedefType>())
     ResultTy = Typedef->desugar();
-  // Peel BSC nullability bits (and any legacy AttributedType sugar) so
-  // subsequent Owned/Borrow/ArrayElem stripping reaches the pointer.
-  ResultTy.removeLocalNullability(S.Context);
   AttributedType::stripOuterNullability(ResultTy);
-  // Decompose the type to strip all qualifiers, including _Owned/_Borrow
-  // that may be baked into the canonical type pointer and _ArrayElem that
-  // may live in an ExtQuals node (where removeLocalArrayElem cannot reach).
+
+  // Strip every BSC property, then re-apply the ones this builtin produces.
+  ResultTy = S.Context.getTypeWithoutBSCProperties(ResultTy);
   SplitQualType Split = ResultTy.getSplitUnqualifiedType();
-  Qualifiers Qs = Split.Quals;
-  Qs.removeFastQualifiers(Qualifiers::Owned | Qualifiers::Borrow);
-  Qs.removeArrayElem();
-  Qs.removeNullable();
-  Qs.removeNonnull();
+  BSCPointerProperties P;
   switch (BuiltinID) {
     default: break;
     case Builtin::BI__take_from_raw:
-      Qs.addOwned();
+      P.Kind = BPK_Owned;
       break;
-    case Builtin::BI__take_array_from_raw: {
-      Qs.addOwned();
-      Qs.addArrayElem();
+    case Builtin::BI__take_array_from_raw:
+      P.Kind = BPK_Owned;
+      P.ArrayElem = true;
       break;
-    }
   }
-  // Rebuild the result type.  If the underlying type pointer still carries
-  // canonical fast qualifiers (e.g. _Owned), rebuild it from the pointee
-  // type so that the result is truly unqualified.
-  if (const auto *PT = Split.Ty->getAs<PointerType>()) {
-    ResultTy = S.Context.getPointerType(PT->getPointeeType());
-  } else {
-    ResultTy = S.Context.getQualifiedType(Split.Ty, {});
-  }
-  ResultTy = S.Context.getQualifiedType(ResultTy.getTypePtr(), Qs);
+  if (const auto *PT = Split.Ty->getAs<PointerType>())
+    ResultTy = S.Context.getPointerType(PT->getPointeeType(), P);
+  else
+    ResultTy = S.Context.getQualifiedType(Split.Ty, Split.Quals);
   if (ResultTy.getDefNullability() != SrcNullability) {
-    ResultTy = applyNullabilityToType(ResultTy, SrcNullability, S.Context);
+    ResultTy = S.Context.getTypeWithNullability(ResultTy, SrcNullability);
   }
   TheCall->setType(ResultTy);
 }
@@ -2432,7 +2418,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     if (checkArgCount(*this, TheCall, 1))
       return ExprError();
     QualType ArgTy = TheCall->getArg(0)->getType();
-    if (!ArgTy->isPointerType() || !ArgTy.isOwnedQualified()) {
+    if (!ArgTy.isOwnedPointer()) {
       Diag(TheCall->getArg(0)->getBeginLoc(), diag::err_forget_not_owned);
       return ExprError();
     }

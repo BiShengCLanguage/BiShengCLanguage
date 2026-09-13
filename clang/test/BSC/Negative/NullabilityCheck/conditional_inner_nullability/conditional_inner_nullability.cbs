@@ -1,0 +1,56 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+// RUN: %clang_cc1 -nullability-check=all -ast-dump -verify %s | FileCheck %s
+
+// Either arm may supply the value, so every pointer level of the result takes
+// the weaker nullability.
+
+_Safe void inner(int *_Nullable *_Nonnull a, int *_Nonnull *_Nonnull b, int c) {
+  int *_Nonnull *_Nonnull r = c ? a : b; // expected-error {{nested pointer nullability mismatch: cannot use 'int *_Nullable *_Nonnull' as 'int *_Nonnull *_Nonnull'}} expected-note {{inner pointer nullability differs between 'int *_Nullable' and 'int *_Nonnull'}}
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int *_Nullable *_Nonnull'
+
+// The nullable arm on the right must be caught the same way.
+_Safe void inner_swapped(int *_Nonnull *_Nonnull a, int *_Nullable *_Nonnull b, int c) {
+  int *_Nonnull *_Nonnull r = c ? a : b; // expected-error {{nested pointer nullability mismatch: cannot use 'int *_Nullable *_Nonnull' as 'int *_Nonnull *_Nonnull'}} expected-note {{inner pointer nullability differs between 'int *_Nullable' and 'int *_Nonnull'}}
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int *_Nullable *_Nonnull'
+
+_Safe void three_levels(int **_Nullable *_Nonnull a, int **_Nonnull *_Nonnull b, int c) {
+  int **_Nonnull *_Nonnull r = c ? a : b; // expected-error {{nested pointer nullability mismatch: cannot use 'int **_Nullable *_Nonnull' as 'int **_Nonnull *_Nonnull'}} expected-note {{inner pointer nullability differs between 'int **_Nullable' and 'int **_Nonnull'}}
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int **_Nullable *_Nonnull'
+
+_Safe void deep_inner(int *_Nullable **_Nonnull a, int *_Nonnull **_Nonnull b, int c) {
+  int *_Nonnull **_Nonnull r = c ? a : b; // expected-error {{nested pointer nullability mismatch: cannot use 'int *_Nullable **_Nonnull' as 'int *_Nonnull **_Nonnull'}} expected-note {{inner pointer nullability differs between 'int *_Nullable' and 'int *_Nonnull'}}
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int *_Nullable **_Nonnull'
+
+_Safe void borrow_inner(int *_Nullable *_Borrow a, int *_Nonnull *_Borrow b, int c) {
+  int *_Nonnull *_Borrow r = c ? a : b; // expected-error {{nested pointer nullability mismatch: cannot use 'int *_Nullable *_Borrow' as 'int *_Nonnull *_Borrow'}} expected-note {{inner pointer nullability differs between 'int *_Nullable' and 'int *_Nonnull'}}
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int *_Nullable *_Borrow'
+
+// Agreeing arms keep their nullability and raise nothing.
+_Safe void both_nullable(int *_Nullable *_Nonnull a, int *_Nullable *_Nonnull b, int c) {
+  int *_Nullable *_Nonnull r = c ? a : b;
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int *_Nullable *_Nonnull'
+
+// A raw level already reads as nullable, so its spelling is left alone.
+_Safe void raw_level(int **_Nullable *_Nonnull a, int **_Nonnull *_Nonnull b, int c) {
+  int **_Nullable *_Nonnull r = c ? a : b;
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int **_Nullable *_Nonnull'
+
+_Safe void top_level(int *_Nullable a, int *_Nonnull b, int c) {
+  int *_Nonnull r = c ? a : b; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  (void)r;
+}
+// CHECK: ConditionalOperator {{.*}} 'int *_Nullable'

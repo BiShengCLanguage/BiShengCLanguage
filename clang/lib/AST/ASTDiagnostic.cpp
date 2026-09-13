@@ -211,8 +211,14 @@ break; \
   // If we have a pointer-like type, desugar the pointee as well.
   // FIXME: Handle other pointer-like types.
   if (const PointerType *Ty = QT->getAs<PointerType>()) {
+#if ENABLE_BSC
+    QT = Context.getPointerType(
+        desugarForDiagnostic(Context, Ty->getPointeeType(), ShouldAKA),
+        Ty->getBSCProperties());
+#else
     QT = Context.getPointerType(
         desugarForDiagnostic(Context, Ty->getPointeeType(), ShouldAKA));
+#endif
   } else if (const auto *Ty = QT->getAs<ObjCObjectPointerType>()) {
     QT = Context.getObjCObjectPointerType(
         desugarForDiagnostic(Context, Ty->getPointeeType(), ShouldAKA));

@@ -2343,6 +2343,7 @@ bool CXXNameMangler::mangleUnresolvedTypeOrSimpleId(QualType Ty,
   case Type::TypeOf:
   #if ENABLE_BSC
   case Type::Conditional:
+  case Type::BSCQualified:
   #endif
   case Type::Decltype:
   case Type::TemplateTypeParm:
@@ -3843,6 +3844,13 @@ void CXXNameMangler::mangleType(const DependentSizedMatrixType *T) {
   mangleType(T->getElementType());
   Out << "E";
 }
+
+#if ENABLE_BSC
+void CXXNameMangler::mangleType(const BSCQualifiedType *T) {
+  // BSC properties do not affect the mangled name.
+  mangleType(T->getUnderlyingType());
+}
+#endif
 
 void CXXNameMangler::mangleType(const DependentAddressSpaceType *T) {
   SplitQualType split = T->getPointeeType().split();

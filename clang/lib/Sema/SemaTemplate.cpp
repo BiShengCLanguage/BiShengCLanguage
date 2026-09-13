@@ -4306,9 +4306,13 @@ TypeResult Sema::ActOnTagTemplateIdType(TagUseKind TUK,
 
 #if ENABLE_BSC
   if (TUK != Sema::TUK_Definition && getLangOpts().BSC &&
-      (Result->isOwnedStructureType() ||
-       Result->isOwnedTemplateSpecializationType())) {
-    Diag(TagLoc, diag::err_tag_name) << Result;
+      Result->isOwnedStruct()) {
+    // The message names the type as it should be written -- no tag, and so
+    // no '_Owned' either.
+    PrintingPolicy NameOnly = getPrintingPolicy();
+    NameOnly.SuppressTagKeyword = true;
+    Diag(TagLoc, diag::err_tag_name)
+        << ("'" + Result.getAsString(NameOnly) + "'");
   }
 #endif
   // Check the tag kind
@@ -6279,6 +6283,13 @@ bool UnnamedLocalNoLinkageFinder::VisitDependentAddressSpaceType(
     const DependentAddressSpaceType *T) {
   return Visit(T->getPointeeType());
 }
+
+#if ENABLE_BSC
+bool UnnamedLocalNoLinkageFinder::VisitBSCQualifiedType(
+    const BSCQualifiedType *T) {
+  return Visit(T->getUnderlyingType());
+}
+#endif
 
 bool UnnamedLocalNoLinkageFinder::VisitVectorType(const VectorType* T) {
   return Visit(T->getElementType());

@@ -26,6 +26,22 @@ namespace clang {
 
 class FieldDecl;
 
+/// \p T with every pointer level removed: `T **` gives `T`, a non-pointer
+/// gives itself. Sugar on the innermost type is kept.
+QualType getInnermostPointeeType(QualType T);
+
+/// Look through typedefs and alias-template specializations. Stops at a
+/// class-template specialization, so its arguments stay visible, and at any
+/// other type.
+QualType stripTypedefsAndAliasTemplates(QualType T);
+
+/// The record declaration of \p T, taking the primary template's record for a
+/// template specialization; null when \p T is not a record.
+RecordDecl *getRecordDeclThroughSpecialization(QualType T);
+
+/// Behind any pointer levels, \p T is a struct desugared from a `_Trait`.
+bool isDesugaredFromTraitType(QualType T);
+
 /// Describes how the implicit region parameters of a record are projected to
 /// its fields. Field entries contain indices into a concrete record instance's
 /// region vector and may repeat an index for recursive projections.
@@ -66,46 +82,51 @@ const RecordRegionLayout &
 GetOrCreateRecordRegionLayout(const ASTContext &Ctx, const RecordDecl *RD,
                               RecordRegionLayoutMap &Layouts);
 
-/// Compute the number of borrow regions required to represent \p Type.
 unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type);
-
-/// Compute the number of borrow regions required to represent \p Type,
-/// building record layouts in \p Layouts on demand.
 unsigned ComputeNumRegions(const ASTContext &Ctx, QualType Type,
                            RecordRegionLayoutMap &Layouts);
 
-/// Apply \p NK as outer BSC nullability on \p QT, idempotently.
-/// BSC stores _Nullable/_Nonnull as non-fast qualifier bits (like
-/// _ArrayElem). If \p QT already has the same nullability (treating
-/// NullableResult as Nullable), returns \p QT unchanged. Otherwise strips
-/// existing outer nullability and re-applies \p NK as qualifier bits.
-QualType applyNullabilityToType(QualType QT, NullabilityKind NK,
-                                ASTContext &Ctx);
+/// Manual 3.8.3: compatible, with the same qualifiers at every pointer level;
+/// a function type compares its return and parameter slots.
+bool areBSCTypesCompatible(QualType L, QualType R);
 
-/// Copy explicit nullability from \p Src onto \p Dest, if any.
-QualType transferExplicitNullability(QualType Src, QualType Dest,
-                                     ASTContext &Ctx);
+/// Manual 3.4.4: either operand may supply the value, so every pointer level
+/// of \p T is nullable as soon as one of \p L / \p R is.
+QualType mergeNullabilityAtEveryPointerLevel(const ASTContext &Ctx, QualType T,
+                                             QualType L, QualType R);
 
-/// Strip _Nullable/_Nonnull at every pointer level of \p T.
-/// Used when comparing pointer kinds (SafeZone / Ownership) so that
-/// nullability differences — handled by the nullability checker — do not
-/// make otherwise-compatible pointer types look distinct.
-QualType stripAllNullabilityQualifiers(QualType T, ASTContext &Ctx);
+/// Manual 3.8.3 for a function-pointer assignment; Incompatible is what C
+/// would only warn about but ownership must not let pass.
+enum class BSCFunctionMismatch { None, Owned, Borrow, Incompatible };
+BSCFunctionMismatch firstBSCFunctionTypeMismatch(const ASTContext &Ctx,
+                                                 const FunctionProtoType *L,
+                                                 const FunctionProtoType *R);
 
-/// \c getOnlyBSCQualifiedType followed by \c stripAllNullabilityQualifiers.
-/// Prefer this over ad-hoc \c getUnqualifiedType + nullability stripping when
-/// comparing BSC pointer kinds: Owned/Borrow/ArrayElem are kept consistently,
-/// CVR is dropped, and nullability is removed at every pointer level.
-QualType getOnlyBSCQualifiedTypeWithoutNullability(QualType T,
-                                                    ASTContext &Ctx);
+/// Manual 3.6.5.4: Unsafe satisfies the unsafe-safe refinement relation to
+/// Safe.
+bool satisfiesUnsafeSafeRefinement(QualType Unsafe, QualType Safe);
 
-/// Returns true when LHS and RHS function types have the same effective
-/// nullability on every corresponding pair of parameters and return types.
-/// Returns false if any mismatch is found, e.g. a _Nonnull source parameter
-/// assigned to a _Nullable destination parameter.
-bool AreFunctionTypesNullabilityCompatible(const FunctionProtoType *LHS,
-                                           const FunctionProtoType *RHS,
-                                           ASTContext &Ctx);
+struct UnsafeSafeRefinementMismatchInfo {
+  enum class Kind {
+    ReturnType,
+    Parameter,
+    ParamCount,
+    Variadic,
+    Other,
+  };
+  Kind MismatchKind = Kind::Other;
+  // 1-based when MismatchKind == Parameter; 0 otherwise.
+  unsigned ParamIndex = 0;
+  QualType Type1;
+  QualType Type2;
+};
+
+/// Manual 3.6.5.4: the _Unsafe function type satisfies the unsafe-safe
+/// refinement relation with respect to the _Safe one.
+bool functionTypeSatisfiesUnsafeSafeRefinement(
+    ASTContext &Ctx, QualType Type1, QualType Type2,
+    SafeZoneSpecifier SZS1, SafeZoneSpecifier SZS2,
+    UnsafeSafeRefinementMismatchInfo *MismatchOut);
 
 } // namespace clang
 

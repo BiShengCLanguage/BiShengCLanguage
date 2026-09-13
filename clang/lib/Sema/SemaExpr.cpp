@@ -551,7 +551,7 @@ bool Sema::isBorrowArrayDecayTypeMatch(QualType SrcArrayType,
   // return true when SrcArrayType can decay to DestPtrType as a borrow pointer
   // (with or without _ArrayElem). this function should not accept decaying to
   // raw pointers.
-  if (!DestPtrType->isPointerType() || !DestPtrType.isBorrowQualified())
+  if (!DestPtrType.isBorrowPointer())
     return false;
   if (!SrcArrayType->isArrayType())
     return false;
@@ -791,16 +791,7 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   //   version of the type of the lvalue; otherwise, the value has the
   //   type of the lvalue.
   if (T.hasQualifiers())
-#if ENABLE_BSC
-  {
-    if (Context.getLangOpts().BSC)
-      T = T.getOnlyBSCQualifiedType(Context);
-    else
-#endif
     T = T.getUnqualifiedType();
-#if ENABLE_BSC
-  }
-#endif
 
   // Under the MS ABI, lock down the inheritance model now.
   if (T->isMemberPointerType() &&
@@ -827,8 +818,8 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   if (getLangOpts().BSC && !T->isNullPtrType() && T->getAsCXXRecordDecl())
     CK = CK_NoOp;
   if (getLangOpts().BSC)
-    T = transferExplicitNullability(E->getType(), T, Context);
-#endif
+    T = Context.getTypeWithNullabilityOf(T, E->getType());
+  #endif
   Res = ImplicitCastExpr::Create(Context, T, CK, E, nullptr, VK_PRValue,
                                  CurFPFeatureOverrides());
 
@@ -4846,6 +4837,7 @@ static void captureVariablyModifiedType(ASTContext &Context, QualType T,
     case Type::TypeOf:
     #if ENABLE_BSC
     case Type::Conditional:
+    case Type::BSCQualified:
     #endif
     case Type::UnaryTransform:
     case Type::Attributed:
@@ -5934,16 +5926,14 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
 #if ENABLE_BSC
   if (getLangOpts().BSC) {
     QualType BaseType = Base->getType();
-    if (BaseType->isPointerType()) {
-      bool IsAllowArraySubscript = BaseType.isArrayElemQualified();
-      if (BaseType.isOwnedQualified() && !IsAllowArraySubscript) {
+    // Only _ArrayElem pointers may be subscripted.
+    if (!BaseType.isArrayElemQualified()) {
+      if (BaseType.isOwnedPointer())
         return ExprError(Diag(LLoc, diag::err_bsc_op_not_supported)
                          << "array subscript" << BaseType
                          << Base->getSourceRange());
-      }
-      if (BaseType.isBorrowQualified() && !IsAllowArraySubscript) {
+      if (BaseType.isBorrowPointer())
         return ExprError(Diag(LLoc, diag::err_typecheck_borrow_subscript));
-      }
     }
   }
 #endif
@@ -6491,8 +6481,11 @@ void Sema::CheckMemberThisCallAccess(Expr *ActualArgExpr, QualType formalType) {
     Diag(SL, diag::err_incompatible_pointer_cast) << actualType.getAsString() << formalType.getAsString();
     return;
   }
-  if ((!actualType.isOwnedQualified() && formalType.isOwnedQualified()) ||
-      (!actualType->isPointerType() && formalType->isPointerType() && formalType.isOwnedQualified())) {
+  bool OwnedMismatch =
+      formalType.isOwnedPointer()
+          ? !actualType.isOwnedPointer()
+          : formalType->isOwnedStruct() && !actualType->isOwnedStruct();
+  if (OwnedMismatch) {
     Diag(SL, diag::err_incompatible_owned_cast) << actualType.getAsString() << formalType.getAsString();
     return;
   }
@@ -6521,6 +6514,10 @@ void Sema::CheckMemberThisCallAccess(Expr *ActualArgExpr, QualType formalType) {
 
 bool Sema::CheckNeedCastQualifiedType(QualType actualType, QualType formalType) {
   if (actualType->isPointerType() && formalType->isPointerType()) {
+    if (actualType.getBSCPointerProperties() !=
+        formalType.getBSCPointerProperties()) {
+      return true;
+    }
     if (actualType.getCVRQualifiers() != formalType.getCVRQualifiers()) {
       return true;
     }
@@ -6538,22 +6535,14 @@ bool Sema::CheckNeedReborrowPointerType(QualType actualType, QualType formalType
     return false;
   }
 
-  bool actualIsSafe =
-      actualType.isOwnedQualified() || actualType.isBorrowQualified();
-  bool formalIsRaw =
-      !formalType.isOwnedQualified() && !formalType.isBorrowQualified();
-  if (actualIsSafe && formalIsRaw) {
+  if (!actualType.isRawPointer() && formalType.isRawPointer())
     return true;
-  }
-  if (!actualType.isBorrowQualified() && formalType.isBorrowQualified()) {
-    return true;
-  }
-  return false;
+  return !actualType.isBorrowPointer() && formalType.isBorrowPointer();
 }
 
 /// Check if type is const char * borrow.
 static bool IsConstCharPtrBorrow(QualType Ty) {
-  if (!Ty.isBorrowQualified() || !Ty->isPointerType())
+  if (!Ty.isBorrowPointer())
     return false;
   QualType Pointee = Ty->getPointeeType();
   return Pointee->isCharType() && Pointee.isConstQualified();
@@ -6779,7 +6768,7 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
         Arg = BorrowDecayArg.get();
 
         // BSC: Reject mutably borrowing a string literal or __FUNCTION__.
-        if (ProtoArgType->isPointerType() && ProtoArgType.isBorrowQualified()) {
+        if (ProtoArgType.isBorrowPointer()) {
           QualType PointeeType = ProtoArgType->getPointeeType();
           if (PointeeType.getUnqualifiedType()->isCharType() &&
               IsStringLiteralExpr(Arg) && !PointeeType.isConstQualified()) {
@@ -7283,8 +7272,6 @@ ExprResult Sema::ActOnCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
   return Call;
 }
 
-#if ENABLE_BSC
-#endif // ENABLE_BSC
 
 /// BuildCallExpr - Handle a call to Fn with the specified array of arguments.
 /// This provides the location of the left/right parens and a list of comma
@@ -7439,13 +7426,13 @@ ExprResult Sema::BuildCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
 
   if (FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(NDecl)) {
     #if ENABLE_BSC
-    // Select best matching declaration for heterogeneous redeclarations
+    // Select best matching declaration for mixed _Safe/_Unsafe redeclarations
     // (Manual section 8.2).
     if (getLangOpts().BSC) {
       auto CheckCallConstraints = [&](FunctionDecl *CandidateFD) -> bool {
         return IsCallAssignmentCompatible(CandidateFD, ArgExprs);
       };
-      FunctionDecl *BestMatch = SelectDeclForHeterogeneousRedecl(
+      FunctionDecl *BestMatch = SelectDeclForMixedModeRedecl(
           FD, IsInSafeZone(), CheckCallConstraints);
       if (!BestMatch) {
         SmallVector<QualType, 4> ArgTypes;
@@ -7455,9 +7442,9 @@ ExprResult Sema::BuildCallExpr(Scope *Scope, Expr *Fn, SourceLocation LParenLoc,
         QualType CallType = Context.getFunctionType(
             Context.VoidTy, ArgTypes, FunctionProtoType::ExtProtoInfo());
         Diag(Fn->getBeginLoc(),
-             diag::err_bsc_no_matching_heterogeneous_function_call)
+             diag::err_bsc_no_matching_mixed_mode_function_call)
             << FD->getDeclName() << CallType;
-        noteHeterogeneousCallCandidates(FD, ArgExprs);
+        noteMixedModeCallCandidates(FD, ArgExprs);
         return ExprError();
       }
       if (BestMatch != FD) {
@@ -8976,16 +8963,14 @@ static QualType withCommonBSCPtrQuals(Sema &S, QualType DestPtrTy,
                                        QualType LHSPtrTy, QualType RHSPtrTy) {
   if (!S.getLangOpts().BSC)
     return DestPtrTy;
-  Qualifiers LQs = LHSPtrTy.getQualifiers();
-  Qualifiers RQs = RHSPtrTy.getQualifiers();
-  Qualifiers Qs = DestPtrTy.getQualifiers();
-  if (LQs.hasOwned() && RQs.hasOwned())
-    Qs.addOwned();
-  if (LQs.hasBorrow() && RQs.hasBorrow())
-    Qs.addBorrow();
-  if (LQs.hasArrayElem() && RQs.hasArrayElem())
-    Qs.addArrayElem();
-  return S.Context.getQualifiedType(DestPtrTy, Qs);
+  BSCPointerProperties L = LHSPtrTy.getBSCPointerProperties();
+  BSCPointerProperties R = RHSPtrTy.getBSCPointerProperties();
+  BSCPointerProperties D = DestPtrTy.getBSCPointerProperties();
+  if (L.Kind == R.Kind) {
+    D.Kind = L.Kind;
+    D.ArrayElem = L.ArrayElem && R.ArrayElem;
+  }
+  return S.Context.getTypeWithBSCProperties(DestPtrTy, D);
 }
 #endif
 
@@ -9003,16 +8988,22 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
   }
 
 #if ENABLE_BSC
-  // BSC nullability bits make otherwise-identical pointer types (e.g.
-  // T*_Owned vs T*_Owned _Nullable) fail hasSameType.  Strip nullability and
-  // retry so we preserve _Owned/_Borrow/_ArrayElem.
+  // Nullability alone must not defeat the identical-pointer path; either
+  // branch may be the value, so a nullable side makes the composite nullable.
   if (S.getLangOpts().BSC) {
-    QualType LHSNoNull = LHSTy;
-    QualType RHSNoNull = RHSTy;
-    LHSNoNull.removeLocalNullability(S.Context);
-    RHSNoNull.removeLocalNullability(S.Context);
-    if (S.Context.hasSameType(LHSNoNull, RHSNoNull))
+    auto WithNullability = [&S](QualType T, BSCWrittenNullability N) {
+      BSCPointerProperties P = T.getBSCPointerProperties();
+      P.Nullability = N;
+      return S.Context.getTypeWithBSCProperties(T, P);
+    };
+    QualType LHSNoNull = WithNullability(LHSTy, BWN_None);
+    QualType RHSNoNull = WithNullability(RHSTy, BWN_None);
+    if (S.Context.hasSameType(LHSNoNull, RHSNoNull)) {
+      if (LHSTy.getDefNullability() == NullabilityKind::Nullable ||
+          RHSTy.getDefNullability() == NullabilityKind::Nullable)
+        return WithNullability(LHSNoNull, BWN_Nullable);
       return LHSNoNull;
+    }
   }
 #endif
 
@@ -9096,9 +9087,8 @@ static QualType checkConditionalPointerCompatibility(Sema &S, ExprResult &LHS,
     // mergeTypes has actually failed to find a composite type, so legal CVR
     // merges (e.g. 'const int *' <-> 'int *') are unaffected.
     if (S.getLangOpts().BSC) {
-      if (LHSTy.isBorrowQualified() ||
-          LHSTy.isOwnedQualified() ||
-          LHSTy.isArrayElemQualified() ||
+      // Both arms already have the same kind here (see the callers).
+      if (LHSTy.isOwnedPointer() || LHSTy.isBorrowPointer() ||
           S.IsInSafeZone()) {
         S.Diag(Loc, diag::err_typecheck_cond_incompatible_operands)
             << LHSTy << RHSTy << LHS.get()->getSourceRange()
@@ -9198,13 +9188,8 @@ checkConditionalObjectPointersCompatibility(Sema &S, ExprResult &LHS,
 #if ENABLE_BSC
   if (S.getLangOpts().BSC) {
     // check compatibility of BSC pointer qualifiers (_Owned/_Borrow/_ArrayElem)
-    Qualifiers LQs = LHSTy.getQualifiers();
-    Qualifiers RQs = RHSTy.getQualifiers();
-    bool QualsMatch =
-        (LQs.hasOwned() == RQs.hasOwned()) &&
-        (LQs.hasBorrow() == RQs.hasBorrow()) &&
-        (LQs.hasArrayElem() == RQs.hasArrayElem());
-    if (!QualsMatch) {
+    if (!LHSTy.getBSCPointerProperties().stickyMatches(
+            RHSTy.getBSCPointerProperties())) {
       S.Diag(Loc, diag::err_typecheck_cond_incompatible_operands)
           << LHSTy << RHSTy << LHS.get()->getSourceRange()
           << RHS.get()->getSourceRange();
@@ -9977,6 +9962,18 @@ static QualType computeConditionalNullabilityBSC(QualType ResTy, bool IsBin,
   if (!ResTy->isAnyPointerType())
     return ResTy;
 
+  // The top level follows the rules below; the levels under it cannot.
+  if (ResTy->isPointerType() && LHSTy->isPointerType() &&
+      RHSTy->isPointerType()) {
+    QualType Pointee = mergeNullabilityAtEveryPointerLevel(
+        Ctx, ResTy->getPointeeType(), LHSTy->getPointeeType(),
+        RHSTy->getPointeeType());
+    if (Pointee != ResTy->getPointeeType())
+      ResTy = Ctx.getQualifiedType(
+          Ctx.getPointerType(Pointee, ResTy.getBSCPointerProperties()),
+          ResTy.getQualifiers());
+  }
+
   auto LHSKind = LHSTy.getDefNullability();
   auto RHSKind = RHSTy.getDefNullability();
   NullabilityKind MergedKind = NullabilityKind::Nullable;
@@ -9999,7 +9996,7 @@ static QualType computeConditionalNullabilityBSC(QualType ResTy, bool IsBin,
   if (ResTy.getDefNullability() == MergedKind)
     return ResTy;
 
-  return applyNullabilityToType(ResTy, MergedKind, Ctx);
+  return Ctx.getTypeWithNullability(ResTy, MergedKind);
 }
 #endif
 
@@ -10845,12 +10842,11 @@ static bool IsTraitEqualExpr(Sema &S, QualType DstType, QualType SrcType,
                              SourceLocation Loc) {
   if (TraitDecl *TD = S.TryDesugarTrait(DstType)) {
     if (SrcType->isPointerType()) {
-      QualType T = SrcType->getPointeeType().getUnqualifiedType().getCanonicalType();
-      T.removeLocalOwned();
+      QualType T = S.Context.getTypeWithoutBSCProperties(
+          SrcType->getPointeeType().getUnqualifiedType().getCanonicalType());
       if (TD->getTypeImpledVarDecl(T))
         return true;
-      while (T->isPointerType())
-        T = T->getPointeeType();
+      T = getInnermostPointeeType(T);
       if (TD->getTrait()) {
         QualType TraitTy = QualType(TD->getTrait()->getTypeForDecl(), 0);
         if (dyn_cast<InjectedClassNameType>(TraitTy)) {
@@ -10958,7 +10954,7 @@ Sema::CheckSingleAssignmentConstraints(QualType LHSType, ExprResult &CallerRHS,
     // In BSC, owned/borrow pointers only accept nullptr and integer 0,
     // not (void *)0.
     if (getLangOpts().BSC) {
-      if (LHSType.isOwnedQualified() &&
+      if (LHSType.isOwnedPointer() &&
           RHS.get()->getType()->isVoidPointerType()) {
         return IncompatibleOwnedPointer;
       }
@@ -12011,8 +12007,8 @@ static bool checkRawPtrIncDecInSafeZone(Sema &S, SourceLocation OpLoc,
                                         bool IsInc, Expr *Op) {
   if (!S.getLangOpts().BSC || !S.IsInEvaluatedSafeZone())
     return true;
-  QualType T = Op->getType().getCanonicalType();
-  if (T.isOwnedQualified() || T.isBorrowQualified())
+  // The caller reaches here only for pointer operands.
+  if (!Op->getType().isRawPointer())
     return true;
   S.DiagnoseRawPtrIncDec(OpLoc, IsInc, Op);
   return false;
@@ -12172,8 +12168,25 @@ static void diagnosePointerIncompatibility(Sema &S, SourceLocation Loc,
 }
 
 #if ENABLE_BSC
-static bool isNonArrayElemBorrowType(QualType QT) {
-  return QT.isBorrowQualified() && !QT.isArrayElemQualified();
+// Manual 3.3.1.3: only _Borrow _ArrayElem pointers do arithmetic.
+static bool bscPointerForbidsArithmetic(QualType QT) {
+  // An array of BSC pointers decays to a raw pointer, which may do arithmetic.
+  if (!QT->isPointerType())
+    return false;
+  BSCPointerProperties P = QT.getBSCPointerProperties();
+  return P.Kind == BPK_Owned || (P.Kind == BPK_Borrow && !P.ArrayElem);
+}
+
+static bool checkBSCPointerArithmetic(Sema &S, ExprResult &LHS,
+                                      ExprResult &RHS, SourceLocation Loc,
+                                      StringRef OpSpelling) {
+  Expr *Bad = bscPointerForbidsArithmetic(LHS.get()->getType()) ? LHS.get()
+              : bscPointerForbidsArithmetic(RHS.get()->getType()) ? RHS.get()
+                                                                   : nullptr;
+  if (!Bad)
+    return false;
+  S.DiagnoseBSCPtrArithmetic(Loc, OpSpelling, Bad);
+  return true;
 }
 #endif
 
@@ -12184,12 +12197,10 @@ QualType Sema::CheckAdditionOperands(ExprResult &LHS, ExprResult &RHS,
   checkArithmeticNull(*this, LHS, RHS, Loc, /*IsCompare=*/false);
 
   #if ENABLE_BSC
-  if (getLangOpts().BSC) {
-    if (isNonArrayElemBorrowType(LHS.get()->getType()) ||
-        isNonArrayElemBorrowType(RHS.get()->getType())) {
-      return InvalidOperands(Loc, LHS, RHS);
-    }
-  }
+  if (getLangOpts().BSC &&
+      checkBSCPointerArithmetic(*this, LHS, RHS, Loc,
+                                CompLHSTy ? "'+='" : "'+'"))
+    return QualType();
   #endif
 
   if (LHS.get()->getType()->isVectorType() ||
@@ -12308,12 +12319,10 @@ QualType Sema::CheckSubtractionOperands(ExprResult &LHS, ExprResult &RHS,
   checkArithmeticNull(*this, LHS, RHS, Loc, /*IsCompare=*/false);
 
   #if ENABLE_BSC
-  if (getLangOpts().BSC) {
-    if (isNonArrayElemBorrowType(LHS.get()->getType()) ||
-        isNonArrayElemBorrowType(RHS.get()->getType())) {
-      return InvalidOperands(Loc, LHS, RHS);
-    }
-  }
+  if (getLangOpts().BSC &&
+      checkBSCPointerArithmetic(*this, LHS, RHS, Loc,
+                                CompLHSTy ? "'-='" : "'-'"))
+    return QualType();
   #endif
 
   if (LHS.get()->getType()->isVectorType() ||
@@ -14966,7 +14975,7 @@ QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
     return QualType();
 
 #if ENABLE_BSC
-  // BSC: For function pointer assignment with heterogeneous redeclarations,
+  // BSC: function pointer assignment with mixed _Safe/_Unsafe redeclarations,
   // select the appropriate function declaration based on the destination type.
   if (getLangOpts().BSC && LHSExpr->getType()->isFunctionPointerType()) {
     Expr *RHSExpr = RHS.get()->IgnoreParenImpCasts();
@@ -15240,10 +15249,8 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
     return S.Context.DependentTy;
 
   #if ENABLE_BSC
-  if (S.getLangOpts().BSC &&
-      (isNonArrayElemBorrowType(Op->getType()) ||
-       Op->getType().getCanonicalType().isOwnedQualified())) {
-    S.DiagnoseBSCPtrIncDec(OpLoc, IsInc, Op);
+  if (S.getLangOpts().BSC && bscPointerForbidsArithmetic(Op->getType())) {
+    S.DiagnoseBSCPtrArithmetic(OpLoc, IsInc ? "'++'" : "'--'", Op);
     return QualType();
   }
   #endif
@@ -15418,12 +15425,6 @@ static void diagnoseAddressOfInvalidType(Sema &S, SourceLocation Loc,
 }
 
 #if ENABLE_BSC
-static bool isMutableBorrowPointerType(QualType Type) {
-  Type = Type.getCanonicalType();
-  return Type->isPointerType() && Type.isBorrowQualified() &&
-         !Type.isConstBorrow();
-}
-
 bool Sema::IsAddrBorrowDerefOp(ExprResult &OrigOp) {
   // Strip parentheses/implied casts and _Safe/_Unsafe wrappers so forms like
   // &_Mut (*p), &_Mut ((*(p))) and &_Mut _Unsafe(*p) all fold into
@@ -15444,6 +15445,8 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
                                                const Expr *InputExpr,
                                                UnaryOperatorKind &Opc,
                                                SourceLocation OpLoc) {
+  const auto *Subscript =
+      dyn_cast<ArraySubscriptExpr>(InputExpr->IgnoreParenImpCastsSafe());
   if (Opc == UO_AddrMut || Opc == UO_AddrMutDeref) {
     if (Opc == UO_AddrMut && IsAddrBorrowDerefOp(Input)) {
       Opc = UO_AddrMutDeref;
@@ -15478,52 +15481,41 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
         }
       }
     }
-    if (!resultType.isNull()) {
-      if (resultType->isPointerType()) {
-        resultType = resultType.getUnqualifiedType();
-        resultType.removeLocalOwned();
-        resultType.addBorrow();
-      } else {
-        resultType.addBorrow();
-      }
-    }
   } else if (Opc == UO_AddrConst || Opc == UO_AddrConstDeref) {
     if (Opc == UO_AddrConst && IsAddrBorrowDerefOp(Input)) {
       Opc = UO_AddrConstDeref;
     }
-    if (!resultType.isNull()) {
-      if (resultType->isFunctionPointerType()) {
-        Diag(OpLoc, diag::err_mut_or_const_expr_func)
-            << "'&_Const'" << 1 << InputExpr->getSourceRange();
-        Input = ExprError();
-      } else if (resultType->isPointerType()) {
-        resultType = resultType.getUnqualifiedType();
-        resultType.removeLocalOwned();
-        resultType = resultType.addConstBorrow(Context);
-      } else {
-        resultType = resultType.addConstBorrow(Context);
-      }
+    if (!resultType.isNull() && resultType->isFunctionPointerType()) {
+      Diag(OpLoc, diag::err_mut_or_const_expr_func)
+          << "'&_Const'" << 1 << InputExpr->getSourceRange();
+      Input = ExprError();
+      return resultType;
     }
   }
-  // if &_Mut/&_Const produces a borrow pointer successfully and the expression
-  // is an array subscript, add _ArrayElem to the result type
-  if (!resultType.isNull() && resultType->isPointerType() &&
-      resultType.isLocalBorrowQualified()) {
-    if (auto *ASE = dyn_cast<ArraySubscriptExpr>(
-            InputExpr->IgnoreParenImpCastsSafe())) {
-      resultType = Context.getQualifiedType(
-        resultType.getUnqualifiedType(),
-        resultType.getQualifiers().withArrayElem());
-      // &_Mut p[i] / &_Const p[i] borrow an element of the array/pointee; the
-      // resulting borrow pointer keeps the base pointer's nullability, exactly
-      // like &_Mut *p / &_Const *p.
-      const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
-      if (Base->getType().getCanonicalType()->isPointerType())
-        resultType =
-            transferExplicitNullability(Base->getType(), resultType, Context);
-    }
+  bool Const = Opc == UO_AddrConst || Opc == UO_AddrConstDeref;
+  bool IsBorrowOp = Const || Opc == UO_AddrMut || Opc == UO_AddrMutDeref;
+  if (!IsBorrowOp || resultType.isNull())
+    return resultType;
+  if ((Opc == UO_AddrMutDeref || Opc == UO_AddrConstDeref) &&
+      !Input.isInvalid() && Input.get()->getType()->isPointerType())
+    return Context.getDerefReborrowType(
+        Input.get()->getType().getUnqualifiedType(), Const);
+  // p[i] through a pointer is a reborrow of p; through an array it is fresh.
+  if (Subscript) {
+    QualType Base = Subscript->getBase()->IgnoreParenImpCasts()->getType();
+    if (Base->isPointerType())
+      return Context.getSubscriptReborrowType(Base.getUnqualifiedType(),
+                                              Const);
   }
-  return resultType;
+  // Fresh borrow: manual 3.2.1.2, _ArrayElem when the operand is a subscript.
+  BSCPointerProperties P;
+  P.Kind = BPK_Borrow;
+  P.ArrayElem = Subscript && resultType->isPointerType();
+  if (!resultType->isPointerType())
+    return Const ? Context.getPointerType(resultType.withConst(), P)
+                 : Context.getTypeWithBSCProperties(resultType, P);
+  QualType Pointee = resultType->getPointeeType();
+  return Context.getPointerType(Const ? Pointee.withConst() : Pointee, P);
 }
 #endif
 
@@ -15595,14 +15587,14 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
     if (UnaryOperator* uOp = dyn_cast<UnaryOperator>(op)) {
       if (uOp->getOpcode() == UO_Deref) {
 #if ENABLE_BSC
-        // '&*P' is the address of '*P', so it never re-creates ownership.
+        // '&*P' is the address of '*P', so it never re-creates ownership;
+        // nullability stays.
         if (getLangOpts().BSC) {
           QualType DerefTy = uOp->getSubExpr()->getType();
-          DerefTy.removeLocalOwned();
-          DerefTy.removeLocalBorrow();
-          // '_ArrayElem' only qualifies an _Owned or _Borrow pointer.
-          DerefTy.removeLocalArrayElem(Context);
-          return DerefTy;
+          BSCPointerProperties P = DerefTy.getBSCPointerProperties();
+          P.Kind = BPK_None;
+          P.ArrayElem = false;
+          return Context.getTypeWithBSCProperties(DerefTy, P);
         }
 #endif
         // Per C99 6.5.3.2, the address of a deref always returns a valid result
@@ -16596,11 +16588,15 @@ static void DiagnoseOwnedPointerBinaryOp(Sema &Self, BinaryOperatorKind Opc,
   case BO_LAnd:
   case BO_LOr:
   case BO_Comma:
+  case BO_Add:      // arithmetic: checkBSCPointerArithmetic
+  case BO_Sub:
+  case BO_AddAssign:
+  case BO_SubAssign:
     return;
   default:
     Self.Diag(OpLoc, diag::err_bsc_op_not_supported)
         << (llvm::Twine("'") + BinaryOperator::getOpcodeStr(Opc) + "'").str()
-        << (LHSExpr->getType().getCanonicalType().isOwnedQualified()
+        << (LHSExpr->getType().isOwnedPointerOrOwnedStruct()
                 ? LHSExpr->getType()
                 : RHSExpr->getType())
         << LHSExpr->getSourceRange() << RHSExpr->getSourceRange();
@@ -16689,8 +16685,8 @@ ExprResult Sema::ActOnBinOp(Scope *S, SourceLocation TokLoc,
 
   QualType LHSCanType = LHSExpr->getType().getCanonicalType();
   QualType RHSCanType = RHSExpr->getType().getCanonicalType();
-  if ((LHSCanType->isPointerType() && LHSCanType.isOwnedQualified())
-      || (RHSCanType->isPointerType() && RHSCanType.isOwnedQualified())) {
+  if ((LHSCanType.isOwnedPointer())
+      || (RHSCanType.isOwnedPointer())) {
     //bsc owned pointer type check
     DiagnoseOwnedPointerBinaryOp(*this, Opc, TokLoc, LHSExpr, RHSExpr);
     //bsc owned temporary memory leak
@@ -17158,8 +17154,11 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
   if (getLangOpts().BSC && Opc == UO_AddrMutDeref) {
     auto *CO = dyn_cast<ConditionalOperator>(
         Input.get()->IgnoreParenImpCastsSafe());
-    if (CO && isMutableBorrowPointerType(CO->getTrueExpr()->getType()) &&
-        isMutableBorrowPointerType(CO->getFalseExpr()->getType())) {
+    auto IsMutBorrow = [](QualType T) {
+      return T.isBorrowPointer() && !T.isConstBorrow();
+    };
+    if (CO && IsMutBorrow(CO->getTrueExpr()->getType()) &&
+        IsMutBorrow(CO->getFalseExpr()->getType())) {
       // Reborrow each arm so the outer reborrow retains the source borrow on
       // every control-flow path.
       ExprResult True =
@@ -17308,8 +17307,7 @@ ExprResult Sema::BuildUnaryOp(Scope *S, SourceLocation OpLoc,
     return CreateOverloadedUnaryOp(OpLoc, Opc, Functions, Input);
   }
 #if ENABLE_BSC
-  if (getLangOpts().BSC && Input->getType().getCanonicalType()->isPointerType()
-      && Input->getType().getCanonicalType().isOwnedQualified()) {
+  if (getLangOpts().BSC && Input->getType().isOwnedPointer()) {
     if (Opc == UO_Deref && CheckTemporaryVarMemoryLeak(Input))
       return ExprError();
   }
@@ -18431,7 +18429,7 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
   case IncompatibleFunctionPointer:
 #if ENABLE_BSC
     // BSC: For function pointer assignments in BSC, we use IsSafeFunctionPointerTypeCast
-    // which handles heterogeneous selection and safe/unsafe checking.
+    // which handles mixed _Safe/_Unsafe selection and safe/unsafe checking.
     // It emits BSC-specific errors when needed, so we suppress standard diagnostics.
     if (getLangOpts().BSC) {
       IsSafeFunctionPointerTypeCast(DstType, SrcExpr);
@@ -18611,9 +18609,8 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
     break;
 #if ENABLE_BSC
   case IncompatibleOwnedPointer: {
-    bool outerOwnedDiffers =
-        DstType.getCanonicalType().isOwnedQualified() !=
-        SrcType.getCanonicalType().isOwnedQualified();
+    bool outerOwnedDiffers = DstType.isOwnedPointerOrOwnedStruct() !=
+                             SrcType.isOwnedPointerOrOwnedStruct();
     if (!outerOwnedDiffers &&
         (DstType->isFunctionPointerType() || SrcType->isFunctionPointerType())) {
       DiagKind = diag::err_owned_funcPtr_incompatible;

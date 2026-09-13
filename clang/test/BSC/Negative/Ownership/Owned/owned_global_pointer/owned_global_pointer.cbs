@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -ast-dump -verify %s
 
-int _Owned a;    //expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of global variable cannot be qualified by '_Owned'}}
-_Owned int b;    //expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of global variable cannot be qualified by '_Owned'}}
+int _Owned a;    //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
+_Owned int b;    //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 
 int _Owned* p1;  //expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 int* _Owned p3;  //expected-error {{type of global variable cannot be qualified by '_Owned'}}

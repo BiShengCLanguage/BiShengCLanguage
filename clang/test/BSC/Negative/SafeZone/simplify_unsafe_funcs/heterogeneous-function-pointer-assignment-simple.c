@@ -21,11 +21,11 @@ void test2(void) {
 
 // Test 3: Parameter count mismatch
 _Unsafe void two_params(int* p1, int* p2);
-_Safe void two_params(int* _Owned p1, int* _Owned p2);
+_Safe void two_params(int* _Owned p1, int* _Owned p2); // expected-note {{candidate declaration has type '_Safe void (int *_Owned, int *_Owned)'}}
 
 void test3(void) {
     _Safe void (*ptr_one)(int* _Owned) = 0;
-    ptr_one = two_params;  // expected-error {{cannot cast}}
+    ptr_one = two_params;  // expected-error {{no matching declaration of 'two_params' for assignment to '_Safe void (*)(int *_Owned)'}}
 }
 
 // Test 4: Type mismatch in parameters
@@ -48,11 +48,11 @@ void test5(void) {
 
 // Test 6: Const mismatch - char* _Borrow vs const char* _Borrow
 _Unsafe void mut_char(char* p);
-_Safe void mut_char(char* _Borrow p);
+_Safe void mut_char(char* _Borrow p); // expected-note {{candidate declaration has type '_Safe void (char *_Borrow)'}}
 
 void test6(void) {
     _Safe void (*ptr_const)(const char* _Borrow) = 0;
-    ptr_const = mut_char;  // expected-error {{cannot cast}}
+    ptr_const = mut_char;  // expected-error {{no matching declaration of 'mut_char' for assignment to '_Safe void (*)(const char *_Borrow)'}}
 }
 
 // Test 7: Nullability mismatch — _Nonnull param cannot be assigned to

@@ -1,0 +1,1 @@
+void consume<T>(_Owned T t);

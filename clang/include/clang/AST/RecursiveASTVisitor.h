@@ -1043,6 +1043,11 @@ DEF_TRAVERSE_TYPE(DependentAddressSpaceType, {
   TRY_TO(TraverseType(T->getPointeeType()));
 })
 
+#if ENABLE_BSC
+DEF_TRAVERSE_TYPE(BSCQualifiedType,
+                  { TRY_TO(TraverseType(T->getUnderlyingType())); })
+#endif
+
 DEF_TRAVERSE_TYPE(DependentVectorType, {
   if (T->getSizeExpr())
     TRY_TO(TraverseStmt(T->getSizeExpr()));
@@ -1307,6 +1312,11 @@ DEF_TRAVERSE_TYPELOC(DependentAddressSpaceType, {
   TRY_TO(TraverseStmt(TL.getTypePtr()->getAddrSpaceExpr()));
   TRY_TO(TraverseType(TL.getTypePtr()->getPointeeType()));
 })
+
+#if ENABLE_BSC
+DEF_TRAVERSE_TYPELOC(BSCQualifiedType,
+                     { TRY_TO(TraverseTypeLoc(TL.getInnerLoc())); })
+#endif
 
 // FIXME: order? why not size expr first?
 // FIXME: base VectorTypeLoc is unfinished

@@ -716,6 +716,11 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     break;
 
   case Type::Pointer:
+#if ENABLE_BSC
+    if (cast<PointerType>(T1)->getBSCProperties() !=
+        cast<PointerType>(T2)->getBSCProperties())
+      return false;
+#endif
     if (!IsStructurallyEquivalent(Context,
                                   cast<PointerType>(T1)->getPointeeType(),
                                   cast<PointerType>(T2)->getPointeeType()))
@@ -988,6 +993,16 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     if (!IsStructurallyEquivalent(Context,
                                   cast<ConditionalType>(T1)->getUnderlyingType(),
                                   cast<ConditionalType>(T2)->getUnderlyingType()))
+      return false;
+    break;
+
+  case Type::BSCQualified:
+    if (cast<BSCQualifiedType>(T1)->getBSCProperties() !=
+        cast<BSCQualifiedType>(T2)->getBSCProperties())
+      return false;
+    if (!IsStructurallyEquivalent(
+            Context, cast<BSCQualifiedType>(T1)->getUnderlyingType(),
+            cast<BSCQualifiedType>(T2)->getUnderlyingType()))
       return false;
     break;
   #endif

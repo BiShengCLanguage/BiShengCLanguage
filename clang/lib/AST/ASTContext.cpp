@@ -3314,6 +3314,288 @@ QualType ASTContext::getComplexType(QualType T) const {
 
 /// getPointerType - Return the uniqued reference to the type for a pointer to
 /// the specified type.
+#if ENABLE_BSC
+QualType ASTContext::getPointerType(QualType T) const {
+  return getPointerType(T, BSCPointerProperties());
+}
+
+QualType ASTContext::getPointerType(QualType T,
+                                    BSCPointerProperties P) const {
+  // Manual 3.3.1: _ArrayElem only qualifies an _Owned or _Borrow pointer.  A
+  // dependent BSCQualifiedType may hold it alone until its Kind is known; a
+  // pointer never may.
+  assert((!P.ArrayElem || P.Kind != BPK_None) &&
+         "_ArrayElem without _Owned/_Borrow on a pointer");
+  // Unique pointers, to guarantee there is only one pointer of a particular
+  // structure.
+  llvm::FoldingSetNodeID ID;
+  PointerType::Profile(ID, T, P);
+
+  void *InsertPos = nullptr;
+  if (PointerType *PT = PointerTypes.FindNodeOrInsertPos(ID, InsertPos))
+    return QualType(PT, 0);
+
+  // If the pointee type isn't canonical, this won't be a canonical type either,
+  // so fill in the canonical type field.  BSC properties are part of pointer
+  // identity, so they are preserved into the canonical type.
+  QualType Canonical;
+  if (!T.isCanonical()) {
+    Canonical = getPointerType(getCanonicalType(T), P);
+
+    // Get the new insert position for the node we care about.
+    PointerType *NewIP = PointerTypes.FindNodeOrInsertPos(ID, InsertPos);
+    assert(!NewIP && "Shouldn't be in the map!"); (void)NewIP;
+  }
+  auto *New = new (*this, TypeAlignment) PointerType(T, Canonical, P);
+  Types.push_back(New);
+  PointerTypes.InsertNode(New, InsertPos);
+  return QualType(New, 0);
+}
+// The element type of array \p T, without pushing T's own qualifiers into it.
+static QualType arrayElementOf(QualType T) {
+  return cast<ArrayType>(T.split().Ty->getUnqualifiedDesugaredType())
+      ->getElementType();
+}
+
+// Rebuild the array type \p T carries, with \p NewElem as element type.
+static QualType withArrayElement(const ASTContext &Ctx, QualType T,
+                                 QualType NewElem) {
+  SplitQualType Split = T.split();
+  const auto *AT = cast<ArrayType>(Split.Ty->getUnqualifiedDesugaredType());
+  QualType NewArr;
+  if (const auto *CAT = dyn_cast<ConstantArrayType>(AT))
+    NewArr = Ctx.getConstantArrayType(
+        NewElem, CAT->getSize(), CAT->getSizeExpr(), CAT->getSizeModifier(),
+        CAT->getIndexTypeCVRQualifiers());
+  else if (const auto *IAT = dyn_cast<IncompleteArrayType>(AT))
+    NewArr = Ctx.getIncompleteArrayType(NewElem, IAT->getSizeModifier(),
+                                        IAT->getIndexTypeCVRQualifiers());
+  else if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
+    NewArr = Ctx.getVariableArrayType(NewElem, VAT->getSizeExpr(),
+                                      VAT->getSizeModifier(),
+                                      VAT->getIndexTypeCVRQualifiers(),
+                                      VAT->getBracketsRange());
+  else {
+    const auto *DSAT = cast<DependentSizedArrayType>(AT);
+    NewArr = Ctx.getDependentSizedArrayType(NewElem, DSAT->getSizeExpr(),
+                                            DSAT->getSizeModifier(),
+                                            DSAT->getIndexTypeCVRQualifiers(),
+                                            DSAT->getBracketsRange());
+  }
+  return Ctx.getQualifiedType(NewArr, Split.Quals);
+}
+
+// The type \p U denotes with \p P at its pointer level, rebuilt from that
+// level up: sugar below the pointer is kept, sugar above it is not.  Null when
+// \p U has no pointer level, which for a dependent type means "not yet".
+static QualType resolveBSCProperties(const ASTContext &Ctx, QualType U,
+                                     BSCPointerProperties P) {
+  if (const PointerType *PT = U->getAs<PointerType>()) {
+    QualType R = PT->getBSCProperties() == P
+                     ? QualType(PT, 0)
+                     : Ctx.getPointerType(PT->getPointeeType(), P);
+    return Ctx.getQualifiedType(R, U.getQualifiers());
+  }
+  // Arrays are qualified through their element (C 6.7.3p9), like the read
+  // path.
+  if (U->isArrayType()) {
+    QualType Elem = arrayElementOf(U);
+    QualType NewElem = Ctx.getTypeWithBSCProperties(Elem, P);
+    return NewElem == Elem ? U : withArrayElement(Ctx, U, NewElem);
+  }
+  return QualType();
+}
+
+QualType ASTContext::getBSCQualifiedType(QualType T,
+                                         BSCPointerProperties P) const {
+  // Qualifiers stay outside the node, and writing onto a node replaces its
+  // properties rather than stacking a second node.
+  SplitQualType Split = T.split();
+  QualType U(Split.Ty, 0);
+  if (const auto *BQ = dyn_cast<BSCQualifiedType>(Split.Ty))
+    U = BQ->getUnderlyingType();
+
+  // The spelling already means P: nothing to record (like `const` on an
+  // already-const typedef).  In particular erasing off `_Owned IP` gives `IP`.
+  if (U.getBSCElementProperties() == P)
+    return getQualifiedType(U, Split.Quals);
+
+  llvm::FoldingSetNodeID ID;
+  BSCQualifiedType::Profile(ID, U, P);
+  void *InsertPos = nullptr;
+  if (BSCQualifiedType *BQ =
+          BSCQualifiedTypes.FindNodeOrInsertPos(ID, InsertPos))
+    return getQualifiedType(QualType(BQ, 0), Split.Quals);
+
+  QualType Resolved = resolveBSCProperties(*this, U, P);
+  QualType Canonical;
+  if (!Resolved.isNull()) {
+    // Only sugar has a spelling worth keeping; a pointer or array node is
+    // simply rebuilt.
+    bool IsSugar = U->getLocallyUnqualifiedSingleStepDesugaredType() != U;
+    if (!IsSugar || Resolved == U)
+      return getQualifiedType(Resolved, Split.Quals);
+    Canonical = getCanonicalType(Resolved);
+  } else if (!U->isDependentType()) {
+    // Nothing can hold the properties; the caller diagnoses.
+    return T;
+  } else if (P.empty()) {
+    // Erasing: the properties live on a node somewhere under U's sugar.
+    QualType Inner = U.getSingleStepDesugaredType(*this);
+    return Inner == U ? getQualifiedType(U, Split.Quals)
+                      : getQualifiedType(getBSCQualifiedType(Inner, P),
+                                         Split.Quals);
+  } else if (!U.isCanonical()) {
+    Canonical = getBSCQualifiedType(getCanonicalType(U), P);
+  }
+
+  // Building Resolved or Canonical may have added nodes to the set.
+  BSCQualifiedType *NewIP = BSCQualifiedTypes.FindNodeOrInsertPos(ID, InsertPos);
+  assert(!NewIP && "Shouldn't be in the map!"); (void)NewIP;
+  auto *New = new (*this, TypeAlignment)
+      BSCQualifiedType(U, P, Resolved, Canonical);
+  Types.push_back(New);
+  BSCQualifiedTypes.InsertNode(New, InsertPos);
+  return getQualifiedType(QualType(New, 0), Split.Quals);
+}
+
+QualType ASTContext::getTypeWithBSCProperties(QualType T,
+                                              BSCPointerProperties P) const {
+  // Already so: keep the spelling as written.  Arrays are read through the
+  // element, as they are written.
+  if (T.isNull() || T.getBSCElementProperties() == P)
+    return T;
+  return getBSCQualifiedType(T, P);
+}
+
+static QualType reborrowOf(const ASTContext &Ctx, QualType Operand, bool Const,
+                           bool ArrayElem) {
+  BSCPointerProperties P = Operand.getBSCPointerProperties();
+  P.Kind = BPK_Borrow;
+  P.ArrayElem = ArrayElem;
+  QualType Pointee = Operand->getPointeeType();
+  return Ctx.getPointerType(Const ? Pointee.withConst() : Pointee, P);
+}
+
+QualType ASTContext::getDerefReborrowType(QualType Operand, bool Const) const {
+  return reborrowOf(*this, Operand, Const, /*ArrayElem=*/false);
+}
+
+QualType ASTContext::getSubscriptReborrowType(QualType Operand,
+                                              bool Const) const {
+  return reborrowOf(*this, Operand, Const, /*ArrayElem=*/true);
+}
+
+
+QualType ASTContext::getTypeWithoutBSCProperties(QualType T) const {
+  return getTypeWithBSCProperties(T, BSCPointerProperties());
+}
+
+QualType ASTContext::getTypeWithNullability(QualType T,
+                                            NullabilityKind NK) const {
+  if (NK != NullabilityKind::Nullable && NK != NullabilityKind::NonNull)
+    return T;
+
+  BSCWrittenNullability Written =
+      NK == NullabilityKind::Nullable ? BWN_Nullable : BWN_Nonnull;
+  // Nullability is written as a qualifier, so an array is handled through
+  // its element.
+  if (T.getBSCElementProperties().Nullability == Written)
+    return T;
+
+  // Also accept legacy AttributedType sugar with the same kind.
+  if (Optional<NullabilityKind> Current = T->getNullability(*this)) {
+    if (*Current == NK ||
+        (*Current == NullabilityKind::NullableResult &&
+         NK == NullabilityKind::Nullable))
+      return T;
+  }
+
+  QualType BaseTy = T;
+  while (BaseTy->getNullability(*this))
+    BaseTy = BaseTy.getSingleStepDesugaredType(*this);
+
+  BSCPointerProperties P = BaseTy.getBSCElementProperties();
+  P.Nullability = Written;
+  return getTypeWithBSCProperties(BaseTy, P);
+}
+
+QualType ASTContext::getTypeWithNullabilityOf(QualType T, QualType Src) const {
+  if (Optional<NullabilityKind> NK = Src.getExplicitNullability())
+    return getTypeWithNullability(T, *NK);
+  return T;
+}
+
+QualType ASTContext::getTypeWithoutAnyNullability(QualType T) const {
+  return mapBSCPropertiesAtEveryPointerLevel(T, [](BSCPointerProperties P) {
+    P.Nullability = BWN_None;
+    return P;
+  });
+}
+
+QualType ASTContext::getTypeWithoutCVRAndNullability(QualType T) const {
+  return getTypeWithoutAnyNullability(T.getUnqualifiedType());
+}
+
+QualType ASTContext::mapBSCPropertiesAtEveryPointerLevel(
+    QualType T,
+    llvm::function_ref<BSCPointerProperties(BSCPointerProperties)> Fn) const {
+  if (T.isNull())
+    return T;
+  auto Map = [&](QualType Inner) {
+    return mapBSCPropertiesAtEveryPointerLevel(Inner, Fn);
+  };
+  if (const auto *PT = T->getAs<PointerType>()) {
+    QualType Pointee = PT->getPointeeType();
+    QualType NewPointee = Map(Pointee);
+    BSCPointerProperties P = PT->getBSCProperties();
+    BSCPointerProperties NP = Fn(P);
+    if (NewPointee == Pointee && NP == P)
+      return T;
+    return getQualifiedType(getPointerType(NewPointee, NP), T.getQualifiers());
+  }
+  if (T->isArrayType()) {
+    QualType Elem = arrayElementOf(T);
+    QualType NewElem = Map(Elem);
+    return NewElem == Elem ? T : withArrayElement(*this, T, NewElem);
+  }
+  if (const auto *FPT = T->getAs<FunctionProtoType>()) {
+    QualType Ret = FPT->getReturnType();
+    QualType NewRet = Map(Ret);
+    bool Changed = NewRet != Ret;
+    SmallVector<QualType, 4> Params;
+    for (QualType Param : FPT->getParamTypes()) {
+      Params.push_back(Map(Param));
+      Changed |= Params.back() != Param;
+    }
+    return Changed ? getFunctionType(NewRet, Params, FPT->getExtProtoInfo())
+                   : T;
+  }
+  if (const auto *FNPT = T->getAs<FunctionNoProtoType>()) {
+    QualType Ret = FNPT->getReturnType();
+    QualType NewRet = Map(Ret);
+    return NewRet == Ret ? T
+                         : getFunctionNoProtoType(NewRet, FNPT->getExtInfo());
+  }
+  if (const auto *DT = T->getAs<BSCQualifiedType>()) {
+    BSCPointerProperties P = DT->getBSCProperties();
+    BSCPointerProperties NP = Fn(P);
+    return NP == P ? T : getTypeWithBSCProperties(T, NP);
+  }
+  return T;
+}
+
+QualType ASTContext::getArrayElemDowngradedType(QualType T) const {
+  BSCPointerProperties P = T.getBSCPointerProperties();
+  if (!P.ArrayElem)
+    return T;
+  P.ArrayElem = false;
+  return getTypeWithBSCProperties(T, P);
+}
+
+
+
+#else
 QualType ASTContext::getPointerType(QualType T) const {
   // Unique pointers, to guarantee there is only one pointer of a particular
   // structure.
@@ -3339,6 +3621,7 @@ QualType ASTContext::getPointerType(QualType T) const {
   PointerTypes.InsertNode(New, InsertPos);
   return QualType(New, 0);
 }
+#endif
 
 QualType ASTContext::getAdjustedType(QualType Orig, QualType New) const {
   llvm::FoldingSetNodeID ID;
@@ -3636,6 +3919,7 @@ QualType ASTContext::getVariableArrayDecayedType(QualType type) const {
   #if ENABLE_BSC
   case Type::Trait:
   case Type::Conditional:
+  case Type::BSCQualified: // only the dependent form survives desugaring
   #endif
   case Type::UnresolvedUsing:
   case Type::TypeOfExpr:
@@ -4755,28 +5039,16 @@ QualType ASTContext::getUsingType(const UsingShadowDecl *Found,
 
 QualType ASTContext::getRecordType(const RecordDecl *Decl) const {
   if (Decl->TypeForDecl)
-    return QualType(Decl->TypeForDecl, 0
-#if ENABLE_BSC
-                    , Decl->isOwnedDecl()
-#endif
-    );
+    return QualType(Decl->TypeForDecl, 0);
 
   if (const RecordDecl *PrevDecl = Decl->getPreviousDecl())
     if (PrevDecl->TypeForDecl)
-      return QualType(Decl->TypeForDecl = PrevDecl->TypeForDecl, 0
-#if ENABLE_BSC
-                      , Decl->isOwnedDecl()
-#endif
-      );
+      return QualType(Decl->TypeForDecl = PrevDecl->TypeForDecl, 0);
 
   auto *newType = new (*this, TypeAlignment) RecordType(Decl);
   Decl->TypeForDecl = newType;
   Types.push_back(newType);
-  return QualType(newType, 0
-#if ENABLE_BSC
-                  , Decl->isOwnedDecl()
-#endif
-  );
+  return QualType(newType, 0);
 }
 
 #if ENABLE_BSC
@@ -6953,58 +7225,26 @@ const ArrayType *ASTContext::getAsArrayType(QualType T) const {
                                               VAT->getBracketsRange()));
 }
 
-#if ENABLE_BSC
-// Does T (an array element or record field type) contain _Owned/_Borrow?
-// Peels array levels on the sugar type because _Owned/_Borrow are local
-// qualifiers that canonicalization drops. Pointer pointees are deliberately
-// NOT followed: an element such as `int *_Owned *` is a bare pointer whose
-// ownership is not tracked, so the parameter keeps the plain `T*` adjustment.
-static bool ArrayParamElemContainsSafePointer(
-    QualType T, llvm::SmallPtrSetImpl<const RecordType *> &Visited) {
-  while (const auto *AT = T->getAsArrayTypeUnsafe())
-    T = AT->getElementType();
-  if (T.isOwnedQualified() || T.isBorrowQualified())
-    return true;
-  if (const auto *RT = dyn_cast<RecordType>(T.getCanonicalType())) {
-    // Unions must not contain _Owned/_Borrow pointers in valid BSC code;
-    // Sema rejects such declarations. Skipping unions here only affects
-    // error-recovery ASTs and keeps the behavior consistent with the manual.
-    if (RT->getDecl()->isUnion())
-      return false;
-    if (!Visited.insert(RT).second)
-      return false;
-    for (FieldDecl *FD : RT->getDecl()->fields())
-      if (ArrayParamElemContainsSafePointer(FD->getType(), Visited))
-        return true;
-  }
-  return false;
-}
-
-static bool ArrayParamElemContainsSafePointer(QualType T) {
-  llvm::SmallPtrSet<const RecordType *, 8> Visited;
-  return ArrayParamElemContainsSafePointer(T, Visited);
-}
-#endif
-
 QualType ASTContext::getAdjustedParameterType(QualType T) const {
 #if ENABLE_BSC
   // In BSC, an array formal parameter whose element type is (or contains)
   // _Owned/_Borrow is adjusted to `T* _Borrow _ArrayElem` (instead of the
   // plain `T*`) so that ownership/borrow analysis keeps tracking the elements.
+  // A bare pointer element is not followed: its ownership is not tracked.
   if (getLangOpts().BSC && T->isArrayType() &&
-      ArrayParamElemContainsSafePointer(T)) {
+      (T.isOrContainsOwned(BSCLookThrough::NoPointer) ||
+       T.isOrContainsBorrow(BSCLookThrough::NoPointer))) {
     // Build the decayed pointer directly instead of using getArrayDecayedType:
     // the latter propagates the element pointer's _Nullable/_Nonnull onto the
     // decayed pointer, while BSC's explicit `T* _Borrow _ArrayElem` form keeps
     // nullability on the element pointer only.
     const ArrayType *PrettyArrayType = getAsArrayType(T);
-    QualType Decayed = getPointerType(PrettyArrayType->getElementType());
+    BSCPointerProperties P;
+    P.Kind = BPK_Borrow;
+    P.ArrayElem = true;
+    QualType Decayed = getPointerType(PrettyArrayType->getElementType(), P);
     Decayed = getQualifiedType(Decayed,
                                PrettyArrayType->getIndexTypeQualifiers());
-    Qualifiers Qs = Decayed.getQualifiers();
-    Qs.addBorrow();
-    Qs.addArrayElem();
-    Decayed = getQualifiedType(Decayed, Qs);
     return getDecayedType(T, Decayed);
   }
 #endif
@@ -7053,18 +7293,6 @@ QualType ASTContext::getArrayDecayedType(QualType Ty) const {
                                      PrettyArrayType->getIndexTypeQualifiers());
 
   // int x[_Nullable] -> int * _Nullable
-#if ENABLE_BSC
-  // Only in BSC language mode: preserve nullability as qualifier bits.
-  // In C/ObjC/C++, keep AttributedType sugar so Type::getNullability() and
-  // -Wnonnull diagnostics continue to work.
-  if (LangOpts.BSC) {
-    if (Optional<NullabilityKind> NK = Ty.getExplicitNullability()) {
-      Result = applyNullabilityToType(Result, *NK,
-                                      *const_cast<ASTContext *>(this));
-      return Result;
-    }
-  }
-#endif
   if (auto Nullability = Ty->getNullability(*this)) {
     Result = const_cast<ASTContext *>(this)->getAttributedType(
         AttributedType::getNullabilityAttrKind(*Nullability), Result, Result);
@@ -10519,38 +10747,36 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
   }
 
 #if ENABLE_BSC
-  LHS.removeLocalOwned();
-  RHS.removeLocalOwned();
-  LHS.removeLocalBorrow();
-  RHS.removeLocalBorrow();
-  LHS.removeLocalArrayElem(*this);
-  RHS.removeLocalArrayElem(*this);
-  // Nullability compatibility is enforced by the nullability checker, not
-  // by C type compatibility — strip like ArrayElem so types that differ only
-  // in _Nullable/_Nonnull still merge (e.g. conditional expressions).
-  LHS.removeLocalNullability(*this);
-  RHS.removeLocalNullability(*this);
+  // Manual 3.8.3: the sticky properties (_Owned/_Borrow, _ArrayElem) are part
+  // of the type, so a mismatch is incompatible here as everywhere C
+  // compatibility is consulted (_Generic, __builtin_types_compatible_p, ...).
+  // A relation that admits a mismatch (the 3.6.5.4 refinement) strips the
+  // properties before asking.  Nullability composes, and the composite keeps
+  // the sharper spelling.
+  if (LangOpts.BSC) {
+    BSCPointerProperties LP = LHS.getBSCPointerProperties();
+    BSCPointerProperties RP = RHS.getBSCPointerProperties();
+    if (!LP.empty() || !RP.empty()) {
+      if (!LP.stickyMatches(RP))
+        return {};
+      QualType Merged =
+          mergeTypes(getTypeWithoutBSCProperties(LHS),
+                     getTypeWithoutBSCProperties(RHS), OfBlockPointer,
+                     Unqualified, BlockReturnType);
+      if (Merged.isNull())
+        return Merged;
+      BSCPointerProperties P = LP;
+      if (LP.Nullability == BWN_Nonnull || RP.Nullability == BWN_Nonnull)
+        P.Nullability = BWN_Nonnull;
+      else if (LP.Nullability == BWN_Nullable || RP.Nullability == BWN_Nullable)
+        P.Nullability = BWN_Nullable;
+      return getTypeWithBSCProperties(Merged, P);
+    }
+  }
 #endif
 
   QualType LHSCan = getCanonicalType(LHS),
            RHSCan = getCanonicalType(RHS);
-
-#if ENABLE_BSC
-  // The stripping above only reaches qualifiers stored on the (possibly
-  // sugared) type itself. BSC qualifiers can also be baked into canonical
-  // types through typedefs (e.g. `typedef int * _Nullable P;`), where they
-  // surface as local qualifiers of the canonical type. Strip them here too,
-  // otherwise the qualifier comparison below sees an extra difference that
-  // the ObjC-only GC fallback is not prepared for.
-  LHSCan.removeLocalOwned();
-  RHSCan.removeLocalOwned();
-  LHSCan.removeLocalBorrow();
-  RHSCan.removeLocalBorrow();
-  LHSCan.removeLocalArrayElem(*this);
-  RHSCan.removeLocalArrayElem(*this);
-  LHSCan.removeLocalNullability(*this);
-  RHSCan.removeLocalNullability(*this);
-#endif
 
   // If two types are identical, they are compatible.
   if (LHSCan == RHSCan)

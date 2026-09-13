@@ -9,7 +9,7 @@ _Public:
 
 int main() {
     A a;
-    a.f(); // expected-error {{no instance member named 'f' in 'struct A'; did you mean to use '::' instead of '.'?}}
+    a.f(); // expected-error {{no instance member named 'f' in '_Owned struct A'; did you mean to use '::' instead of '.'?}}
     // expected-note@-1 {{found the following member function 'f' which doesn't have a 'this' parameter}}
     return 0;
 }

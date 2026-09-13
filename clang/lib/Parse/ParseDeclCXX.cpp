@@ -2054,7 +2054,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
 
     // Declaration or definition of a class type
 #if ENABLE_BSC
-    if (getLangOpts().BSC && (DS.getTypeQualifiers() & DeclSpec::TQ_owned)) {
+    if (getLangOpts().BSC && (DS.getBSCQualifiers() & DeclSpec::BSCQ_owned)) {
       StartLoc = DS.getOwnedSpecLoc();
     }
 #endif
@@ -2112,7 +2112,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
       } else {
         D = SkipBody.CheckSameAsPrevious ? SkipBody.New : TagOrTempResult.get();
       }
-      if ((DS.getTypeQualifiers() & DeclSpec::TQ_owned) &&
+      if ((DS.getBSCQualifiers() & DeclSpec::BSCQ_owned) &&
           (TagType == DeclSpec::TST_struct || TagType == DeclSpec::TST_class)) {
         if (getCurScope()->getFnParent()) {
           Diag(DS.getOwnedSpecLoc(),
@@ -2158,7 +2158,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
   if (getLangOpts().BSC && TUK == Sema::TUK_Declaration &&
       TagType == DeclSpec::TST_struct && TagOrTempResult.get()) {
     Decl *D = TagOrTempResult.get();
-    if (isa<RecordDecl>(D) && (DS.getTypeQualifiers() & DeclSpec::TQ_owned)) {
+    if (isa<RecordDecl>(D) && (DS.getBSCQualifiers() & DeclSpec::BSCQ_owned)) {
       RecordDecl *RD = dyn_cast<RecordDecl>(D);
       if (!getLangOpts().BSCExperimental)
         Diag(DS.getOwnedSpecLoc(), diag::err_bsc_exp_parse) << "_Owned struct";

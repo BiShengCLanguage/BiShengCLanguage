@@ -2312,6 +2312,7 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
     case Type::TypeOf:
     #if ENABLE_BSC
     case Type::Conditional:
+    case Type::BSCQualified:
     #endif
     case Type::UnaryTransform:
     case Type::Attributed:

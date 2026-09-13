@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -fsyntax-only -ast-dump %s | FileCheck %s
+
+// Arithmetic on an array of owned pointers acts on the decayed raw pointer.
+struct Slots { int *_Owned a[2]; };
+void walk(struct Slots *s) {
+  int *_Owned *q = s->a + 1;
+  (void)q;
+}
+// CHECK: FunctionDecl {{.*}} walk
+// CHECK: VarDecl {{.*}} q 'int *_Owned *' cinit
+// CHECK-NEXT: BinaryOperator {{.*}} 'int *_Owned *' '+'
+
+// `_Owned T` deduces T without the property, so plain-T uses agree.
+void take<T>(_Owned T a, T b);
+void mixed(int *_Owned o, int *r) {
+  take(o, r);
+}
+// CHECK: FunctionDecl {{.*}} used take 'void (int *_Owned, int *)'
+// CHECK-NEXT: TemplateArgument type 'int *'
+
+// A conditional over operands differing only in nullability keeps the
+// pointer kind and becomes nullable.
+void pick(int *_Borrow _Nullable p, int *_Borrow q, int c) {
+  int *_Borrow _Nullable r = c ? p : q;
+  (void)r;
+}
+// CHECK: FunctionDecl {{.*}} pick
+// CHECK: ConditionalOperator {{.*}} 'int *_Borrow _Nullable'

@@ -1727,6 +1727,13 @@ bool CursorVisitor::VisitMacroQualifiedTypeLoc(MacroQualifiedTypeLoc TL) {
   return Visit(TL.getInnerLoc());
 }
 
+#if ENABLE_BSC
+bool CursorVisitor::VisitBSCQualifiedTypeLoc(
+    BSCQualifiedTypeLoc TL) {
+  return Visit(TL.getInnerLoc());
+}
+#endif
+
 bool CursorVisitor::VisitPointerTypeLoc(PointerTypeLoc TL) {
   return Visit(TL.getPointeeLoc());
 }

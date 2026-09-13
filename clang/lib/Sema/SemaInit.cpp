@@ -516,7 +516,7 @@ ExprResult InitListChecker::PerformEmptyInit(SourceLocation Loc,
   if (SemaRef.getLangOpts().BSC) {
     auto* BaseTy = Entity.getType()->getBaseElementTypeUnsafe();
     EmptyInitList =
-        BaseTy->isBSCTemplateRecordType() || BaseTy->isOwnedStructureType();
+        BaseTy->isBSCTemplateRecordType() || BaseTy->isOwnedStruct();
   }
 #endif
   if (EmptyInitList) {
@@ -4504,8 +4504,7 @@ static void TryListInitialization(Sema &S,
   }
 
 #if ENABLE_BSC
-  if (S.getLangOpts().BSC && (DestType->isOwnedStructureType() ||
-                              DestType->isOwnedTemplateSpecializationType())) {
+  if (S.getLangOpts().BSC && DestType->isOwnedStruct()) {
     // Check explicit constructor for owned struct has private field.
     RecordDecl *RD = DestType->getAsRecordDecl();
     FunctionDecl *FD = nullptr;

@@ -295,18 +295,10 @@ public:
   TyKind getKind() const { return Kind; }
   QualType getQualType() const { return QT; }
 
-  bool isBorrowPointer() const {
-    return Kind == TyKind::Pointer && QT.isBorrowQualified();
-  }
-
-  bool isOwnedPointer() const {
-    return Kind == TyKind::Pointer && !QT.isNull() && QT.isOwnedQualified();
-  }
-
-  bool isRawPointer() const {
-    return Kind == TyKind::Pointer && !QT.isNull() && !QT.isBorrowQualified() &&
-           !QT.isOwnedQualified();
-  }
+  // A Pointer node always carries the pointer QualType it was built from.
+  bool isBorrowPointer() const { return QT.isBorrowPointer(); }
+  bool isOwnedPointer() const { return QT.isOwnedPointer(); }
+  bool isRawPointer() const { return QT.isRawPointer(); }
 
   BorrowKind getBorrowKind() const {
     assert(isBorrowPointer() && "only borrow pointer has borrow kind");

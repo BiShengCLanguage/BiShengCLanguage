@@ -7,14 +7,13 @@ int a = 0;
 
 _Owned int* Func_1<T>() // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 {
-    T tmp = (_Owned int*)a; // expected-warning {{cast to '_Owned int *' from smaller integer type 'int'}} [-Wincompatible-pointer-types-discards-qualifiers] expected-warning {{cast to '_Owned int *' from smaller integer type 'int'}} [-Wincompatible-pointer-types-discards-qualifiers]
-                            // expected-error@-1 {{type of 'int' cannot be qualified by '_Owned'}}
+    T tmp = (_Owned int*)a; // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-warning 2 {{cast to 'int *' from smaller integer type 'int'}}
     return tmp;
 }
 
 int main()
 {
-    _Owned int* res = Func_1<_Owned int*>(); // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-note {{in instantiation of function template specialization 'Func_1<_Owned int *>' requested here}}
+    _Owned int* res = Func_1<_Owned int*>(); // expected-error 2 {{type of 'int' cannot be qualified by '_Owned'}} expected-note {{in instantiation of function template specialization 'Func_1<int *>' requested here}}
 
     if (*res != 0) {
         return 1;

@@ -1,0 +1,73 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -ast-dump -verify %s | FileCheck --implicit-check-not="_Owned int" %s
+
+// An array never takes a BSC qualifier, however its type is spelled or reached.
+
+typedef int A3[3];
+typedef A3 B3;
+typedef int M22[2][2];
+typedef int *A2[2];
+typedef int *_Owned OwnedArr[2];
+typedef int *_Borrow BorrowArr[2];
+typedef int FT(void);
+typedef FT *AFT[2];
+typedef struct Plain { int x; } Plain;
+
+struct Holder {
+  _Owned A3 prefix; // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  A3 _Owned postfix; // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  _Owned B3 nested; // expected-error {{type of 'B3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  _Owned M22 multi; // expected-error {{type of 'M22' (aka 'int[2][2]') cannot be qualified by '_Owned'}}
+  _Owned A2 ptrs; // expected-error {{type of 'A2' (aka 'int *[2]') cannot be qualified by '_Owned'}}
+  _Owned AFT fns; // expected-error {{type of 'AFT' (aka 'int (*[2])(void)') cannot be qualified by '_Owned'}}
+};
+// CHECK: FieldDecl {{.*}} prefix 'A3':'int[3]'
+// CHECK: FieldDecl {{.*}} ptrs 'A2':'int *[2]'
+
+typedef _Owned A3 OwnedInts; // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+typedef _Owned OwnedArr OwnedSame; // expected-error {{type of 'OwnedArr' (aka 'int *_Owned[2]') cannot be qualified by '_Owned'}}
+typedef _Borrow OwnedArr BorrowOwned; // expected-error {{'_Borrow' can only be applied to a pointer type; 'OwnedArr' (aka 'int *_Owned[2]') is not a pointer}}
+typedef _Owned BorrowArr OwnedBorrow; // expected-error {{type of 'BorrowArr' (aka 'int *_Borrow[2]') cannot be qualified by '_Owned'}}
+void param(_Owned A2 value); // expected-error {{type of 'A2' (aka 'int *[2]') cannot be qualified by '_Owned'}}
+// CHECK: TypedefDecl {{.*}} OwnedInts 'A3':'int[3]'
+// CHECK: ParmVarDecl {{.*}} value 'int **'
+
+void locals(void) {
+  _Owned A3 ints; // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  _Owned typeof(int[3]) via_typeof; // expected-error {{type of 'typeof(int[3])' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  typeof(int[3]) _Owned via_typeof_postfix; // expected-error {{type of 'typeof(int[3])' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  _Owned Plain plain; // expected-error {{type of 'Plain' (aka 'struct Plain') cannot be qualified by '_Owned'}}
+  _Borrow A3 borrowed; // expected-error {{'_Borrow' can only be applied to a pointer type; 'A3' (aka 'int[3]') is not a pointer}}
+  _ArrayElem A3 elems; // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_ArrayElem'}}
+  (void)sizeof(_Owned A3); // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  (void)(_Owned A3){1, 2, 3}; // expected-error {{type of 'A3' (aka 'int[3]') cannot be qualified by '_Owned'}}
+  // The qualifier is dropped at the declaration, so its uses raise nothing more.
+  int first = ints[0];
+  int *decayed = ints;
+  (void)first; (void)decayed; (void)via_typeof; (void)via_typeof_postfix;
+  (void)plain; (void)borrowed; (void)elems;
+}
+// CHECK: VarDecl {{.*}} ints 'A3':'int[3]'
+
+void generic_local<T>(void) {
+  _Owned T g; // expected-error {{type of 'int[3]' cannot be qualified by '_Owned'}}
+  (void)g;
+}
+typedef Owned<T> = T _Owned; // expected-error {{type of 'int[3]' cannot be qualified by '_Owned'}}
+void instantiate(void) {
+  generic_local<A3>(); // expected-note {{in instantiation of function template specialization 'generic_local<int[3]>' requested here}}
+  Owned<A3> alias_arr; // expected-note {{in instantiation of template type alias 'Owned' requested here}}
+  (void)alias_arr;
+}
+
+// Chunk-form properties are validated at instantiation like written code.
+void chunk_form<T>(void) {
+  T *_Owned p = 0; // expected-error {{type of 'int (*)(void)' cannot be qualified by '_Owned'}}
+  (void)p;
+}
+void instantiate_fn(void) {
+  chunk_form<FT>(); // expected-note {{in instantiation of function template specialization 'chunk_form<int (void)>' requested here}}
+}
+
+// Writing both kinds is caught where the qualifier is written.
+void both(int *_Owned _Borrow p); // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}

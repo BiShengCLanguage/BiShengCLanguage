@@ -906,7 +906,11 @@ public:
     if (pointeeType.getAsOpaquePtr() == T->getPointeeType().getAsOpaquePtr())
       return QualType(T, 0);
 
+#if ENABLE_BSC
+    return Ctx.getPointerType(pointeeType, T->getBSCProperties());
+#else
     return Ctx.getPointerType(pointeeType);
+#endif
   }
 
   QualType VisitBlockPointerType(const BlockPointerType *T) {
@@ -1513,37 +1517,6 @@ QualType QualType::getAtomicUnqualifiedType() const {
   return getUnqualifiedType();
 }
 
-#if ENABLE_BSC
-void QualType::removeLocalArrayElem(ASTContext &Ctx) {
-  if (!isLocalArrayElemQualified())
-    return;
-  SplitQualType S = split();
-  Qualifiers Qs = S.Quals;
-  assert(Qs.hasArrayElem() && "local _ArrayElem should live in split qualifiers");
-  Qs.removeArrayElem();
-  *this = Ctx.getQualifiedType(S.Ty, Qs);
-}
-
-void QualType::removeLocalNullable(ASTContext &Ctx) {
-  if (!isLocalNullableQualified())
-    return;
-  SplitQualType S = split();
-  Qualifiers Qs = S.Quals;
-  assert(Qs.hasNullable() && "local _Nullable should live in split qualifiers");
-  Qs.removeNullable();
-  *this = Ctx.getQualifiedType(S.Ty, Qs);
-}
-
-void QualType::removeLocalNonnull(ASTContext &Ctx) {
-  if (!isLocalNonnullQualified())
-    return;
-  SplitQualType S = split();
-  Qualifiers Qs = S.Quals;
-  assert(Qs.hasNonnull() && "local _Nonnull should live in split qualifiers");
-  Qs.removeNonnull();
-  *this = Ctx.getQualifiedType(S.Ty, Qs);
-}
-#endif
 
 Optional<ArrayRef<QualType>> Type::getObjCSubstitutions(
                                const DeclContext *dc) const {
@@ -3274,43 +3247,26 @@ QualType QualType::getNonLValueExprType(const ASTContext &Context) const {
 
 #if ENABLE_BSC
 Optional<NullabilityKind> QualType::getExplicitNullability() const {
-  if (isNullableQualified())
+  // Read as a qualifier: an array of nullable pointers is nullable-qualified.
+  switch (getBSCElementProperties().Nullability) {
+  case BWN_Nullable:
     return NullabilityKind::Nullable;
-  if (isNonnullQualified())
+  case BWN_Nonnull:
     return NullabilityKind::NonNull;
-  return None;
+  case BWN_None:
+    return None;
+  }
+  llvm_unreachable("bad BSCWrittenNullability");
 }
 
 NullabilityKind QualType::getDefNullability() const {
-  QualType CanQT = getCanonicalType();
-  if (CanQT->isPointerType()) {
-    if (Optional<NullabilityKind> Kind = getExplicitNullability())
-      return *Kind;
-    if (CanQT.isOwnedQualified() || CanQT.isBorrowQualified())
-      return NullabilityKind::NonNull;
-    // Raw pointer is nullable by default.
-    return NullabilityKind::Nullable;
-  }
-  return NullabilityKind::Unspecified;
+  if (!getTypePtr()->isPointerType())
+    return NullabilityKind::Unspecified;
+  return getBSCPointerProperties().effectiveNullability() == BWN_Nonnull
+             ? NullabilityKind::NonNull
+             : NullabilityKind::Nullable;
 }
 
-QualType QualType::getOnlyBSCQualifiedType(const ASTContext &Context) const {
-  Qualifiers Quals;
-  if (isArrayElemQualified())
-    Quals.addArrayElem();
-  if (isNullableQualified())
-    Quals.addNullable();
-  if (isNonnullQualified())
-    Quals.addNonnull();
-  if (getCanonicalType().isOwnedQualified())
-    Quals.addOwned();
-  if (getCanonicalType().isBorrowQualified())
-    Quals.addBorrow();
-  bool hasLocalQualifiers = getTypePtr()->getCanonicalTypeInternal().hasLocalQualifiers();
-  QualType T = hasLocalQualifiers ? QualType(getSplitUnqualifiedTypeImpl(*this).Ty, 0)
-                                  : QualType(getTypePtr(), 0);
-  return Context.getQualifiedType(T, Quals);
-}
 #endif
 
 StringRef FunctionType::getNameForCallConv(CallingConv CC) {
@@ -4298,6 +4254,8 @@ bool Type::canHaveNullability(bool ResultIfUnknown) const {
   case Type::TypeOf:
   #if ENABLE_BSC
   case Type::Conditional:
+  // `_Owned T`: canonical only while T has no pointer level yet.
+  case Type::BSCQualified:
   #endif
   case Type::Decltype:
   case Type::UnaryTransform:

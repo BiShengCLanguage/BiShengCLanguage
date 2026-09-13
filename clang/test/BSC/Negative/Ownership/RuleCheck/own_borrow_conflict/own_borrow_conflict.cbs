@@ -5,7 +5,7 @@ void test(int *_Owned _Borrow p) { // expected-error {{cannot combine '_Owned' a
   int *_Owned _Borrow *pp =p; //#1
 }
 // expected-error@#1 {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}
-// expected-error@#1 {{incompatible _Owned types, cannot cast 'int *_Owned _Borrow' to 'int *_Owned _Borrow *'}}
+// expected-error@#1 {{incompatible _Owned types, cannot cast 'int *_Owned' to 'int *_Owned *'}}
 
 struct S1<T> {
   T _Borrow p; // expected-error {{cannot combine '_Owned' and '_Borrow' qualifiers on the same type}}

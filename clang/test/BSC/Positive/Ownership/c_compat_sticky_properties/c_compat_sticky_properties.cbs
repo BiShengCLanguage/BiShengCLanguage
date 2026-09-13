@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -verify %s
+// expected-no-diagnostics
+
+// Manual 3.8.3: _Owned/_Borrow and _ArrayElem are part of the type, so C
+// compatibility sees a mismatch as two different types.  Nullability is not
+// part of compatibility (a raw pointer merely defaults to _Nullable).
+
+_Static_assert(!__builtin_types_compatible_p(int *_Owned, int *), "");
+_Static_assert(!__builtin_types_compatible_p(int *_Borrow, int *), "");
+_Static_assert(!__builtin_types_compatible_p(int *_Owned, int *_Borrow), "");
+_Static_assert(!__builtin_types_compatible_p(int *_Borrow _ArrayElem,
+                                             int *_Borrow), "");
+_Static_assert(__builtin_types_compatible_p(int *_Owned, int *_Owned), "");
+_Static_assert(__builtin_types_compatible_p(int *_Nullable, int *), "");
+_Static_assert(__builtin_types_compatible_p(int *_Nonnull, int *), "");
+
+// Nested levels count too.
+_Static_assert(!__builtin_types_compatible_p(int *_Owned *, int **), "");
+_Static_assert(__builtin_types_compatible_p(int *_Owned *, int *_Owned *), "");
+
+// A generic selection therefore distinguishes the arms, and an _Owned
+// controlling expression no longer selects the raw arm.
+void select(int *_Owned o, int *r, int *_Borrow b) {
+  _Static_assert(_Generic(o, int *: 1, int *_Owned: 2, default: 3) == 2, "");
+  _Static_assert(_Generic(r, int *: 1, int *_Owned: 2, default: 3) == 1, "");
+  _Static_assert(_Generic(b, int *: 1, int *_Owned: 2, default: 3) == 3, "");
+  (void)r; (void)b;
+  __forget(o);
+}

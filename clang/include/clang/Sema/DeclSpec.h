@@ -340,20 +340,20 @@ public:
     TQ_const       = 1,
     TQ_restrict    = 2,
     TQ_volatile    = 4,
-#if ENABLE_BSC
-    TQ_owned       = 8,
-    TQ_borrow      = 16,
-    // Match Qualifiers::{UMask, ArrayElem} in include/clang/AST/Type.h.
-    TQ_unaligned   = 32,
-    TQ_arrayelem   = 64,
-    // This has no corresponding Qualifiers::TQ value, because it's not treated
-    // as a qualifier in our type system.
-    TQ_atomic      = 128
-#else
     TQ_unaligned   = 8,
     TQ_atomic      = 16
-#endif
   };
+
+#if ENABLE_BSC
+  /// BSC qualifiers are not C qualifiers and deliberately do NOT share the
+  /// TQ bitmask, whose values must stay numerically equal to Qualifiers::TQ.
+  enum BSCQual {
+    BSCQ_unspecified = 0,
+    BSCQ_owned       = 1,
+    BSCQ_borrow      = 2,
+    BSCQ_arrayelem   = 4
+  };
+#endif
 
   /// ParsedSpecifiers - Flags to query which specifiers were applied.  This is
   /// returned by getParsedSpecifiers.
@@ -386,10 +386,9 @@ private:
   unsigned ConstrainedAuto : 1;
 
   // type-qualifiers
+  unsigned TypeQualifiers : 5;  // Bitwise OR of TQ.
 #if ENABLE_BSC
-  unsigned TypeQualifiers : 8; // Bitwise OR of TQ.
-#else
-  unsigned TypeQualifiers : 5;
+  unsigned BSCQualifiers : 3;  // Bitwise OR of BSCQual.
 #endif
 
   // function-specifier
@@ -452,7 +451,7 @@ private:
   SourceLocation FriendLoc, ModulePrivateLoc, ConstexprLoc;
   SourceLocation TQ_pipeLoc;
 #if ENABLE_BSC
-  SourceLocation TQ_ownedLoc, TQ_borrowLoc, TQ_arrayelemLoc;
+  SourceLocation BSCQ_ownedLoc, BSCQ_borrowLoc, BSCQ_arrayelemLoc;
   SourceLocation FS_asyncLoc, FS_safe_zone_loc;
   bool IsImplTrait = false; // if parsing impl trait decl
 #endif
@@ -495,7 +494,11 @@ public:
         TypeSpecType(TST_unspecified), TypeAltiVecVector(false),
         TypeAltiVecPixel(false), TypeAltiVecBool(false), TypeSpecOwned(false),
         TypeSpecPipe(false), TypeSpecSat(false), ConstrainedAuto(false),
-        TypeQualifiers(TQ_unspecified), FS_inline_specified(false),
+        TypeQualifiers(TQ_unspecified),
+#if ENABLE_BSC
+        BSCQualifiers(BSCQ_unspecified),
+#endif
+        FS_inline_specified(false),
         FS_forceinline_specified(false), FS_virtual_specified(false),
         FS_noreturn_specified(false),
 #if ENABLE_BSC
@@ -610,6 +613,9 @@ public:
   static const char *getSpecifierName(DeclSpec::SCS S);
   static const char *getSpecifierName(DeclSpec::TSCS S);
   static const char *getSpecifierName(ConstexprSpecKind C);
+#if ENABLE_BSC
+  static const char *getSpecifierName(BSCQual Q);
+#endif
 
   // type-qualifiers
 
@@ -622,9 +628,33 @@ public:
   SourceLocation getUnalignedSpecLoc() const { return TQ_unalignedLoc; }
   SourceLocation getPipeLoc() const { return TQ_pipeLoc; }
 #if ENABLE_BSC
-  SourceLocation getOwnedSpecLoc() const { return TQ_ownedLoc; }
-  SourceLocation getBorrowSpecLoc() const { return TQ_borrowLoc; }
-  SourceLocation getArrayElemSpecLoc() const { return TQ_arrayelemLoc; }
+  unsigned getBSCQualifiers() const { return BSCQualifiers; }
+
+  /// Translate a BSCQual mask into the type-side struct.
+  static BSCPointerProperties bscQualsToProperties(unsigned BSCQuals) {
+    BSCPointerProperties P;
+    if (BSCQuals & BSCQ_owned)
+      P.Kind = BPK_Owned;
+    else if (BSCQuals & BSCQ_borrow)
+      P.Kind = BPK_Borrow;
+    P.ArrayElem = (BSCQuals & BSCQ_arrayelem) != 0;
+    return P;
+  }
+
+  /// The written BSC qualifiers as the type-side struct.
+  BSCPointerProperties getBSCPointerProperties() const {
+    return bscQualsToProperties(BSCQualifiers);
+  }
+  bool hasBSCQualifiers() const { return BSCQualifiers != 0; }
+
+  /// Set a BSC qualifier, mirroring SetTypeQual including duplicate
+  /// detection.  Returns true on error.
+  bool SetBSCQual(BSCQual Q, SourceLocation Loc, const char *&PrevSpec,
+                  unsigned &DiagID);
+
+  SourceLocation getOwnedSpecLoc() const { return BSCQ_ownedLoc; }
+  SourceLocation getBorrowSpecLoc() const { return BSCQ_borrowLoc; }
+  SourceLocation getArrayElemSpecLoc() const { return BSCQ_arrayelemLoc; }
   void setImplTrait() { IsImplTrait = true; }
   bool getImplTrait() { return IsImplTrait; }
   llvm::Optional<bool> getConditionalCondResult() const { return ConditionalCondResult; }
@@ -638,9 +668,10 @@ public:
     TypeQualifiers = 0;
     TQ_constLoc = SourceLocation();
 #if ENABLE_BSC
-    TQ_ownedLoc = SourceLocation();
-    TQ_borrowLoc = SourceLocation();
-    TQ_arrayelemLoc = SourceLocation();
+    BSCQualifiers = BSCQ_unspecified;
+    BSCQ_ownedLoc = SourceLocation();
+    BSCQ_borrowLoc = SourceLocation();
+    BSCQ_arrayelemLoc = SourceLocation();
 #endif
     TQ_restrictLoc = SourceLocation();
     TQ_volatileLoc = SourceLocation();
@@ -722,6 +753,11 @@ public:
   /// Handle - a handler to be invoked.
   void forEachQualifier(
       llvm::function_ref<void(TQ, StringRef, SourceLocation)> Handle);
+#if ENABLE_BSC
+  void forEachBSCQualifier(
+      llvm::function_ref<void(BSCQual, StringRef, SourceLocation)> Handle)
+      const;
+#endif
 
   /// Return true if any type-specifier has been found.
   bool hasTypeSpecifier() const {
@@ -1310,24 +1346,16 @@ struct DeclaratorChunk {
   ParsedAttributesView AttrList;
 
   struct PointerTypeInfo {
-    /// The type qualifiers: const/volatile/restrict/owned/unaligned/atomic.
-#if ENABLE_BSC
-    // Must hold the full DeclSpec::TQ bitmask
-    unsigned TypeQuals : 8;
-#else
+    /// The type qualifiers: const/volatile/restrict/unaligned/atomic.
     unsigned TypeQuals : 5;
+#if ENABLE_BSC
+    /// BSC qualifiers, kept out of TypeQuals for the same reason as in
+    /// DeclSpec: they are not C qualifiers.  Bitwise OR of DeclSpec::BSCQual.
+    unsigned BSCQuals : 3;
 #endif
 
     /// The location of the const-qualifier, if any.
     SourceLocation ConstQualLoc;
-
-#if ENABLE_BSC
-    /// The location of the owned-qualifier, if any.
-    SourceLocation OwnedQualLoc;
-
-    /// The location of the borrow-qualifier, if any.
-    SourceLocation BorrowQualLoc;
-#endif
 
     /// The location of the volatile-qualifier, if any.
     SourceLocation VolatileQualLoc;
@@ -1356,12 +1384,8 @@ struct DeclaratorChunk {
 
   struct ArrayTypeInfo {
     /// The type qualifiers for the array:
-    /// const/volatile/restrict/owned/__unaligned/_Atomic.
-#if ENABLE_BSC
-    unsigned TypeQuals : 8;
-#else
+    /// const/volatile/restrict/__unaligned/_Atomic.
     unsigned TypeQuals : 5;
-#endif
 
     /// True if this dimension included the 'static' keyword.
     unsigned hasStatic : 1;
@@ -1648,24 +1672,16 @@ struct DeclaratorChunk {
 
   struct BlockPointerTypeInfo {
     /// For now, sema will catch these as invalid.
-    /// The type qualifiers: const/volatile/restrict/owned/__unaligned/_Atomic.
-#if ENABLE_BSC
-    unsigned TypeQuals : 8;
-#else
+    /// The type qualifiers: const/volatile/restrict/__unaligned/_Atomic.
     unsigned TypeQuals : 5;
-#endif
 
     void destroy() {
     }
   };
 
   struct MemberPointerTypeInfo {
-    /// The type qualifiers: const/volatile/restrict/owned/__unaligned/_Atomic.
-#if ENABLE_BSC
-    unsigned TypeQuals : 8;
-#else
+    /// The type qualifiers: const/volatile/restrict/__unaligned/_Atomic.
     unsigned TypeQuals : 5;
-#endif
     /// Location of the '*' token.
     SourceLocation StarLoc;
     // CXXScopeSpec has a constructor, so it can't be a direct member.
@@ -1723,12 +1739,19 @@ struct DeclaratorChunk {
                                     SourceLocation VolatileQualLoc,
                                     SourceLocation RestrictQualLoc,
                                     SourceLocation AtomicQualLoc,
-                                    SourceLocation UnalignedQualLoc) {
+                                    SourceLocation UnalignedQualLoc
+#if ENABLE_BSC
+                                    , unsigned BSCQuals = 0
+#endif
+                                    ) {
     DeclaratorChunk I;
     I.Kind                = Pointer;
     I.Loc                 = Loc;
     new (&I.Ptr) PointerTypeInfo;
     I.Ptr.TypeQuals       = TypeQuals;
+#if ENABLE_BSC
+    I.Ptr.BSCQuals        = BSCQuals;
+#endif
     I.Ptr.ConstQualLoc    = ConstQualLoc;
     I.Ptr.VolatileQualLoc = VolatileQualLoc;
     I.Ptr.RestrictQualLoc = RestrictQualLoc;

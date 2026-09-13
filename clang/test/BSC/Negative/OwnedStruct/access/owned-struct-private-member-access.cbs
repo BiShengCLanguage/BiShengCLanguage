@@ -15,7 +15,7 @@ _Owned struct A {
 };
 
 int A::g(A* this) {
-    return this->f(); // expected-error {{'f' is a private member of 'struct A'}}
+    return this->f(); // expected-error {{'f' is a private member of '_Owned struct A'}}
 }
 
 int A::q(A* this);
@@ -26,12 +26,12 @@ int A::q(A* this) {
 struct B {};
 
 int struct B::f(A* ref) {
-    return ref->f(); // expected-error {{'f' is a private member of 'struct A'}}
+    return ref->f(); // expected-error {{'f' is a private member of '_Owned struct A'}}
 }
 
 int main() {
     A a;
-    a.a;    // expected-error {{'a' is a private member of 'struct A'}}
-    a.f(); // expected-error {{'f' is a private member of 'struct A'}}
+    a.a;    // expected-error {{'a' is a private member of '_Owned struct A'}}
+    a.f(); // expected-error {{'f' is a private member of '_Owned struct A'}}
     return 0 ;
 }

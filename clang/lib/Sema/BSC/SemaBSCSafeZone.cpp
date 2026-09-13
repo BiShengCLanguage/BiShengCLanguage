@@ -254,7 +254,7 @@ bool Sema::IsSafeConstantValueConversion(QualType DestType, Expr *E) {
   return false;
 }
 
-/// Select the best matching declaration from heterogeneous redeclarations
+/// Select the best matching declaration from mixed _Safe/_Unsafe redeclarations
 /// (functions with both safe and unsafe declarations) based on context and constraints.
 /// Used for both function pointer assignment and function call resolution.
 ///
@@ -262,7 +262,7 @@ bool Sema::IsSafeConstantValueConversion(QualType DestType, Expr *E) {
 /// @param IsInSafeContext Whether we're in a safe zone
 /// @param CheckConstraints Callback to check if a FunctionDecl satisfies constraints
 /// @return The best matching FunctionDecl, or nullptr if no match found
-FunctionDecl *Sema::SelectDeclForHeterogeneousRedecl(
+FunctionDecl *Sema::SelectDeclForMixedModeRedecl(
     FunctionDecl *CurrentDecl, bool IsInSafeContext,
     llvm::function_ref<bool(FunctionDecl *)> CheckConstraints) {
 
@@ -283,7 +283,7 @@ FunctionDecl *Sema::SelectDeclForHeterogeneousRedecl(
     }
   }
 
-  // If all declarations have the same safety level, not heterogeneous.
+  // If all declarations have the same safety level, not mixed.
   if (SafeDecls.empty() || UnsafeDecls.empty())
     return CurrentDecl;
 
@@ -326,9 +326,9 @@ void Sema::forEachZoneCallableRedecl(
   }
 }
 
-void Sema::noteHeterogeneousCandidates(FunctionDecl *FD, bool IsCallerSafe) {
+void Sema::noteMixedModeCandidates(FunctionDecl *FD, bool IsCallerSafe) {
   forEachZoneCallableRedecl(FD, IsCallerSafe, [&](FunctionDecl *RFD) {
-    Diag(RFD->getLocation(), diag::note_bsc_heterogeneous_candidate)
+    Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate)
         << RFD->getType();
   });
 }
@@ -362,21 +362,21 @@ bool Sema::IsCallAssignmentCompatible(FunctionDecl *FD, MultiExprArg ArgExprs) {
   return CheckCallAssignmentConstraints(*this, FD, ArgExprs) == CallMatch_OK;
 }
 
-void Sema::noteHeterogeneousCallCandidates(FunctionDecl *FD,
+void Sema::noteMixedModeCallCandidates(FunctionDecl *FD,
                                             MultiExprArg ArgExprs) {
   forEachZoneCallableRedecl(FD, IsInSafeZone(), [&](FunctionDecl *RFD) {
     int R = CheckCallAssignmentConstraints(*this, RFD, ArgExprs);
     if (R == CallMatch_ArgCount) {
       Diag(RFD->getLocation(),
-           diag::note_bsc_heterogeneous_candidate_arg_count)
+           diag::note_bsc_mixed_mode_candidate_arg_count)
           << (unsigned)ArgExprs.size() << RFD->getNumParams();
     } else if (R >= 0) {
       Diag(RFD->getLocation(),
-           diag::note_bsc_heterogeneous_candidate_arg_mismatch)
+           diag::note_bsc_mixed_mode_candidate_arg_mismatch)
           << (unsigned)(R + 1) << ArgExprs[R]->getType()
           << RFD->getParamDecl(R)->getType();
     } else {
-      Diag(RFD->getLocation(), diag::note_bsc_heterogeneous_candidate)
+      Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate)
           << RFD->getType();
     }
   });
@@ -390,19 +390,12 @@ static bool AreBSCPointerQualifiersCompatible(QualType Dest, QualType Src,
                                               bool SrcIsArray) {
   if (SrcIsArray) {
     // Arrays decay to raw pointers or destination-sensitive borrow pointers.
-    return !Dest.isOwnedQualified();
+    return !Dest.isOwnedPointer();
   }
 
-  if (Dest.isOwnedQualified() != Src.isOwnedQualified())
+  if (!Dest.getBSCPointerProperties().stickyMatches(
+          Src.getBSCPointerProperties(), /*AllowArrayElemDowngrade=*/true))
     return false;
-  if (Dest.isBorrowQualified() != Src.isBorrowQualified())
-    return false;
-  if (Dest.isArrayElemQualified() != Src.isArrayElemQualified()) {
-    if (Dest.isBorrowQualified() && Src.isBorrowQualified() &&
-        !Dest.isArrayElemQualified() && Src.isArrayElemQualified())
-      return true;
-    return false;
-  }
   return true;
 }
 
@@ -552,7 +545,7 @@ static bool DoesFunctionPointerSatisfyConstraints(Sema &S,
 }
 
 /// Helper function: Select appropriate function declaration for pointer assignment
-/// when source is a function with heterogeneous redeclarations (safe + unsafe).
+/// when source is a function with mixed _Safe/_Unsafe redeclarations.
 FunctionDecl *
 Sema::SelectFunctionDeclForPointerAssignment(Expr *SrcExpr,
                                               const FunctionProtoType *DestFuncType) {
@@ -577,7 +570,7 @@ Sema::SelectFunctionDeclForPointerAssignment(Expr *SrcExpr,
     return DoesFunctionPointerSatisfyConstraints(*this, DestFuncType, CandidateType, Loc);
   };
 
-  return SelectDeclForHeterogeneousRedecl(FD, IsInSafeContext, CheckConstraints);
+  return SelectDeclForMixedModeRedecl(FD, IsInSafeContext, CheckConstraints);
 }
 
 bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
@@ -592,45 +585,37 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
   if (SrcExpr->IsDesugaredCastExpr) {
     return true;
   }
-  const FunctionProtoType *LHSFuncType = DestType->getAs<PointerType>()
-                                             ->getPointeeType()
-                                             ->getAs<FunctionProtoType>();
-  const FunctionProtoType *RHSFuncType =
-      SrcExpr->getType()->isFunctionPointerType()
-          ? SrcExpr->getType()
-                ->getAs<PointerType>()
-                ->getPointeeType()
-                ->getAs<FunctionProtoType>()
-          : SrcExpr->getType()->getAs<FunctionProtoType>();
-
-  // If either type is a FunctionNoProtoType (e.g. from an invalid typedef with
-  // untyped parameters), we cannot check safe zone constraints.
-  if (!LHSFuncType || !RHSFuncType)
+  const FunctionProtoType *LHSFuncType, *RHSFuncType;
+  if (!getBSCFunctionProtoPair(DestType, SrcExpr, LHSFuncType, RHSFuncType))
     return true;
 
-  // Explicit casts reach here only from the safe zone (CheckCStyleCast gates
-  // the unsafe case); implicit conversions are checked in every zone.
-  if (!CheckEnsureInitFunctionPointerType(DestType, SrcExpr))
-    return false;
-
-  // For heterogeneous function redeclarations (functions with both safe and
+  // For mixed _Safe/_Unsafe function redeclarations (both safe and
   // unsafe declarations), select the appropriate declaration based on the
   // destination function pointer type and assignment constraints.
   FunctionDecl *SelectedFD =
       SelectFunctionDeclForPointerAssignment(SrcExpr, LHSFuncType);
   if (SelectedFD) {
-    // Update RHSFuncType to the selected declaration's function type.
     RHSFuncType = SelectedFD->getType()->getAs<FunctionProtoType>();
-  } else {
+    if (!RHSFuncType)
+      return true;
+  }
+
+  // Explicit casts reach here only from the safe zone (CheckCStyleCast gates
+  // the unsafe case); implicit conversions are checked in every zone.
+  if (!CheckEnsureInitFunctionPointerType(LHSFuncType, RHSFuncType,
+                                          SrcExpr->getBeginLoc()))
+    return false;
+
+  if (!SelectedFD) {
     // SelectFunctionDeclForPointerAssignment only returns nullptr when no
-    // heterogeneous redecl of the source satisfies the destination.
+    // mixed _Safe/_Unsafe redecl of the source satisfies the destination.
     DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(SrcExpr->IgnoreParenImpCasts());
     if (DRE) {
       if (FunctionDecl *FD = dyn_cast<FunctionDecl>(DRE->getDecl())) {
         Diag(SrcExpr->getBeginLoc(),
-             diag::err_bsc_no_matching_heterogeneous_function_assign)
+             diag::err_bsc_no_matching_mixed_mode_function_assign)
             << FD->getDeclName() << DestType;
-        noteHeterogeneousCandidates(
+        noteMixedModeCandidates(
             FD, LHSFuncType->getFunSafeZoneSpecifier() == SZ_Safe);
         return false;
       }
@@ -692,8 +677,9 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
     }
   }
 
-  // Nullability compatibility: applies regardless of zone.
-  if (!AreFunctionTypesNullabilityCompatible(LHSFuncType, RHSFuncType, Context)) {
+  // Qualifier compatibility: applies regardless of zone.
+  if (firstBSCFunctionTypeMismatch(Context, LHSFuncType, RHSFuncType) !=
+      BSCFunctionMismatch::None) {
     Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
         << Context.getPointerType(QualType(RHSFuncType, 0)) << DestType;
     return false;
@@ -882,10 +868,10 @@ bool IsSafePointerConversion(const QualType SrcCanPtr,
   //    `const void *_Borrow` is only allowed for implicit conversions (auto
   //    reborrow), not explicit casts; raw pointers ignore the implicit/explicit
   //    distinction and allow both
-  bool SrcIsBorrow = SrcCanPtr.isBorrowQualified();
-  bool DstIsBorrow = DstCanPtr.isBorrowQualified();
-  bool SrcIsRaw = !SrcCanPtr.isOwnedQualified() && !SrcIsBorrow;
-  bool DstIsRaw = !DstCanPtr.isOwnedQualified() && !DstIsBorrow;
+  bool SrcIsBorrow = SrcCanPtr.isBorrowPointer();
+  bool DstIsBorrow = DstCanPtr.isBorrowPointer();
+  bool SrcIsRaw = SrcCanPtr.isRawPointer();
+  bool DstIsRaw = DstCanPtr.isRawPointer();
   if ((SrcIsBorrow && DstIsBorrow) || (SrcIsRaw && DstIsRaw)) {
     // Only borrow pointers can add/drop `_ArrayElem`.
     bool IsAddingArrayElem =
@@ -907,8 +893,8 @@ bool IsSafePointerConversion(const QualType SrcCanPtr,
     }
   }
   // allow `void *owned` <- `T *owned`
-  if (SrcCanPtr.isOwnedQualified() && DstCanPtr->isVoidPointerType() &&
-      DstCanPtr.isOwnedQualified())
+  if (SrcCanPtr.isOwnedPointer() && DstCanPtr->isVoidPointerType() &&
+      DstCanPtr.isOwnedPointer())
     return true;
 
   // fallback: disallow conversion between different pointer types
@@ -983,18 +969,17 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
   if (SrcType->isPointerType() && DestType->isPointerType()) {
     // Keep Owned/Borrow/ArrayElem, drop CVR, ignore nullability: the
     // nullability checker handles _Nullable/_Nonnull separately.
-    QualType SrcCanType = getOnlyBSCQualifiedTypeWithoutNullability(
-        SrcType.getCanonicalType(), Context);
-    QualType DestCanType = getOnlyBSCQualifiedTypeWithoutNullability(
-        DestType.getCanonicalType(), Context);
+    QualType SrcCanType =
+        Context.getTypeWithoutCVRAndNullability(SrcType.getCanonicalType());
+    QualType DestCanType =
+        Context.getTypeWithoutCVRAndNullability(DestType.getCanonicalType());
     IsSafeBehavior = IsSafePointerConversion(SrcCanType, DestCanType, IsExplicitCast);
   } else if (SrcType->isArrayType() && DestType->isPointerType()) {
     // Array-to-pointer decay: check compatibility after canonical decay.
-    QualType SrcDecayedCanType = getOnlyBSCQualifiedTypeWithoutNullability(
-        GetSafeArrayDecayType(*this, SrcType, DestType).getCanonicalType(),
-        Context);
-    QualType DestCanType = getOnlyBSCQualifiedTypeWithoutNullability(
-        DestType.getCanonicalType(), Context);
+    QualType SrcDecayedCanType = Context.getTypeWithoutCVRAndNullability(
+        GetSafeArrayDecayType(*this, SrcType, DestType).getCanonicalType());
+    QualType DestCanType =
+        Context.getTypeWithoutCVRAndNullability(DestType.getCanonicalType());
     IsSafeBehavior =
         IsSafePointerConversion(SrcDecayedCanType, DestCanType, IsExplicitCast);
   } else if ((SrcType->isPointerType() || DestType->isPointerType()) &&
@@ -1172,8 +1157,8 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
         // non-trivial data type
         bool SrcIsBorrow = SrcCanType.isBorrowQualified();
         bool DstIsBorrow = DestCanType.isBorrowQualified();
-        bool SrcIsRaw = !SrcCanType.isOwnedQualified() && !SrcIsBorrow;
-        bool DstIsRaw = !DestCanType.isOwnedQualified() && !DstIsBorrow;
+        bool SrcIsRaw = SrcCanType.isRawPointer();
+        bool DstIsRaw = DestCanType.isRawPointer();
         if (!SrcPointee->isTrivialDataType() &&
             DestCanType->isVoidPointerType() &&
             ((SrcIsBorrow && DstIsBorrow) || (SrcIsRaw && DstIsRaw))) {
@@ -1221,7 +1206,7 @@ bool Sema::IsUnsafeType(QualType Type) {
     if (CurType->isPointerType()) {
       Stack.push_back(CurType->getPointeeType());
     }
-    if (CurType->isOwnedStructureType()) {
+    if (CurType->isOwnedStruct()) {
       continue;
     }
     if (CurType->isStructureType()) {
@@ -1250,7 +1235,7 @@ bool Sema::CanBeUninitializedInSafeZone(QualType Type) {
 
   QualType CanonType = Type.getCanonicalType();
 
-  if (CanonType->isOwnedStructureType())
+  if (CanonType->isOwnedStruct())
     return false;
 
   // Recursively check struct/union fields for owned structs.
@@ -1266,7 +1251,7 @@ bool Sema::CanBeUninitializedInSafeZone(QualType Type) {
       if (!Visited.insert(CurType.getTypePtr()).second)
         continue;
 
-      if (CurType->isOwnedStructureType())
+      if (CurType->isOwnedStruct())
         return false;
 
       if (CurType->isStructureType() || CurType->isUnionType()) {
@@ -1299,8 +1284,7 @@ void Sema::DiagnoseInvalidMemberAccessExprInSafeZone(SourceLocation OpLoc,
   switch (Kind) {
   case tok::arrow: {
     if (!T.isNull() && T->isPointerType()) {
-      // Check for raw pointer (not owned/borrow)
-      if (!(T.getCanonicalType().isOwnedQualified() || T.getCanonicalType().isBorrowQualified()))
+      if (T.isRawPointer())
         Diag(OpLoc, diag::err_unsafe_action)
             << "'->' operator used by raw pointer type";
       // Check if pointing to union type
@@ -1334,9 +1318,7 @@ void Sema::DiagnoseInvalidUnaryExprInSafeZone(SourceLocation OpLoc,
     break;
   }
   case UO_Deref: {
-    if (!T.isNull() && T->isPointerType() &&
-        !T.getCanonicalType().isOwnedQualified() &&
-        !T.getCanonicalType().isBorrowQualified()) {
+    if (!T.isNull() && T.isRawPointer()) {
       // Allow dereferencing function pointers.
       if (T->isFunctionPointerType())
         break;
@@ -1363,19 +1345,19 @@ void Sema::DiagnoseRawPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op) {
   }
 }
 
-void Sema::DiagnoseBSCPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op) {
-  Diag(OpLoc, diag::err_bsc_op_not_supported)
-      << (IsInc ? "'++'" : "'--'") << Op->getType();
+void Sema::DiagnoseBSCPtrArithmetic(SourceLocation OpLoc, StringRef OpSpelling,
+                                    Expr *Op) {
+  Diag(OpLoc, diag::err_bsc_op_not_supported) << OpSpelling << Op->getType();
   const auto *DRE = dyn_cast<DeclRefExpr>(Op->IgnoreParenImpCasts());
   if (!DRE) {
-    Diag(OpLoc, diag::note_bsc_ptr_inc_dec_fix_anon);
+    Diag(OpLoc, diag::note_bsc_ptr_arith_fix_anon);
     return;
   }
   const ValueDecl *VD = DRE->getDecl();
   Diag(VD->getLocation(), diag::note_bsc_ptr_declared_here) << VD;
 
   bool suggestArrayElem = false;
-  if (Op->getType().getCanonicalType().isBorrowQualified()) {
+  if (Op->getType().isBorrowQualified()) {
     if (const auto *VarD = dyn_cast<VarDecl>(VD)) {
       if (const Expr *Init = VarD->getInit()) {
         const Expr *Stripped = Init->IgnoreParenImpCasts();
@@ -1389,7 +1371,7 @@ void Sema::DiagnoseBSCPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op) {
       }
     }
   }
-  Diag(OpLoc, diag::note_bsc_ptr_inc_dec_fix_named)
+  Diag(OpLoc, diag::note_bsc_ptr_arith_fix_named)
       << (suggestArrayElem ? 1 : 0) << VD;
 }
 

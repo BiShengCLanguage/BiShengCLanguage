@@ -918,13 +918,6 @@ static void stripUnusedQualifiers(Qualifiers &Q) {
   Q.removeAddressSpace();
   Q.removeObjCLifetime();
   Q.removeUnaligned();
-#if ENABLE_BSC
-  Q.removeOwned();
-  Q.removeBorrow();
-  Q.removeArrayElem();
-  Q.removeNullable();
-  Q.removeNonnull();
-#endif
 }
 
 static llvm::dwarf::Tag getNextQualifier(Qualifiers &Q) {
@@ -3457,6 +3450,9 @@ llvm::DIType *CGDebugInfo::CreateTypeNode(QualType Ty, llvm::DIFile *Unit) {
     llvm_unreachable("Trait types cannot show up in debug information");
   case Type::Conditional:
     return CreateType(cast<ConditionalType>(Ty), Unit);
+  case Type::BSCQualified:
+    // Sugar over a concrete type here; a dependent one never reaches CodeGen.
+    return getOrCreateType(cast<BSCQualifiedType>(Ty)->desugar(), Unit);
 #endif
   case Type::ExtVector:
   case Type::Vector:

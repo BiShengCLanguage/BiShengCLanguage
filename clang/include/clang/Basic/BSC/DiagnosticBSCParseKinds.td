@@ -15,6 +15,11 @@ def err_inconsistent_tag_name : Error<
   "declaration of %0 as %select{'struct'|'_Owned struct'}1 conflicts with previous declaration as %select{'_Owned struct'|'struct'}1">;
 def err_owned_struct_in_function_scope : Error<"_Owned struct cannot be defined in function scope; move the definition to file scope">;
 
+// BSC qualifiers.
+def err_bsc_qualifier_position : Error<
+  "'%0' qualifier is not allowed %select{in an array declarator|"
+  "on a block pointer|after a function declarator}1">;
+
 // BSC generic warnings and errors.
 def err_extended_type_not_generic_typealias : Error<"extended type of a BSC member function cannot be a generic typealias">;
 def err_generic_typealias_not_within_function : Error<"BSC generic typealias cannot be declared within a function">;

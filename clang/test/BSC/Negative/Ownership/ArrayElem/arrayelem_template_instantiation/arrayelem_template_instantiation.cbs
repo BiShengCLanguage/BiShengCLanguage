@@ -1,10 +1,12 @@
 // RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
 
+// A pointer's Kind is known even when its pointee is dependent, so the
+// missing _Owned/_Borrow is diagnosed at the definition, not at instantiation.
 struct NeedsArrayElemSafePointer<T> {
   T *_ArrayElem p; // expected-error {{'_ArrayElem' must be combined with '_Owned' or '_Borrow' to qualify a pointer type}}
 };
 
-void test_arrayelem_checked_at_instantiation_time(void) {
-  struct NeedsArrayElemSafePointer<int> bad; // expected-note {{in instantiation of template class 'NeedsArrayElemSafePointer<int>' requested here}}
+void test_arrayelem_checked_at_definition_time(void) {
+  struct NeedsArrayElemSafePointer<int> bad;
   (void)bad;
 }

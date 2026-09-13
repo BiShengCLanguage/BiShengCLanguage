@@ -8,7 +8,7 @@ int A::a = 1; // ok
 
 int main() {
     A a = {};
-    a.a = 1; // expected-error {{'a' is a private member of 'struct A'}}
-    A::a = 2; // expected-error {{'a' is a private member of 'struct A'}}
+    a.a = 1; // expected-error {{'a' is a private member of '_Owned struct A'}}
+    A::a = 2; // expected-error {{'a' is a private member of '_Owned struct A'}}
     return 0;
 }

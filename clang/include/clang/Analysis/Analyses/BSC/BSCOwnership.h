@@ -35,17 +35,16 @@ namespace clang {
 // move-semantic record (a struct that contains _Owned members). These arrays
 // are tracked as whole-array aggregates by ownership analysis, and element
 // ownership transfer is only allowed inside qualifying for-loops.
-// Do not canonicalize before isOwnedQualified(): Owned may only appear as a
-// local qualifier on the sugar type, and getCanonicalType() can drop it for
-// the QualType we then inspect with isOwnedQualified().
+// The element is inspected one array level at a time:
+// isOwnedPointerOrOwnedStruct() answers for a pointer or an owned struct, not
+// for an array of them.
 static inline bool IsOwnedElementArrayType(QualType type) {
   while (const auto *AT = type->getAsArrayTypeUnsafe()) {
     QualType Elem = AT->getElementType();
-    if (Elem->isPointerType() && Elem.isOwnedQualified())
+    if (Elem.isOwnedPointer())
       return true;
     if (Elem->isRecordType() &&
-        (Elem.getTypePtr()->isOwnedStructureType() ||
-         Elem->isMoveSemanticType()))
+        Elem.isOrContainsOwned(BSCLookThrough::NoPointer))
       return true;
     type = Elem;
   }
@@ -56,19 +55,9 @@ static inline bool IsOwnedElementArrayType(QualType type) {
 // an owned pointer / move-semantic value / owned fields of the pointee. Such
 // pointers never carry length information, so element transfer is forbidden.
 static inline bool IsOwnedArrayElemPtrTransferBase(QualType type) {
-  if (!type->isPointerType() || !type.isOwnedQualified() ||
-      !type.isArrayElemQualified())
+  if (!type.isOwnedPointer() || !type.isArrayElemQualified())
     return false;
-  QualType Pointee = type->getPointeeType();
-  if (Pointee.isOwnedQualified())
-    return true;
-  if (Pointee->hasOwnedFields())
-    return true;
-  if (Pointee->isRecordType() &&
-      (Pointee.getTypePtr()->isOwnedStructureType() ||
-       Pointee->isMoveSemanticType()))
-    return true;
-  return false;
+  return type->getPointeeType().isOrContainsOwned(BSCLookThrough::AnyPointer);
 }
 
 // IsTrackedType judges if the status of a variable needs to be tracked.
@@ -80,12 +69,12 @@ static inline bool IsOwnedArrayElemPtrTransferBase(QualType type) {
 // 5. arrays whose element type is tracked (owned pointer / move-semantic)
 static inline bool IsTrackedType(QualType type) {
   // case 1 and case 2
-  if (type->isPointerType() && type.isOwnedQualified())
+  if (type.isOwnedPointer())
     return true;
 
-  // case 3
-  if ((type->isRecordType() && type.getTypePtr()->isOwnedStructureType()) ||
-      (type->isRecordType() && type->isMoveSemanticType()))
+  // case 3 and case 4
+  if (type->isRecordType() &&
+      type.isOrContainsOwned(BSCLookThrough::NoPointer))
     return true;
 
   // case 5: array of tracked elements

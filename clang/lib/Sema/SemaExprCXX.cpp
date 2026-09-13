@@ -4928,22 +4928,20 @@ static bool EvaluateUnaryTypeTrait(Sema &Self, TypeTrait UTT,
   case UTT_IsStruct:
     return T->isStructureType();
   case UTT_IsMoveSemantic:
-    return T->isMoveSemanticType();
+    return T.isOrContainsOwned(BSCLookThrough::NoPointer);
   case UTT_IsOwnedPointer:
-    return T->isPointerType() && T.getCanonicalType().isOwnedQualified();
+    return T.isOwnedPointer();
   case UTT_IsBorrow:
-    return T->isPointerType() && T.getCanonicalType().isBorrowQualified();
+    return T.isBorrowPointer();
   case UTT_IsOwnedStruct:
-    return T->isOwnedStructureType();
+    return T->isOwnedStruct();
   case UTT_IsTrivialData:
     return T->isTrivialDataType();
   case UTT_IsNullable:
     return T->isPointerType() &&
            T.getDefNullability() == NullabilityKind::Nullable;
   case UTT_IsArrayElem:
-    return T->isPointerType() && T.isArrayElemQualified() &&
-           (T.getCanonicalType().isOwnedQualified() ||
-            T.getCanonicalType().isBorrowQualified());
+    return T->isPointerType() && T.isArrayElemQualified();
 #endif
   case UTT_IsClass:
     return T->isClassType() || T->isStructureType() || T->isInterfaceType();
@@ -5582,55 +5580,16 @@ static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT, QualType LhsT,
   }
   case BTT_IsSame:
 #if ENABLE_BSC
-    // In BSC, nullability may be explicit (_Nullable/_Nonnull bits) or only
-    // implied by defaults (raw→nullable, owned/borrow→nonnull). Treat types as
-    // the same when they match after stripping nullability spelling and their
-    // effective (def) nullability agrees at every pointer level — e.g. `int *`
-    // and `int *_Nullable`, or `int *_Owned` and `int *_Owned _Nonnull`.
-    // Canonicalize first so typeof()/typedef sugar cannot hide ExtQuals from
-    // stripAllNullabilityQualifiers.
+    // Same once default nullability is filled in: `int *` is `int *_Nullable`.
     if (Self.getLangOpts().BSC) {
-      // Keep the original (possibly sugared) types for the nullability walk:
-      // canonicalizing array elements or function parameters would strip the
-      // nested _Nullable/_Nonnull qualifiers. Canonical types are still used
-      // for the final spelling-stripped structural comparison.
-      QualType L = LhsT;
-      QualType R = RhsT;
-      auto SameDefNullability = [&](auto &&SelfRec, QualType A,
-                                    QualType B) -> bool {
-        if (A->isPointerType() && B->isPointerType()) {
-          if (A.getDefNullability() != B.getDefNullability())
-            return false;
-          return SelfRec(SelfRec, A->getPointeeType(), B->getPointeeType());
-        }
-        // Recurse into array element types so pointer nullability inside
-        // arrays is compared too.
-        if (A->isArrayType() && B->isArrayType()) {
-          return SelfRec(SelfRec,
-                         A->getAsArrayTypeUnsafe()->getElementType(),
-                         B->getAsArrayTypeUnsafe()->getElementType());
-        }
-        // Recurse into function return/parameter types so pointer nullability
-        // inside function types is compared too.
-        const auto *AFn = A->getAs<FunctionProtoType>();
-        const auto *BFn = B->getAs<FunctionProtoType>();
-        if (AFn && BFn) {
-          if (AFn->getNumParams() != BFn->getNumParams())
-            return false;
-          if (!SelfRec(SelfRec, AFn->getReturnType(), BFn->getReturnType()))
-            return false;
-          for (unsigned I = 0, N = AFn->getNumParams(); I != N; ++I)
-            if (!SelfRec(SelfRec, AFn->getParamType(I), BFn->getParamType(I)))
-              return false;
-          return true;
-        }
-        return true;
+      auto Fill = [&](QualType T) {
+        return Self.Context.mapBSCPropertiesAtEveryPointerLevel(
+            T, [](BSCPointerProperties P) {
+              P.Nullability = P.effectiveNullability();
+              return P;
+            });
       };
-      if (!SameDefNullability(SameDefNullability, L, R))
-        return false;
-      return Self.Context.hasSameType(
-          stripAllNullabilityQualifiers(LhsT.getCanonicalType(), Self.Context),
-          stripAllNullabilityQualifiers(RhsT.getCanonicalType(), Self.Context));
+      return Self.Context.hasSameType(Fill(LhsT), Fill(RhsT));
     }
 #endif
     return Self.Context.hasSameType(LhsT, RhsT);

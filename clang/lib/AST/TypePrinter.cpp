@@ -176,54 +176,80 @@ namespace {
 
 } // namespace
 
-static void AppendTypeQualList(raw_ostream &OS, unsigned TypeQuals,
-                               bool HasRestrictKeyword
 #if ENABLE_BSC
-                               ,
-                               bool IsRewriteBSC, bool MangleWithSafeQualifier
+// A BSCQualifiedType over a name prints its properties before the name
+// (`_Owned IP`).  Over anything else, or while dependent without a pointer
+// level, it prints as its resolved type (`int *_Owned`): the same spelling as
+// its canonical form, so sugar never changes what the user reads.
+static bool bscQualifiedPrintsPrefixed(const BSCQualifiedType *T) {
+  if (!T->isSugared())
+    return true;
+  bool NeedARCStrongQualifier = false;
+  return TypePrinter::canPrefixQualifiers(T->getUnderlyingType().getTypePtr(),
+                                          NeedARCStrongQualifier);
+}
+
+// Print \p Quals with the BSC pointer properties \p P spelled after `const`
+// and before the remaining qualifiers: `int *const _Owned volatile`.
+// Qualifiers knows nothing about the properties; the spelling order lives
+// here. -rewrite-bsc emits C, so the spellings are dropped there unless they
+// are part of a mangled safe name.
+static void printQualifiersWithBSC(raw_ostream &OS, Qualifiers Quals,
+                                   BSCPointerProperties P,
+                                   const PrintingPolicy &Policy,
+                                   bool appendSpaceIfNonEmpty) {
+  if (P.empty()) {
+    Quals.print(OS, Policy, appendSpaceIfNonEmpty);
+    return;
+  }
+  bool addSpace = false;
+  if (Quals.hasConst()) {
+    OS << "const";
+    addSpace = true;
+    Quals.removeConst();
+  }
+  if (!Policy.RewriteBSC || Policy.MangleWithSafeQualifier) {
+    auto emit = [&](StringRef Spelling) {
+      if (addSpace)
+        OS << ' ';
+      OS << Spelling;
+      addSpace = true;
+    };
+    if (P.Kind == BPK_Owned)
+      emit("_Owned");
+    else if (P.Kind == BPK_Borrow)
+      emit("_Borrow");
+    if (P.ArrayElem)
+      emit("_ArrayElem");
+    if (P.Nullability == BWN_Nullable)
+      emit("_Nullable");
+    else if (P.Nullability == BWN_Nonnull)
+      emit("_Nonnull");
+  }
+  SmallString<32> Rest;
+  {
+    llvm::raw_svector_ostream RestOS(Rest);
+    Quals.print(RestOS, Policy, /*appendSpaceIfNonEmpty=*/false);
+  }
+  if (!Rest.empty()) {
+    if (addSpace)
+      OS << ' ';
+    OS << Rest;
+  }
+  // A carrier with properties counts as printed even when the spellings are
+  // suppressed, so the surrounding spacing does not depend on the policy.
+  if (appendSpaceIfNonEmpty)
+    OS << ' ';
+}
 #endif
-                               ) {
+
+static void AppendTypeQualList(raw_ostream &OS, unsigned TypeQuals,
+                               bool HasRestrictKeyword) {
   bool appendSpace = false;
   if (TypeQuals & Qualifiers::Const) {
     OS << "const";
     appendSpace = true;
   }
-#if ENABLE_BSC
-  if ((TypeQuals & Qualifiers::Owned) &&
-      (!IsRewriteBSC || MangleWithSafeQualifier)) {
-    if (appendSpace) OS << ' ';
-    OS << "_Owned";
-    appendSpace = true;
-  }
-  if ((TypeQuals & Qualifiers::Borrow) &&
-      (!IsRewriteBSC || MangleWithSafeQualifier)) {
-    if (appendSpace)
-      OS << ' ';
-    OS << "_Borrow";
-    appendSpace = true;
-  }
-  if ((TypeQuals & Qualifiers::ArrayElem) &&
-      (!IsRewriteBSC || MangleWithSafeQualifier)) {
-    if (appendSpace)
-      OS << ' ';
-    OS << "_ArrayElem";
-    appendSpace = true;
-  }
-  if ((TypeQuals & Qualifiers::Nullable) &&
-      (!IsRewriteBSC || MangleWithSafeQualifier)) {
-    if (appendSpace)
-      OS << ' ';
-    OS << "_Nullable";
-    appendSpace = true;
-  }
-  if ((TypeQuals & Qualifiers::Nonnull) &&
-      (!IsRewriteBSC || MangleWithSafeQualifier)) {
-    if (appendSpace)
-      OS << ' ';
-    OS << "_Nonnull";
-    appendSpace = true;
-  }
-#endif
   if (TypeQuals & Qualifiers::Volatile) {
     if (appendSpace) OS << ' ';
     OS << "volatile";
@@ -248,6 +274,12 @@ static bool isTypedefType(QualType QT) {
   if (dyn_cast<TypedefType>(QT)) {
     return true;
   }
+#if ENABLE_BSC
+  // `IP _Owned` is a BSCQualifiedType over the typedef.
+  if (const auto *BQ = dyn_cast<BSCQualifiedType>(QT)) {
+    return isTypedefType(BQ->getUnderlyingType());
+  }
+#endif
   if (const auto *PT = dyn_cast<PointerType>(QT)) {
     return isTypedefType(PT->getPointeeType());
   }
@@ -261,6 +293,11 @@ static bool isFuncType(QualType QT) {
   if (QT.getTypePtr()->isFunctionType()) {
     return true;
   }
+#if ENABLE_BSC
+  if (const auto *BQ = dyn_cast<BSCQualifiedType>(QT)) {
+    return isFuncType(BQ->getUnderlyingType());
+  }
+#endif
   if (const auto *PT = dyn_cast<PointerType>(QT)) {
     return isFuncType(PT->getPointeeType());
   }
@@ -397,6 +434,13 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
       CanPrefixQualifiers = false;
       break;
 
+#if ENABLE_BSC
+    case Type::BSCQualified:
+      CanPrefixQualifiers =
+          bscQualifiedPrintsPrefixed(cast<BSCQualifiedType>(UnderlyingType));
+      break;
+#endif
+
     case Type::Attributed: {
       // We still want to print the address_space before the type if it is an
       // address_space attribute.
@@ -435,23 +479,60 @@ void TypePrinter::printBefore(const Type *T,Qualifiers Quals, raw_ostream &OS) {
   bool NeedARCStrongQualifier = false;
   CanPrefixQualifiers = canPrefixQualifiers(T, NeedARCStrongQualifier);
 #if ENABLE_BSC
-  if (T->isOwnedStructureType()) {
+  if (T->isOwnedStruct()) {
     Policy.MangleWithSafeQualifier = false;
   }
+  // The properties are read from whichever node carries them; ownership of a
+  // struct is read from its decl.
+  BSCPointerProperties BSCProps;
+  if (const auto *PT = dyn_cast<PointerType>(T))
+    BSCProps = PT->getBSCProperties();
+  else if (const auto *BQ = dyn_cast<BSCQualifiedType>(T)) {
+    if (bscQualifiedPrintsPrefixed(BQ))
+      BSCProps = BQ->getBSCProperties();
+  }
+  // `_Owned` is part of the tag keyword: print it where the name is printed,
+  // not again on sugar that delegates to it.
+  if (!Policy.SuppressTagKeyword && T->isOwnedStruct() &&
+      isa<RecordType, ElaboratedType, TemplateSpecializationType,
+          InjectedClassNameType>(T))
+    BSCProps.Kind = BPK_Owned;
 #endif
 
+#if ENABLE_BSC
+  if (CanPrefixQualifiers && (!Quals.empty() || !BSCProps.empty())) {
+#else
   if (CanPrefixQualifiers && !Quals.empty()) {
+#endif
     if (NeedARCStrongQualifier) {
       IncludeStrongLifetimeRAII Strong(Policy);
+#if ENABLE_BSC
+      printQualifiersWithBSC(OS, Quals, BSCProps, Policy,
+                             /*appendSpaceIfNonEmpty=*/true);
+#else
       Quals.print(OS, Policy, /*appendSpaceIfNonEmpty=*/true);
+#endif
     } else {
+#if ENABLE_BSC
+      printQualifiersWithBSC(OS, Quals, BSCProps, Policy,
+                             /*appendSpaceIfNonEmpty=*/true);
+#else
       Quals.print(OS, Policy, /*appendSpaceIfNonEmpty=*/true);
+#endif
     }
   }
 
   bool hasAfterQuals = false;
+#if ENABLE_BSC
+  if (!CanPrefixQualifiers && (!Quals.empty() || !BSCProps.empty())) {
+#else
   if (!CanPrefixQualifiers && !Quals.empty()) {
+#endif
+#if ENABLE_BSC
+    hasAfterQuals = !Quals.isEmptyWhenPrinted(Policy) || !BSCProps.empty();
+#else
     hasAfterQuals = !Quals.isEmptyWhenPrinted(Policy);
+#endif
     if (hasAfterQuals)
       HasEmptyPlaceHolder = false;
   }
@@ -467,9 +548,19 @@ void TypePrinter::printBefore(const Type *T,Qualifiers Quals, raw_ostream &OS) {
   if (hasAfterQuals) {
     if (NeedARCStrongQualifier) {
       IncludeStrongLifetimeRAII Strong(Policy);
+#if ENABLE_BSC
+      printQualifiersWithBSC(OS, Quals, BSCProps, Policy,
+                             /*appendSpaceIfNonEmpty=*/!PrevPHIsEmpty.get());
+#else
       Quals.print(OS, Policy, /*appendSpaceIfNonEmpty=*/!PrevPHIsEmpty.get());
+#endif
     } else {
+#if ENABLE_BSC
+      printQualifiersWithBSC(OS, Quals, BSCProps, Policy,
+                             /*appendSpaceIfNonEmpty=*/!PrevPHIsEmpty.get());
+#else
       Quals.print(OS, Policy, /*appendSpaceIfNonEmpty=*/!PrevPHIsEmpty.get());
+#endif
     }
   }
 }
@@ -638,12 +729,7 @@ void TypePrinter::printConstantArrayAfter(const ConstantArrayType *T,
   OS << '[';
   if (T->getIndexTypeQualifiers().hasQualifiers()) {
     AppendTypeQualList(OS, T->getIndexTypeCVRQualifiers(),
-                       Policy.Restrict
-#if ENABLE_BSC
-                       ,
-                       Policy.RewriteBSC, Policy.MangleWithSafeQualifier
-#endif
-    );
+                       Policy.Restrict);
     OS << ' ';
   }
 
@@ -676,12 +762,7 @@ void TypePrinter::printVariableArrayAfter(const VariableArrayType *T,
                                           raw_ostream &OS) {
   OS << '[';
   if (T->getIndexTypeQualifiers().hasQualifiers()) {
-    AppendTypeQualList(OS, T->getIndexTypeCVRQualifiers(), Policy.Restrict
-#if ENABLE_BSC
-                       ,
-                       Policy.RewriteBSC, Policy.MangleWithSafeQualifier
-#endif
-    );
+    AppendTypeQualList(OS, T->getIndexTypeCVRQualifiers(), Policy.Restrict);
     OS << ' ';
   }
 
@@ -732,6 +813,25 @@ void TypePrinter::printDependentSizedArrayAfter(
   OS << ']';
   printAfter(T->getElementType(), OS);
 }
+
+#if ENABLE_BSC
+void TypePrinter::printBSCQualifiedBefore(const BSCQualifiedType *T,
+                                          raw_ostream &OS) {
+  // Prefixed: printBefore(const Type *, Qualifiers, ...) already emitted the
+  // properties, so only the name follows.  Otherwise the resolved type spells
+  // them itself at its pointer level.
+  printBefore(bscQualifiedPrintsPrefixed(T) ? T->getUnderlyingType()
+                                            : T->desugar(),
+              OS);
+}
+
+void TypePrinter::printBSCQualifiedAfter(const BSCQualifiedType *T,
+                                         raw_ostream &OS) {
+  printAfter(bscQualifiedPrintsPrefixed(T) ? T->getUnderlyingType()
+                                           : T->desugar(),
+             OS);
+}
+#endif
 
 void TypePrinter::printDependentAddressSpaceBefore(
     const DependentAddressSpaceType *T, raw_ostream &OS) {
@@ -2422,11 +2522,6 @@ bool Qualifiers::isEmptyWhenPrinted(const PrintingPolicy &Policy) const {
   if (getCVRQualifiers())
     return false;
 
-#if ENABLE_BSC
-  if (hasArrayElem() || hasNullable() || hasNonnull())
-    return false;
-#endif
-
   if (getAddressSpace() != LangAS::Default)
     return false;
 
@@ -2488,21 +2583,8 @@ void Qualifiers::print(raw_ostream &OS, const PrintingPolicy& Policy,
   bool addSpace = false;
 
   unsigned quals = getCVRQualifiers();
-#if ENABLE_BSC
-  if (hasArrayElem())
-    quals |= Qualifiers::ArrayElem;
-  if (hasNullable())
-    quals |= Qualifiers::Nullable;
-  if (hasNonnull())
-    quals |= Qualifiers::Nonnull;
-#endif
   if (quals) {
-    AppendTypeQualList(OS, quals, Policy.Restrict
-#if ENABLE_BSC
-                       ,
-                       Policy.RewriteBSC, Policy.MangleWithSafeQualifier
-#endif
-    );
+    AppendTypeQualList(OS, quals, Policy.Restrict);
     addSpace = true;
   }
   if (hasUnaligned()) {

@@ -39,11 +39,12 @@ Expr *Sema::DesugarOperatorFirstArg(FunctionDecl *FD, ArrayRef<Expr *> Args) {
         QT.addConst();
         UO = UO_AddrConst;
       }
-      QT = Context.getPointerType(QT);
+      BSCPointerProperties P;
       if (FirstParamTy.isBorrowQualified()) {
-        QT.addBorrow();
+        P.Kind = BPK_Borrow;
         UO = (UO == UO_AddrConst ? UO_AddrConst : UO_AddrMut);
       }
+      QT = Context.getPointerType(QT, P);
       argExpr = UnaryOperator::Create(Context, Args[0], UO, QT, VK_PRValue,
                                       OK_Ordinary, Args[0]->getExprLoc(), false,
                                       CurFPFeatureOverrides());

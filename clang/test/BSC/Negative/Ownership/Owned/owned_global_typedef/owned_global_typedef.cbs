@@ -1,13 +1,13 @@
 // RUN: %clang_cc1 -fbsc-experimental -ast-dump -verify %s
 
 typedef _Owned int ownInt; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-ownInt a = 10;  //expected-error {{type of global variable cannot be qualified by '_Owned' because 'ownInt' (aka '_Owned int') contains a '_Owned' type}}
+ownInt a = 10;
 
 typedef struct A {
     _Owned int a; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
 }AA;
 
-AA aa;  //expected-error {{type of global variable cannot be qualified by '_Owned' (even indirectly) because 'AA' (aka 'struct A') contains a '_Owned' type}}
+AA aa;
 
 typedef _Owned struct B {
     int a;

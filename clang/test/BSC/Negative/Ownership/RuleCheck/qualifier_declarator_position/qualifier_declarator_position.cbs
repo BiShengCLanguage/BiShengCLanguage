@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -fblocks -verify %s
+
+// These declarator chunks keep only C qualifiers, so a BSC one is rejected.
+
+int a[_Owned 5]; // expected-error {{'_Owned' qualifier is not allowed in an array declarator}}
+int *b[_Borrow 5]; // expected-error {{'_Borrow' qualifier is not allowed in an array declarator}}
+int *c[_ArrayElem 5]; // expected-error {{'_ArrayElem' qualifier is not allowed in an array declarator}}
+void param(int p[_Owned 4]); // expected-error {{'_Owned' qualifier is not allowed in an array declarator}}
+
+int (^_Owned blk)(void); // expected-error {{'_Owned' qualifier is not allowed on a block pointer}}
+int (^_Borrow blk2)(void); // expected-error {{'_Borrow' qualifier is not allowed on a block pointer}}
+
+int (*fp)(int) _Owned; // expected-error {{'_Owned' qualifier is not allowed after a function declarator}}
+int trailing(void) _Borrow; // expected-error {{'_Borrow' qualifier is not allowed after a function declarator}}
+
+// The qualifier is dropped, so the declaration is otherwise well formed.
+void use(void) {
+  int *_Owned owned = b[0]; // expected-error {{incompatible _Owned types, cannot cast 'int *' to 'int *_Owned'}}
+  (void)owned;
+}

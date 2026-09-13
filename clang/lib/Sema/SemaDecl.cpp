@@ -13,6 +13,9 @@
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
+#if ENABLE_BSC
+#include "clang/AST/BSC/TypeBSC.h"
+#endif
 #include "clang/AST/ASTLambda.h"
 #if ENABLE_BSC
 #include "clang/Analysis/Analyses/BSC/BSCNullabilityCheck.h"
@@ -2534,12 +2537,12 @@ static SafeZoneSpecifier extractSafeZoneSpecFromFunctionPointer(QualType FPType)
   return SZ_None;
 }
 
-/// Check if two function pointer types are compatible for heterogeneous
-/// redeclarations (one safe, one unsafe typedef).
-static bool areFunctionPointerTypesCompatibleForHeterogeneousRedecl(
+/// Manual 3.6.5.4 through a function pointer: the _Unsafe pointee must satisfy
+/// the unsafe-safe refinement relation with respect to the _Safe one.
+static bool functionPointerSatisfiesUnsafeSafeRefinement(
     ASTContext &Ctx, QualType OldType, QualType NewType,
     SafeZoneSpecifier OldSZS, SafeZoneSpecifier NewSZS,
-    HeterogeneousRedeclMismatchInfo *MismatchOut) {
+    UnsafeSafeRefinementMismatchInfo *MismatchOut) {
   QualType OldPointee = OldType->getPointeeType();
   QualType NewPointee = NewType->getPointeeType();
 
@@ -2549,21 +2552,21 @@ static bool areFunctionPointerTypesCompatibleForHeterogeneousRedecl(
   if (!OldFPT || !NewFPT) {
     if (MismatchOut) {
       MismatchOut->MismatchKind =
-          HeterogeneousRedeclMismatchInfo::Kind::Other;
+          UnsafeSafeRefinementMismatchInfo::Kind::Other;
       MismatchOut->Type1 = OldType;
       MismatchOut->Type2 = NewType;
     }
     return false;
   }
 
-  return areFunctionTypesCompatibleForHeterogeneousRedecl(
+  return functionTypeSatisfiesUnsafeSafeRefinement(
       Ctx, OldPointee, NewPointee, OldSZS, NewSZS, MismatchOut);
 }
 
 #if ENABLE_BSC
-// %select indices for err_bsc_incompatible_heterogeneous_redecl_type and
+// %select indices for err_bsc_unsafe_safe_refinement_type and
 // note_bsc_redecl_previous: keep in lockstep with DiagnosticBSCSemaKinds.td.
-enum : unsigned { HeteroSelectParam = 0, HeteroSelectReturn = 1 };
+enum : unsigned { RefinementSelectParam = 0, RefinementSelectReturn = 1 };
 
 static FunctionProtoTypeLoc getInnerFunctionProtoTypeLoc(TypeSourceInfo *TSI) {
   if (!TSI)
@@ -2627,34 +2630,34 @@ static SourceLocation getRedeclReturnTypeLocation(const NamedDecl *D) {
   return D->getLocation();
 }
 
-static void diagnoseIncompatibleHeterogeneousRedecl(
+static void diagnoseUnsafeSafeRefinementFailure(
     Sema &S, const NamedDecl *NewDecl, const NamedDecl *OldDecl,
-    const HeterogeneousRedeclMismatchInfo &Info) {
+    const UnsafeSafeRefinementMismatchInfo &Info) {
   switch (Info.MismatchKind) {
-  case HeterogeneousRedeclMismatchInfo::Kind::Parameter: {
+  case UnsafeSafeRefinementMismatchInfo::Kind::Parameter: {
     SourceLocation NewLoc = getRedeclParamLocation(NewDecl, Info.ParamIndex);
     SourceLocation OldLoc = getRedeclParamLocation(OldDecl, Info.ParamIndex);
-    S.Diag(NewLoc, diag::err_bsc_incompatible_heterogeneous_redecl_type)
-        << NewDecl << HeteroSelectParam << Info.Type2;
+    S.Diag(NewLoc, diag::err_bsc_unsafe_safe_refinement_type)
+        << NewDecl << RefinementSelectParam << Info.Type2;
     S.Diag(OldLoc, diag::note_bsc_redecl_previous)
-        << HeteroSelectParam << Info.Type1;
+        << RefinementSelectParam << Info.Type1;
     return;
   }
-  case HeterogeneousRedeclMismatchInfo::Kind::ReturnType: {
+  case UnsafeSafeRefinementMismatchInfo::Kind::ReturnType: {
     SourceLocation NewLoc = getRedeclReturnTypeLocation(NewDecl);
     SourceLocation OldLoc = getRedeclReturnTypeLocation(OldDecl);
-    S.Diag(NewLoc, diag::err_bsc_incompatible_heterogeneous_redecl_type)
-        << NewDecl << HeteroSelectReturn << Info.Type2;
+    S.Diag(NewLoc, diag::err_bsc_unsafe_safe_refinement_type)
+        << NewDecl << RefinementSelectReturn << Info.Type2;
     S.Diag(OldLoc, diag::note_bsc_redecl_previous)
-        << HeteroSelectReturn << Info.Type1;
+        << RefinementSelectReturn << Info.Type1;
     return;
   }
-  case HeterogeneousRedeclMismatchInfo::Kind::ParamCount: {
+  case UnsafeSafeRefinementMismatchInfo::Kind::ParamCount: {
     const FunctionProtoType *FPT1 = Info.Type1->getAs<FunctionProtoType>();
     const FunctionProtoType *FPT2 = Info.Type2->getAs<FunctionProtoType>();
     if (FPT1 && FPT2) {
       S.Diag(NewDecl->getLocation(),
-             diag::err_bsc_incompatible_heterogeneous_redecl_param_count)
+             diag::err_bsc_unsafe_safe_refinement_param_count)
           << NewDecl << (unsigned)FPT2->getNumParams()
           << (unsigned)FPT1->getNumParams();
       S.Diag(OldDecl->getLocation(), diag::note_previous_declaration);
@@ -2662,16 +2665,16 @@ static void diagnoseIncompatibleHeterogeneousRedecl(
     }
     break;
   }
-  case HeterogeneousRedeclMismatchInfo::Kind::Variadic: {
+  case UnsafeSafeRefinementMismatchInfo::Kind::Variadic: {
     const FunctionProtoType *FPT2 = Info.Type2->getAs<FunctionProtoType>();
     bool NewIsVariadic = FPT2 && FPT2->isVariadic();
     S.Diag(NewDecl->getLocation(),
-           diag::err_bsc_incompatible_heterogeneous_redecl_variadic)
+           diag::err_bsc_unsafe_safe_refinement_variadic)
         << NewDecl << (NewIsVariadic ? 1 : 0);
     S.Diag(OldDecl->getLocation(), diag::note_previous_declaration);
     return;
   }
-  case HeterogeneousRedeclMismatchInfo::Kind::Other:
+  case UnsafeSafeRefinementMismatchInfo::Kind::Other:
     break;
   }
   // Fallback for Kind::Other: callers screen this out, but emit something
@@ -2707,7 +2710,7 @@ bool Sema::isIncompatibleTypedef(TypeDecl *Old, TypedefNameDecl *New) {
       !Context.hasSameType(OldType, NewType)) {
 
     #if ENABLE_BSC
-    // BSC: Check if this is a heterogeneous function pointer redeclaration
+    // BSC: mixed _Safe/_Unsafe function pointer typedef redeclaration.
     // (one safe, one unsafe) which may be compatible.
     if (getLangOpts().BSC &&
         OldType->isFunctionPointerType() &&
@@ -2716,15 +2719,14 @@ bool Sema::isIncompatibleTypedef(TypeDecl *Old, TypedefNameDecl *New) {
       SafeZoneSpecifier OldSZS = extractSafeZoneSpecFromFunctionPointer(OldType);
       SafeZoneSpecifier NewSZS = extractSafeZoneSpecFromFunctionPointer(NewType);
 
-      // Check if this is a heterogeneous redeclaration (one _Safe, one unsafe).
+      // Manual 3.6.5: mixed _Safe/_Unsafe redeclaration.
       // SZ_None and SZ_Unsafe are both treated as unsafe.
       if ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe)) {
-        // Generic function pointer typedefs cannot have heterogeneous
-        // redeclarations.
+        // Manual 3.6.5.1 rule 5: no mixed declarations for generics.
         TypedefNameDecl *OldTypedef = dyn_cast<TypedefNameDecl>(Old);
         if ((OldTypedef && OldTypedef->getDescribedTemplateParams()) ||
             New->getDescribedTemplateParams()) {
-          Diag(New->getLocation(), diag::err_bsc_generic_heterogeneous_redecl)
+          Diag(New->getLocation(), diag::err_bsc_generic_mixed_mode_redecl)
               << New->getDeclName();
           if (Old->getLocation().isValid())
             notePreviousDefinition(Old, New->getLocation());
@@ -2732,12 +2734,12 @@ bool Sema::isIncompatibleTypedef(TypeDecl *Old, TypedefNameDecl *New) {
           return true;
         }
 
-        HeterogeneousRedeclMismatchInfo Mismatch;
-        if (areFunctionPointerTypesCompatibleForHeterogeneousRedecl(
+        UnsafeSafeRefinementMismatchInfo Mismatch;
+        if (functionPointerSatisfiesUnsafeSafeRefinement(
                 Context, OldType, NewType, OldSZS, NewSZS, &Mismatch))
           return false;
 
-        diagnoseIncompatibleHeterogeneousRedecl(*this, New, Old, Mismatch);
+        diagnoseUnsafeSafeRefinementFailure(*this, New, Old, Mismatch);
         New->setInvalidDecl();
         return true;
       }
@@ -3548,7 +3550,7 @@ static void mergeParamDeclAttributes(ParmVarDecl *newDecl,
   if (!foundAny) newDecl->setAttrs(AttrVec());
 
 #if ENABLE_BSC
-  // A heterogeneous redeclaration (one _Safe, one non-safe) keeps the two
+  // A mixed _Safe/_Unsafe redeclaration (one _Safe, one non-safe) keeps the two
   // function *types* separate — mergeFunctionTypes treats _Safe/non-safe as
   // incompatible and never fuses them. The safety-bound initialization
   // contracts ensure_init / ensure_init_if_ret must not leak across that
@@ -4349,38 +4351,39 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
     }
 
     #if ENABLE_BSC
-    // BSC: Check compatibility for heterogeneous redeclarations (one safe,
+    // BSC: mixed _Safe/_Unsafe redeclarations (one safe,
     // one unsafe). Homogeneous redeclarations (both safe or both unsafe)
     // use standard type compatibility rules.
-    bool BSCHeterogeneousRedeclCompatible = false;
+    bool SatisfiesUnsafeSafeRefinement = false;
     if (getLangOpts().BSC) {
       SafeZoneSpecifier OldSZS = Old->getSafeZoneSpecifier();
       SafeZoneSpecifier NewSZS = New->getSafeZoneSpecifier();
 
-      // Check if this is a heterogeneous redeclaration (safe vs. unsafe).
+      // Check if this is a mixed _Safe/_Unsafe redeclaration (safe vs. unsafe).
       // SZ_None and SZ_Unsafe are both "unsafe" — treat them as the same level.
       if ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe)) {
-        // Generic functions cannot have heterogeneous redeclarations.
+        // Generic functions cannot have mixed _Safe/_Unsafe redeclarations.
         if (New->getDescribedFunctionTemplate() ||
             Old->getDescribedFunctionTemplate()) {
-          Diag(New->getLocation(), diag::err_bsc_generic_heterogeneous_redecl)
+          Diag(New->getLocation(), diag::err_bsc_generic_mixed_mode_redecl)
               << New;
           Diag(OldLocation, PrevDiag) << Old << Old->getType();
           return true;
         }
 
-        // Check if the types are compatible for heterogeneous redeclarations.
+        // Manual 3.6.5.1 rule 3: the _Unsafe type must satisfy the unsafe-safe
+        // refinement relation with respect to the _Safe type.
         QualType OldFuncType = Old->getType();
         QualType NewFuncType = New->getType();
 
-        HeterogeneousRedeclMismatchInfo Mismatch;
-        if (!areFunctionTypesCompatibleForHeterogeneousRedecl(
+        UnsafeSafeRefinementMismatchInfo Mismatch;
+        if (!functionTypeSatisfiesUnsafeSafeRefinement(
                 Context, OldFuncType, NewFuncType, OldSZS, NewSZS, &Mismatch)) {
-          diagnoseIncompatibleHeterogeneousRedecl(*this, New, Old, Mismatch);
+          diagnoseUnsafeSafeRefinementFailure(*this, New, Old, Mismatch);
           return true;
         }
-        // Heterogeneous redeclaration is compatible, proceed with merge.
-        BSCHeterogeneousRedeclCompatible = true;
+        // Mixed _Safe/_Unsafe redeclaration is compatible, proceed with merge.
+        SatisfiesUnsafeSafeRefinement = true;
       }
     }
     #endif
@@ -4390,7 +4393,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
     // CheckEquivalentExceptionSpec, and we don't want follow-on diagnostics
     // about incompatible types under -fms-compatibility.
     #if ENABLE_BSC
-    if (BSCHeterogeneousRedeclCompatible ||
+    if (SatisfiesUnsafeSafeRefinement ||
         Context.hasSameFunctionTypeIgnoringExceptionSpec(OldQTypeForComparison,
                                                          NewQType))
     #else
@@ -4425,48 +4428,40 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
         return true;
       }
 
-      // BSC: Check for heterogeneous redeclarations (one safe, one unsafe).
+      // BSC: mixed _Safe/_Unsafe redeclaration (manual 3.6.5).
       SafeZoneSpecifier OldSZS = Old->getSafeZoneSpecifier();
       SafeZoneSpecifier NewSZS = New->getSafeZoneSpecifier();
       // SZ_None and SZ_Unsafe are both "unsafe" — treat them as the same level.
-      bool IsHeterogeneousRedecl = ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe));
+      bool IsMixedModeRedecl = ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe));
 
-      // Handle heterogeneous redeclarations with special compatibility rules.
-      if (IsHeterogeneousRedecl) {
-        // Generic functions cannot have heterogeneous redeclarations.
+      // Manual 3.6.5.1 rule 3 governs instead of plain compatibility.
+      if (IsMixedModeRedecl) {
+        // Generic functions cannot have mixed _Safe/_Unsafe redeclarations.
         if (New->getDescribedFunctionTemplate() ||
             Old->getDescribedFunctionTemplate()) {
-          Diag(New->getLocation(), diag::err_bsc_generic_heterogeneous_redecl)
+          Diag(New->getLocation(), diag::err_bsc_generic_mixed_mode_redecl)
               << New;
           Diag(OldLocation, PrevDiag) << Old << Old->getType();
           return true;
         }
 
-        // Check if the types are compatible for heterogeneous redeclarations.
+        // Manual 3.6.5.1 rule 3: the _Unsafe type must satisfy the unsafe-safe
+        // refinement relation with respect to the _Safe type.
         QualType OldFuncType = Old->getType();
         QualType NewFuncType = New->getType();
 
-        HeterogeneousRedeclMismatchInfo Mismatch;
-        if (!areFunctionTypesCompatibleForHeterogeneousRedecl(
+        UnsafeSafeRefinementMismatchInfo Mismatch;
+        if (!functionTypeSatisfiesUnsafeSafeRefinement(
                 Context, OldFuncType, NewFuncType, OldSZS, NewSZS, &Mismatch)) {
-          diagnoseIncompatibleHeterogeneousRedecl(*this, New, Old, Mismatch);
+          diagnoseUnsafeSafeRefinementFailure(*this, New, Old, Mismatch);
           return true;
         }
-        // Heterogeneous redeclaration is compatible - merge the declarations.
+        // Refinement holds; merge the declarations.
         return MergeCompatibleFunctionDecls(New, Old, S, MergeTypeWithOld);
-      } else {
-        // Homogeneous redeclarations - apply standard borrow/owned checks.
-        if (HasDiffBorrowOrOwnedParamsTypeAtBothFunction(Old->getType(),
-                                                         New->getType())) {
-          Diag(New->getLocation(), diag::err_conflicting_types) << New;
-          Diag(OldLocation, PrevDiag) << Old << Old->getType();
-          return true;
-        }
-      }
-      if (HasDiffNullabilityParamsTypeAtBothFunction(Old->getType(),
-                                                      New->getType())) {
+      } else if (!areBSCTypesCompatible(Old->getType(), New->getType())) {
+        // Homogeneous: the sticky part of 3.8.3; the C part follows below.
         Diag(New->getLocation(), diag::err_conflicting_types) << New;
-        Diag(Old->getLocation(), PrevDiag) << Old << Old->getType();
+        Diag(OldLocation, PrevDiag) << Old << Old->getType();
         return true;
       }
       if (New->getOverloadedOperator() != Old->getOverloadedOperator()) {
@@ -4848,6 +4843,14 @@ void Sema::MergeVarDeclTypes(VarDecl *New, VarDecl *Old,
     //   compatible type.
     MergedT = Context.mergeTypes(New->getType(), Old->getType());
   }
+#if ENABLE_BSC
+  // mergeTypes composes a type even when the BSC properties differ, because
+  // C compatibility is property-blind; redeclared variables must still agree
+  // on them (manual 3.8.3).
+  if (getLangOpts().BSC && !MergedT.isNull() &&
+      !areBSCTypesCompatible(New->getType(), Old->getType()))
+    MergedT = QualType();
+#endif
   if (MergedT.isNull()) {
     // It's OK if we couldn't merge types if either type is dependent, for a
     // block-scope variable. In other cases (static data members of class
@@ -5687,17 +5690,21 @@ Decl *Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS,
   if (DeclSpec::TSCS TSCS = DS.getThreadStorageClassSpec())
     Diag(DS.getThreadStorageClassSpecLoc(), DiagID)
       << DeclSpec::getSpecifierName(TSCS);
+#if ENABLE_BSC
+  if (DS.getTypeQualifiers() || DS.hasBSCQualifiers()) {
+#else
   if (DS.getTypeQualifiers()) {
+#endif
     if (DS.getTypeQualifiers() & DeclSpec::TQ_const)
       Diag(DS.getConstSpecLoc(), DiagID) << "const";
 #if ENABLE_BSC
-    if ((DS.getTypeQualifiers() & DeclSpec::TQ_owned) &&
+    if ((DS.getBSCQualifiers() & DeclSpec::BSCQ_owned) &&
         !(isa_and_nonnull<RecordDecl>(Tag) &&
           cast<RecordDecl>(Tag)->isOwnedDecl()))
       Diag(DS.getOwnedSpecLoc(), DiagID) << "_Owned";
-    if (DS.getTypeQualifiers() & DeclSpec::TQ_borrow)
+    if (DS.getBSCQualifiers() & DeclSpec::BSCQ_borrow)
       Diag(DS.getBorrowSpecLoc(), DiagID) << "_Borrow";
-    if (DS.getTypeQualifiers() & DeclSpec::TQ_arrayelem)
+    if (DS.getBSCQualifiers() & DeclSpec::BSCQ_arrayelem)
       Diag(DS.getArrayElemSpecLoc(), DiagID) << "_ArrayElem";
 #endif
     if (DS.getTypeQualifiers() & DeclSpec::TQ_volatile)
@@ -7134,12 +7141,6 @@ Sema::ActOnTypedefDeclarator(Scope* S, Declarator& D, DeclContext* DC,
     Diag(D.getDeclSpec().getConstexprSpecLoc(), diag::err_invalid_constexpr)
         << 1 << static_cast<int>(D.getDeclSpec().getConstexprSpecifier());
 
-#if ENABLE_BSC
-  // Check if 'owned' qualifier is applied to a non-pointer type (typedefs)
-  CheckOwnedQualifierOnNonPointerType(D.getDeclSpec(), TInfo->getType());
-  CheckArrayElemQualifierOnType(D.getDeclSpec(), TInfo->getType(),
-                                D.getIdentifierLoc());
-#endif
 
   if (D.getName().Kind != UnqualifiedIdKind::IK_Identifier) {
     if (D.getName().Kind == UnqualifiedIdKind::IK_DeductionGuideName)
@@ -7896,11 +7897,6 @@ NamedDecl *Sema::ActOnVariableDeclarator(
   bool IsLocalExternDecl = SC == SC_Extern &&
                            adjustContextForLocalExternDecl(DC);
 
-#if ENABLE_BSC
-  // Check if 'owned' qualifier is applied to a non-pointer type (variables)
-  CheckOwnedQualifierOnNonPointerType(D.getDeclSpec(), R);
-  CheckArrayElemQualifierOnType(D.getDeclSpec(), R, D.getIdentifierLoc());
-#endif
 
   if (SCSpec == DeclSpec::SCS_mutable) {
     // mutable can only appear on non-static class members, so it's always
@@ -10137,14 +10133,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   assert(R->isFunctionType());
   if (R.getCanonicalType()->castAs<FunctionType>()->getCmseNSCallAttr())
     Diag(D.getIdentifierLoc(), diag::err_function_decl_cmse_ns_call);
-
-#if ENABLE_BSC
-  // Check if 'owned' qualifier is applied to a non-pointer return type
-    QualType ReturnType = R->getAs<FunctionType>()->getReturnType();
-    CheckOwnedQualifierOnNonPointerType(D.getDeclSpec(), ReturnType);
-    CheckArrayElemQualifierOnType(D.getDeclSpec(), ReturnType,
-                                  D.getIdentifierLoc());
-#endif
 
   SmallVector<TemplateParameterList *, 4> TemplateParamLists;
   llvm::append_range(TemplateParamLists, TemplateParamListsRef);
@@ -15006,7 +14994,7 @@ void Sema::FinalizeDeclaration(Decl *ThisDecl) {
         << "variable declaration in the top-level switch block";
   } else {
     const Type *VDType = VD->getType().getCanonicalType().getTypePtr();
-    if (getLangOpts().BSC && VDType->isOwnedStructureType() &&
+    if (getLangOpts().BSC && VDType->isOwnedStruct() &&
         getCurScope()->getParent() &&
         (getCurScope()->getParent()->getFlags() & Scope::SwitchScope)) {
       Diag(VD->getLocation(), diag::warn_destructor_execute) << VD;
@@ -15427,9 +15415,6 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D
   // Check for redeclaration of parameters, e.g. int foo(int x, int x);
   IdentifierInfo *II = D.getIdentifier();
   #if ENABLE_BSC
-  // Check if 'owned' qualifier is applied to a non-pointer type (parameters)
-  CheckOwnedQualifierOnNonPointerType(DS, parmDeclType);
-  CheckArrayElemQualifierOnType(DS, parmDeclType, D.getIdentifierLoc());
   if (getLangOpts().BSC && DS.getSafeZoneSpecifier() != SZ_None) {
     Diag(DS.getSafeZoneSpecifierLoc(), diag::err_safe_zone_decl)
         << DS.getSafeZoneSpecifier();
@@ -15445,9 +15430,7 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D
       // check memberfunction type whether has cvr-qualifiers
       // cvr-qualified type is not allowed to define member functions
       Qualifiers ETQ = ExtendedType.getQualifiers();
-      if (ETQ.hasCVRQualifiers() &&
-          !((TypePtr->isOwnedStructureType() || TypePtr->isOwnedTemplateSpecializationType()) &&
-            ETQ.hasOnlyOwned())) {
+      if (ETQ.hasCVRQualifiers()) {
         Diag(D.getBeginLoc(), diag::err_cvrqualified_member_type_unsupported)
             << ExtendedType.getAsString();
         D.setInvalidType(true);
@@ -15520,7 +15503,9 @@ Decl *Sema::ActOnParamDeclarator(Scope *S, Declarator &D
     // For example    ~S(This this);
     if (!isDestructor && parmDeclType->isPointerType()) {
       parmDeclType = Context.getQualifiedType(
-          Context.getPointerType(desugarThisType), ThisPointerQual);
+          Context.getPointerType(desugarThisType,
+                                 parmDeclType.getBSCPointerProperties()),
+          ThisPointerQual);
     } else {
       parmDeclType = Context.getQualifiedType(
           desugarThisType, ThisPointerQual); // FIXME: check This Qualifiers
@@ -18837,9 +18822,6 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record, SourceLocation DeclSt
     CheckOwnedOrIndirectOwnedType(D.getIdentifierLoc(), T, "union field");
     CheckBorrowOrIndirectBorrowType(D.getIdentifierLoc(), T, "union field");
   }
-  // Check if 'owned' qualifier is applied to a non-pointer type (fields)
-  CheckOwnedQualifierOnNonPointerType(D.getDeclSpec(), T);
-  CheckArrayElemQualifierOnType(D.getDeclSpec(), T, D.getIdentifierLoc());
   #endif
 
   // Check to see if this name was declared as a member previously

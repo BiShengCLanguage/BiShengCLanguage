@@ -10,9 +10,9 @@ struct A {
     int* _Owned* _Owned e;
 };
 // CHECK:       RecordDecl 0x{{[^ ]*}} {{.*}}struct A definition
-// CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}a '_Owned int'
-// CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}b '_Owned int'
-// CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}c '_Owned int *'
+// CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}a 'int'
+// CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}b 'int'
+// CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}c 'int *'
 // CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}d 'int *_Owned'
 // CHECK-NEXT:  FieldDecl 0x{{[^ ]*}} {{.*}}e 'int *_Owned *_Owned'
 
@@ -25,7 +25,7 @@ void ownedTest0() {
 // CHECK:       FunctionDecl 0x{{[^ ]*}} {{.*}}ownedTest0 'void (void)'
 // CHECK-NEXT:  CompoundStmt 0x{{[^ ]*}} {{.*}}
 // CHECK-NEXT:  DeclStmt 0x{{[^ ]*}} {{.*}}
-// CHECK-NEXT:  VarDecl 0x{{[^ ]*}} {{.*}}a '_Owned int'
+// CHECK-NEXT:  VarDecl 0x{{[^ ]*}} {{.*}}a 'int'
 // CHECK-NEXT:  DeclStmt 0x{{[^ ]*}} {{.*}}
 // CHECK-NEXT:  VarDecl 0x{{[^ ]*}} {{.*}}b 'int *_Owned'
 // CHECK-NEXT:  DeclStmt 0x{{[^ ]*}} {{.*}}
@@ -34,12 +34,12 @@ void ownedTest0() {
 
 int ownedTest1(_Owned int x, _Owned int* y, _Owned int* _Owned c, _Owned int* _Owned * d) { // expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}} expected-error {{type of 'int' cannot be qualified by '_Owned'}}
     return 0;
-}  // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
-// CHECK:       FunctionDecl 0x{{[^ ]*}} {{.*}}ownedTest1 'int (_Owned int, _Owned int *, _Owned int *_Owned, _Owned int *_Owned *)'
-// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}x '_Owned int'
-// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}y '_Owned int *'
-// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}c '_Owned int *_Owned'
-// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}d '_Owned int *_Owned *'
+} // expected-error {{memory leak because 'c' is not freed or moved before it goes out of scope}}
+// CHECK:       FunctionDecl 0x{{[^ ]*}} {{.*}}ownedTest1 'int (int, int *, int *_Owned, int *_Owned *)'
+// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}x 'int'
+// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}y 'int *'
+// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}c 'int *_Owned'
+// CHECK-NEXT:  ParmVarDecl 0x{{[^ ]*}} {{.*}}d 'int *_Owned *'
 // CHECK-NEXT:  CompoundStmt 0x{{[^ ]*}} {{.*}}
 // CHECK-NEXT:  ReturnStmt 0x{{[^ ]*}} {{.*}}
 // CHECK-NEXT:  IntegerLiteral 0x{{[^ ]*}} {{.*}}'int' 0

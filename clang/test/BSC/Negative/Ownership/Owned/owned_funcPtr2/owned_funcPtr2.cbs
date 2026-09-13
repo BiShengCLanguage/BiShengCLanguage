@@ -10,5 +10,5 @@ typedef int (*FTPO)(int* _Owned);
 
 void test() {
     FTP ftp1 = myadd;   
-    FTPO ftpo1 = myadd; //expected-error {{cannot cast 'int (int *, int *)' to 'FTPO' (aka 'int (*)(int *_Owned)')}}
+    FTPO ftpo1 = myadd; //expected-error {{conversion from type 'int (*)(int *, int *)' to 'FTPO' (aka 'int (*)(int *_Owned)') is forbidden}}
 }

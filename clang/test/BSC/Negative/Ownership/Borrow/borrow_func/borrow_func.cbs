@@ -33,5 +33,5 @@ typedef float* _Borrow (*PF5)(struct R); // legal
 void test() {
   PF2 p1 = f3; // legal
   PF4 p2 = f3; // expected-error {{incompatible _Borrow function pointer types, cannot cast 'int *_Borrow (struct R)' to 'PF4' (aka 'int *(*)(struct R)')}}
-  PF5 p3 = f3; // expected-error {{incompatible _Borrow function pointer types, cannot cast 'int *_Borrow (struct R)' to 'PF5' (aka 'float *_Borrow (*)(struct R)')}}
+  PF5 p3 = f3; // expected-error {{conversion from type 'int *_Borrow (*)(struct R)' to 'PF5' (aka 'float *_Borrow (*)(struct R)') is forbidden}}
 }

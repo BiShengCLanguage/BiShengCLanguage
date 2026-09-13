@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -fbsc-experimental -triple x86_64-unknown-unknown -ast-dump %s | FileCheck %s
+
+// A dependent alias-template specialization stands for the type it aliases,
+// so in a generic body `MyBox<T>` is an owned struct exactly like `Box<T>`
+// and is spelled with `_Owned` like it.
+
+_Owned struct Box<T> {
+_Public:
+    T x;
+};
+
+typedef MyBox<T> = Box<T>;
+
+void generic<T>(void) {
+    Box<T> a = { .x = 0 };
+    MyBox<T> b = { .x = 0 };
+}
+
+// CHECK: VarDecl {{.*}} a '_Owned Box<T>'
+// CHECK: VarDecl {{.*}} b '_Owned MyBox<T>':'_Owned Box<type-parameter-0-0>'

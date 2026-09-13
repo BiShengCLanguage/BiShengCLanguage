@@ -3162,6 +3162,17 @@ void MicrosoftCXXNameMangler::mangleType(const DependentSizedMatrixType *T,
   Diags.Report(Range.getBegin(), DiagID) << Range;
 }
 
+#if ENABLE_BSC
+void MicrosoftCXXNameMangler::mangleType(const BSCQualifiedType *T,
+                                         Qualifiers, SourceRange Range) {
+  DiagnosticsEngine &Diags = Context.getDiags();
+  unsigned DiagID = Diags.getCustomDiagID(
+      DiagnosticsEngine::Error,
+      "cannot mangle this dependent BSC-qualified type yet");
+  Diags.Report(Range.getBegin(), DiagID) << Range;
+}
+#endif
+
 void MicrosoftCXXNameMangler::mangleType(const DependentAddressSpaceType *T,
                                          Qualifiers, SourceRange Range) {
   DiagnosticsEngine &Diags = Context.getDiags();

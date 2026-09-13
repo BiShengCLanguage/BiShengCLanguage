@@ -3,7 +3,7 @@
 // Should reject incomplete structs to prevent meaningless results.
 
 struct I; // expected-note 4 {{forward declaration of 'struct I'}}
-_Owned struct O;  // expected-note 2 {{forward declaration of 'struct O'}}
+_Owned struct O;  // expected-note 2 {{forward declaration of '_Owned struct O'}}
 
 int main() {
   (void)__is_move_semantic(struct I); // expected-error {{incomplete type 'struct I' used in type trait expression}}

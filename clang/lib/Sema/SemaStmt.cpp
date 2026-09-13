@@ -1710,7 +1710,7 @@ void Sema::DiagnoseAssignmentOwnedStruct(QualType DstType, Expr *SrcExpr) {
       auto RD = cast<RecordDecl>(getCurFunctionDecl()->getParent());
       QualType ClassType = Context.getTypeDeclType(RD);
       if (MD->isDestructor() &&
-          ("_Owned " + ClassType.getAsString()) == DstType.getAsString()) {
+          Context.hasSameUnqualifiedType(ClassType, DstType)) {
         if (auto DRF = dyn_cast<DeclRefExpr>(SrcExpr)) {
           if (isa<ParmVarDecl>(DRF->getDecl()))
             Diag(SrcExpr->getExprLoc(), diag::err_assignment_in_destructor);

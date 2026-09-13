@@ -93,14 +93,10 @@ LocalId BSCIRBuilder::getOrCreateLocal(const VarDecl *VD) {
 
 bool BSCIRBuilder::shouldMove(const Expr *E) const {
   QualType Ty = E->getType();
-  if (Ty.isOwnedQualified())
+  if (Ty.isOwnedPointerOrOwnedStruct())
     return true;
-  if (Ty->isRecordType()) {
-    if (Ty.getTypePtr()->isOwnedStructureType() ||
-        Ty->isMoveSemanticType())
-      return true;
-  }
-  return false;
+  return Ty->isRecordType() &&
+         Ty.isOrContainsOwned(BSCLookThrough::NoPointer);
 }
 
 Place BSCIRBuilder::lowerToPlace(const Expr *E) {
@@ -247,10 +243,9 @@ BasicBlockId BSCIRBuilder::getOrCreateLabelBlock(LabelDecl *LD) {
 /// struct with owned fields / move semantics).
 /// NOTE: file-local for now. Promote to a header if other passes need it.
 static bool needsDrop(QualType Ty) {
-  if (Ty->isPointerType() && Ty.isOwnedQualified())
+  if (Ty.isOwnedPointer())
     return true;
-  if (Ty->isRecordType() &&
-      (Ty.getTypePtr()->isOwnedStructureType() || Ty->isMoveSemanticType()))
+  if (Ty->isRecordType() && Ty.isOrContainsOwned(BSCLookThrough::NoPointer))
     return true;
   return false;
 }
@@ -1053,7 +1048,7 @@ Operand BSCIRBuilder::VisitCastExpr(CastExpr *CE) {
   Operand Sub = [&]() -> Operand {
     QualType DestTy = CE->getType();
     QualType SrcTy = CE->getSubExpr()->getType();
-    if (SrcTy->isPointerType() && SrcTy.isOwnedQualified() &&
+    if (SrcTy.isOwnedPointer() &&
         !DestTy->isPointerType()) {
       Place P = lowerToPlace(CE->getSubExpr());
       return Operand::createCopy(P);

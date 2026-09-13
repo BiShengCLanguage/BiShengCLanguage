@@ -3614,17 +3614,6 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       TypeResult T = getTypeAnnotation(Tok);
       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_typename, Loc, PrevSpec,
                                      DiagID, T, Policy);
-#if ENABLE_BSC
-      if (T.get() && !T.get().get().isNull() &&
-          (T.get().get().getCanonicalType()->isOwnedStructureType() ||
-           T.get()
-               .get()
-               .getCanonicalType()
-               ->isOwnedTemplateSpecializationType())) {
-        isInvalid = DS.SetTypeQual(DeclSpec::TQ_owned, Loc, PrevSpec, DiagID,
-                                   getLangOpts());
-      }
-#endif
       if (isInvalid)
         break;
 
@@ -3788,7 +3777,7 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
 #if ENABLE_BSC
       bool HasOwnedQualifiers = false;
       if (getLangOpts().BSC) {
-        HasOwnedQualifiers = (DS.getTypeQualifiers() & DeclSpec::TQ_owned);
+        HasOwnedQualifiers = (DS.getBSCQualifiers() & DeclSpec::BSCQ_owned);
       }
 #endif
       ParsedType TypeRep = Actions.getTypeName(
@@ -3856,13 +3845,6 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
           DS.SetRangeEnd(NewEndLoc);
         }
       }
-#if ENABLE_BSC
-      if (getLangOpts().BSC &&
-          TypeRep.get().getTypePtr()->isOwnedStructureType()) {
-        DS.SetTypeQual(DeclSpec::TQ_owned, Loc, PrevSpec, DiagID,
-                       getLangOpts());
-      }
-#endif
       // Need to support trailing type qualifiers (e.g. "id<p> const").
       // If a type specifier follows, it will be diagnosed elsewhere.
       continue;
@@ -4450,19 +4432,17 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     // owned-qualifier:
 #if ENABLE_BSC
     case tok::kw__Owned:
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_owned, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
+      isInvalid = DS.SetBSCQual(DeclSpec::BSCQ_owned, Loc, PrevSpec, DiagID);
       break;
 
     // borrow-qualifier:
     case tok::kw__Borrow:
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_borrow, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
+      isInvalid = DS.SetBSCQual(DeclSpec::BSCQ_borrow, Loc, PrevSpec, DiagID);
       break;
     // array element qualifier:
     case tok::kw__ArrayElem:
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_arrayelem, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
+      isInvalid =
+          DS.SetBSCQual(DeclSpec::BSCQ_arrayelem, Loc, PrevSpec, DiagID);
       break;
 #endif
 
@@ -6043,18 +6023,16 @@ void Parser::ParseTypeQualifierListOpt(
 #if ENABLE_BSC
     // owned-qualifier:
     case tok::kw__Owned:
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_owned, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
+      isInvalid = DS.SetBSCQual(DeclSpec::BSCQ_owned, Loc, PrevSpec, DiagID);
       break;
     // borrow-qualifier:
     case tok::kw__Borrow:
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_borrow, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
+      isInvalid = DS.SetBSCQual(DeclSpec::BSCQ_borrow, Loc, PrevSpec, DiagID);
       break;
     // array element qualifier:
     case tok::kw__ArrayElem:
-      isInvalid = DS.SetTypeQual(DeclSpec::TQ_arrayelem, Loc, PrevSpec, DiagID,
-                                 getLangOpts());
+      isInvalid =
+          DS.SetBSCQual(DeclSpec::BSCQ_arrayelem, Loc, PrevSpec, DiagID);
       break;
 #endif
     case tok::kw__Atomic:
@@ -6299,8 +6277,6 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
         ExtendedTy = ICT->getInjectedSpecializationType();
         BasedType = ExtendedTy.getCanonicalType().getTypePtr();
       }
-      // add owned qualifiers for ExtendedTy.
-      ExtendedTy.addFastQualifiers(Qualifiers::Owned);
       BSS.setExtendedType(ExtendedTy);
       Actions.AddToBSCDeclContextMap(BasedType);
       D.getBSCScopeSpec() = BSS;
@@ -6396,6 +6372,14 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
                          : AR_GNUAttributesParsedAndRejected);
     ParseTypeQualifierListOpt(DS, Reqs, true, !D.mayOmitIdentifier());
     D.ExtendWithDeclSpec(DS);
+#if ENABLE_BSC
+    // A block pointer chunk keeps only C qualifiers.
+    if (Kind == tok::caret)
+      DS.forEachBSCQualifier([&](DeclSpec::BSCQual, StringRef Name,
+                                 SourceLocation QualLoc) {
+        Diag(QualLoc, diag::err_bsc_qualifier_position) << Name << /*block*/ 1;
+      });
+#endif
 
     // Recursively parse the declarator.
     Actions.runWithSufficientStackSpace(
@@ -6405,7 +6389,11 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
       D.AddTypeInfo(DeclaratorChunk::getPointer(
                         DS.getTypeQualifiers(), Loc, DS.getConstSpecLoc(),
                         DS.getVolatileSpecLoc(), DS.getRestrictSpecLoc(),
-                        DS.getAtomicSpecLoc(), DS.getUnalignedSpecLoc()),
+                        DS.getAtomicSpecLoc(), DS.getUnalignedSpecLoc()
+#if ENABLE_BSC
+                        , DS.getBSCQualifiers()
+#endif
+                        ),
                     std::move(DS.getAttributes()), SourceLocation());
     else
       // Remember that we parsed a Block type, and remember the type-quals.
@@ -7072,7 +7060,12 @@ void Parser::InitCXXThisScopeForDeclaratorIfRelevant(
   if (!IsCXX11MemberFunction)
     return;
 
+#if ENABLE_BSC
+  Qualifiers Q = Qualifiers::fromCVRUMask(DS.getTypeQualifiers() &
+                                          ~DeclSpec::TQ_atomic);
+#else
   Qualifiers Q = Qualifiers::fromCVRUMask(DS.getTypeQualifiers());
+#endif
   if (D.getDeclSpec().hasConstexprSpecifier() && !getLangOpts().CPlusPlus14)
     Q.addConst();
   // FIXME: Collect C++ address spaces.
@@ -7264,6 +7257,14 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                 llvm::function_ref<void()>([&]() {
                                   Actions.CodeCompleteFunctionQualifiers(DS, D);
                                 }));
+#if ENABLE_BSC
+      // The function chunk keeps only C qualifiers.
+      DS.forEachBSCQualifier([&](DeclSpec::BSCQual, StringRef Name,
+                                 SourceLocation QualLoc) {
+        Diag(QualLoc, diag::err_bsc_qualifier_position) << Name
+                                                        << /*function*/ 2;
+      });
+#endif
       if (!DS.getSourceRange().getEnd().isInvalid()) {
         EndLoc = DS.getSourceRange().getEnd();
       }
@@ -7855,6 +7856,14 @@ void Parser::ParseBracketDeclarator(Declarator &D) {
   T.consumeClose();
 
   MaybeParseCXX11Attributes(DS.getAttributes());
+
+#if ENABLE_BSC
+  // The array chunk keeps only C qualifiers.
+  DS.forEachBSCQualifier([&](DeclSpec::BSCQual, StringRef Name,
+                             SourceLocation QualLoc) {
+    Diag(QualLoc, diag::err_bsc_qualifier_position) << Name << /*array*/ 0;
+  });
+#endif
 
   // Remember that we parsed a array type, and remember its features.
   D.AddTypeInfo(

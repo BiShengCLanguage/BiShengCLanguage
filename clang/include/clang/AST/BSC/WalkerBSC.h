@@ -25,6 +25,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/Type.h"
+#include "clang/AST/BSC/TypeBSC.h"
 #include "clang/AST/TypeOrdering.h"
 #include "clang/AST/TypeVisitor.h"
 #include "clang/Basic/Builtins.h"
@@ -97,17 +98,17 @@ public:
   }
 
   bool VisitQualType(QualType QT) {
-    if (QT.isOwnedQualified() || QT.isBorrowQualified() ||
-        QT->hasBorrowFields() || QT->hasOwnedFields()) {
+    if (QT.isOrContainsOwned(BSCLookThrough::AnyPointer) ||
+        QT.isOrContainsBorrow(BSCLookThrough::AnyPointer)) {
       return true;
     }
-    if (QT.isNullableQualified() || QT.isNonnullQualified()) {
+    if (QT.getExplicitNullability()) {
       return true;
     }
     if (QT->getAs<ConditionalType>()) {
       return true;
     }
-    if (IsDesugaredFromTraitType(QT)) {
+    if (isDesugaredFromTraitType(QT)) {
       return true;
     }
     if (QT->getAs<TemplateSpecializationType>()) {
@@ -402,21 +403,6 @@ public:
 
 protected:
   ASTContext &Context;
-
-private:
-  bool IsDesugaredFromTraitType(QualType T) {
-    while (T->isPointerType())
-      T = T->getPointeeType();
-    if (RecordDecl *RD = T->getAsRecordDecl()) {
-      if (auto *TST = dyn_cast_or_null<TemplateSpecializationType>(T)) {
-        TemplateDecl *TempT = TST->getTemplateName().getAsTemplateDecl();
-        RD = dyn_cast_or_null<RecordDecl>(TempT->getTemplatedDecl());
-      }
-      if (RD && RD->getDesugaredTraitDecl())
-        return true;
-    }
-    return false;
-  }
 };
 
 /// Whether a FunctionDecl has any "safe" features in it.
@@ -427,17 +413,9 @@ public:
   using DeclVisitor<SafeFeatureFinder, bool>::Visit;
   using StmtVisitor<SafeFeatureFinder, bool>::Visit;
 
-  // TODO: Is this enough? Do we need VisitType API?
   bool VisitQualType(QualType QT) {
-    if (QT.isOwnedQualified() || QT.isBorrowQualified() ||
-        QT->hasBorrowFields() || QT->hasOwnedFields()) {
-      return true;
-    }
-    // Recurse into array element types to detect arrays of owned/borrow
-    // pointers (e.g., int *_Owned arr[10]).
-    if (const auto *AT = QT->getAsArrayTypeUnsafe())
-      return VisitQualType(AT->getElementType());
-    return false;
+    return QT.isOrContainsOwned(BSCLookThrough::AnyPointer) ||
+           QT.isOrContainsBorrow(BSCLookThrough::AnyPointer);
   }
 
   bool VisitFunctionDecl(FunctionDecl *FD) {

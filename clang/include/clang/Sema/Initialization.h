@@ -270,8 +270,8 @@ public:
 #if ENABLE_BSC
     if (Context.getLangOpts().BSC) {
       Entity.Type =
-        Context.getVariableArrayDecayedType(Type.getOnlyBSCQualifiedType(Context));
-      Entity.Type = transferExplicitNullability(Type, Entity.Type, Context);
+        Context.getVariableArrayDecayedType(Type.getUnqualifiedType());
+      Entity.Type = Context.getTypeWithNullabilityOf(Entity.Type, Type);
     } else
 #endif
     Entity.Type =

@@ -8312,7 +8312,7 @@ static ParmVarDecl *checkInitContractParam(Sema &S, Decl *D,
     return nullptr;
   }
   QualType ParamTy = PVD->getType();
-  if (ParamTy.isOwnedQualified() ||
+  if (ParamTy.isOwnedPointer() ||
       ParamTy->getPointeeType().isConstQualified()) {
     S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
         << AL << "raw pointer or mutable borrow parameters to a non-const type";

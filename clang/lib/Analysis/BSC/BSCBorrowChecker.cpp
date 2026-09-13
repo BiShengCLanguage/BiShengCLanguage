@@ -259,37 +259,11 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, const Action *A) {
 } // namespace clang
 
 namespace {
-bool IsTrackedTypeImpl(const ASTContext &Ctx, QualType type,
-                       llvm::SmallPtrSetImpl<const RecordDecl *> &visited) {
-  type = type.getCanonicalType();
-  if (type->isPointerType() && type.isOwnedQualified()) {
-    return IsTrackedTypeImpl(Ctx, type->getPointeeType(), visited);
-  }
-  if (type->isArrayType()) {
-    if (const ArrayType *AT = Ctx.getAsArrayType(type)) {
-      return IsTrackedTypeImpl(Ctx, AT->getElementType(), visited);
-    }
-  }
-  if (type.isBorrowQualified())
-    return true;
-  if (const RecordType *RT = type->getAs<RecordType>()) {
-    if (const RecordDecl *RD = RT->getDecl()->getDefinition()) {
-      if (!visited.insert(RD).second) {
-        return false;
-      }
-      for (const FieldDecl *FD : RD->fields()) {
-        if (IsTrackedTypeImpl(Ctx, FD->getType(), visited)) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-bool IsTrackedType(const ASTContext &Ctx, QualType type) {
-  llvm::SmallPtrSet<const RecordDecl *, 8> visited;
-  return IsTrackedTypeImpl(Ctx, type, visited);
+// A type the borrow checker tracks: one that is or holds a `_Borrow` pointer,
+// looking through `_Owned` pointers (an owner's pointee belongs to the value)
+// but never through raw ones.
+bool IsTrackedType(QualType type) {
+  return type.isOrContainsBorrow(BSCLookThrough::OwnedPointers);
 }
 
 } // namespace
@@ -368,7 +342,7 @@ Ty *Ty::Create(const Environment &Env, QualType QT,
         return Ty::CreatePointer(Ctx, Type, RN, Pointee);
       }
 
-      if (Type.isOwnedQualified()) {
+      if (Type.isOwnedPointer()) {
         Ty *Pointee =
             Self(Self, Type->getPointeeType(), UseTrackedRegions);
         return Ty::CreatePointer(Ctx, Type, nullptr, Pointee);
@@ -618,7 +592,7 @@ class DefVarianceAnalysis
     Type = Type.getCanonicalType();
 
     if (Type->isPointerType()) {
-      if (Type.isBorrowQualified() || Type.isOwnedQualified())
+      if (!Type.isRawPointer())
         CollectType(Type->getPointeeType());
       return;
     }
@@ -669,7 +643,7 @@ class DefVarianceAnalysis
         return;
       }
 
-      if (Type.isOwnedQualified())
+      if (Type.isOwnedPointer())
         AddTypeConstraints(TargetRecord, Type->getPointeeType(), Ambient,
                            RegionIndices, NextIndex);
       return;
@@ -1297,7 +1271,7 @@ class ActionGenerator : public ConstStmtVisitor<ActionGenerator> {
       const RecordType *RT = DestTy->getQualType()->getAs<RecordType>();
       assert(RT && "struct Ty should have a record QualType");
       for (const FieldDecl *FD : RT->getDecl()->getDefinition()->fields()) {
-        if (!IsTrackedType(Ctx, FD->getType()))
+        if (!IsTrackedType(FD->getType()))
           continue;
         const Ty *DestFieldTy = Ty::CreateField(Env, DestTy, FD);
         const Place *SourceField =
@@ -1492,7 +1466,7 @@ public:
       }
 
       QualType DestTy = VD->getType();
-      bool IsTracked = IsTrackedType(Ctx, DestTy);
+      bool IsTracked = IsTrackedType(DestTy);
       bool IsAggregate =
           DestTy->getAs<RecordType>() || DestTy->isArrayType();
 
@@ -1522,7 +1496,7 @@ public:
   }
 
   void VisitInitListExpr(const InitListExpr *ILE) {
-    if (!IsTrackedType(Ctx, ILE->getType())) {
+    if (!IsTrackedType(ILE->getType())) {
       for (const Expr *Init : ILE->inits())
         Visit(Init);
       return;
@@ -1645,7 +1619,7 @@ public:
 
   void VisitBinAssign(const BinaryOperator *BO) {
     QualType DestTy = BO->getLHS()->getType();
-    bool IsTracked = IsTrackedType(Ctx, DestTy);
+    bool IsTracked = IsTrackedType(DestTy);
     bool IsAggregate =
         DestTy->getAs<RecordType>() || DestTy->isArrayType();
 
@@ -2288,7 +2262,7 @@ void BorrowCheck::CheckAction(const Action *A) {
     CheckShallowWrite(AI->Dest);
     for (const Place *P : AI->Sources) {
       QualType QT = P->getType()->getQualType();
-      if (QT.isOwnedQualified() || QT->isMoveSemanticType())
+      if (QT.isOrContainsOwned(BSCLookThrough::NoPointer))
         CheckMove(P);
       else
         CheckRead(P);
@@ -2307,7 +2281,7 @@ void BorrowCheck::CheckAction(const Action *A) {
     switch (AA->AK) {
     case ActionAggregate::AggregateKind::Copy: {
       QualType QT = AA->CopySource->getType()->getQualType();
-      if (QT.isOwnedQualified() || QT->isMoveSemanticType()) {
+      if (QT.isOrContainsOwned(BSCLookThrough::NoPointer)) {
         CheckMove(AA->CopySource);
       } else {
         CheckRead(AA->CopySource);
@@ -2323,7 +2297,7 @@ void BorrowCheck::CheckAction(const Action *A) {
            AA->Initializers) {
         const Place *P = Initializer.Value;
         QualType QT = P->getType()->getQualType();
-        if (QT.isOwnedQualified() || QT->isMoveSemanticType()) {
+        if (QT.isOrContainsOwned(BSCLookThrough::NoPointer)) {
           CheckMove(P);
         } else {
           CheckRead(P);
@@ -2353,7 +2327,7 @@ void BorrowCheck::CheckAction(const Action *A) {
     const ActionUse *AU = llvm::cast<ActionUse>(A);
     for (const Place *P : AU->Places) {
       QualType QT = P->getType()->getQualType();
-      if (QT.isOwnedQualified() || QT->isMoveSemanticType())
+      if (QT.isOrContainsOwned(BSCLookThrough::NoPointer))
         CheckMove(P);
       else
         CheckRead(P);
@@ -2370,7 +2344,7 @@ void BorrowCheck::CheckAction(const Action *A) {
       if (!P)
         continue;
       QualType QT = P->getType()->getQualType();
-      if (QT.isOwnedQualified() || QT->isMoveSemanticType())
+      if (QT.isOrContainsOwned(BSCLookThrough::NoPointer))
         CheckMove(P);
       else
         CheckRead(P);
@@ -2381,7 +2355,7 @@ void BorrowCheck::CheckAction(const Action *A) {
     const ActionReturn *AR = llvm::cast<ActionReturn>(A);
     if (const Place *P = AR->Value) {
       QualType QT = P->getType()->getQualType();
-      if (QT.isOwnedQualified() || QT->isMoveSemanticType())
+      if (QT.isOrContainsOwned(BSCLookThrough::NoPointer))
         CheckMove(P);
       else
         CheckRead(P);

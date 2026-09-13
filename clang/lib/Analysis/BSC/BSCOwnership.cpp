@@ -105,14 +105,14 @@ findPrefixStrings(const llvm::SmallSet<string, 10> fieldSet, string prefix) {
 }
 
 // Whether prefix names the same field as path or a field enclosing it,
-// honoring path separators: "a.b" is a prefix of "a.b", "a.b.c" and "a.b*",
-// but not of "a.bc".
+// honoring path separators: "a.b" is a prefix of "a.b", "a.b.c", "a.b*" and
+// "a.b[]", but not of "a.bc".
 static bool isFieldPathPrefix(const string &prefix, const string &path) {
   if (path.size() < prefix.size() ||
       path.compare(0, prefix.size(), prefix) != 0)
     return false;
   return path.size() == prefix.size() || path[prefix.size()] == '.' ||
-         path[prefix.size()] == '*';
+         path[prefix.size()] == '*' || path[prefix.size()] == '[';
 }
 
 // Whether the access path touches any field tracked in the set: the path is
@@ -420,11 +420,11 @@ static bool IsCastFromVoidPointer(Expr *E) {
   }
   if (CStyleCastExpr *CSCE = dyn_cast<CStyleCastExpr>(E)) {
     QualType QT = CSCE->getType();
-    if (QT->isPointerType() && QT.isOwnedQualified() &&
+    if (QT.isOwnedPointer() &&
         !QT->getPointeeType()->isVoidType()) {
       Expr *Sub = CSCE->getSubExpr();
       if (Sub->getType()->isVoidPointerType() &&
-          Sub->getType().isOwnedQualified()) {
+          Sub->getType().isOwnedPointer()) {
         return true;
       }
     }
@@ -734,14 +734,13 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD) {
     QualType ElemTy = AT->getElementType();
     while (const auto *Inner = ElemTy->getAsArrayTypeUnsafe())
       ElemTy = Inner->getElementType();
-    if (ElemTy->isPointerType() && ElemTy.isOwnedQualified()) {
+    if (ElemTy.isOwnedPointer()) {
       if (!BOPStatus.count(VD)) {
         BOPStatus[VD] = llvm::BitVector(7, 0);
         set(VD, Uninitialized);
       }
     } else if (ElemTy->isRecordType() &&
-               (ElemTy.getTypePtr()->isOwnedStructureType() ||
-                ElemTy->isMoveSemanticType())) {
+               ElemTy.isOrContainsOwned(BSCLookThrough::NoPointer)) {
       if (!SStatus.count(VD)) {
         // ElemTy may be an ElaboratedType (e.g. "struct S") rather than the
         // canonical RecordType; peel sugar so dyn_cast finds the record.
@@ -781,13 +780,13 @@ static bool StripArrayFieldLevels(QualType FieldTy, std::string &ArraySuffix,
 static const RecordDecl *
 RegisterArrayField(llvm::SmallSet<std::string, 10> &AllSet,
                    const std::string &ArrFieldName, QualType ElemTy) {
-  if (ElemTy->isPointerType() && ElemTy.isOwnedQualified()) {
+  if (ElemTy.isOwnedPointer()) {
     AllSet.insert(ArrFieldName);
     return nullptr;
   }
   if (const RecordType *RT =
           dyn_cast<RecordType>(ElemTy.getCanonicalType())) {
-    if (RT->isOwnedStructureType())
+    if (RT->isOwnedStruct())
       AllSet.insert(ArrFieldName);
     return RT->getDecl();
   }
@@ -842,10 +841,10 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
           OPSOwnedOwnedFields[VD] = {};
           OPSNullOwnedFields[VD] = {};
         }
-        if (!FT->isRecordType() || FT->isOwnedStructureType())
+        if (!FT->isRecordType() || FT->isOwnedStruct())
           OPSAllOwnedFields[VD].insert(fieldName);
       } else if (source == Source::S) {
-        if (!FT->isRecordType() || FT->isOwnedStructureType())
+        if (!FT->isRecordType() || FT->isOwnedStruct())
           SAllOwnedFields[VD].insert(fieldName);
       } else {
         llvm_unreachable("Unexpected branch");
@@ -853,10 +852,10 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
 
       // if FT has owned fields,
       // recursively record all owned fields of FT in OPSAllOwnedFields[VD]
-      if (FT->isPointerType() && FT.isOwnedQualified()) {
+      if (FT.isOwnedPointer()) {
         if (const RecordType *RT =
                 dyn_cast<RecordType>(FT->getPointeeType().getCanonicalType())) {
-          if (RT->isOwnedStructureType()) {
+          if (RT->isOwnedStruct()) {
             if (source == Source::OPS) {
               OPSAllOwnedFields[VD].insert(fieldName + "*");
             } else if (source == Source::S) {
@@ -871,7 +870,7 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
         }
       }
       if (const RecordType *RT = dyn_cast<RecordType>(FT.getCanonicalType())) {
-        if (RT->isOwnedStructureType()) {
+        if (RT->isOwnedStruct()) {
           if (source == Source::OPS) {
             OPSAllOwnedFields[VD].insert(fieldName);
           } else if (source == Source::S) {
@@ -899,7 +898,7 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
   }
 
   // owned struct special manipulation
-  if (VD->getType().getTypePtr()->isOwnedStructureType()) {
+  if (VD->getType().getTypePtr()->isOwnedStruct()) {
     if (source == Source::S) {
       if (SAllOwnedFields[VD].empty()) {
         SAllOwnedFields[VD] = {};
@@ -941,7 +940,7 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
         continue;
       }
       if (source == Source::OPS) {
-        if (!FT->isRecordType() || FT->isOwnedStructureType())
+        if (!FT->isRecordType() || FT->isOwnedStruct())
           OPSAllOwnedFields[VD].insert(fieldName);
       } else if (source == Source::S) {
         if (SAllOwnedFields[VD].empty()) {
@@ -949,17 +948,17 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
           SOwnedOwnedFields[VD] = {};
           SNullOwnedFields[VD] = {};
         }
-        if (!FT->isRecordType() || FT->isOwnedStructureType())
+        if (!FT->isRecordType() || FT->isOwnedStruct())
           SAllOwnedFields[VD].insert(fieldName);
       } else {
         llvm_unreachable("Unexpected branch");
       }
 
       // recursively record all owned fields
-      if (FT->isPointerType() && FT.isOwnedQualified()) {
+      if (FT.isOwnedPointer()) {
         if (const RecordType *RT =
                 dyn_cast<RecordType>(FT->getPointeeType().getCanonicalType())) {
-          if (RT->isOwnedStructureType()) {
+          if (RT->isOwnedStruct()) {
             if (source == Source::OPS) {
               OPSAllOwnedFields[VD].insert(fieldName + "*");
             } else if (source == Source::S) {
@@ -974,7 +973,7 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
         }
       }
       if (const RecordType *RT = dyn_cast<RecordType>(FT.getCanonicalType())) {
-        if (RT->isOwnedStructureType()) {
+        if (RT->isOwnedStruct()) {
           if (source == Source::OPS) {
             OPSAllOwnedFields[VD].insert(fieldName);
           } else if (source == Source::S) {
@@ -1005,7 +1004,7 @@ void Ownership::OwnershipStatus::initBOP(QualType QT, const VarDecl *VD,
   QT = QT->getPointeeType().getCanonicalType();
   while (true) {
     fieldName += "*";
-    if (QT->isPointerType() && QT.isOwnedQualified()) {
+    if (QT.isOwnedPointer()) {
       if (source == Source::OPS) {
         OPSAllOwnedFields[VD].insert(parentFieldName + fieldName);
       } else if (source == Source::S) {
@@ -1998,7 +1997,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
       }
     }
     if (!OPSAllOwnedFields[VD].empty() && OPSOwnedOwnedFields[VD].empty() &&
-        !VD->getType()->getPointeeType()->isOwnedStructureType()) {
+        !VD->getType()->getPointeeType()->isOwnedStruct()) {
       if (!is(VD, Ownership::Status::Moved)) {
         resetAll(VD);
         set(VD, Ownership::Status::AllMoved);
@@ -2051,9 +2050,10 @@ Ownership::OwnershipStatus::checkOPSDerefAssign(const VarDecl *VD,
     if (is(VD, Moved) || has(VD, Moved)) {
       OwnershipDiagInfo Info(Loc, InvalidUseOfMoved, VD->getNameAsString());
       diags.push_back(Info);
-    } else if (const Type *Pointee =
-                   VD->getType()->getPointeeType().getTypePtr()) {
-      if (Pointee->isMoveSemanticType()) {
+    } else {
+      QualType Pointee = VD->getType()->getPointeeType();
+      if (!Pointee.isNull() &&
+          Pointee.isOrContainsOwned(BSCLookThrough::NoPointer)) {
         if (has(VD, Owned) || is(VD, Owned)) {
           OwnershipDiagInfo Info(Loc, InvalidAssignOfOwned,
                                  VD->getNameAsString());
@@ -2174,7 +2174,7 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
       // This can happen when assigning to a non-owned field (e.g. an int field)
       // after moving out owned fields. Set AllMoved, not PartialMoved.
       if (!OPSAllOwnedFields[VD].empty() && OPSOwnedOwnedFields[VD].empty() &&
-          !VD->getType()->getPointeeType()->isOwnedStructureType()) {
+          !VD->getType()->getPointeeType()->isOwnedStruct()) {
         resetAll(VD);
         set(VD, Ownership::Status::AllMoved);
       } else {
@@ -2192,7 +2192,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSUse(
   SmallVector<OwnershipDiagInfo> diags;
 
   // owned struct special manipulation
-  if (VD->getType().getTypePtr()->isOwnedStructureType()) {
+  if (VD->getType().getTypePtr()->isOwnedStruct()) {
     if (!is(VD, Owned)) {
       if (is(VD, Uninitialized) || has(VD, Uninitialized)) {
         diags.push_back(OwnershipDiagInfo(
@@ -2238,7 +2238,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
   SmallVector<OwnershipDiagInfo> diags;
 
   // owned struct special manipulation
-  if (VD->getType().getTypePtr()->isOwnedStructureType()) {
+  if (VD->getType().getTypePtr()->isOwnedStruct()) {
     if (is(VD, Uninitialized)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfUninit, VD->getNameAsString()));
@@ -2333,13 +2333,13 @@ Ownership::OwnershipStatus::checkSAssign(const VarDecl *VD,
   // owned struct S s2 = init();
   // s2 = s1; // Ok
   // @endcode
-  if (VD->getType().getTypePtr()->isOwnedStructureType()) {
+  if (VD->getType().getTypePtr()->isOwnedStruct()) {
     resetAll(VD);
     set(VD, Owned);
   }
   // when assign a struct, all of its owned fields must be MOVED
   // owned struct does not abide with this rule.
-  if (!VD->getType().getTypePtr()->isOwnedStructureType()) {
+  if (!VD->getType().getTypePtr()->isOwnedStruct()) {
     if (!SOwnedOwnedFields[VD].empty() && diags.empty()) {
       if (!SMovedOwnedFields[VD].empty()) {
         diags.push_back(OwnershipDiagInfo(
@@ -2372,7 +2372,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   SmallVector<OwnershipDiagInfo> diags;
 
   // owned struct special manipulation
-  if (VD->getType().getTypePtr()->isOwnedStructureType()) {
+  if (VD->getType().getTypePtr()->isOwnedStruct()) {
     if (!is(VD, Owned)) {
       if (is(VD, Uninitialized) || has(VD, Uninitialized)) {
         diags.push_back(OwnershipDiagInfo(
@@ -2787,7 +2787,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
         set(VD, Ownership::Status::PartialMoved);
       }
     }
-    if (OPSOwnedOwnedFields[VD].empty() && !VD->getType()->getPointeeType()->isOwnedStructureType()) {
+    if (OPSOwnedOwnedFields[VD].empty() && !VD->getType()->getPointeeType()->isOwnedStruct()) {
       if (!is(VD, Ownership::Status::Moved)) {
         resetAll(VD);
         set(VD, Ownership::Status::AllMoved);
@@ -2898,7 +2898,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
   // the following situation indicates that a memory leak has occurred:
   // 1. if SOwnedOwnedFields[VD] is not empty, VD's owned fields memory leak
   if (SStatus.count(VD)) {
-    if (!VD->getType().getCanonicalType()->isOwnedStructureType()) {
+    if (!VD->getType()->isOwnedStruct()) {
       if (!SOwnedOwnedFields[VD].empty()) {
         diags.push_back(OwnershipDiagInfo(
             Loc, OwnershipDiagKind::FieldMemoryLeak, VD->getNameAsString(),
@@ -2988,7 +2988,7 @@ static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
   if (const RecordType *RT = Ty->getAs<RecordType>()) {
     for (const FieldDecl *FD : RT->getDecl()->fields()) {
       QualType FT = FD->getType();
-      if (!FT.isOwnedQualified() && !FT->hasOwnedFields())
+      if (!IsTrackedType(FT))
         continue; // plain field: ignore
       const Expr *FieldInit = FD->getFieldIndex() < ILE->getNumInits()
                                   ? ILE->getInit(FD->getFieldIndex())
@@ -2999,8 +2999,11 @@ static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
     return true;
   }
   // Non-struct element (owned pointer / nested array): every entry null.
+  QualType InnerTy = Ty;
+  if (const auto *AT = InnerTy->getAsArrayTypeUnsafe())
+    InnerTy = AT->getElementType();
   for (unsigned I = 0; I < ILE->getNumInits(); ++I)
-    if (!isOwnedNullInit(ctx, ILE->getInit(I), Ty))
+    if (!isOwnedNullInit(ctx, ILE->getInit(I), InnerTy))
       return false;
   return true;
 }
@@ -3025,7 +3028,7 @@ static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
                                          const InitListExpr *ILE) {
   for (const FieldDecl *FD : RD->fields()) {
     QualType FT = FD->getType();
-    if (!FT.isOwnedQualified() && !FT->hasOwnedFields())
+    if (!IsTrackedType(FT))
       continue;
     bool AllNull = true;
     for (unsigned I = 0; I < ILE->getNumInits(); ++I) {
@@ -3664,7 +3667,7 @@ void TransferFunctions::emitArrayElemForbidden(SourceLocation Loc,
 bool TransferFunctions::memberAccessTouchesOwned(
     const VarDecl *VD, const std::string &FieldPath, QualType MemberTy) const {
   auto IsOwnedConsuming = [](QualType T) {
-    return T.isOwnedQualified() || T->isMoveSemanticType();
+    return T.isOrContainsOwned(BSCLookThrough::NoPointer);
   };
   if (stat.SStatus.count(VD))
     return overlapsOwnedFields(stat.SAllOwnedFields[VD], FieldPath) &&
@@ -4001,7 +4004,8 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
 
   for (auto it = CE->arg_begin(), ei = CE->arg_end(); it != ei; ++it) {
     Expr *Arg = *it;
-    if (IsCastFromVoidPointer(Arg) && Arg->getType()->hasOwnedFields()) {
+    if (IsCastFromVoidPointer(Arg) &&
+        Arg->getType()->containsOwned(BSCLookThrough::AnyPointer)) {
       SmallVector<OwnershipDiagInfo> diags;
       diags.push_back(OwnershipDiagInfo(Arg->getExprLoc(),
                                         OwnershipDiagKind::PassCastToArgOrRet,
@@ -4055,7 +4059,7 @@ void TransferFunctions::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr* 
 
 void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
   if (CSCE->getType()->isVoidPointerType() &&
-      CSCE->getType().isOwnedQualified()) {
+      CSCE->getType().isOwnedPointer()) {
 
     // ignore explicit/implicit casts, get canonical expr
     const Expr *InnerE = CSCE->getSubExpr()->IgnoreParenCastsSafe();
@@ -4187,7 +4191,7 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
     // @code
     // (void * owned)mkNested()
     // @endcode
-    else if (InnerE->getType()->hasOwnedFields()) {
+    else if (InnerE->getType()->containsOwned(BSCLookThrough::AnyPointer)) {
       QualType InnerTy = InnerE->getType();
       SmallVector<OwnershipDiagInfo> diags;
       diags.push_back(OwnershipDiagInfo(
@@ -4197,7 +4201,8 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
       reporter.addDiags(diags);
       Visit(CSCE->getSubExpr());
     }
-    // if the canonical node is not handled, continue traverse to avoid breaking visit
+    // if the canonical node is not handled, continue traverse to avoid breaking
+    // visit
     else {
       Visit(CSCE->getSubExpr());
     }
@@ -4225,7 +4230,7 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
       }
       if (Expr *Init = VD->getInit()) {
         // if has init expr, change the status of VD from UNINIT to OWNED or NULL
-        if (VQT->isPointerType() && VQT.isOwnedQualified()) {
+        if (VQT.isOwnedPointer()) {
           // Null-state propagation takes priority over the void* cast shape:
           // `(T *_Owned)(void *_Owned)p` from a must-be-null p is still null.
           if (Init->isNullExpr(OS.ctx) || isExprRefToNullOwnedVar(Init)) {
@@ -4262,7 +4267,8 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
           } else {
             stat.setArrayElemOwned(VD);
           }
-        } else if (VQT->isRecordType() && VQT->hasOwnedFields() &&
+        } else if (VQT->isRecordType() &&
+                   VQT->containsOwned(BSCLookThrough::AnyPointer) &&
                    isa<InitListExpr>(Init)) {
           stat.setToOwned(VD);
           if (stat.SStatus.count(VD)) {
@@ -4354,7 +4360,7 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
 
     if (InitListExpr *FieldILE = dyn_cast<InitListExpr>(FieldInit)) {
       QualType QT = FieldInit->getType().getCanonicalType();
-      if (QT->isRecordType() && QT->hasOwnedFields()) {
+      if (QT->isRecordType() && QT->containsOwned(BSCLookThrough::AnyPointer)) {
         RecordDecl *FieldRD = dyn_cast<RecordType>(QT)->getDecl();
         HandleInitListExpr(VD, FieldRD, FieldILE, newFullFieldName);
       }
@@ -4384,7 +4390,8 @@ void TransferFunctions::VisitInitListExpr(InitListExpr *ILE) {
 
 void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
   if (Expr *RV = RS->getRetValue()) {
-    if (IsCastFromVoidPointer(RV) && RV->getType()->hasOwnedFields()) {
+    if (IsCastFromVoidPointer(RV) &&
+        RV->getType()->containsOwned(BSCLookThrough::AnyPointer)) {
       SmallVector<OwnershipDiagInfo> diags;
       diags.push_back(OwnershipDiagInfo(RV->getExprLoc(),
                                         OwnershipDiagKind::PassCastToArgOrRet,

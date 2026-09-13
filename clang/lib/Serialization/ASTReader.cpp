@@ -6615,6 +6615,13 @@ void TypeLocReader::VisitDependentSizedArrayTypeLoc(
   VisitArrayTypeLoc(TL);
 }
 
+#if ENABLE_BSC
+void TypeLocReader::VisitBSCQualifiedTypeLoc(
+    BSCQualifiedTypeLoc TL) {
+  TL.setKeywordLoc(readSourceLocation());
+}
+#endif
+
 void TypeLocReader::VisitDependentAddressSpaceTypeLoc(
     DependentAddressSpaceTypeLoc TL) {
 

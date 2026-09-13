@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -verify %s
+// expected-no-diagnostics
+
+_Owned struct P { int y; };
+
+// A C-style cast may drop _Borrow outside the safe zone (libcbs safe_swap).
+_Safe void swap_in_unsafe<T>(T *_Borrow l, T *_Borrow r) {
+  _Unsafe {
+    T tmp = *(T *_Nonnull)l;
+    *l = *(T *_Nonnull)r;
+    *r = tmp;
+  }
+}
+
+void use(P *_Borrow a, P *_Borrow b, int *_Borrow c, int *_Borrow d) {
+  swap_in_unsafe(a, b);
+  swap_in_unsafe(c, d);
+  P *_Nonnull raw = (P *_Nonnull)a;
+  (void)raw;
+}

@@ -131,9 +131,18 @@ void TraitDecl::completeDefinition() {
   TagDecl::completeDefinition();
 }
 
+// Trait-impl identity must not depend on BSC properties: an owned struct's
+// ownership lives in its declaration, so `struct S` and `_Owned struct S`
+// name the same implementing type.  Both sides of the map normalise here.
+static QualType TraitImplKey(ASTContext &Ctx, QualType QT) {
+  return Ctx.getTypeWithoutBSCProperties(
+      QT.getCanonicalType().getUnqualifiedType());
+}
+
 void TraitDecl::MapInsert(QualType QT, VarDecl *VD) {
   ASTContext &Ctx = getASTContext();
-  std::pair<const TraitDecl *, QualType> key = std::make_pair(this, QT);
+  std::pair<const TraitDecl *, QualType> key =
+      std::make_pair(this, TraitImplKey(Ctx, QT));
   Ctx.TraitImplMap[key] = VD;
 }
 
@@ -141,7 +150,7 @@ VarDecl *TraitDecl::getTypeImpledVarDecl(QualType QT) {
   if (QT.isNull())
     return nullptr;
   ASTContext &Ctx = getASTContext();
-  QualType CanonicalQT = QT.getCanonicalType().getUnqualifiedType();
+  QualType CanonicalQT = TraitImplKey(Ctx, QT);
   std::pair<const TraitDecl *, QualType> key =
       std::make_pair(this, CanonicalQT);
   auto it = Ctx.TraitImplMap.find(key);

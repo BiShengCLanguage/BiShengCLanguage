@@ -1097,6 +1097,16 @@ public:
   /// By default, performs semantic analysis when building the typename type
   /// (or elaborated type). Subclasses may override this routine to provide
   /// different behavior.
+#if ENABLE_BSC
+  /// Apply BSC properties to a resolved type via the written-code validator.
+  QualType RebuildBSCQualifiedType(QualType Underlying,
+                                            BSCPointerProperties P,
+                                            SourceLocation Loc) {
+    return SemaRef.BuildQualifiedType(Underlying, Loc, Qualifiers(),
+                                      /*DS=*/nullptr, P);
+  }
+#endif
+
   QualType RebuildDependentNameType(ElaboratedTypeKeyword Keyword,
                                     SourceLocation KeywordLoc,
                                     NestedNameSpecifierLoc QualifierLoc,
@@ -5099,6 +5109,13 @@ QualType TreeTransform<Derived>::TransformPointerType(TypeLocBuilder &TLB,
     Result = getDerived().RebuildPointerType(PointeeType, TL.getSigilLoc());
     if (Result.isNull())
       return QualType();
+#if ENABLE_BSC
+    // Re-apply the original's BSC properties via the written-code validator.
+    if (TL.getTypePtr()->hasBSCProperties())
+      Result = SemaRef.BuildQualifiedType(Result, TL.getSigilLoc(),
+                                          Qualifiers(), /*DS=*/nullptr,
+                                          TL.getTypePtr()->getBSCProperties());
+#endif
   }
 
   // Objective-C ARC can add lifetime qualifiers to the type that we're
@@ -7115,6 +7132,46 @@ TreeTransform<Derived>::TransformMacroQualifiedType(TypeLocBuilder &TLB,
   NewTL.setExpansionLoc(TL.getExpansionLoc());
   return Result;
 }
+
+#if ENABLE_BSC
+template <typename Derived>
+QualType TreeTransform<Derived>::TransformBSCQualifiedType(
+    TypeLocBuilder &TLB, BSCQualifiedTypeLoc TL) {
+  BSCPointerProperties P = TL.getTypePtr()->getBSCProperties();
+
+  QualType Inner = getDerived().TransformType(TL.getInnerLoc().getType());
+  if (Inner.isNull())
+    return QualType();
+
+  QualType Result = TL.getType();
+  if (getDerived().AlwaysRebuild() || Inner != TL.getInnerLoc().getType()) {
+    Result = getDerived().RebuildBSCQualifiedType(Inner, P,
+                                                  TL.getKeywordLoc());
+    if (Result.isNull())
+      return QualType();
+  }
+
+  // The rebuilt type keeps a node over the substituted type, still dependent
+  // or not; push requires the builder's last type to be that inner type.
+  const auto *BQ = dyn_cast<BSCQualifiedType>(Result.getTypePtr());
+  if (BQ && BQ->getUnderlyingType() == Inner && !Result.hasLocalQualifiers()) {
+    if (Inner == TL.getInnerLoc().getType())
+      TLB.pushFullCopy(TL.getInnerLoc());
+    else
+      TLB.pushFullCopy(SemaRef.Context
+                           .getTrivialTypeSourceInfo(Inner, TL.getKeywordLoc())
+                           ->getTypeLoc());
+    TLB.push<BSCQualifiedTypeLoc>(Result).setKeywordLoc(TL.getKeywordLoc());
+    return Result;
+  }
+
+  // The properties landed directly on a rebuilt pointer or array.
+  TLB.pushFullCopy(
+      SemaRef.Context.getTrivialTypeSourceInfo(Result, TL.getKeywordLoc())
+          ->getTypeLoc());
+  return Result;
+}
+#endif
 
 template<typename Derived>
 QualType TreeTransform<Derived>::TransformDependentNameType(

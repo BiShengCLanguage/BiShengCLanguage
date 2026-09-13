@@ -433,14 +433,6 @@ void DeclSpec::forEachCVRUQualifier(
     llvm::function_ref<void(TQ, StringRef, SourceLocation)> Handle) {
   if (TypeQualifiers & TQ_const)
     Handle(TQ_const, "const", TQ_constLoc);
-  #if ENABLE_BSC
-  if (TypeQualifiers & TQ_owned)
-    Handle(TQ_owned, "_Owned", TQ_ownedLoc);
-  if (TypeQualifiers & TQ_borrow)
-    Handle(TQ_borrow, "_Borrow", TQ_borrowLoc);
-  if (TypeQualifiers & TQ_arrayelem)
-    Handle(TQ_arrayelem, "_ArrayElem", TQ_arrayelemLoc);
-  #endif
   if (TypeQualifiers & TQ_volatile)
     Handle(TQ_volatile, "volatile", TQ_volatileLoc);
   if (TypeQualifiers & TQ_restrict)
@@ -634,11 +626,6 @@ const char *DeclSpec::getSpecifierName(TQ T) {
   switch (T) {
   case DeclSpec::TQ_unspecified: return "unspecified";
   case DeclSpec::TQ_const:       return "const";
-  #if ENABLE_BSC
-  case DeclSpec::TQ_owned:       return "_Owned";
-  case DeclSpec::TQ_borrow:      return "_Borrow";
-  case DeclSpec::TQ_arrayelem:   return "_ArrayElem";
-  #endif
   case DeclSpec::TQ_restrict:    return "restrict";
   case DeclSpec::TQ_volatile:    return "volatile";
   case DeclSpec::TQ_atomic:      return "_Atomic";
@@ -1007,17 +994,6 @@ bool DeclSpec::SetTypeQual(TQ T, SourceLocation Loc) {
   switch (T) {
   case TQ_unspecified: break;
   case TQ_const:    TQ_constLoc = Loc; return false;
-  #if ENABLE_BSC
-  case TQ_owned:
-    TQ_ownedLoc = Loc;
-    return false;
-  case TQ_borrow:
-    TQ_borrowLoc = Loc;
-    return false;
-  case TQ_arrayelem:
-    TQ_arrayelemLoc = Loc;
-    return false;
-  #endif
   case TQ_restrict: TQ_restrictLoc = Loc; return false;
   case TQ_volatile: TQ_volatileLoc = Loc; return false;
   case TQ_unaligned: TQ_unalignedLoc = Loc; return false;
@@ -1026,6 +1002,53 @@ bool DeclSpec::SetTypeQual(TQ T, SourceLocation Loc) {
 
   llvm_unreachable("Unknown type qualifier!");
 }
+
+#if ENABLE_BSC
+const char *DeclSpec::getSpecifierName(BSCQual Q) {
+  switch (Q) {
+  case BSCQ_owned:     return "_Owned";
+  case BSCQ_borrow:    return "_Borrow";
+  case BSCQ_arrayelem: return "_ArrayElem";
+  case BSCQ_unspecified: break;
+  }
+  llvm_unreachable("Unknown BSC qualifier!");
+}
+
+void DeclSpec::forEachBSCQualifier(
+    llvm::function_ref<void(BSCQual, StringRef, SourceLocation)> Handle) const {
+  if (BSCQualifiers & BSCQ_owned)
+    Handle(BSCQ_owned, getSpecifierName(BSCQ_owned), BSCQ_ownedLoc);
+  if (BSCQualifiers & BSCQ_borrow)
+    Handle(BSCQ_borrow, getSpecifierName(BSCQ_borrow), BSCQ_borrowLoc);
+  if (BSCQualifiers & BSCQ_arrayelem)
+    Handle(BSCQ_arrayelem, getSpecifierName(BSCQ_arrayelem), BSCQ_arrayelemLoc);
+}
+
+bool DeclSpec::SetBSCQual(BSCQual Q, SourceLocation Loc, const char *&PrevSpec,
+                          unsigned &DiagID) {
+  if (BSCQualifiers & Q) {
+    PrevSpec = getSpecifierName(Q);
+    DiagID = diag::warn_duplicate_declspec;
+    return true;
+  }
+  // Kind holds one of _Owned/_Borrow; every spelling writes through here.
+  if ((Q == BSCQ_owned && (BSCQualifiers & BSCQ_borrow)) ||
+      (Q == BSCQ_borrow && (BSCQualifiers & BSCQ_owned))) {
+    PrevSpec = getSpecifierName(Q);
+    DiagID = diag::err_owned_and_borrow_conflict;
+    return true;
+  }
+  BSCQualifiers |= Q;
+
+  switch (Q) {
+  case BSCQ_owned:     BSCQ_ownedLoc = Loc; break;
+  case BSCQ_borrow:    BSCQ_borrowLoc = Loc; break;
+  case BSCQ_arrayelem: BSCQ_arrayelemLoc = Loc; break;
+  case BSCQ_unspecified: break;
+  }
+  return false;
+}
+#endif
 
 bool DeclSpec::setFunctionSpecInline(SourceLocation Loc, const char *&PrevSpec,
                                      unsigned &DiagID) {

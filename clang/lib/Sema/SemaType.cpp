@@ -113,26 +113,20 @@ static void checkNoBSCQualifiersInKNRFunction(
     const DeclaratorChunk::FunctionTypeInfo &FTI) {
   if (!S.getLangOpts().BSC || !FTI.isKNRPrototype())
     return;
-
-  SourceLocation DiagLoc = D.getIdentifierLoc();
-
-  bool HasOwnedQualifier = ReturnType.hasOwned();
-  bool HasBorrowQualifier = ReturnType.hasBorrow();
-  for (unsigned I = 0, E = FTI.NumParams; I != E; ++I) {
-    if (FTI.Params[I].Param == nullptr)
+  SmallVector<QualType, 8> Slots{ReturnType};
+  for (const DeclaratorChunk::ParamInfo &PI :
+       llvm::makeArrayRef(FTI.Params, FTI.NumParams))
+    if (PI.Param)
+      Slots.push_back(cast<ParmVarDecl>(PI.Param)->getType());
+  static constexpr std::pair<BSCPointerKind, const char *> Kinds[] = {
+      {BPK_Owned, "_Owned"}, {BPK_Borrow, "_Borrow"}};
+  for (const auto &KS : Kinds) {
+    if (llvm::none_of(Slots, [&](QualType T) {
+          return T.isOrContainsBSC(KS.first, BSCLookThrough::AnyPointer);
+        }))
       continue;
-    ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[I].Param);
-    QualType ParamTy = Param->getType();
-    HasOwnedQualifier |= ParamTy.hasOwned();
-    HasBorrowQualifier |= ParamTy.hasBorrow();
-  }
-
-  if (HasOwnedQualifier) {
-    S.Diag(DiagLoc, diag::err_bsc_qualifier_in_knr_function) << "_Owned";
-    D.setInvalidType(true);
-  }
-  if (HasBorrowQualifier) {
-    S.Diag(DiagLoc, diag::err_bsc_qualifier_in_knr_function) << "_Borrow";
+    S.Diag(D.getIdentifierLoc(), diag::err_bsc_qualifier_in_knr_function)
+        << KS.second;
     D.setInvalidType(true);
   }
 }
@@ -1885,7 +1879,13 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state
   }
 
   // Apply const/volatile/restrict qualifiers to T.
+#if ENABLE_BSC
+  // BSC qualifiers are outside the TQ mask, so they alone must reach here.
+  if (DS.getTypeQualifiers() || DS.hasBSCQualifiers()) {
+    unsigned TypeQuals = DS.getTypeQualifiers();
+#else
   if (unsigned TypeQuals = DS.getTypeQualifiers()) {
+#endif
     // Warn about CV qualifiers on function types.
     // C99 6.7.3p8:
     //   If the specification of a function type includes any type qualifiers,
@@ -2025,8 +2025,57 @@ static bool isDependentOrGNUAutoType(QualType T) {
   return AT && AT->isGNUAutoType();
 }
 
+#if ENABLE_BSC
+// Written properties layer onto what the type already carries; a Kind
+// arriving through a typedef conflicts with a different written Kind.
+static bool mergeBSCProperties(BSCPointerProperties &Have,
+                               BSCPointerProperties Written) {
+  bool Conflict = Written.Kind != BPK_None && Have.Kind != BPK_None &&
+                  Written.Kind != Have.Kind;
+  if (Have.Kind == BPK_None)
+    Have.Kind = Written.Kind;
+  if (Written.ArrayElem)
+    Have.ArrayElem = true;
+  if (Written.Nullability != BWN_None)
+    Have.Nullability = Written.Nullability;
+  return Conflict;
+}
+
+// A duplicate from substitution is harmless, so only written code warns.
+static bool diagnoseBSCNullabilityClash(Sema &S, QualType T, NullabilityKind NK,
+                                        SourceLocation Loc,
+                                        bool IsContextSensitive,
+                                        bool WarnDuplicate) {
+  if (NK != NullabilityKind::Nullable && NK != NullabilityKind::NonNull)
+    return false;
+  BSCWrittenNullability Have = T.getBSCPointerProperties().Nullability;
+  if (Have == BWN_None)
+    return false;
+  NullabilityKind HaveNK = Have == BWN_Nullable ? NullabilityKind::Nullable
+                                                : NullabilityKind::NonNull;
+  if (HaveNK == NK) {
+    if (!WarnDuplicate)
+      return false;
+    S.Diag(Loc, diag::warn_nullability_duplicate)
+        << DiagNullabilityKind(NK, IsContextSensitive)
+        << FixItHint::CreateRemoval(Loc);
+    return true;
+  }
+  S.Diag(Loc, diag::err_nullability_conflicting)
+      << DiagNullabilityKind(NK, IsContextSensitive)
+      << DiagNullabilityKind(HaveNK, false);
+  return true;
+}
+
+#endif
+
 QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
-                                  Qualifiers Qs, const DeclSpec *DS) {
+                                  Qualifiers Qs, const DeclSpec *DS
+#if ENABLE_BSC
+                                  ,
+                                  BSCPointerProperties BP
+#endif
+) {
   if (T.isNull())
     return QualType();
 
@@ -2037,100 +2086,68 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
   }
 
 #if ENABLE_BSC
-  if (getLangOpts().BSC) {
-    const bool IsDependentType = T->isDependentType();
-
-    // Validate only the qualifiers being added at this type layer. Qualifiers
-    // nested inside T were checked when that type was built and must not make
-    // an array or another enclosing type look like a valid qualifier target.
-    if (Qs.hasArrayElem() && !T->isPointerType() && !IsDependentType) {
+  if (getLangOpts().BSC && !BP.empty()) {
+    if (BP.ArrayElem && !T->isPointerType() && !T->isDependentType()) {
       Diag(DS ? DS->getArrayElemSpecLoc() : Loc,
            diag::err_owned_qualifier_non_pointer)
           << "_ArrayElem" << T;
-      Qs.removeArrayElem();
+      BP.ArrayElem = false;
+    } else if (BP.ArrayElem && BP.Kind == BPK_None && T.isRawPointer()) {
+      // A pointer's Kind is known even when its pointee is dependent; only
+      // a dependent non-pointer (`_ArrayElem T`) waits for substitution.
+      Diag(DS ? DS->getArrayElemSpecLoc() : Loc,
+           diag::err_arrayelem_requires_safe_pointer);
+      BP.ArrayElem = false;
     }
-
-    // Explicit declaration specifiers are checked later by
-    // CheckOwnedQualifierOnNonPointerType(), which intentionally preserves
-    // the invalid qualifier in the recovery type. Rebuilt qualified types do
-    // not have a DeclSpec, so validate their concrete replacement here.
-    if (Qs.hasOwned() && !IsDependentType && T->isFunctionPointerType()) {
+    // Reject at construction so the invalid type never poisons later uses.
+    if (BP.Kind == BPK_Owned && (!DS || DS->getOwnedSpecLoc().isValid()) &&
+        !T->isPointerType() && !T->isDependentType() &&
+        !T->isOwnedStruct()) {
+      // CV qualifiers are applied after this point, so add them for the
+      // message -- the user wrote `const int`, not `int`.
       Diag(DS ? DS->getOwnedSpecLoc() : Loc,
            diag::err_owned_qualifier_non_pointer)
-          << "_Owned" << T;
-      Qs.removeOwned();
-    } else if (Qs.hasOwned() && !IsDependentType && !DS &&
-               !T->isPointerType() && !T->isOwnedStructureType() &&
-               !T->isOwnedTemplateSpecializationType()) {
-      Diag(Loc, diag::err_owned_qualifier_non_pointer) << "_Owned" << T;
-      Qs.removeOwned();
+          << "_Owned"
+          << Context.getQualifiedType(
+                 T, Qualifiers::fromCVRMask(Qs.getCVRQualifiers()));
+      BP.Kind = BPK_None;
     }
-
-    // Check _Borrow qualifier should only be applied to non-function pointer
-    // types.
-    if (Qs.hasBorrow() && !IsDependentType && !T->isPointerType()) {
+    // _Borrow needs a pointer too, exactly like _Owned above.
+    if (BP.Kind == BPK_Borrow && !T->isPointerType() && !T->isDependentType()) {
       Diag(DS ? DS->getBorrowSpecLoc() : Loc,
            diag::err_typecheck_invalid_borrow_not_pointer)
           << T;
-      Qs.removeBorrow();
-    } else if (Qs.hasBorrow() && !IsDependentType &&
-               T->isFunctionPointerType()) {
-      Diag(DS ? DS->getBorrowSpecLoc() : Loc,
-           diag::err_owned_qualifier_non_pointer)
-          << "_Borrow" << T;
-      Qs.removeBorrow();
+      BP.Kind = BPK_None;
     }
-
-    if (Qs.hasNullable() && !IsDependentType && !T->canHaveNullability()) {
-      Diag(Loc, diag::err_nullability_nonpointer)
-          << DiagNullabilityKind(NullabilityKind::Nullable, false) << T;
-      Qs.removeNullable();
+    // Check _Owned/_Borrow qualifier cannot be applied to function pointer types.
+    if (T->isFunctionPointerType()) {
+      if (BP.Kind == BPK_Owned) {
+        Diag(DS ? DS->getOwnedSpecLoc() : Loc,
+             diag::err_owned_qualifier_non_pointer)
+            << "_Owned" << T;
+        BP.Kind = BPK_None;
+      }
+      if (BP.Kind == BPK_Borrow) {
+        Diag(DS ? DS->getBorrowSpecLoc() : Loc,
+             diag::err_owned_qualifier_non_pointer)
+            << "_Borrow" << T;
+        BP.Kind = BPK_None;
+      }
     }
-    if (Qs.hasNonnull() && !IsDependentType && !T->canHaveNullability()) {
-      Diag(Loc, diag::err_nullability_nonpointer)
-          << DiagNullabilityKind(NullabilityKind::NonNull, false) << T;
-      Qs.removeNonnull();
-    }
-
-    // A BSC qualifier already present on T — directly or through sugar, e.g.
-    // a substituted template parameter whose replacement carries it ('T
-    // _Owned' with T = 'int *_Owned') — is idempotent. Adding it again at
-    // the same level only produces a duplicated spelling such as 'int
-    // *_Owned _Owned'. Drop the redundant copy, mirroring C11 6.7.3p5 for
-    // cv-qualifiers. Invalid uses were already diagnosed and stripped above,
-    // so this cannot mask them. Qualifiers nested inside T (e.g. the pointee
-    // of 'T *_Owned' with T = 'int *_Owned') live on inner type nodes and
-    // are not visible to T.getQualifiers(), so distinct levels are kept.
-    const Qualifiers ExistingQs = T.getQualifiers();
-    if (ExistingQs.hasOwned())
-      Qs.removeOwned();
-    if (ExistingQs.hasBorrow())
-      Qs.removeBorrow();
-    if (ExistingQs.hasArrayElem())
-      Qs.removeArrayElem();
-    if (ExistingQs.hasNullable())
-      Qs.removeNullable();
-    if (ExistingQs.hasNonnull())
-      Qs.removeNonnull();
-
-    // Check conflicts only after removing qualifiers that cannot apply to T.
-    // This prevents qualifiers inherited from array elements from producing a
-    // misleading same-level conflict on the complete array type.
-    Qualifiers TQs = T.getQualifiers();
-    TQs.addQualifiers(Qs);
-    if (TQs.hasOwned() && TQs.hasBorrow())
-      Diag(Loc, diag::err_owned_and_borrow_conflict);
-    if (TQs.hasNullable() && TQs.hasNonnull()) {
-      Diag(Loc, diag::err_nullability_conflicting)
-          << DiagNullabilityKind(NullabilityKind::Nullable, false)
-          << DiagNullabilityKind(NullabilityKind::NonNull, false);
-    }
-
-    if (Qs.hasArrayElem() && !IsDependentType && !TQs.hasOwned() &&
-        !TQs.hasBorrow()) {
-      Diag(DS ? DS->getArrayElemSpecLoc() : Loc,
-           diag::err_arrayelem_requires_safe_pointer);
-      Qs.removeArrayElem();
+    // Substitution only; a written specifier is checked as an attribute.
+    if (BP.Nullability != BWN_None && !T->isDependentType()) {
+      NullabilityKind NK = BP.Nullability == BWN_Nullable
+                               ? NullabilityKind::Nullable
+                               : NullabilityKind::NonNull;
+      if (diagnoseBSCNullabilityClash(*this, T, NK, Loc,
+                                      /*IsContextSensitive=*/false,
+                                      /*WarnDuplicate=*/false)) {
+        BP.Nullability = BWN_None;
+      } else if (!T->canHaveNullability()) {
+        Diag(Loc, diag::err_nullability_nonpointer)
+            << DiagNullabilityKind(NK, false) << T;
+        BP.Nullability = BWN_None;
+      }
     }
   }
 #endif
@@ -2171,11 +2188,47 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
     }
   }
 
+#if ENABLE_BSC
+  // An owned struct's ownership is in its decl, so a written '_Owned' is
+  // redundant -- unless it is the tag syntax '_Owned struct A', which
+  // elaborates.
+  if (getLangOpts().BSC && DS && BP.Kind == BPK_Owned &&
+      T->isOwnedStruct()) {
+    const auto *ET = dyn_cast<ElaboratedType>(T);
+    if (!ET || ET->getKeyword() == ETK_None)
+      Diag(DS->getOwnedSpecLoc(), diag::warn_duplicate_declspec) << "_Owned";
+  }
+
+  // A dependent non-pointer cannot resolve `_Owned` yet, so park it in a
+  // node until substitution.  An invalid application gets no node: it is
+  // diagnosed here and must still answer shape queries as the type it is.
+  if (getLangOpts().BSC && T->isDependentType() && !T->isPointerType() &&
+      !BP.empty()) {
+    BSCPointerProperties Cur2 = T.getBSCPointerProperties();
+    if (mergeBSCProperties(Cur2, BP))
+      Diag(Loc, diag::err_owned_and_borrow_conflict);
+    T = Context.getTypeWithBSCProperties(T, Cur2);
+    BP = BSCPointerProperties();
+  }
+
+  if (getLangOpts().BSC && !BP.empty() && T->isPointerType()) {
+    BSCPointerProperties P = T.getBSCPointerProperties();
+    if (mergeBSCProperties(P, BP))
+      Diag(Loc, diag::err_owned_and_borrow_conflict);
+    T = Context.getTypeWithBSCProperties(T, P);
+  }
+#endif
+
   return Context.getQualifiedType(T, Qs);
 }
 
 QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
-                                  unsigned CVRAU, const DeclSpec *DS) {
+                                  unsigned CVRAU, const DeclSpec *DS
+#if ENABLE_BSC
+                                  ,
+                                  BSCPointerProperties BP
+#endif
+) {
   if (T.isNull())
     return QualType();
 
@@ -2213,17 +2266,17 @@ QualType Sema::BuildQualifiedType(QualType T, SourceLocation Loc,
     return BuildQualifiedType(T, Loc, Split.Quals);
   }
 
-#if ENABLE_BSC
-  // Qualifiers::fromCVR[U]Mask will trigger assertion failure if we did not
-  // strip DeclSpec::TQ_arrayelem from CVR/CVRAU before the call
-  Qualifiers Q = Qualifiers::fromCVRMask(CVR & ~DeclSpec::TQ_arrayelem);
-  if (CVRAU & DeclSpec::TQ_arrayelem)
-    Q.addArrayElem();
-#else
   Qualifiers Q = Qualifiers::fromCVRMask(CVR);
-#endif
   Q.setUnaligned(CVRAU & DeclSpec::TQ_unaligned);
+#if ENABLE_BSC
+  // BSC qualifiers live outside the TQ mask; they come straight off the
+  // DeclSpec that recorded them.
+  if (BP.empty() && DS)
+    BP = DS->getBSCPointerProperties();
+  return BuildQualifiedType(T, Loc, Q, DS, BP);
+#else
   return BuildQualifiedType(T, Loc, Q, DS);
+#endif
 }
 
 /// Build a paren type including \p T.
@@ -5214,6 +5267,16 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       T = S.BuildPointerType(T, DeclType.Loc, Name);
       if (DeclType.Ptr.TypeQuals)
         T = S.BuildQualifiedType(T, DeclType.Loc, DeclType.Ptr.TypeQuals);
+#if ENABLE_BSC
+      // After the C qualifiers: the unsigned overload above also builds
+      // _Atomic, and BSC diagnostics then name the type as written, const
+      // included.
+      if (DeclType.Ptr.BSCQuals) {
+        T = S.BuildQualifiedType(
+            T, DeclType.Loc, Qualifiers(), /*DS=*/nullptr,
+            DeclSpec::bscQualsToProperties(DeclType.Ptr.BSCQuals));
+      }
+#endif
       break;
     case DeclaratorChunk::Reference: {
       // Verify that we're not building a reference to pointer to function with
@@ -5493,7 +5556,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           // in C++ though (!)
           S.Diag(DeclType.Loc, diag::err_func_returning_qualified_void) << T;
 #if ENABLE_BSC
-        } else if (S.getLangOpts().BSC && T.isOwnedQualified()) {
+        } else if (S.getLangOpts().BSC && T.isOwnedPointerOrOwnedStruct()) {
           // owned type is allowed to return
 #endif
         } else
@@ -5660,10 +5723,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // _Atomic is DeclSpec-only; _ArrayElem is not part of addCVRUQualifiers.
         if (FTI.MethodQualifiers) {
           unsigned MethodTQ = FTI.MethodQualifiers->getTypeQualifiers();
-          unsigned tq = MethodTQ & ~DeclSpec::TQ_atomic;
-          Qualifiers MQ = Qualifiers::fromCVRUMask(tq & ~DeclSpec::TQ_arrayelem);
-          if (tq & DeclSpec::TQ_arrayelem)
-            MQ.addArrayElem();
+          Qualifiers MQ =
+              Qualifiers::fromCVRUMask(MethodTQ & ~DeclSpec::TQ_atomic);
           EPI.TypeQuals = MQ;
         }
 #else
@@ -6328,14 +6389,7 @@ TypeSourceInfo *Sema::GetTypeForDeclaratorCast(Declarator &D, QualType FromTy) {
       transferARCOwnership(state, declSpecTy, ownership);
   }
 
-#if ENABLE_BSC
-  TypeSourceInfo *TInfo =
-      GetFullTypeForDeclarator(state, declSpecTy, ReturnTypeInfo);
-  CheckOwnedQualifierOnNonPointerType(D.getDeclSpec(), TInfo->getType());
-  return TInfo;
-#else
   return GetFullTypeForDeclarator(state, declSpecTy, ReturnTypeInfo);
-#endif
 }
 
 static void fillAttributedTypeLoc(AttributedTypeLoc TL,
@@ -7663,29 +7717,11 @@ static bool checkNullabilityTypeSpecifier(TypeProcessingState &state,
 
   // Check for existing nullability attributes on the type.
 #if ENABLE_BSC
-  // BSC stores nullability as qualifier bits; check those before the
-  // AttributedType loop (which only handles ObjC nullability).
-  if (S.getLangOpts().BSC) {
-    Qualifiers Qs = type.getQualifiers();
-    bool hasNullableBit = Qs.hasNullable();
-    bool hasNonnullBit = Qs.hasNonnull();
-    if ((nullability == NullabilityKind::Nullable && hasNullableBit) ||
-        (nullability == NullabilityKind::NonNull && hasNonnullBit)) {
-      S.Diag(nullabilityLoc, diag::warn_nullability_duplicate)
-        << DiagNullabilityKind(nullability, isContextSensitive)
-        << FixItHint::CreateRemoval(nullabilityLoc);
-      return true;
-    }
-    if ((hasNullableBit && nullability == NullabilityKind::NonNull) ||
-        (hasNonnullBit && nullability == NullabilityKind::Nullable)) {
-      S.Diag(nullabilityLoc, diag::err_nullability_conflicting)
-        << DiagNullabilityKind(nullability, isContextSensitive)
-        << DiagNullabilityKind(hasNullableBit ? NullabilityKind::Nullable
-                                              : NullabilityKind::NonNull,
-                               false);
-      return true;
-    }
-  }
+  // BSC nullability lives on the pointer, not in AttributedType sugar.
+  if (S.getLangOpts().BSC &&
+      diagnoseBSCNullabilityClash(S, type, nullability, nullabilityLoc,
+                                  isContextSensitive, /*WarnDuplicate=*/true))
+    return true;
 #endif
   QualType desugared = type;
   while (auto attributed = dyn_cast<AttributedType>(desugared.getTypePtr())) {
@@ -7780,7 +7816,7 @@ static bool checkNullabilityTypeSpecifier(TypeProcessingState &state,
   if (S.getLangOpts().BSC &&
       (nullability == NullabilityKind::Nullable ||
        nullability == NullabilityKind::NonNull)) {
-    type = applyNullabilityToType(type, nullability, S.Context);
+    type = S.Context.getTypeWithNullability(type, nullability);
     return false;
   }
 #endif

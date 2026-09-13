@@ -365,7 +365,7 @@ public:
     if (auto *VD = dyn_cast<VarDecl>(D)) {
       if (!VD->hasGlobalStorage()) {
         const Type *FieldType = VD->getType().getCanonicalType().getTypePtr();
-        if (FieldType->isOwnedStructureType())
+        if (FieldType->isOwnedStruct())
           DeclsInScopeToEmitDestructorCall.push(VD);
       }
     }
