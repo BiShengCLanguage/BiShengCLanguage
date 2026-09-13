@@ -7,17 +7,18 @@
 // The argument is a trackable expression (see the Sema gate in
 // assume_null_sema.cbs). For a _Nullable POINTER result the trackable grammar
 // admits these outermost shapes (parentheses and implicit casts transparent).
-// All of them track down to one field-path key {Variable, path} — variables,
-// field access, and dereference are no longer separate state spaces:
+// All of them track down to one Place — a root variable plus a projection
+// chain of Field / Deref steps; variables, field access, and dereference are
+// no longer separate state spaces:
 //
-//   identifier          -> bare pointer variable                 -> {p, ""}
-//   expr . identifier   -> pointer field via dot                 -> {s, ".p"}
-//   expr -> identifier  -> pointer field via arrow               -> {s, ".*.p"}
-//   * expr              -> dereference yielding a pointer        -> {p, ".*"}
+//   identifier          -> bare pointer variable                 -> Var(p)
+//   expr . identifier   -> pointer field via dot                 -> Field(s, "p")
+//   expr -> identifier  -> pointer field via arrow               -> Field(Deref(s), "p")
+//   * expr              -> dereference yielding a pointer        -> Deref(p)
 //
-// The sections below follow this grammar. A dereference is a ".*" segment, so
-// a `*` embedded in a `.` / `->` base folds into the same key — see the "deref
-// folded into a member-access path" section.
+// The sections below follow this grammar. A dereference is a Deref projection,
+// so a `*` embedded in a `.` / `->` base folds into the same Place — see the
+// "deref folded into a member-access path" section.
 //
 // Two case styles appear: a straight-line case pins the baseline (the target
 // is _Nullable by default, so a bare deref errors whether or not the assume
@@ -118,9 +119,9 @@ void test_field_chain_arrow(struct Root *_Owned s) {
 
 // === * expr: dereference yielding a pointer (dereference chain) ===
 // When a dereference itself yields a _Nullable pointer (e.g. *p for int **p),
-// the assumption targets the field-path key rooted at the variable with a
-// ".*" segment per dereference level:
-//   *p => {p, ".*"}, **p => {p, ".*.*"}. __assume_null(*p) marks {p, ".*"}
+// the assumption targets the Place rooted at the variable with one Deref
+// projection per dereference level:
+//   *p => Deref(p), **p => Deref(Deref(p)). __assume_null(*p) marks Deref(p)
 // null, so the next dereference *(*p) reports a nullable dereference.
 
 // Establish *p non-null, then assume it null, then deref it again.
@@ -129,16 +130,16 @@ void test_deref_chain(void) {
   int *px = &x;
   int **p = &px;
   if (*p != nullptr) {              // *p non-null in this branch
-    _Unsafe { __assume_null(*p); }  // assume the {p, ".*"} state null
+    _Unsafe { __assume_null(*p); }  // assume the Deref(p) state null
     DEREF(*p); // expected-error {{cannot dereference a possibly-null status pointer}}
   }
 }
 
 // === deref folded into a member-access path ===
-// getFieldPath folds a `*` in a `.` / `->` base into the field-path key as a
-// ".*" segment: a dereference of a bare identifier and an arrow both become
-// ".*" (so (*s).m.v.p and s->m.v.p share one key), while a dereference of a
-// field path stacks an extra ".*" in place of the field name.
+// PlaceBuilder folds a `*` in a `.` / `->` base into the Place as a Deref
+// projection: a dereference of a bare identifier and an arrow both become a
+// Deref (so (*s).m.v.p and s->m.v.p share one Place), while a dereference of a
+// field path stacks a Deref on top of the field projection.
 
 // (*s).m.v.p: dot chain whose base embeds a struct-deref of a bare variable —
 // equivalent to the arrow spelling s->m.v.p.
@@ -167,10 +168,10 @@ void test_cross_deref_to_arrow(struct Root *_Owned s) {
 
 // Double indirection: (*(base.f1))->f2. `*(base.f1)` dereferences the pointer
 // field f1 (loading an Inner*) and then accesses the leaf f2 through it. The
-// `.f1` dereference and the `->` arrow each contribute a ".*" segment, so the
-// whole chain resolves to the field-path key {base, ".f1.*.*.f2"}. f1 and *f1
-// are declared _Nonnull, so the intermediate deref is clean and the f2 deref
-// is the sole expected error.
+// `*(base.f1)` deref and the `->` arrow each contribute a Deref projection, so
+// the whole chain resolves to the Place Field(Deref(Deref(Field(base, "f1")), "f2")). f1 and
+// *f1 are declared _Nonnull, so the intermediate deref is clean and the f2
+// deref is the sole expected error.
 struct Inner { int *_Nullable f2; };                   // f2: _Nullable leaf
 struct Outer {
   struct Inner *_Nonnull * _Nonnull f1;                // f1: Nonnull -> Nonnull Inner*

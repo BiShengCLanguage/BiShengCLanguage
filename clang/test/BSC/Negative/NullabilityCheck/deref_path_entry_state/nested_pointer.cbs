@@ -1,0 +1,13 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only -verify %s
+
+void use(int *_Nonnull q);
+void test_deref1(int *_Nullable *_Nonnull p, int *_Nonnull np) {
+  *p = np;
+  use(*p);
+}
+
+void test_deref2(int *_Nullable *_Nonnull p, int *_Nullable n, int c) {
+  if (c) { if (*p == nullptr) return; }
+  else { *p = n; }
+  use(*p);  // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}

@@ -17,12 +17,12 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Analysis/Analyses/BSC/BSCNullCheckInfo.h"
 #include "clang/Analysis/Analyses/BSC/BSCNullabilityCheck.h"
+#include "clang/Analysis/Analyses/BSC/BSCPlace.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
 #include "clang/Basic/Builtins.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Optional.h"
 
 using namespace clang;
 using namespace std;
@@ -35,18 +35,13 @@ using namespace std;
 //      2) owned or borrow pointer is nonnull by default.
 // Pointer with nullable DefNullability have PathNullability,
 // which will change with control flow.
-// FieldPath models any nullable-pointer cell reachable from one local variable
-// through member access and unary dereference, normalized to a single spelling.
-// The empty path denotes the variable itself; ".name" is a field access and
-// ".*" is a dereference. Normalization makes equivalent spellings share a key:
-//   s->p   and   (*s).p   both map to (s, ".*.p")
-//   *p / **p             map to (p, ".*") / (p, ".*.*")
-// Every path segment begins with '.', so a path Q is a descendant of path P iff
-// P is a strict prefix of Q that ends right before a '.' (see
-// isFieldPathPrefix). This guards against a field named "mv" reading as a
-// descendant of a field named "m".
-using FieldPath = std::pair<VarDecl *, std::string>;
-using NullabilityState = std::map<FieldPath, NullabilityKind>;
+// A nullable-pointer cell is named by a bsc::Place: a root variable followed by
+// field / dereference / index projections, normalized to a single spelling so
+// equivalent expressions share one key:
+//   s->p   and   (*s).p   both map to Field(Deref(Var(s)), "p")
+//   *p / **p             map to Deref(Var(p)) / Deref(Deref(Var(p)))
+using Place = const bsc::Place *;
+using NullabilityState = llvm::DenseMap<Place, NullabilityKind>;
 
 class NullabilityCheckImpl {
 public:
@@ -82,7 +77,7 @@ public:
   NullabilityState runOnBlock(const CFGBlock *block, NullabilityState state,
                       NullabilityCheckDiagReporter &reporter,
                       ASTContext &ctx, const FunctionDecl &fd, ParentMap &PM);
-  void initState(const CFG &cfg);
+  void initState(const CFG &cfg, ASTContext &ctx);
 
   NullabilityCheckImpl()
       : BlocksBeginState(0), BlocksEndState(0),
@@ -99,6 +94,7 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
   NullabilityState &CurrState;
   NullabilityCheckDiagReporter &Reporter;
   ASTContext &Ctx;
+  bsc::PlaceBuilder PB;
   const FunctionDecl &Fd;
   ParentMap &PM;
 
@@ -108,13 +104,13 @@ public:
                     NullabilityCheckDiagReporter &reporter, ASTContext &ctx,
                     const FunctionDecl &fd, ParentMap &pm)
       : NCI(nci), Block(block), CurrState(state), Reporter(reporter),
-        Ctx(ctx), Fd(fd), PM(pm) {}
+        Ctx(ctx), PB(ctx), Fd(fd), PM(pm) {}
 
   bool IsStmtInSafeZone(Stmt *S);
   bool ShouldReportNullPtrError(Stmt *S);
   void VisitDeclStmt(DeclStmt *S);
   void CheckInit(DeclStmt *DS, VarDecl *VD,
-                 QualType QT, Expr *Init, std::string Path);
+                 QualType QT, Expr *Init, Place Path);
   bool checkPathSensitiveFirstLevel(Expr *FirstLevel, QualType &CurLHS,
                                      QualType &CurRHS,
                                      NullabilityCheckDiagKind DiagKind,
@@ -134,117 +130,27 @@ public:
   void UpdateDerefStateFromRHS(VarDecl *VD, QualType RHSType);
 };
 
-// Whether \p prefix is a strict ancestor of (or equal to) \p path. Paths are
-// normalized so every segment begins with '.' (".name" / ".*"), which lets a
-// single trailing-'.' check delimit segments without confusing a field named
-// "mv" for a descendant of a field named "m".
-bool isFieldPathPrefix(const std::string &prefix, const std::string &path) {
-  if (prefix == path)
-    return true;
-  if (path.size() > prefix.size() &&
-      path.compare(0, prefix.size(), prefix) == 0 &&
-      path[prefix.size()] == '.')
-    return true;
-  return false;
-}
-
-// Resolve \p E to the nullable-pointer cell it names, normalized to a canonical
-// spelling. The root is a local/parameter VarDecl; the path is a sequence of
-// ".name" (field access) and ".*" (unary dereference) segments. Equivalent
-// spellings collapse to one key:
-//   p              -> {p, ""}
-//   s.p            -> {s, ".p"}
-//   s->p, (*s).p   -> {s, ".*.p"}
-//   *p, **p        -> {p, ".*"}, {p, ".*.*"}
-//   *base.f1       -> {base, ".f1.*"}
-// Returns None when \p E is not a trackable cell (constant, call, etc.).
-llvm::Optional<FieldPath> getFieldPath(Expr *E) {
-  if (!E)
-    return llvm::None;
-
-  if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return FieldPath(VD, "");
-    return llvm::None;
-  }
-
-  if (auto *ME = dyn_cast<MemberExpr>(E)) {
-    auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
-    if (!FD)
-      return llvm::None;
-    auto Base = getFieldPath(ME->getBase());
-    // When the base is untrackable (an array element `a[i].f`, a call result,
-    // ...), fall back to a field-name-keyed cell rooted at null. The old
-    // VisitMEForFieldPath stopped descending at such bases and left the root
-    // null; array-element fields of the same name then share one cell, seeded
-    // Nullable and refined by assignment.
-    FieldPath Result = Base ? *Base : FieldPath(nullptr, "");
-    // p->f dereferences p, so it contributes a ".*" segment ahead of ".f".
-    if (ME->isArrow())
-      Result.second += ".*";
-    Result.second += "." + FD->getNameAsString();
-    return Result;
-  }
-
-  if (auto *UO = dyn_cast<UnaryOperator>(E)) {
-    if (UO->getOpcode() != UO_Deref)
-      return llvm::None;
-    auto Sub = getFieldPath(UO->getSubExpr());
-    if (!Sub)
-      return llvm::None;
-    Sub->second += ".*";
-    return Sub;
-  }
-
-  if (auto *ICE = dyn_cast<ImplicitCastExpr>(E))
-    return getFieldPath(ICE->getSubExpr());
-
-  if (auto *PE = dyn_cast<ParenExpr>(E))
-    return getFieldPath(PE->getSubExpr());
-
-  if (auto *SE = dyn_cast<SafeExpr>(E))
-    return getFieldPath(SE->getSubExpr());
-
-  return llvm::None;
-}
-
 // Erase only the strict descendants of \p Path, preserving \p Path itself (used
 // when the cell named by \p Path is overwritten but its own nullability is
 // refreshed rather than dropped).
-void eraseDeeperPaths(NullabilityState &state, const FieldPath &Path) {
-  auto It = state.begin();
-  while (It != state.end()) {
-    if (It->first.first == Path.first &&
-        It->first.second != Path.second &&
-        isFieldPathPrefix(Path.second, It->first.second))
-      It = state.erase(It);
+void eraseDeeperPaths(NullabilityState &state, Place Path) {
+  for (auto It = state.begin(); It != state.end();) {
+    if (!It->first->equals(Path) && It->first->hasPrefix(Path))
+      state.erase(It++);
     else
       ++It;
   }
 }
 
-// A "deref chain" path is a (possibly empty) repetition of the ".*" segment:
-// "" (the var), ".*" (*p), ".*.*" (**p), ...
-bool isDerefChainPath(const std::string &Path) {
-  if (Path.size() % 2 != 0)
-    return false;
-  for (size_t I = 0; I < Path.size(); I += 2)
-    if (Path[I] != '.' || Path[I + 1] != '*')
-      return false;
-  return true;
-}
-
 // Erase the deref-chain cells of \p VD — *p, **p, ... — while preserving field
-// cells reachable through \p VD ("*.name", "" ), whose defaultability comes
-// from the field type rather than VD's rebound pointee. Used on a plain-variable
-// rebind (VD = RHS), which replaces the dereference target but not the pointee's
-// field layout; UpdateDerefStateFromRHS re-seeds the deref chain.
+// cells reachable through \p VD, whose defaultability comes from the field type
+// rather than VD's rebound pointee. Used on a plain-variable rebind (VD = RHS),
+// which replaces the dereference target but not the pointee's field layout;
+// UpdateDerefStateFromRHS re-seeds the deref chain.
 void eraseDerefChainCells(NullabilityState &state, VarDecl *VD) {
-  auto It = state.begin();
-  while (It != state.end()) {
-    if (It->first.first == VD && !It->first.second.empty() &&
-        isDerefChainPath(It->first.second))
-      It = state.erase(It);
+  for (auto It = state.begin(); It != state.end();) {
+    if (It->first->getRoot() == VD && It->first->isDerefChainFromRoot())
+      state.erase(It++);
     else
       ++It;
   }
@@ -561,8 +467,8 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       if (Op == UO_Deref) {
         // Prefer path-sensitive state produced by condition propagation (if
         // (*p), if (**p), ...). Fall back to declaration/default semantics.
-        if (auto FP = getFieldPath(E)) {
-          auto It = CurrState.find(*FP);
+        if (Place place = PB.Build(E)) {
+          auto It = CurrState.find(place);
           if (It != CurrState.end())
             return It->second;
         }
@@ -609,9 +515,10 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
         if (NK == NullabilityKind::Nullable) {
-          FieldPath FP(VD, "");
-          if (CurrState.count(FP))
-            return CurrState[FP];
+          if (Place place = PB.Build(VD, VD->getLocation())) {
+            if (CurrState.count(place))
+              return CurrState[place];
+          }
         }
       }
       break;
@@ -638,9 +545,9 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
         if (NK == NullabilityKind::Nullable) {
-          if (auto FP = getFieldPath(ME)) {
-            if (CurrState.count(*FP))
-              return CurrState[*FP];
+          if (Place place = PB.Build(ME)) {
+            if (CurrState.count(place))
+              return CurrState[place];
           }
         }
       }
@@ -698,7 +605,8 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
     if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
       Expr *Init = VD->getInit();
       if (Init || VD->isStaticLocal()) {
-        CheckInit(DS, VD, VD->getType(), Init, "");
+        Place place = PB.Build(VD, VD->getLocation());
+        CheckInit(DS, VD, VD->getType(), Init, place);
       }
     }
   }
@@ -803,7 +711,7 @@ bool TransferFunctions::checkPathSensitiveFirstLevel(
 
 void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
                                   QualType QT, Expr *Init,
-                                  std::string path) {
+                                  Place path) {
   QualType CanQT = QT.getCanonicalType();
   // early return if no initialization
   if (!Init || isa<ImplicitValueInitExpr>(Init)) {
@@ -826,13 +734,12 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
         Reporter.addDiagInfo(DI);
       }
     } else {
-      FieldPath FP(VD, path);
-      if (CurrState.count(FP)) {
+      if (CurrState.count(path)) {
         // Here we update PathNullability of nullable pointer.
-        CurrState[FP] = RHSKind;
+        CurrState[path] = RHSKind;
       }
     }
-    if (path.empty()) {
+    if (path->getKind() == bsc::Place::Kind::Var) {
       // Declaration-time rebinding can stale existing dereference-chain facts.
       // Example:
       //   if (*p) { /* (*p) is NonNull on this path */ }
@@ -891,7 +798,7 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       for (FieldDecl *FD : FieldsToProcess) {
         unsigned idx = RD->isStruct() ? FD->getFieldIndex() : 0;
         Expr *FieldInit = idx < NumInits ? ILE->getInit(idx) : nullptr;
-        std::string newPath = path + "." + FD->getNameAsString();
+        Place newPath = PB.BuildField(path, FD, FD->getLocation());
         CheckInit(DS, VD, FD->getType(), FieldInit, newPath);
       }
     } else if (CanQT->isArrayType()) {
@@ -901,14 +808,19 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       // check explicitly provided initializers
       for (unsigned i = 0; i < NumInits; ++i) {
         Expr *ElemInit = ILE->getInit(i);
-        std::string newPath = path + "[" + std::to_string(i) + "]";
+        Place newPath = PB.BuildIndex(
+            path, ElemTy, "[" + std::to_string(i) + "]", VD->getLocation());
         CheckInit(DS, VD, ElemTy, ElemInit, newPath);
       }
       // check implicitly zero-initialized trailing elements
       if (auto *CAT = dyn_cast<ConstantArrayType>(AT)) {
         unsigned ArraySize = (unsigned)CAT->getSize().getZExtValue();
         if (NumInits < ArraySize) {
-          std::string newPath = path + "[" + std::to_string(NumInits) + ":" + std::to_string(ArraySize) + "]";
+          Place newPath = PB.BuildIndex(
+              path, ElemTy,
+              "[" + std::to_string(NumInits) + ":" + std::to_string(ArraySize) +
+                  "]",
+              VD->getLocation());
           CheckInit(DS, VD, ElemTy, nullptr, newPath);
         }
       }
@@ -919,20 +831,18 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
 /// After `VD = RHS`, the dereference chain rooted at VD must reflect the
 /// nullability of RHS's pointee levels rather than VD's declared type — the
 /// runtime target of `*p`, `**p`, ... is whatever RHS pointed at. Each pointer
-/// level contributes a ".*" segment ("*p" => ".*" at Depth+1 = 1).
+/// level contributes one dereference projection ("*p" => Deref at depth 1).
 void TransferFunctions::UpdateDerefStateFromRHS(VarDecl *VD,
-                                                  QualType RHSType) {
-  unsigned Depth = 0;
-  for (QualType QT = RHSType.getCanonicalType(); QT->isPointerType();
-       ++Depth) {
+                                                QualType RHSType) {
+  Place VarPlace = PB.Build(VD, VD->getLocation());
+  Place Chain = VarPlace;
+  for (QualType QT = RHSType.getCanonicalType(); QT->isPointerType();) {
     QT = QT->getPointeeType().getCanonicalType();
-    // Seed the deref cell (VD, ".*" x (Depth+1)) with the pointee's def
-    // nullability, so a later path that never refines the cell still finds
-    // an entry at the CFG join.
-    std::string Path;
-    for (unsigned I = 0; I <= Depth; ++I)
-      Path += ".*";
-    CurrState[FieldPath(VD, Path)] = QT.getDefNullability();
+    // Seed the deref cell at this depth with the pointee's def nullability, so
+    // a later path that never refines the cell still finds an entry at the CFG
+    // join.
+    Chain = PB.BuildDeref(Chain, QT, VD->getLocation());
+    CurrState[Chain] = QT.getDefNullability();
   }
 }
 
@@ -947,7 +857,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
       NullabilityKind LHSKind = LHSQT.getDefNullability();
       std::string SourceName = getDiagNameFromExpr(BO->getRHS());
 
-      if (auto FP = getFieldPath(LHS)) {
+      if (Place place = PB.Build(LHS)) {
         // A member-access LHS reports against the member location; every other
         // spelling (bare variable, deref) reports against the whole assignment.
         Expr *LocE = getMemberExprFromExpr(LHS);
@@ -962,22 +872,22 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
                                         SourceName);
             Reporter.addDiagInfo(DI);
           }
-        } else if (CurrState.count(*FP)) {
+        } else if (CurrState.count(place)) {
           // Here we update PathNullability of nullable pointer.
-          CurrState[*FP] = RHSKind;
+          CurrState[place] = RHSKind;
         }
 
         // Invalidate stale descendants based on the LHS spelling's shape. A
         // plain-variable rebind clears the whole subtree (and is reseeded from
-        // the RHS pointee levels); a deref cell (path ending ".*") preserves the
-        // overwritten cell and clears only deeper cells; a member access clears
-        // nothing (its pointee is a separate allocation).
+        // the RHS pointee levels); a deref cell preserves the overwritten cell
+        // and clears only deeper cells; a member access clears nothing (its
+        // pointee is a separate allocation).
         if (VarDecl *VD = getVarDeclFromExpr(LHS)) {
-          eraseDerefChainCells(CurrState, VD); // FP == {VD, ""}
+          eraseDerefChainCells(CurrState, VD); // place == Var(VD)
           UpdateDerefStateFromRHS(
               VD, BO->getRHS()->IgnoreParenImpCasts()->getType());
-        } else if (!FP->second.empty() && FP->second.back() == '*') {
-          eraseDeeperPaths(CurrState, *FP);
+        } else if (place->getKind() == bsc::Place::Kind::Deref) {
+          eraseDeeperPaths(CurrState, place);
         }
       }
 
@@ -1006,25 +916,24 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
 // (by-value) fields so nested _Nullable pointers (e.g. s.in.ip) are covered; a
 // pointer field is a leaf — its pointee is a separate allocation that is
 // unreachable once the field is null, so it is not descended into. \p prefix is
-// the normalized path of the struct cell itself ("" for a bare struct variable,
-// ".in" for a field, ".*" for a dereference), so a field f under it is
-// "prefix.f".
-static void assumeAllNullableFieldsNull(VarDecl *VD, const RecordDecl *RD,
-                                        const std::string &prefix,
-                                        NullabilityState &state) {
+// the place of the struct cell itself (Var(s) for a bare struct variable, a
+// Field for a field, a Deref for a dereference); a field f under it is
+// Field(prefix, f).
+static void assumeAllNullableFieldsNull(const RecordDecl *RD, Place prefix,
+                                        NullabilityState &state,
+                                        bsc::PlaceBuilder &PB) {
   if (!RD)
     return;
   for (const FieldDecl *FD : RD->fields()) {
     QualType FT = FD->getType();
-    std::string path = prefix + "." + FD->getNameAsString();
+    Place path = PB.BuildField(prefix, FD, FD->getLocation());
     if (FT->isPointerType()) {
       if (FT.getDefNullability() == NullabilityKind::Nullable) {
-        FieldPath FP = {VD, path};
-        if (state.count(FP))
-          state[FP] = NullabilityKind::Nullable;
+        if (state.count(path))
+          state[path] = NullabilityKind::Nullable;
       }
     } else if (const RecordType *RT = FT->getAs<RecordType>()) {
-      assumeAllNullableFieldsNull(VD, RT->getDecl(), path, state);
+      assumeAllNullableFieldsNull(RT->getDecl(), path, state, PB);
     }
   }
 }
@@ -1040,17 +949,16 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
       Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
       QualType ArgTy = CE->getArg(0)->getType();
       if (ArgTy->isPointerType()) {
-        if (auto FP = getFieldPath(Arg)) {
-          if (CurrState.count(*FP))
-            CurrState[*FP] = NullabilityKind::Nullable;
+        if (Place place = PB.Build(Arg)) {
+          if (CurrState.count(place))
+            CurrState[place] = NullabilityKind::Nullable;
         }
       } else if (ArgTy->isStructureType()) {
-        // Mark every reachable _Nullable pointer field null. getFieldPath on
-        // the struct cell yields its normalized prefix ("" / ".in" / ".*").
+        // Mark every reachable _Nullable pointer field null. The place of the
+        // struct cell is the prefix to descend from (Var / Field / Deref).
         const RecordType *RT = ArgTy->getAs<RecordType>();
-        if (auto FP = getFieldPath(Arg))
-          assumeAllNullableFieldsNull(FP->first, RT->getDecl(), FP->second,
-                                      CurrState);
+        if (Place place = PB.Build(Arg))
+          assumeAllNullableFieldsNull(RT->getDecl(), place, CurrState, PB);
       }
       return;
     }
@@ -1213,13 +1121,13 @@ void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
 void TransferFunctions::SetCFGBlocksByExpr(Expr *PtrE,
                                            const CFGBlock *NonNullBlock,
                                            const CFGBlock *NullableBlock) {
-  if (auto FP = getFieldPath(PtrE)) {
+  if (Place place = PB.Build(PtrE)) {
     if (PtrE->getType().getDefNullability() == NullabilityKind::Nullable &&
-        CurrState.count(*FP) &&
-        CurrState[*FP] != NullabilityKind::NonNull) {
-      NCI.BlocksConditionState[NonNullBlock][Block][*FP] =
+        CurrState.count(place) &&
+        CurrState[place] != NullabilityKind::NonNull) {
+      NCI.BlocksConditionState[NonNullBlock][Block][place] =
           NullabilityKind::NonNull;
-      NCI.BlocksConditionState[NullableBlock][Block][*FP] =
+      NCI.BlocksConditionState[NullableBlock][Block][place] =
           NullabilityKind::Nullable;
     }
   }
@@ -1268,34 +1176,36 @@ void TransferFunctions::PassConditionStateToSuccBlocks(Expr *CondExpr) {
 /// from contributing a missing map entry at a CFG join; initialization,
 /// assignments, and branch conditions may subsequently refine or replace the
 /// seeded state.
-static void collectNullableDecls(Stmt *S, NullabilityState &state) {
+static void collectNullableDecls(Stmt *S, NullabilityState &state,
+                                 bsc::PlaceBuilder &PB) {
   if (!S)
     return;
   if (auto *DRE = dyn_cast<DeclRefExpr>(S)) {
     if (VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
       if (VD->getType().getDefNullability() == NullabilityKind::Nullable)
-        state[FieldPath(VD, "")] = NullabilityKind::Nullable;
+        state[PB.Build(VD, VD->getLocation())] = NullabilityKind::Nullable;
   } else if (auto *ME = dyn_cast<MemberExpr>(S)) {
     if (auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       if (FD->getType().getDefNullability() == NullabilityKind::Nullable) {
-        if (auto FP = getFieldPath(ME))
-          state[*FP] = NullabilityKind::Nullable;
+        if (Place place = PB.Build(ME))
+          state[place] = NullabilityKind::Nullable;
       }
     }
   } else if (auto *UO = dyn_cast<UnaryOperator>(S)) {
     if (UO->getOpcode() == UO_Deref &&
         UO->getType().getDefNullability() == NullabilityKind::Nullable) {
-      if (auto FP = getFieldPath(UO))
-        state[*FP] = NullabilityKind::Nullable;
+      if (Place place = PB.Build(UO))
+        state[place] = NullabilityKind::Nullable;
     }
   }
   for (Stmt *Child : S->children())
-    collectNullableDecls(Child, state);
+    collectNullableDecls(Child, state, PB);
 }
 
 // Traverse the CFG once and seed entry PathNullability for every trackable
 // declaration, field path, and dereference path with Nullable DefNullability.
-void NullabilityCheckImpl::initState(const CFG &cfg) {
+void NullabilityCheckImpl::initState(const CFG &cfg, ASTContext &ctx) {
+  bsc::PlaceBuilder PB(ctx);
   const CFGBlock *entry = &cfg.getEntry();
   for (const CFGBlock *B : cfg.const_nodes()) {
     if (B != entry && B != &cfg.getExit() && !B->succ_empty() &&
@@ -1305,7 +1215,7 @@ void NullabilityCheckImpl::initState(const CFG &cfg) {
         const CFGElement &elem = *it;
         if (elem.getAs<CFGStmt>()) {
           Stmt *S = const_cast<Stmt *>(elem.castAs<CFGStmt>().getStmt());
-          collectNullableDecls(S, BlocksEndState[entry]);
+          collectNullableDecls(S, BlocksEndState[entry], PB);
         }
       }
     }
@@ -1316,13 +1226,13 @@ NullabilityState NullabilityCheckImpl::mergeState(NullabilityState stateA, Nulla
   if (stateA.empty())
     return stateB;
   for (auto Entry : stateB) {
-    FieldPath FP = Entry.first;
+    Place place = Entry.first;
     NullabilityKind NK = Entry.second;
-    if (stateA.count(FP)) {
-      stateA[FP] = NK == NullabilityKind::Nullable ? NullabilityKind::Nullable
-                                                    : stateA[FP];
+    if (stateA.count(place)) {
+      if (NK == NullabilityKind::Nullable)
+        stateA[place] = NullabilityKind::Nullable;
     } else {
-      stateA[FP] = NK;
+      stateA[place] = NK;
     }
   }
   return stateA;
@@ -1366,7 +1276,7 @@ void clang::runNullabilityCheck(const FunctionDecl &fd, const CFG &cfg,
     return;
 
   NullabilityCheckImpl NCI;
-  NCI.initState(cfg);
+  NCI.initState(cfg, ctx);
 
   // Proceed with the worklist.
   ForwardDataflowWorklist worklist(cfg, ac);
