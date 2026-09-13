@@ -62,3 +62,15 @@ void positive(void) {
         int *_Nonnull ok6 = r + 1;
     }
 }
+
+// Dereferencing through an offset pointer is the other consumer of the same
+// propagation: *(p + n) and (p + n)->f must be reported, not laundered.
+int deref_arith(int *p) {
+    return *(p + 1); // expected-error {{cannot dereference a possibly-null status pointer}}
+}
+
+struct S { int f; };
+
+int member_arith(struct S *p) {
+    return (p + 1)->f; // expected-error {{cannot access the member through a possibly-null status pointer}}
+}

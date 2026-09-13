@@ -12,9 +12,10 @@ add_clang_library(clangAnalysis
   BSC/BSCIRDump.cpp
   BSC/BSCIRInitAnalysis.cpp
   BSC/BSCNullabilityCheck.cpp
+  BSC/BSCNullCheckInfo.cpp
+  BSC/BSCPlace.cpp
   BSC/BSCOwnership.cpp
   BSC/BSCOwnershipArrayLoopClassification.cpp
-  BSC/BSCNullCheckInfo.cpp
   CalledOnceCheck.cpp
   CFG.cpp
   CFGReachabilityAnalysis.cpp
