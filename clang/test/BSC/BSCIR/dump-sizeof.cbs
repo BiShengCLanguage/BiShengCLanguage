@@ -1,13 +1,12 @@
 // RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
 
-// Test BSCIR lowering of sizeof expressions.
+// Test BSCIR lowering of sizeof expressions: constant sizes fold to a constant.
 
 struct S { int x; int y; };
 
 // CHECK-LABEL: fn test_sizeof_type
 // CHECK:      bb0: {{[{]}}
-// CHECK-NEXT:   _1 = sizeof(int)
-// CHECK-NEXT:   _0 = copy(_1)
+// CHECK-NEXT:   _0 = const 4
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
@@ -19,8 +18,7 @@ unsigned long test_sizeof_type(void) {
 
 // CHECK-LABEL: fn test_sizeof_struct
 // CHECK:      bb0: {{[{]}}
-// CHECK-NEXT:   _1 = sizeof(struct S)
-// CHECK-NEXT:   _0 = copy(_1)
+// CHECK-NEXT:   _0 = const 8
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
@@ -33,8 +31,7 @@ unsigned long test_sizeof_struct(void) {
 // CHECK-LABEL: fn test_sizeof_expr
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = sizeof(int[10])
-// CHECK-NEXT:   _0 = copy(_2)
+// CHECK-NEXT:   _0 = const 40
 // CHECK-NEXT:   StorageDead(_1)
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }

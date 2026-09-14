@@ -32,7 +32,7 @@ int test_double_deref(int **pp) {
 // CHECK-LABEL: fn test_deref_assign
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   (*_1) = const 42
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_deref_assign(int *p) {
     *p = 42;

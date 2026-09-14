@@ -13,7 +13,7 @@
 // CHECK-NEXT:   _2 = copy(_3) [safe]
 // CHECK-NEXT:   StorageDead(_2) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_safe_func(void) {
     int x = 1;
@@ -29,7 +29,7 @@ _Safe void test_safe_func(void) {
 // CHECK-NEXT:   _2 = copy(_3) [unsafe]
 // CHECK-NEXT:   StorageDead(_2) [unsafe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_unsafe_block(void) {
     int x = 1;

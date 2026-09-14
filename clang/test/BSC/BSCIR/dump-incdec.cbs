@@ -8,7 +8,7 @@
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   _2 = BinOp(+, copy(_1), const 1)
 // CHECK-NEXT:   _1 = copy(_2)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_preinc(int x) { ++x; }
 
@@ -16,7 +16,7 @@ void test_preinc(int x) { ++x; }
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   _2 = BinOp(-, copy(_1), const 1)
 // CHECK-NEXT:   _1 = copy(_2)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_predec(int x) { --x; }
 
@@ -25,7 +25,7 @@ void test_predec(int x) { --x; }
 // CHECK-NEXT:   _2 = copy(_1)
 // CHECK-NEXT:   _3 = BinOp(+, copy(_1), const 1)
 // CHECK-NEXT:   _1 = copy(_3)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_postinc(int x) { x++; }
 
@@ -34,6 +34,6 @@ void test_postinc(int x) { x++; }
 // CHECK-NEXT:   _2 = copy(_1)
 // CHECK-NEXT:   _3 = BinOp(-, copy(_1), const 1)
 // CHECK-NEXT:   _1 = copy(_3)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_postdec(int x) { x--; }

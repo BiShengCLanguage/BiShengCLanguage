@@ -12,7 +12,7 @@
 // CHECK-NEXT:   _2 = copy(_3) [safe]
 // CHECK-NEXT:   StorageDead(_2) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_mut_borrow(void) {
     int x = 1;
@@ -28,7 +28,7 @@ _Safe void test_mut_borrow(void) {
 // CHECK-NEXT:   _2 = copy(_3) [safe]
 // CHECK-NEXT:   StorageDead(_2) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_const_borrow(void) {
     int x = 1;
@@ -48,7 +48,7 @@ _Safe void test_const_borrow(void) {
 // CHECK-NEXT:   StorageDead(_4) [safe]
 // CHECK-NEXT:   StorageDead(_2) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_reborrow(void) {
     int x = 1;
@@ -65,7 +65,7 @@ _Safe void test_reborrow(void) {
 // CHECK-NEXT:   _2 = copy(_3)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_c_addr(void) {
     int x = 1;

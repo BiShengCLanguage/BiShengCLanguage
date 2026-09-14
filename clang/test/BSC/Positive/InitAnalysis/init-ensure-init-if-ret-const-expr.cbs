@@ -1,0 +1,74 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// A return value or comparison value is constant when it is an integer
+// constant expression, whatever its spelling.
+
+enum Status { OK = 0, FAIL = 1 };
+
+_Safe int try_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+
+// --- callee side ---
+
+_Safe int ret_arith(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return 2 - 1;
+}
+
+_Safe int ret_enum(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return FAIL;
+}
+
+_Safe int ret_negative(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return -1;
+}
+
+_Safe int ret_cast(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return (int)1;
+}
+
+_Safe int ret_const_ternary(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return 1 ? 1 : 0;
+}
+
+_Safe int ret_sizeof(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return sizeof(int);
+}
+
+_Safe int ret_cond_after_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    *out = 1;
+    return 1 - 1;
+}
+
+// --- caller side ---
+
+_Safe int cmp_arith(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == 1 - 1)
+        return x;
+    return 0;
+}
+
+_Safe int cmp_enum(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r != OK)
+        return 0;
+    return x;
+}
+
+_Safe int cmp_const_ternary(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == (1 ? 0 : 1))
+        return x;
+    return 0;
+}
+
+_Safe int cmp_negative(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == -0)
+        return x;
+    return 0;
+}

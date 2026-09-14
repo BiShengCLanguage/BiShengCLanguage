@@ -7,8 +7,8 @@ _Safe void use_int(int x);
 
 // CHECK-LABEL: fn test_atomic_load
 // CHECK:      _3 = &_1 [unsafe]
-// CHECK-NEXT: _4 = call __atomic_load_n(copy(_3), const 5) -> bb1 [unsafe]
-// CHECK:      bb1: {
+// CHECK-NEXT: _4 = call __atomic_load_n(copy(_3), const 5) -> bb2 [unsafe]
+// CHECK:      bb2: {
 // CHECK-NEXT: _2 = copy(_4) [unsafe]
 // CHECK-NOT:  nop
 _Safe void test_atomic_load(void) {

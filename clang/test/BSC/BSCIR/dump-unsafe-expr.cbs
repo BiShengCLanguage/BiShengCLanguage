@@ -6,7 +6,7 @@
 // CHECK-LABEL: fn test_unsafe_write
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   (*_1) = const 1
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_unsafe_write(int *out) {
     _Unsafe(*out) = 1;
@@ -32,7 +32,7 @@ void test_unsafe_addr(int *out) {
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   _3 = copy(_2) [unsafe]
 // CHECK-NEXT:   _1[_3] = const 1 [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_unsafe_zone(int *p, int i) {
     _Unsafe(p[i]) = 1;

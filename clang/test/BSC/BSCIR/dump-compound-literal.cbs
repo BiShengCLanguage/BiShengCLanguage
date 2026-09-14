@@ -32,7 +32,7 @@ _Safe void test_compound_literal_arg(void) {
 // CHECK-LABEL: fn test_compound_literal_partial
 // CHECK:      bb0: {
 // CHECK-NEXT:   StorageLive(_1) [safe]
-// CHECK-NEXT:   _2 = Aggregate(S, {{[{]}}const 5, const(int){{[}]}}) [safe]
+// CHECK-NEXT:   _2 = Aggregate(S, {{[{]}}const 5, const 0{{[}]}}) [safe]
 // CHECK-NEXT:   _1 = copy(_2) [safe]
 // CHECK-NOT:    nop
 _Safe void test_compound_literal_partial(void) {

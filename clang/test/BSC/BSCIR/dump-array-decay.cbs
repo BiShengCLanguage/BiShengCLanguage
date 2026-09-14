@@ -8,11 +8,11 @@ void takes_ptr(int *p);
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
 // CHECK-NEXT:   _2 = Cast(copy(_1) as int *)
-// CHECK-NEXT:   _3 = call takes_ptr(copy(_2)) -> bb1
+// CHECK-NEXT:   _3 = call takes_ptr(copy(_2)) -> bb2
 // CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
+// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_array_decay(void) {
     int arr[5];

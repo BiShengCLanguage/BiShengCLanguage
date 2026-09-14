@@ -62,20 +62,19 @@ _Safe int test_va_arg_multi(const char *_Borrow fmt, ...) {
 // CHECK-LABEL: fn test_va_safe_zone
 // CHECK:      bb0: {
 // CHECK-NEXT:   StorageLive(_2) [safe]
-// CHECK-NEXT:   _3 = Cast(const 0 as unsigned int) [safe]
-// CHECK-NEXT:   _4 = Aggregate(__va_list_tag, {copy(_3), const(unsigned int), const(void *), const(void *)}) [safe]
-// CHECK-NEXT:   _5 = Array(struct __va_list_tag, {copy(_4)}) [safe]
-// CHECK-NEXT:   _2 = copy(_5) [safe]
-// CHECK-NEXT:   StorageLive(_6) [safe]
-// CHECK-NEXT:   _6 = const 0 [safe]
-// CHECK-NEXT:   _7 = Cast(copy(_2) as struct __va_list_tag *) [unsafe]
-// CHECK-NEXT:   _8 = call __builtin_va_start(copy(_7), copy(_1)) -> bb2 [unsafe]
+// CHECK-NEXT:   _3 = Aggregate(__va_list_tag, {const 0, const 0, const(void *), const(void *)}) [safe]
+// CHECK-NEXT:   _4 = Array(struct __va_list_tag, {copy(_3)}) [safe]
+// CHECK-NEXT:   _2 = copy(_4) [safe]
+// CHECK-NEXT:   StorageLive(_5) [safe]
+// CHECK-NEXT:   _5 = const 0 [safe]
+// CHECK-NEXT:   _6 = Cast(copy(_2) as struct __va_list_tag *) [unsafe]
+// CHECK-NEXT:   _7 = call __builtin_va_start(copy(_6), copy(_1)) -> bb2 [unsafe]
 // CHECK:      bb2: {
-// CHECK-NEXT:   _9 = Cast(copy(_2) as struct __va_list_tag *) [unsafe]
-// CHECK-NEXT:   _10 = const(int) [unsafe]
-// CHECK-NEXT:   _6 = copy(_10) [unsafe]
-// CHECK-NEXT:   _11 = Cast(copy(_2) as struct __va_list_tag *) [unsafe]
-// CHECK-NEXT:   _12 = call __builtin_va_end(copy(_11)) -> bb3 [unsafe]
+// CHECK-NEXT:   _8 = Cast(copy(_2) as struct __va_list_tag *) [unsafe]
+// CHECK-NEXT:   _9 = const(int) [unsafe]
+// CHECK-NEXT:   _5 = copy(_9) [unsafe]
+// CHECK-NEXT:   _10 = Cast(copy(_2) as struct __va_list_tag *) [unsafe]
+// CHECK-NEXT:   _11 = call __builtin_va_end(copy(_10)) -> bb3 [unsafe]
 // CHECK-NOT:    nop
 __attribute__((format(printf, 1, 2)))
 _Safe int test_va_safe_zone(const char *_Borrow fmt, ...) {

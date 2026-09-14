@@ -8,15 +8,12 @@
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1) [safe]
 // CHECK-NEXT:   _1 = const 1 [safe]
-// CHECK-NEXT:   goto -> bb2 [safe]
-// CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   return [safe]
-// CHECK-NEXT: }
-// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   _0 = copy(_1) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
 // CHECK-NEXT:   goto -> bb1 [safe]
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   return [safe]
 // CHECK-NEXT: }
 _Safe int test_forward_goto_same_scope(void) {
     int x = 1;
@@ -34,15 +31,12 @@ done:
 // CHECK-NEXT:   StorageLive(_2) [safe]
 // CHECK-NEXT:   _2 = const 2 [safe]
 // CHECK-NEXT:   StorageDead(_2) [safe]
-// CHECK-NEXT:   goto -> bb2 [safe]
-// CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   return [safe]
-// CHECK-NEXT: }
-// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   _0 = copy(_1) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
 // CHECK-NEXT:   goto -> bb1 [safe]
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   return [safe]
 // CHECK-NEXT: }
 _Safe int test_forward_goto_inner_to_outer(void) {
     int x = 1;

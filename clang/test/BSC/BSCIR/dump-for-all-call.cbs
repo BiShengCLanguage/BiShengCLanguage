@@ -23,31 +23,31 @@ void body(int i);
 // CHECK-LABEL: fn test_for_all_call
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = call get_start() -> bb1
-// CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   _1 = copy(_2)
-// CHECK-NEXT:   goto -> bb2
+// CHECK-NEXT:   _2 = call get_start() -> bb2
 // CHECK-NEXT: }
 // CHECK:      bb2: {{[{]}}
-// CHECK-NEXT:   _3 = call check_end(copy(_1)) -> bb6
+// CHECK-NEXT:   _1 = copy(_2)
+// CHECK-NEXT:   goto -> bb3
 // CHECK-NEXT: }
 // CHECK:      bb3: {{[{]}}
-// CHECK-NEXT:   _4 = call body(copy(_1)) -> bb4
+// CHECK-NEXT:   _3 = call check_end(copy(_1)) -> bb7
 // CHECK-NEXT: }
 // CHECK:      bb4: {{[{]}}
-// CHECK-NEXT:   _5 = call advance(copy(_1)) -> bb7
+// CHECK-NEXT:   _4 = call body(copy(_1)) -> bb5
 // CHECK-NEXT: }
 // CHECK:      bb5: {{[{]}}
-// CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   _5 = call advance(copy(_1)) -> bb8
 // CHECK-NEXT: }
 // CHECK:      bb6: {{[{]}}
-// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb5, otherwise: bb3]
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 // CHECK:      bb7: {{[{]}}
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb6, otherwise: bb4]
+// CHECK-NEXT: }
+// CHECK:      bb8: {{[{]}}
 // CHECK-NEXT:   _1 = copy(_5)
-// CHECK-NEXT:   goto -> bb2
+// CHECK-NEXT:   goto -> bb3
 // CHECK-NEXT: }
 void test_for_all_call(void) {
     for (int i = get_start(); check_end(i); i = advance(i)) {

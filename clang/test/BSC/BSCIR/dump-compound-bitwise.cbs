@@ -15,7 +15,7 @@
 // CHECK-NEXT:   _1 = copy(_5)
 // CHECK-NEXT:   _6 = BinOp(>>, copy(_1), const 1)
 // CHECK-NEXT:   _1 = copy(_6)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_compound_bitwise(int x) {
     x &= 0xFF;

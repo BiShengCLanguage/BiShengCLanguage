@@ -9,13 +9,13 @@ int foo(int x);
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_2)
 // CHECK-NEXT:   _2 = const 0
-// CHECK-NEXT:   _3 = call foo(copy(_1)) -> bb1
+// CHECK-NEXT:   _3 = call foo(copy(_1)) -> bb2
 // CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
+// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   _4 = BinOp(+, copy(_2), copy(_3))
 // CHECK-NEXT:   _2 = copy(_4)
 // CHECK-NEXT:   StorageDead(_2)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_call_compound_assign(int x) {
     int a = 0;

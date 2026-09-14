@@ -14,7 +14,7 @@
 // CHECK-NEXT:   StorageDead(_3)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_chain_assign(void) {
     int a, b, c;

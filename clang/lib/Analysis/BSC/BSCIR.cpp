@@ -295,6 +295,9 @@ static bool mergeBlocks(Body &B) {
         continue;
 
       BasicBlock &Target = B.Blocks[TargetId.Index];
+      // The shared return block is an invariant every analysis may rely on.
+      if (Target.Term.K == Terminator::Return)
+        continue;
       // Merge Target into BB
       for (auto &S : Target.Statements)
         BB.Statements.push_back(std::move(S));
@@ -384,14 +387,16 @@ static void removeDeadBlocks(Body &B) {
 }
 
 void Body::simplify() {
+  // Unreachable blocks are dropped first so they never count as predecessors.
+  removeDeadBlocks(*this);
   bool Changed = true;
   while (Changed) {
     Changed = false;
     Changed |= collapseGotoChains(*this);
     Changed |= mergeBlocks(*this);
     Changed |= simplifyBranches(*this);
+    removeDeadBlocks(*this);
   }
-  removeDeadBlocks(*this);
 }
 
 #endif // ENABLE_BSC

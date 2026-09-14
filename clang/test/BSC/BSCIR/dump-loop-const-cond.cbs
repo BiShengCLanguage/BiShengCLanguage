@@ -7,9 +7,6 @@
 // CHECK-LABEL: fn test_while_true
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   goto -> bb2
-// CHECK-NEXT: }
-// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   _1 = const 1
 // CHECK-NOT:    switchInt
 // CHECK:      goto -> bb1
@@ -23,7 +20,8 @@ _Safe int test_while_true(void) {
 
 // --- while(0): constant-false skips body, goes to exit ---
 // CHECK-LABEL: fn test_while_false
-// CHECK:      bb2: {{[{]}}
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
 // CHECK-NEXT:   _0 = const 1
 // CHECK-NOT:    switchInt
 _Safe int test_while_false(void) {
@@ -36,7 +34,9 @@ _Safe int test_while_false(void) {
 
 // --- for(;1;): constant-true folds to goto ---
 // CHECK-LABEL: fn test_for_true
-// CHECK:      bb2: {{[{]}}
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 0
 // CHECK-NEXT:   _0 = copy(_1)
 // CHECK-NOT:    switchInt
 _Safe int test_for_true(void) {
@@ -51,8 +51,6 @@ _Safe int test_for_true(void) {
 // CHECK-NEXT:   StorageLive(_1)
 // CHECK-NEXT:   _1 = const 42
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   goto -> bb2
-// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   _0 = const 1
 // CHECK-NOT:    switchInt
 _Safe int test_dowhile_false(void) {
@@ -66,7 +64,7 @@ _Safe int test_dowhile_false(void) {
 // --- ptr == nullptr: NOT a constant, must produce switchInt ---
 // CHECK-LABEL: fn test_ptr_null_cmp
 // CHECK:      _2 = BinOp(==, copy(_1), const 0)
-// CHECK-NEXT: switchInt(copy(_2)) -> [0: bb4, otherwise: bb3]
+// CHECK-NEXT: switchInt(copy(_2)) -> [0: bb3, otherwise: bb2]
 _Safe int test_ptr_null_cmp(int * _Borrow _Nullable p) {
     while (p == nullptr) {
         return 0;

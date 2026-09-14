@@ -16,7 +16,7 @@
 // CHECK-NEXT:   _2 = copy(_3)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_stmt_expr(void) {
     int x = 1;
@@ -40,7 +40,7 @@ void test_stmt_expr(void) {
 // CHECK-NEXT:   _2 = copy(_3)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_stmt_expr_multi(void) {
     int x = 1;
@@ -58,7 +58,7 @@ void test_stmt_expr_multi(void) {
 // CHECK-NEXT:   _4 = Cast(copy(_3) as void)
 // CHECK-NEXT:   StorageDead(_3)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_stmt_expr_void(void) {
     int x = 1;

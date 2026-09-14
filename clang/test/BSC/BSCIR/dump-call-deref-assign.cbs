@@ -7,11 +7,11 @@ int compute(int x);
 
 // CHECK-LABEL: fn test_call_deref_assign
 // CHECK:      bb0: {{[{]}}
-// CHECK-NEXT:   _3 = call compute(copy(_2)) -> bb1
+// CHECK-NEXT:   _3 = call compute(copy(_2)) -> bb2
 // CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
+// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   (*_1) = copy(_3)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_call_deref_assign(int *p, int x) {
     *p = compute(x);

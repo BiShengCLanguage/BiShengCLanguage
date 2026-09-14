@@ -16,22 +16,25 @@ int next_val(int i);
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_2)
 // CHECK-NEXT:   _2 = const 0
-// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT:   goto -> bb2
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   _3 = BinOp(<, copy(_2), copy(_1))
-// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb3, otherwise: bb2]
-// CHECK-NEXT: }
-// CHECK:      bb2: {{[{]}}
-// CHECK-NEXT:   _4 = call next_val(copy(_2)) -> bb4
-// CHECK-NEXT: }
-// CHECK:      bb3: {{[{]}}
-// CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   return
 // CHECK-NEXT: }
+// CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _3 = BinOp(<, copy(_2), copy(_1))
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb4, otherwise: bb3]
+// CHECK-NEXT: }
+// CHECK:      bb3: {{[{]}}
+// CHECK-NEXT:   _4 = call next_val(copy(_2)) -> bb5
+// CHECK-NEXT: }
 // CHECK:      bb4: {{[{]}}
-// CHECK-NEXT:   _2 = copy(_4)
+// CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb5: {{[{]}}
+// CHECK-NEXT:   _2 = copy(_4)
+// CHECK-NEXT:   goto -> bb2
 // CHECK-NEXT: }
 void test_for_incr_call(int n) {
     for (int i = 0; i < n; i = next_val(i)) {

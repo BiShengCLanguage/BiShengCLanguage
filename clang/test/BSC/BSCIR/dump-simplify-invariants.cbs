@@ -1,0 +1,76 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// SimplifyCfg invariants: the shared return block is never merged into a
+// predecessor, and an unreachable block never keeps two blocks apart.
+
+// A function with no trailing return still ends in the separate return block.
+// CHECK-LABEL: fn test_implicit_return
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+void test_implicit_return(void) {
+    int x = 1;
+}
+
+// CHECK-LABEL: fn test_explicit_return
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _0 = copy(_1)
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+int test_explicit_return(int a) {
+    return a;
+}
+
+// The untaken branch of a constant if leaves no trace and no extra block.
+// CHECK-LABEL: fn test_dead_branch
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 2
+// CHECK-NEXT:   _0 = copy(_1)
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+_Safe int test_dead_branch(void) {
+    int x;
+    if (0) { x = 1; }
+    x = 2;
+    return x;
+}
+
+// A loop that never runs folds away entirely.
+// CHECK-LABEL: fn test_dead_loop
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _0 = const 1
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+_Safe int test_dead_loop(void) {
+    int x;
+    while (0) { x = 2; }
+    return 1;
+}
+
+// Code after a return is dropped and does not keep the join alive.
+// CHECK-LABEL: fn test_code_after_return
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _0 = const 1
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+// CHECK-NOT:  bb2
+int test_code_after_return(void) {
+    return 1;
+    return 2;
+}

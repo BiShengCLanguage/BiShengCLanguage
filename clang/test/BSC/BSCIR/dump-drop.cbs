@@ -31,7 +31,7 @@ void test_owned_drop(int *_Owned p) {
 // CHECK-NEXT:   StorageLive(_1)
 // CHECK-NEXT:   _1 = const 42
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_no_drop(void) {
     int x = 42;

@@ -18,8 +18,7 @@
 // CHECK-NEXT:   goto -> bb4
 // CHECK-NEXT: }
 // CHECK:      bb3: {{[{]}}
-// CHECK-NEXT:   _4 = UnaryOp(-, const 1)
-// CHECK-NEXT:   _3 = copy(_4)
+// CHECK-NEXT:   _3 = const -1
 // CHECK-NEXT:   goto -> bb4
 // CHECK-NEXT: }
 // CHECK:      bb4: {{[{]}}

@@ -30,7 +30,7 @@ void test_owned_move(int *_Owned p) {
 // CHECK-NEXT:   _2 = copy(_1)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_copy_semantics(void) {
     int x = 1;

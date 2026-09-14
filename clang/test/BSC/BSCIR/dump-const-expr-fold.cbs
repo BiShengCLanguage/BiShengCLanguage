@@ -1,0 +1,67 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// An integer constant expression lowers to a single constant operand.
+
+enum Status { OK = 0, FAIL = 1 };
+
+// CHECK-LABEL: fn test_arith
+// CHECK:        _0 = const 0
+// CHECK-NOT:    BinOp
+int test_arith(void) {
+    return 1 - 1;
+}
+
+// CHECK-LABEL: fn test_negative
+// CHECK:        _0 = const -1
+// CHECK-NOT:    UnaryOp
+int test_negative(void) {
+    return -1;
+}
+
+// CHECK-LABEL: fn test_enum
+// CHECK:        _0 = const 1
+int test_enum(void) {
+    return FAIL;
+}
+
+// CHECK-LABEL: fn test_cast
+// CHECK:        _0 = const 3
+// CHECK-NOT:    Cast
+int test_cast(void) {
+    return (int)3;
+}
+
+// CHECK-LABEL: fn test_sizeof
+// CHECK:        _0 = const 4
+int test_sizeof(void) {
+    return sizeof(int);
+}
+
+// CHECK-LABEL: fn test_const_ternary
+// CHECK:        _0 = const 7
+// CHECK-NOT:    switchInt
+int test_const_ternary(void) {
+    return 1 ? 7 : 8;
+}
+
+// A comparison against a constant expression keeps a bare constant operand.
+// CHECK-LABEL: fn test_cmp
+// CHECK:        _2 = BinOp(==, copy(_1), const 0)
+int test_cmp(int r) {
+    return r == 1 - 1;
+}
+
+// Non-constant operands are untouched.
+// CHECK-LABEL: fn test_var
+// CHECK:        _2 = BinOp(-, copy(_1), copy(_1))
+int test_var(int a) {
+    return a - a;
+}
+
+// Side effects are never folded away.
+// CHECK-LABEL: fn test_side_effect
+// CHECK:        call f()
+int f(void);
+int test_side_effect(void) {
+    return (f(), 1);
+}

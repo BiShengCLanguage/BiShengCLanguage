@@ -38,8 +38,7 @@ int test_simple_if(int x) {
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 // CHECK:      bb3: {{[{]}}
-// CHECK-NEXT:   _3 = UnaryOp(-, const 1)
-// CHECK-NEXT:   _0 = copy(_3)
+// CHECK-NEXT:   _0 = const -1
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 int test_if_else(int x) {

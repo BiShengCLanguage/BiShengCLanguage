@@ -16,23 +16,26 @@ int check_limit(int i);
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
 // CHECK-NEXT:   _1 = const 0
-// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT:   goto -> bb2
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   _2 = call check_limit(copy(_1)) -> bb4
+// CHECK-NEXT:   return
 // CHECK-NEXT: }
 // CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _2 = call check_limit(copy(_1)) -> bb5
+// CHECK-NEXT: }
+// CHECK:      bb3: {{[{]}}
 // CHECK-NEXT:   _3 = copy(_1)
 // CHECK-NEXT:   _4 = BinOp(+, copy(_1), const 1)
 // CHECK-NEXT:   _1 = copy(_4)
-// CHECK-NEXT:   goto -> bb1
-// CHECK-NEXT: }
-// CHECK:      bb3: {{[{]}}
-// CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb2
 // CHECK-NEXT: }
 // CHECK:      bb4: {{[{]}}
-// CHECK-NEXT:   switchInt(copy(_2)) -> [0: bb3, otherwise: bb2]
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb5: {{[{]}}
+// CHECK-NEXT:   switchInt(copy(_2)) -> [0: bb4, otherwise: bb3]
 // CHECK-NEXT: }
 void test_for_cond_call(void) {
     for (int i = 0; check_limit(i); i++) {

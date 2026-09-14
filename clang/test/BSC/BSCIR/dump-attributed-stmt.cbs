@@ -9,11 +9,11 @@ _Safe void take(int *_Owned p);
 // CHECK-LABEL: fn test_attributed_assign
 // CHECK:      bb0: {
 // CHECK-NEXT:   StorageLive(_1) [safe]
-// CHECK-NEXT:   _2 = call mk() -> bb1 [safe]
+// CHECK-NEXT:   _2 = call mk() -> bb2 [safe]
 // CHECK-NEXT: }
-// CHECK-NEXT: bb1: {
+// CHECK:      bb2: {
 // CHECK-NEXT:   _1 = copy(_2) [safe]
-// CHECK-NEXT:   _3 = call take(move(_1)) -> bb2 [safe]
+// CHECK-NEXT:   _3 = call take(move(_1)) -> bb3 [safe]
 // CHECK-NEXT: }
 // CHECK-NOT:    nop
 _Safe void test_attributed_assign(void) {
@@ -25,11 +25,11 @@ _Safe void test_attributed_assign(void) {
 // CHECK-LABEL: fn test_attributed_block
 // CHECK:      bb0: {
 // CHECK-NEXT:   StorageLive(_1) [safe]
-// CHECK-NEXT:   _2 = call mk() -> bb1 [safe]
+// CHECK-NEXT:   _2 = call mk() -> bb2 [safe]
 // CHECK-NEXT: }
-// CHECK-NEXT: bb1: {
+// CHECK:      bb2: {
 // CHECK-NEXT:   _1 = copy(_2) [safe]
-// CHECK-NEXT:   _3 = call take(move(_1)) -> bb2 [safe]
+// CHECK-NEXT:   _3 = call take(move(_1)) -> bb3 [safe]
 // CHECK-NEXT: }
 // CHECK-NOT:    nop
 _Safe void test_attributed_block(void) {

@@ -13,7 +13,7 @@
 // CHECK-NEXT:   (*_2) = const 100 [safe]
 // CHECK-NEXT:   StorageDead(_2) [safe]
 // CHECK-NEXT:   StorageDead(_1) [safe]
-// CHECK-NEXT:   return [safe]
+// CHECK-NEXT:   goto -> bb1 [safe]
 // CHECK-NEXT: }
 _Safe void test_borrow(void) {
     int x = 42;

@@ -8,13 +8,13 @@ int get_index(void);
 // CHECK-LABEL: fn test_call_array_index
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = call get_index() -> bb1
+// CHECK-NEXT:   _2 = call get_index() -> bb2
 // CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
+// CHECK:      bb2: {{[{]}}
 // CHECK-NEXT:   _3 = copy(_2)
 // CHECK-NEXT:   _1[_3] = const 42
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_call_array_index(void) {
     int arr[10];

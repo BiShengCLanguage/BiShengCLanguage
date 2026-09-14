@@ -9,7 +9,7 @@
 // CHECK-NEXT:   _2 = copy(_1)
 // CHECK-NEXT:   StorageLive(_3)
 // CHECK-NEXT:   StorageDead(_3)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_direct_vla(int n) {
     int arr[n];
@@ -22,7 +22,7 @@ void test_direct_vla(int n) {
 // CHECK-NEXT:   _2 = copy(_1)
 // CHECK-NEXT:   StorageLive(_3)
 // CHECK-NEXT:   StorageDead(_3)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_typedef_vla(int n) {
     typedef int b[n];
@@ -38,7 +38,7 @@ void test_typedef_vla(int n) {
 // CHECK-NEXT:   StorageLive(_3)
 // CHECK-NEXT:   StorageDead(_3)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_typedef_vla_local(void) {
     int n = 4;
@@ -53,7 +53,7 @@ void test_typedef_vla_local(void) {
 // CHECK-NEXT:   _4 = copy(_2)
 // CHECK-NEXT:   StorageLive(_5)
 // CHECK-NEXT:   StorageDead(_5)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_multidim_vla(int n, int m) {
     int arr[n][m];

@@ -8,7 +8,7 @@ struct Point { int x; int y; };
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   (*_1).x = const 10
 // CHECK-NEXT:   (*_1).y = const 20
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_field_write(struct Point *p) {
     p->x = 10;

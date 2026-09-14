@@ -11,7 +11,7 @@
 // CHECK-NEXT:   _2 = copy(_3)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_addr_array_elem(void) {
     int arr[10];

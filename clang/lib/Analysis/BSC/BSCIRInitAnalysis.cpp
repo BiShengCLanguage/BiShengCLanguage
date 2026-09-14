@@ -48,29 +48,16 @@ static bool isImplicitlyInitialized(const LocalDecl &LD, const Body &B) {
 //===----------------------------------------------------------------------===//
 
 /// Fold an integer-constant Operand to int64_t. Returns false for non-constant
-/// operands and for constants wider than int64_t (e.g. a _BitInt(N>64) literal),
-/// where APInt::getSExtValue() would assert.
+/// operands and for values that do not fit (e.g. a _BitInt(N>64) literal).
 static bool foldConstOperand(const Operand &Op, int64_t &Out) {
   if (Op.K == Operand::Constant && Op.getConstVal().isInt()) {
     const llvm::APSInt &I = Op.getConstVal().getInt();
-    if (I.getSignificantBits() > 64)
+    if (I.isUnsigned() ? I.getActiveBits() > 63 : I.getSignificantBits() > 64)
       return false;
-    Out = I.getSExtValue();
+    Out = I.isUnsigned() ? (int64_t)I.getZExtValue() : I.getSExtValue();
     return true;
   }
   return false;
-}
-
-/// Fold a unary operator over an already-extracted integer value. Handles the
-/// operators that can appear on a constant in this analysis; returns false for
-/// any other operator.
-static bool foldUnary(UnaryOperatorKind Op, int64_t Sub, int64_t &Out) {
-  switch (Op) {
-  case UO_Minus: Out = -Sub; return true;
-  case UO_Plus:  Out = Sub;  return true;
-  case UO_LNot:  Out = !Sub; return true;
-  default:       return false;
-  }
 }
 
 /// The base local of a bare-local `copy(_n)` operand (no projections), or None.
@@ -226,7 +213,6 @@ bool InitAnalysis::transferStatement(const Statement &S,
                          return P.RetLocal == L || P.OutParamLocal == L;
                        });
         State.ComparisonFacts.erase(L);
-        State.KnownConstants.erase(L);
         SmallVector<LocalId, 4> ToErase;
         for (const auto &Entry : State.ComparisonFacts)
           if (Entry.second.ComparedLocal == L)
@@ -251,33 +237,22 @@ bool InitAnalysis::transferStatement(const Statement &S,
       // compares against it).
       invalidateLocal(DestId);
 
-      // extractConstInt also looks through KnownConstants so comparisons
-      // routed via a constant-holding temp (e.g. `_t = UnaryOp(-, const
-      // 1)` for `-1`) match.
-      auto extractConstInt = [&](const Operand &Op, int64_t &Out) -> bool {
-        if (foldConstOperand(Op, Out))
-          return true;
-        if (auto L = asCopiedLocal(Op)) {
-          auto It = State.KnownConstants.find(*L);
-          if (It != State.KnownConstants.end()) {
-            Out = It->second;
-            return true;
-          }
-        }
-        return false;
-      };
-      {
+      if (DestId == LocalId{0}) {
+        InitLattice::ReturnValue RV;
+        RV.Loc = S.Loc;
         int64_t CV = 0;
-        if (Src.K == Rvalue::Use && extractConstInt(Src.getUse().Op, CV)) {
-          State.KnownConstants[DestId] = CV;
-        } else if (Src.K == Rvalue::Cast &&
-                   extractConstInt(Src.getCast().Op, CV)) {
-          State.KnownConstants[DestId] = CV;
-        } else if (Src.K == Rvalue::UnaryOp) {
-          const auto &UO = Src.getUnOp();
-          int64_t Sub = 0, Folded = 0;
-          if (extractConstInt(UO.Sub, Sub) && foldUnary(UO.Op, Sub, Folded))
-            State.KnownConstants[DestId] = Folded;
+        if (Src.K == Rvalue::Use && foldConstOperand(Src.getUse().Op, CV)) {
+          RV.K = InitLattice::ReturnValue::Constant;
+          RV.Const = CV;
+        } else if (auto L = asCopiedLocal(Src)) {
+          RV.K = InitLattice::ReturnValue::Local;
+          RV.Src = *L;
+        } else {
+          RV.K = InitLattice::ReturnValue::Unknown;
+        }
+        if (!(State.RetValue == RV)) {
+          State.RetValue = RV;
+          Changed = true;
         }
       }
 
@@ -288,7 +263,7 @@ bool InitAnalysis::transferStatement(const Statement &S,
                                 LocalId &OutLocal, int64_t &OutValue) -> bool {
             auto L = asCopiedLocal(Local);
             int64_t CV = 0;
-            if (!L || !extractConstInt(Const, CV))
+            if (!L || !foldConstOperand(Const, CV))
               return false;
             OutLocal = *L;
             OutValue = CV;
@@ -674,12 +649,19 @@ bool InitAnalysis::merge(const InitLattice &Src, InitLattice &Dst) const {
     }
   }
 
-  // ComparisonFacts / KnownConstants: a fact holds only when every incoming
-  // path agrees on it, so intersect by value.
+  // ComparisonFacts: a fact holds only when every incoming path agrees on
+  // it, so intersect by value.
   if (intersectMapByValue(Src.ComparisonFacts, Dst.ComparisonFacts))
     Changed = true;
-  if (intersectMapByValue(Src.KnownConstants, Dst.KnownConstants))
+
+  // The return value must agree on every incoming path; a path that never
+  // wrote _0 disagrees with every value.
+  if (!(Src.RetValue == Dst.RetValue) &&
+      Dst.RetValue.K != InitLattice::ReturnValue::Unknown) {
+    Dst.RetValue = InitLattice::ReturnValue();
+    Dst.RetValue.K = InitLattice::ReturnValue::Unknown;
     Changed = true;
+  }
 
   return Changed;
 }
@@ -1497,69 +1479,6 @@ void InitAnalysis::checkEnsureInitAtReturn(
   }
 }
 
-InitAnalysis::ReturnValueInfo
-InitAnalysis::analyzeReturnValue(BasicBlockId PredId) const {
-  ReturnValueInfo RV;
-
-  llvm::SmallDenseSet<unsigned, 8> Visited;
-  BasicBlockId Cur = PredId;
-  while (Cur.Index < B.Blocks.size() && Visited.insert(Cur.Index).second) {
-    const BasicBlock &Blk = B.getBlock(Cur);
-    bool FoundAssign = false;
-    for (auto It = Blk.Statements.rbegin(); It != Blk.Statements.rend(); ++It) {
-      if (It->K != Statement::Assign || !It->getAssign().Dest.isLocal() ||
-          It->getAssign().Dest.Base != LocalId{0})
-        continue;
-      FoundAssign = true;
-      RV.Loc = It->Loc;
-      const Rvalue &Src = It->getAssign().Src;
-      int64_t V = 0;
-      if (Src.K == Rvalue::Use && foldConstOperand(Src.getUse().Op, V)) {
-        RV.IsConstant = true;
-        RV.ConstVal = V;
-      } else if (Src.K == Rvalue::Use) {
-        if (llvm::Optional<LocalId> TmpId = asCopiedLocal(Src.getUse().Op)) {
-          // `_0 = copy(_t)`: record the source local (for delegation) and
-          // trace one level for a folded constant.
-          RV.SourceLocal = *TmpId;
-          RV.HasSourceLocal = true;
-          for (auto It2 = It; It2 != Blk.Statements.rend(); ++It2) {
-            if (It2->K != Statement::Assign ||
-                !It2->getAssign().Dest.isLocal() ||
-                It2->getAssign().Dest.Base != *TmpId)
-              continue;
-            const Rvalue &TmpSrc = It2->getAssign().Src;
-            int64_t Folded = 0;
-            if ((TmpSrc.K == Rvalue::Use &&
-                 foldConstOperand(TmpSrc.getUse().Op, V)) ||
-                (TmpSrc.K == Rvalue::Cast &&
-                 foldConstOperand(TmpSrc.getCast().Op, V))) {
-              RV.IsConstant = true;
-              RV.ConstVal = V;
-            } else if (TmpSrc.K == Rvalue::UnaryOp &&
-                       foldConstOperand(TmpSrc.getUnOp().Sub, V) &&
-                       foldUnary(TmpSrc.getUnOp().Op, V, Folded)) {
-              RV.IsConstant = true;
-              RV.ConstVal = Folded;
-            }
-            break;
-          }
-        }
-      }
-      break; // handled the last write to _0 in this block
-    }
-    if (FoundAssign)
-      return RV;
-    // _0 not assigned here: walk back through the cleanup-block chain.
-    // Stop at a join (>1 pred) — the value is then unknown (conservative).
-    auto Preds = B.getPredecessors(Cur);
-    if (Preds.size() != 1)
-      return RV;
-    Cur = Preds[0];
-  }
-  return RV;
-}
-
 void InitAnalysis::checkEnsureInitIfRetAtReturn(
     const DataflowResult<InitLattice> &Result,
     SmallVectorImpl<InitDiagInfo> &Diags) const {
@@ -1588,7 +1507,7 @@ void InitAnalysis::checkEnsureInitIfRetAtReturn(
       // touch deref states, so it is the deref state at the return.
       const InitLattice &PredState = ExitIt->second;
 
-      ReturnValueInfo RV = analyzeReturnValue(PredId);
+      const InitLattice::ReturnValue &RV = PredState.RetValue;
       SourceLocation DiagLoc = RV.Loc.isValid()
           ? RV.Loc
           : B.SourceFD->getBodyRBrace();
@@ -1605,11 +1524,12 @@ void InitAnalysis::checkEnsureInitIfRetAtReturn(
         // Delegation credit: returning an inner ensure_init_if_ret call's
         // result with the same cond inits *param on this path. Apply only
         // when the returned value IS that inner result (the recorded PCI).
-        if (DS != InitState::Initialized && RV.HasSourceLocal) {
+        if (DS != InitState::Initialized &&
+            RV.K == InitLattice::ReturnValue::Local) {
           for (const auto &PCI : PredState.PendingCondInits) {
             if (PCI.OutParamLocal == ParamId && PCI.OutFieldIndices.empty() &&
                 PCI.Pointee && PCI.CondValue == CondValue &&
-                PCI.RetLocal == RV.SourceLocal) {
+                PCI.RetLocal == RV.Src) {
               DS = InitState::Initialized;
               break;
             }
@@ -1621,8 +1541,8 @@ void InitAnalysis::checkEnsureInitIfRetAtReturn(
         // re-point *p denotes the new pointee). Accurate message otherwise.
         bool Reassigned = PredState.ReassignedParams.count(ParamId);
         InitDiagInfo *Emitted = nullptr;
-        if (RV.IsConstant) {
-          if (RV.ConstVal != CondValue)
+        if (RV.K == InitLattice::ReturnValue::Constant) {
+          if (RV.Const != CondValue)
             continue;
           if (DS == InitState::Uninitialized || DS == InitState::MaybeInit) {
             InitDiagKind K =

@@ -18,7 +18,7 @@
 // CHECK-NEXT:   _4 = const 4
 // CHECK-NEXT:   StorageDead(_4)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_scope_cleanup(void) {
     int x = 1;

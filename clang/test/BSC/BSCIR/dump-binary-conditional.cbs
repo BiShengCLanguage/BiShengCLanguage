@@ -12,17 +12,17 @@ int f(void);
 // CHECK-NEXT:   _1 = const 1
 // CHECK-NEXT:   StorageLive(_2)
 // CHECK-NEXT:   _3 = copy(_1)
-// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb2, otherwise: bb1]
-// CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   _4 = copy(_3)
-// CHECK-NEXT:   goto -> bb3
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb3, otherwise: bb2]
 // CHECK-NEXT: }
 // CHECK:      bb2: {{[{]}}
-// CHECK-NEXT:   _4 = const 0
-// CHECK-NEXT:   goto -> bb3
+// CHECK-NEXT:   _4 = copy(_3)
+// CHECK-NEXT:   goto -> bb4
 // CHECK-NEXT: }
 // CHECK:      bb3: {{[{]}}
+// CHECK-NEXT:   _4 = const 0
+// CHECK-NEXT:   goto -> bb4
+// CHECK-NEXT: }
+// CHECK:      bb4: {{[{]}}
 // CHECK-NEXT:   _2 = copy(_4)
 void test_binary_cond(void) {
     int x = 1;
@@ -35,13 +35,13 @@ void test_binary_cond(void) {
 // CHECK-LABEL: fn test_binary_cond_call
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = call f() -> bb1
-// CHECK-NEXT: }
-// CHECK:      bb1: {{[{]}}
-// CHECK-NEXT:   _3 = copy(_2)
-// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb3, otherwise: bb2]
+// CHECK-NEXT:   _2 = call f() -> bb2
 // CHECK-NEXT: }
 // CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _3 = copy(_2)
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb4, otherwise: bb3]
+// CHECK-NEXT: }
+// CHECK:      bb3: {{[{]}}
 // CHECK-NEXT:   _4 = copy(_3)
 // CHECK-NOT:    call f()
 void test_binary_cond_call(void) {

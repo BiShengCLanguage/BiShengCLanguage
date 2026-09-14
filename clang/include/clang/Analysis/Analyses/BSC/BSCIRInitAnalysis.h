@@ -78,16 +78,23 @@ struct InitLattice {
   };
   SmallVector<PendingCondInit, 2> PendingCondInits;
 
-  /// Locals holding a known integer constant (the builder lowers `-1` to a
-  /// temp before the comparison sees it). int64_t: the compared/returned
-  /// value is arbitrary-width, unlike the range-limited cond.
-  llvm::DenseMap<LocalId, int64_t> KnownConstants;
+  /// What the return slot (_0) holds on this path.
+  struct ReturnValue {
+    enum Kind { None, Constant, Local, Unknown } K = None;
+    int64_t Const = 0;  // arbitrary-width, unlike the range-limited cond
+    LocalId Src{0};     // the local _0 copies, for delegation credit
+    SourceLocation Loc; // the `_0 = ...` assignment
+    bool operator==(const ReturnValue &O) const {
+      return K == O.K && Const == O.Const && Src == O.Src;
+    }
+  };
+  ReturnValue RetValue;
 
   /// Tracks that a local is the boolean result of a comparison.
   /// E.g., _tmp = (ret == 0) records {_tmp → {ret, 0, true}}.
   struct ComparisonFact {
     LocalId ComparedLocal;
-    int64_t ComparedValue; // arbitrary-width; see KnownConstants
+    int64_t ComparedValue; // arbitrary-width, unlike the range-limited cond
     bool IsEq; // true for ==, false for !=
     bool operator==(const ComparisonFact &O) const {
       return ComparedLocal == O.ComparedLocal &&
@@ -106,7 +113,7 @@ struct InitLattice {
            ReassignedParams == Other.ReassignedParams &&
            PendingCondInits == Other.PendingCondInits &&
            ComparisonFacts == Other.ComparisonFacts &&
-           KnownConstants == Other.KnownConstants;
+           RetValue == Other.RetValue;
   }
 };
 
@@ -250,19 +257,6 @@ private:
   void checkEnsureInitIfRetAtReturn(
       const DataflowResult<InitLattice> &Result,
       SmallVectorImpl<InitDiagInfo> &Diags) const;
-
-  /// The value the return slot (_0) holds on a path into the return block.
-  struct ReturnValueInfo {
-    SourceLocation Loc;        // the `_0 = ...` assignment
-    bool IsConstant = false;   // _0 folds to an integer constant
-    int64_t ConstVal = 0;      // the folded value when IsConstant
-    LocalId SourceLocal{0};    // local _0 is a copy/cast of, if any
-    bool HasSourceLocal = false;
-  };
-
-  /// Find _0's value on the path into the return block via \p PredId,
-  /// walking back through the cleanup-block chain (Drop/Goto) before it.
-  ReturnValueInfo analyzeReturnValue(BasicBlockId PredId) const;
 
   /// Get the number of fields for a type (0 for unions and non-record types).
   static unsigned getNumFields(QualType Ty);

@@ -11,7 +11,7 @@
 // CHECK-NEXT:   _2 = copy(_1)
 // CHECK-NEXT:   StorageDead(_2)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_simple_assign(void) {
     int x = 1;
@@ -30,7 +30,7 @@ void test_simple_assign(void) {
 // CHECK-NEXT:   _4 = BinOp(*, copy(_1), const 2)
 // CHECK-NEXT:   _1 = copy(_4)
 // CHECK-NEXT:   StorageDead(_1)
-// CHECK-NEXT:   return
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 void test_compound_assign(void) {
     int x = 10;

@@ -173,6 +173,11 @@ Place BSCIRBuilder::lowerToPlace(const Expr *E) {
 }
 
 Operand BSCIRBuilder::lowerToOperand(const Expr *E) {
+  // The C evaluator decides what is an integer constant; a variable never is.
+  Expr::EvalResult Result;
+  if (E->getType()->isIntegerType() && !E->isValueDependent() &&
+      E->EvaluateAsInt(Result, Ctx))
+    return Operand::createConstant(APValue(Result.Val.getInt()), E->getType());
   return Visit(const_cast<Expr *>(E));
 }
 
@@ -447,16 +452,14 @@ void BSCIRBuilder::emitBoolSwitch(Operand Cond, BasicBlockId TrueBB,
 
 void BSCIRBuilder::emitCondBranch(const Expr *Cond, BasicBlockId BodyBB,
                                       BasicBlockId ExitBB) {
-  Expr::EvalResult Result;
-  if (Cond->EvaluateAsInt(Result, Ctx)) {
-    // Constant condition — emit direct goto, skip switchInt.
+  Operand CondOp = lowerToOperand(Cond);
+  if (CondOp.K == Operand::Constant && CondOp.getConstVal().isInt()) {
     BasicBlockId Target =
-        Result.Val.getInt().getBoolValue() ? BodyBB : ExitBB;
+        CondOp.getConstVal().getInt() != 0 ? BodyBB : ExitBB;
     setTerminator(Terminator::createGoto(Target, currentSafeZone()));
-  } else {
-    Operand CondOp = lowerToOperand(Cond);
-    emitBoolSwitch(std::move(CondOp), BodyBB, ExitBB);
+    return;
   }
+  emitBoolSwitch(std::move(CondOp), BodyBB, ExitBB);
 }
 
 void BSCIRBuilder::lowerWhileStmt(const WhileStmt *WS) {

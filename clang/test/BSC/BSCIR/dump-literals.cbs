@@ -38,8 +38,7 @@ double test_float_literal(void) {
 // CHECK-LABEL: fn test_char_literal
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = Cast(const 65 as char)
-// CHECK-NEXT:   _1 = copy(_2)
+// CHECK-NEXT:   _1 = const 65
 // CHECK-NEXT:   _0 = copy(_1)
 // CHECK-NEXT:   StorageDead(_1)
 // CHECK-NEXT:   goto -> bb1

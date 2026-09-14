@@ -9,7 +9,7 @@ struct Pair { int a; int b; };
 // CHECK-LABEL: fn test_empty_init
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = Aggregate(Pair, {{[{]}}const(int), const(int){{[}]}})
+// CHECK-NEXT:   _2 = Aggregate(Pair, {{[{]}}const 0, const 0{{[}]}})
 // CHECK-NEXT:   _1 = copy(_2)
 // CHECK-NOT:    nop
 _Safe void test_empty_init(void) {
@@ -20,7 +20,7 @@ _Safe void test_empty_init(void) {
 // CHECK-LABEL: fn test_zero_init
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = Aggregate(Pair, {{[{]}}const 0, const(int){{[}]}})
+// CHECK-NEXT:   _2 = Aggregate(Pair, {{[{]}}const 0, const 0{{[}]}})
 // CHECK-NEXT:   _1 = copy(_2)
 // CHECK-NOT:    nop
 _Safe void test_zero_init(void) {
@@ -31,7 +31,7 @@ _Safe void test_zero_init(void) {
 // CHECK-LABEL: fn test_partial_designated
 // CHECK:      bb0: {{[{]}}
 // CHECK-NEXT:   StorageLive(_1)
-// CHECK-NEXT:   _2 = Aggregate(Pair, {{[{]}}const(int), const 42{{[}]}})
+// CHECK-NEXT:   _2 = Aggregate(Pair, {{[{]}}const 0, const 42{{[}]}})
 // CHECK-NEXT:   _1 = copy(_2)
 // CHECK-NOT:    nop
 _Safe void test_partial_designated(void) {

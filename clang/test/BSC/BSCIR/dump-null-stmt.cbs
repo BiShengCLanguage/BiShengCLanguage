@@ -8,7 +8,7 @@ _Safe void use_int(int x);
 // CHECK:      bb0: {
 // CHECK-NEXT:   StorageLive(_1) [safe]
 // CHECK-NEXT:   _1 = const 0 [safe]
-// CHECK-NEXT:   _2 = call use_int(copy(_1)) -> bb1 [safe]
+// CHECK-NEXT:   _2 = call use_int(copy(_1)) -> bb2 [safe]
 // CHECK-NOT:    nop
 _Safe void test_null_stmt(void) {
     int x = 0;
