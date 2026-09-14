@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Statements before the first case label are reachable through a goto, so
+// they are lowered and checked like the rest of the switch body.
+
+_Safe void precase_label(int n) {
+    int x;
+    goto L;
+    switch (n) {
+        { L: x = x + 1; } // expected-error {{use of uninitialized value: 'x'}}
+        case 1: break;
+        default: break;
+    }
+}
+
+// The pre-case statements fall through into the first case body.
+_Safe int precase_fallthrough(int n) {
+    int x;
+    int r = 0;
+    goto L;
+    switch (n) {
+        L: x = 1;
+        case 1: r = x; break;
+        default: r = 2;
+    }
+    return r;
+}
+
+// The function tail after the switch is still analyzed.
+_Safe int tail(int n) {
+    int x;
+    int y;
+    goto L;
+    switch (n) {
+        L: x = 1;
+        case 1: break;
+    }
+    return y; // expected-error {{use of uninitialized value: 'y'}}
+}

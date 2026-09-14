@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// The size expression of a pointer-to-VLA declaration is read when the
+// declaration is reached, before the pointer's StorageLive.
+
+// CHECK-LABEL: fn test_pointer_to_vla
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _2 = copy(_1)
+// CHECK-NEXT:   StorageLive(_3)
+void test_pointer_to_vla(int n) {
+    int (*p)[n] = 0;
+    (void)p;
+}
+
+// Every size expression on the way down is read, in declaration order.
+// CHECK-LABEL: fn test_pointer_to_pointer_to_vla_2d
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _3 = copy(_1)
+// CHECK-NEXT:   _4 = copy(_2)
+// CHECK-NEXT:   StorageLive(_5)
+void test_pointer_to_pointer_to_vla_2d(int n, int m) {
+    int (**p)[n][m] = 0;
+    (void)p;
+}

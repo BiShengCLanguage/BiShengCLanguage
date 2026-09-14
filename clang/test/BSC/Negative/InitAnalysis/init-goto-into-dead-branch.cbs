@@ -1,0 +1,57 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// A goto can enter the untaken branch of a constant-condition if, so that
+// branch is still lowered and the reads it contains are checked.
+
+_Safe void then_branch(void) {
+    int x;
+    goto L;
+    if (0) { L: x = x + 1; } // expected-error {{use of uninitialized value: 'x'}}
+    x = 2;
+}
+
+_Safe void else_branch(void) {
+    int x;
+    goto L;
+    if (1) { x = 0; } else { L: x = x + 1; } // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe void nested(void) {
+    int x;
+    goto L;
+    if (0) { if (0) { L: x = x + 1; } } // expected-error {{use of uninitialized value: 'x'}}
+}
+
+// The rest of the function after the untaken branch is still analyzed.
+_Safe int tail(void) {
+    int x;
+    int y;
+    goto L;
+    if (0) { L: x = 1; }
+    return y; // expected-error {{use of uninitialized value: 'y'}}
+}
+
+// Without a jump into it, the untaken branch is never executed.
+_Safe void dead_branch_not_read(void) {
+    int x;
+    if (0) { x = x + 1; }
+    x = 2;
+}
+
+// Inside the entered branch, statements before the label are dead and
+// statements after it run.
+_Safe int after_label_runs(void) {
+    int x;
+    int y;
+    goto L;
+    if (0) { y = 1; L: x = 1; y = 2; }
+    return x + y;
+}
+
+_Safe int before_label_is_dead(void) {
+    int x;
+    int y;
+    goto L;
+    if (0) { y = 1; L: x = 1; }
+    return x + y; // expected-error {{use of uninitialized value: 'y'}}
+}

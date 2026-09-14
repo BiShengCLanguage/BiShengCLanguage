@@ -241,17 +241,17 @@ int test_continue_in_switch_dowhile(int x) {
 // CHECK-NEXT:   switchInt(copy(_2)) -> [10: bb[[NCOND]], otherwise: bb[[IDEF:[0-9]+]]]
 // CHECK-NEXT: }
 
-// Outer default: i += 1; → post-switch (sum+=999).
-// CHECK:      bb[[ODEF]]: {
-// CHECK-NEXT:   _{{[0-9]+}} = BinOp(+, copy(_3), const 1)
-// CHECK-NEXT:   _3 = copy(_{{[0-9]+}})
-// CHECK-NEXT:   goto -> bb[[NPOST]]
-// CHECK-NEXT: }
-
 // Inner default: sum += 50; outer break → post-switch (sum+=999).
 // CHECK:      bb[[IDEF]]: {
 // CHECK-NEXT:   _{{[0-9]+}} = BinOp(+, copy(_4), const 50)
 // CHECK-NEXT:   _4 = copy(_{{[0-9]+}})
+// CHECK-NEXT:   goto -> bb[[NPOST]]
+// CHECK-NEXT: }
+
+// Outer default: i += 1; → post-switch (sum+=999).
+// CHECK:      bb[[ODEF]]: {
+// CHECK-NEXT:   _{{[0-9]+}} = BinOp(+, copy(_3), const 1)
+// CHECK-NEXT:   _3 = copy(_{{[0-9]+}})
 // CHECK-NEXT:   goto -> bb[[NPOST]]
 // CHECK-NEXT: }
 

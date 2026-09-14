@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// A constant discriminant folds the switch to a direct goto to the matching
+// case; unselected case bodies are removed.
+
+// CHECK-LABEL: fn test_switch_const(
+// CHECK-NOT:    switchInt
+// CHECK:        _2 = const 1
+// CHECK-NOT:    copy(_1)
+_Safe int test_switch_const(void) {
+    int x;
+    int y = 0;
+    switch (0) {
+    case 0: y = 1; break;
+    case 1: y = x; break;
+    }
+    return y;
+}
+
+// CHECK-LABEL: fn test_switch_const_default(
+// CHECK-NOT:    switchInt
+// CHECK:        _2 = const 3
+// CHECK-NOT:    copy(_1)
+_Safe int test_switch_const_default(void) {
+    int x;
+    int y = 0;
+    switch (2) {
+    case 0: y = x; break;
+    default: y = 3; break;
+    }
+    return y;
+}
+
+// CHECK-LABEL: fn test_switch_const_no_match(
+// CHECK-NOT:    switchInt
+// CHECK-NOT:    copy(_1)
+_Safe int test_switch_const_no_match(void) {
+    int x;
+    int y = 0;
+    switch (2) {
+    case 0: y = x; break;
+    }
+    return y;
+}

@@ -1,0 +1,54 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// Case labels nested in sub-statements of the switch body are switch
+// targets, and statements before the first label are lowered so a goto can
+// reach them.
+
+// CHECK-LABEL: fn test_nested_case
+// CHECK:      switchInt(copy(_1)) -> [1: bb[[CASE:[0-9]+]], otherwise: bb[[DEFAULT:[0-9]+]]]
+// CHECK:      bb[[CASE]]: {{[{]}}
+// CHECK-NEXT:   _2 = const 1
+// CHECK:      bb[[DEFAULT]]: {{[{]}}
+// CHECK-NEXT:   _2 = const 3
+int test_nested_case(int n) {
+    int r = 0;
+    switch (n) {
+        { case 1: r = 1; break; }
+        default: r = 3;
+    }
+    return r;
+}
+
+// CHECK-LABEL: fn test_duff
+// CHECK:      switchInt(copy(_1)) -> [0: bb{{[0-9]+}}, 1: bb[[CASE:[0-9]+]], otherwise: bb{{[0-9]+}}]
+// CHECK:      bb[[CASE]]: {{[{]}}
+// CHECK-NEXT:   _{{[0-9]+}} = BinOp(+, copy(_2), const 2)
+int test_duff(int n) {
+    int r = 0;
+    switch (n) {
+    case 0:
+        do {
+            r = r + 1;
+        case 1:
+            r = r + 2;
+        } while (r < 4);
+    }
+    return r;
+}
+
+// CHECK-LABEL: fn test_precase_label
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   _2 = const 0
+// CHECK-NEXT:   _2 = const 1
+// CHECK-NEXT:   _2 = const 2
+// CHECK-NEXT:   StorageDead(_2)
+// CHECK-NEXT:   goto -> bb1
+void test_precase_label(int n) {
+    int x = 0;
+    goto L;
+    switch (n) {
+        { L: x = 1; }
+        case 1: x = 2; break;
+    }
+}

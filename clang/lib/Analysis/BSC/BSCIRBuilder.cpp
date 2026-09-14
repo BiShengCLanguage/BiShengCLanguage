@@ -53,6 +53,11 @@ SafeZoneSpecifier BSCIRBuilder::currentSafeZone() const {
 
 BasicBlockId BSCIRBuilder::createBlock() { return TheBody->addBlock(); }
 
+void BSCIRBuilder::emitFallthrough(BasicBlockId Target) {
+  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
+    setTerminator(Terminator::createGoto(Target, currentSafeZone()));
+}
+
 BasicBlockId BSCIRBuilder::switchToBlock(BasicBlockId NewBlock) {
   BasicBlockId Old = CurrentBlock;
   CurrentBlock = NewBlock;
@@ -345,6 +350,11 @@ void BSCIRBuilder::lowerStmt(const Stmt *S) {
     return;
   }
 
+  if (auto *SC = dyn_cast<SwitchCase>(S)) {
+    lowerSwitchCase(SC);
+    return;
+  }
+
   if (auto *LS = dyn_cast<LabelStmt>(S)) {
     lowerLabelStmt(LS);
     return;
@@ -401,41 +411,23 @@ void BSCIRBuilder::lowerCompoundStmt(const CompoundStmt *CS) {
 }
 
 void BSCIRBuilder::lowerIfStmt(const IfStmt *IS) {
-  // For constexpr if (or any if with a compile-time constant condition),
-  // only emit the taken branch to avoid false positives in init analysis.
-  Expr::EvalResult ConstResult;
-  if (IS->getCond()->EvaluateAsInt(ConstResult, Ctx)) {
-    bool CondIsTrue = ConstResult.Val.getInt().getBoolValue();
-    if (CondIsTrue) {
-      lowerStmt(IS->getThen());
-    } else if (IS->getElse()) {
-      lowerStmt(IS->getElse());
-    }
-    return;
-  }
-
-  // Lower condition
-  Operand Cond = lowerToOperand(IS->getCond());
-
   BasicBlockId ThenBB = createBlock();
   BasicBlockId ElseBB = createBlock();
   BasicBlockId JoinBB = createBlock();
 
-  emitBoolSwitch(std::move(Cond), ThenBB, ElseBB);
+  // The untaken branch is still lowered: a goto may enter it.
+  emitCondBranch(IS->getCond(), ThenBB, ElseBB);
 
   // Then branch
   switchToBlock(ThenBB);
   lowerStmt(IS->getThen());
-  // If then didn't terminate (return/break/etc), goto join
-  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(JoinBB, currentSafeZone()));
+  emitFallthrough(JoinBB);
 
   // Else branch
   switchToBlock(ElseBB);
   if (IS->getElse())
     lowerStmt(IS->getElse());
-  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(JoinBB, currentSafeZone()));
+  emitFallthrough(JoinBB);
 
   // Continue from join
   switchToBlock(JoinBB);
@@ -450,16 +442,16 @@ void BSCIRBuilder::emitBoolSwitch(Operand Cond, BasicBlockId TrueBB,
                                             currentSafeZone()));
 }
 
-void BSCIRBuilder::emitCondBranch(const Expr *Cond, BasicBlockId BodyBB,
-                                      BasicBlockId ExitBB) {
+void BSCIRBuilder::emitCondBranch(const Expr *Cond, BasicBlockId TrueBB,
+                                  BasicBlockId FalseBB) {
   Operand CondOp = lowerToOperand(Cond);
   if (CondOp.K == Operand::Constant && CondOp.getConstVal().isInt()) {
-    BasicBlockId Target =
-        CondOp.getConstVal().getInt() != 0 ? BodyBB : ExitBB;
-    setTerminator(Terminator::createGoto(Target, currentSafeZone()));
+    bool IsTrue = CondOp.getConstVal().getInt() != 0;
+    setTerminator(Terminator::createGoto(IsTrue ? TrueBB : FalseBB,
+                                         currentSafeZone()));
     return;
   }
-  emitBoolSwitch(std::move(CondOp), BodyBB, ExitBB);
+  emitBoolSwitch(std::move(CondOp), TrueBB, FalseBB);
 }
 
 void BSCIRBuilder::lowerWhileStmt(const WhileStmt *WS) {
@@ -475,16 +467,13 @@ void BSCIRBuilder::lowerWhileStmt(const WhileStmt *WS) {
   emitCondBranch(WS->getCond(), BodyBB, ExitBB);
 
   // Body block
-  // FIXME if cond always false no need to build body part. 
-  // currently handled by simplify dead block removal. 
   switchToBlock(BodyBB);
   BreakableScopes.push_back(
       {ExitBB, CondBB, /*HasContinue=*/true,
        static_cast<unsigned>(ScopeStack.size())});
   lowerStmt(WS->getBody());
   BreakableScopes.pop_back();
-  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(CondBB, currentSafeZone()));
+  emitFallthrough(CondBB);
 
   // Exit
   switchToBlock(ExitBB);
@@ -525,8 +514,7 @@ void BSCIRBuilder::lowerForStmt(const ForStmt *FS) {
        static_cast<unsigned>(ScopeStack.size())});
   lowerStmt(FS->getBody());
   BreakableScopes.pop_back();
-  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(IncrBB, currentSafeZone()));
+  emitFallthrough(IncrBB);
 
   // Increment block
   switchToBlock(IncrBB);
@@ -557,8 +545,7 @@ void BSCIRBuilder::lowerDoWhileStmt(const DoStmt *DS) {
        static_cast<unsigned>(ScopeStack.size())});
   lowerStmt(DS->getBody());
   BreakableScopes.pop_back();
-  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(CondBB, currentSafeZone()));
+  emitFallthrough(CondBB);
 
   // Condition block
   switchToBlock(CondBB);
@@ -569,111 +556,72 @@ void BSCIRBuilder::lowerDoWhileStmt(const DoStmt *DS) {
 }
 
 void BSCIRBuilder::lowerSwitchStmt(const SwitchStmt *SS) {
-  // Lower discriminant
   Operand Discr = lowerToOperand(SS->getCond());
-
+  BasicBlockId DiscrBB = CurrentBlock;
   BasicBlockId ExitBB = createBlock();
 
-  // A case region groups one or more case/default labels with the body
-  // statements that follow them until the next case/default label.
-  struct CaseRegion {
-    SmallVector<llvm::APInt, 2> CaseValues; // integer values for case labels
-    bool IsDefault = false;                  // true if this region has a default
-    SmallVector<const Stmt *, 4> Body;       // statements in this region
-  };
-
-  SmallVector<CaseRegion, 8> Regions;
-
-  // Helper: unwrap nested CaseStmt/DefaultStmt labels and collect their values,
-  // returning the innermost non-case/default sub-statement.
-  std::function<const Stmt *(const Stmt *, CaseRegion &)> unwrapLabels =
-      [&](const Stmt *S, CaseRegion &R) -> const Stmt * {
-    if (auto *CS = dyn_cast<CaseStmt>(S)) {
-      Expr::EvalResult Result;
-      if (CS->getLHS()->EvaluateAsInt(Result, Ctx))
-        R.CaseValues.push_back(Result.Val.getInt());
-      return unwrapLabels(CS->getSubStmt(), R);
-    }
-    if (auto *DS = dyn_cast<DefaultStmt>(S)) {
-      R.IsDefault = true;
-      return unwrapLabels(DS->getSubStmt(), R);
-    }
-    return S; // not a label
-  };
-
-  const Stmt *Body = SS->getBody();
-  SmallVector<const Stmt *, 8> BodyStmts;
-  if (auto *CS = dyn_cast<CompoundStmt>(Body))
-    BodyStmts.append(CS->body_begin(), CS->body_end());
-  else if (Body)
-    BodyStmts.push_back(Body);
-
-  for (const Stmt *S : BodyStmts) {
-    if (isa<CaseStmt>(S) || isa<DefaultStmt>(S)) {
-      // Start a new region
-      Regions.push_back({});
-      CaseRegion &R = Regions.back();
-      const Stmt *Inner = unwrapLabels(S, R);
-      // The innermost sub-statement is the first body statement
-      if (Inner)
-        R.Body.push_back(Inner);
-    } else {
-      // Non-label statement: add to current region's body
-      if (!Regions.empty())
-        Regions.back().Body.push_back(S);
-      // else: statements before any case label — unreachable in valid C
-    }
-  }
-
-  // Create a block for each region + find default
-  SmallVector<BasicBlockId, 8> RegionBlocks;
-  BasicBlockId DefaultBB = ExitBB; // fallback if no default label
-  SmallVector<std::pair<llvm::APInt, BasicBlockId>, 4> SwitchTargets;
-
-  for (unsigned I = 0; I < Regions.size(); ++I) {
-    BasicBlockId BB = createBlock();
-    RegionBlocks.push_back(BB);
-
-    for (auto &Val : Regions[I].CaseValues)
-      SwitchTargets.push_back({Val, BB});
-
-    if (Regions[I].IsDefault)
-      DefaultBB = BB;
-  }
-
-  // Set switch terminator on the current block
-  setTerminator(Terminator::createSwitchInt(std::move(Discr),
-                                            std::move(SwitchTargets), DefaultBB,
-                                            currentSafeZone()));
-
-  // Push a scope for the switch body. Declarations in case regions (without
-  // explicit braces) are scoped to the switch body; StorageDead for these
-  // locals must appear at switch exit, not function exit.
+  // Declarations in case regions are scoped to the switch body.
   ScopeStack.push_back({});
+  SwitchScopes.push_back({});
+  BreakableScopes.push_back(
+      {ExitBB, {0}, /*HasContinue=*/false,
+       static_cast<unsigned>(ScopeStack.size())});
 
-  // Lower each region's body
-  for (unsigned I = 0; I < Regions.size(); ++I) {
-    switchToBlock(RegionBlocks[I]);
-    BreakableScopes.push_back(
-        {ExitBB, {0}, /*HasContinue=*/false,
-         static_cast<unsigned>(ScopeStack.size())});
-
-    for (const Stmt *S : Regions[I].Body)
+  // Statements before the first case label are reachable only by goto.
+  switchToBlock(createBlock());
+  if (const auto *CS = dyn_cast_or_null<CompoundStmt>(SS->getBody())) {
+    // The body compound shares the switch scope pushed above.
+    SafeZoneSpecifier CompSZ = CS->getCompSafeZoneSpecifier();
+    if (CompSZ != SZ_None)
+      SafeZoneStack.push_back(CompSZ);
+    for (const Stmt *S : CS->body())
       lowerStmt(S);
+    if (CompSZ != SZ_None)
+      SafeZoneStack.pop_back();
+  } else {
+    lowerStmt(SS->getBody());
+  }
+  emitFallthrough(ExitBB);
 
-    BreakableScopes.pop_back();
+  BreakableScopes.pop_back();
+  SwitchScope Sw = SwitchScopes.pop_back_val();
+  BasicBlockId DefaultBB = Sw.DefaultBB.value_or(ExitBB);
 
-    // If unterminated, fall through to next region (or exit for last)
-    if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable) {
-      BasicBlockId FallTarget =
-          (I + 1 < Regions.size()) ? RegionBlocks[I + 1] : ExitBB;
-      setTerminator(Terminator::createGoto(FallTarget, currentSafeZone()));
+  switchToBlock(DiscrBB);
+  if (Discr.K == Operand::Constant && Discr.getConstVal().isInt()) {
+    BasicBlockId Target = DefaultBB;
+    for (const auto &T : Sw.Targets) {
+      if (llvm::APInt::isSameValue(T.first, Discr.getConstVal().getInt())) {
+        Target = T.second;
+        break;
+      }
     }
+    setTerminator(Terminator::createGoto(Target, currentSafeZone()));
+  } else {
+    setTerminator(Terminator::createSwitchInt(std::move(Discr),
+                                              std::move(Sw.Targets), DefaultBB,
+                                              currentSafeZone()));
   }
 
-  // Exit: emit Drop + StorageDead for switch-body locals, then pop the scope.
   switchToBlock(ExitBB);
   emitScopeExit(SS->getEndLoc());
+}
+
+void BSCIRBuilder::lowerSwitchCase(const SwitchCase *SC) {
+  BasicBlockId BB = createBlock();
+  if (!SwitchScopes.empty()) {
+    SwitchScope &Sw = SwitchScopes.back();
+    if (const auto *CS = dyn_cast<CaseStmt>(SC)) {
+      Expr::EvalResult Result;
+      if (CS->getLHS()->EvaluateAsInt(Result, Ctx))
+        Sw.Targets.push_back({Result.Val.getInt(), BB});
+    } else {
+      Sw.DefaultBB = BB;
+    }
+  }
+  emitFallthrough(BB);
+  switchToBlock(BB);
+  lowerStmt(SC->getSubStmt());
 }
 
 void BSCIRBuilder::lowerBreakStmt(const BreakStmt *BS) {
@@ -724,9 +672,7 @@ void BSCIRBuilder::enterLabelBlock(const LabelStmt *LS) {
   BasicBlockId LabelBB = getOrCreateLabelBlock(LS->getDecl());
   // Record scope depth at the label for goto cleanup
   LabelScopeDepth[LS->getDecl()] = ScopeStack.size();
-  // Terminate current block with goto to label block
-  if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(LabelBB, currentSafeZone()));
+  emitFallthrough(LabelBB);
   switchToBlock(LabelBB);
 }
 
@@ -824,22 +770,18 @@ Operand BSCIRBuilder::VisitBinaryOperator(BinaryOperator *BO) {
   if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr) {
     bool IsAnd = (BO->getOpcode() == BO_LAnd);
 
-    // Eval LHS in current block
-    Operand LHS = lowerToOperand(BO->getLHS());
-
-    // Result temporary
-    LocalId Result = TheBody->addTemp(BO->getType(), BO->getExprLoc());
-    Place ResultPlace(Result, BO->getType(), BO->getExprLoc());
-
     BasicBlockId ShortBB = createBlock();  // short-circuit block
     BasicBlockId RhsBB = createBlock();    // evaluate RHS block
     BasicBlockId JoinBB = createBlock();   // join block
 
     // For &&: if LHS truthy → eval RHS, otherwise short-circuit to 0
     // For ||: if LHS truthy → short-circuit to 1, otherwise eval RHS
-    emitBoolSwitch(std::move(LHS),
-                   IsAnd ? RhsBB : ShortBB,
+    emitCondBranch(BO->getLHS(), IsAnd ? RhsBB : ShortBB,
                    IsAnd ? ShortBB : RhsBB);
+
+    // Result temporary
+    LocalId Result = TheBody->addTemp(BO->getType(), BO->getExprLoc());
+    Place ResultPlace(Result, BO->getType(), BO->getExprLoc());
 
     // Short-circuit block: result = 0 (&&) or 1 (||)
     switchToBlock(ShortBB);
@@ -1137,14 +1079,21 @@ Operand BSCIRBuilder::VisitImplicitCastExpr(ImplicitCastExpr *CE) {
   return VisitCastExpr(CE);
 }
 
-// Walk array-of-array chains looking for a variable-length array with a
-// size expression, the same way CFG construction does.
+// A VLA behind a pointer is sized when its declaration is reached too.
 static const VariableArrayType *findVLA(const Type *T) {
-  while (const auto *AT = dyn_cast<ArrayType>(T)) {
-    if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
-      if (VAT->getSizeExpr())
-        return VAT;
-    T = AT->getElementType().getTypePtr();
+  while (T) {
+    if (const auto *AT = dyn_cast<ArrayType>(T)) {
+      if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
+        if (VAT->getSizeExpr())
+          return VAT;
+      T = AT->getElementType().getTypePtr();
+    } else if (const auto *PT = dyn_cast<PointerType>(T)) {
+      T = PT->getPointeeType().getTypePtr();
+    } else if (const auto *PT = dyn_cast<ParenType>(T)) {
+      T = PT->getInnerType().getTypePtr();
+    } else {
+      return nullptr;
+    }
   }
   return nullptr;
 }
@@ -1353,18 +1302,15 @@ Operand BSCIRBuilder::VisitAbstractConditionalOperator(
     OpaqueValueMap[BCO->getOpaqueValue()] = CommonTmp;
   }
 
-  // Lower condition in current block
-  Operand Cond = lowerToOperand(CO->getCond());
-
-  // Result temporary — shared across both branches
-  LocalId Result = TheBody->addTemp(CO->getType(), CO->getExprLoc());
-  Place ResultPlace(Result, CO->getType(), CO->getExprLoc());
-
   BasicBlockId ThenBB = createBlock();
   BasicBlockId ElseBB = createBlock();
   BasicBlockId JoinBB = createBlock();
 
-  emitBoolSwitch(std::move(Cond), ThenBB, ElseBB);
+  emitCondBranch(CO->getCond(), ThenBB, ElseBB);
+
+  // Result temporary — shared across both branches
+  LocalId Result = TheBody->addTemp(CO->getType(), CO->getExprLoc());
+  Place ResultPlace(Result, CO->getType(), CO->getExprLoc());
 
   // Then branch: eval true expr, assign to result
   switchToBlock(ThenBB);
@@ -1452,6 +1398,15 @@ Operand BSCIRBuilder::VisitStmtExpr(StmtExpr *SE) {
   return Operand::createCopy(ResultPlace);
 }
 
+Operand BSCIRBuilder::VisitAwaitExpr(AwaitExpr *AE) {
+  Operand Sub = lowerToOperand(AE->getSubExpr());
+  LocalId Tmp = TheBody->addTemp(AE->getType(), AE->getExprLoc());
+  Place TmpPlace(Tmp, AE->getType(), AE->getExprLoc());
+  emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Sub),
+                               currentSafeZone(), AE, AE->getExprLoc()));
+  return Operand::createCopy(TmpPlace);
+}
+
 Operand BSCIRBuilder::VisitStmt(Stmt *S) {
   if (S)
     emit(Statement::createNop(currentSafeZone(), S->getBeginLoc()));
@@ -1496,9 +1451,14 @@ void BSCIRBuilder::prescanLabels(const Stmt *S, unsigned Depth) {
   }
 
   if (const auto *SS = dyn_cast<SwitchStmt>(S)) {
-    // SwitchStmt pushes a dedicated scope for the body.
+    // SwitchStmt pushes one scope for the body; a compound body shares it.
     prescanLabels(SS->getCond(), Depth);
-    prescanLabels(SS->getBody(), Depth + 1);
+    if (const auto *CS = dyn_cast_or_null<CompoundStmt>(SS->getBody())) {
+      for (const Stmt *Child : CS->body())
+        prescanLabels(Child, Depth + 1);
+    } else {
+      prescanLabels(SS->getBody(), Depth + 1);
+    }
     return;
   }
 

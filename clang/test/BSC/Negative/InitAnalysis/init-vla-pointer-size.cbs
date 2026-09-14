@@ -1,0 +1,40 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// The size expression of a variably modified type is evaluated when the
+// declaration is reached, also when the array sits behind a pointer.
+
+_Safe void pointer_to_vla(void) {
+    int n;
+    int (*p)[n] = 0; // expected-error {{use of uninitialized value: 'n'}}
+    (void)p;
+}
+
+_Safe void pointer_to_vla_inner_dim(int n) {
+    int m;
+    int (*p)[n][m] = 0; // expected-error {{use of uninitialized value: 'm'}}
+    (void)p;
+}
+
+_Safe void pointer_to_pointer_to_vla(void) {
+    int n;
+    int (**p)[n] = 0; // expected-error {{use of uninitialized value: 'n'}}
+    (void)p;
+}
+
+_Safe void array_of_pointers_to_vla(void) {
+    int n;
+    int (*p[2])[n] = {0}; // expected-error {{use of uninitialized value: 'n'}}
+    (void)p;
+}
+
+_Safe void pointer_to_vla_typedef(void) {
+    int n;
+    typedef int (*p_t)[n]; // expected-error {{use of uninitialized value: 'n'}}
+    p_t p = 0;             // size already bound at the typedef
+    (void)p;
+}
+
+_Safe void pointer_to_vla_ok(int n) {
+    int (*p)[n] = 0;
+    (void)p;
+}

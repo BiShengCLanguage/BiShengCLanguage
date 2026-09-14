@@ -11,22 +11,22 @@ int bar(int x);
 
 // CHECK-LABEL: fn test_single_call_cond
 // CHECK:      bb0: {{[{]}}
-// CHECK-NEXT:   _2 = call pred(copy(_1)) -> bb2
+// CHECK-NEXT:   _2 = call pred(copy(_1)) -> bb4
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
 // CHECK-NEXT:   return
 // CHECK-NEXT: }
 // CHECK:      bb2: {{[{]}}
-// CHECK-NEXT:   _3 = BinOp(>, copy(_2), const 0)
-// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb4, otherwise: bb3]
-// CHECK-NEXT: }
-// CHECK:      bb3: {{[{]}}
 // CHECK-NEXT:   _0 = const 1
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
-// CHECK:      bb4: {{[{]}}
+// CHECK:      bb3: {{[{]}}
 // CHECK-NEXT:   _0 = const 0
 // CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb4: {{[{]}}
+// CHECK-NEXT:   _3 = BinOp(>, copy(_2), const 0)
+// CHECK-NEXT:   switchInt(copy(_3)) -> [0: bb3, otherwise: bb2]
 // CHECK-NEXT: }
 int test_single_call_cond(int x) {
     if (pred(x) > 0)
@@ -37,25 +37,25 @@ int test_single_call_cond(int x) {
 
 // CHECK-LABEL: fn test_two_calls_cond
 // CHECK:      bb0: {{[{]}}
-// CHECK-NEXT:   _2 = call foo(copy(_1)) -> bb2
+// CHECK-NEXT:   _2 = call foo(copy(_1)) -> bb4
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
 // CHECK-NEXT:   return
 // CHECK-NEXT: }
 // CHECK:      bb2: {{[{]}}
-// CHECK-NEXT:   _3 = call bar(copy(_1)) -> bb3
-// CHECK-NEXT: }
-// CHECK:      bb3: {{[{]}}
-// CHECK-NEXT:   _4 = BinOp(>, copy(_2), copy(_3))
-// CHECK-NEXT:   switchInt(copy(_4)) -> [0: bb5, otherwise: bb4]
-// CHECK-NEXT: }
-// CHECK:      bb4: {{[{]}}
 // CHECK-NEXT:   _0 = const 1
 // CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
-// CHECK:      bb5: {{[{]}}
+// CHECK:      bb3: {{[{]}}
 // CHECK-NEXT:   _0 = const 0
 // CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb4: {{[{]}}
+// CHECK-NEXT:   _3 = call bar(copy(_1)) -> bb5
+// CHECK-NEXT: }
+// CHECK:      bb5: {{[{]}}
+// CHECK-NEXT:   _4 = BinOp(>, copy(_2), copy(_3))
+// CHECK-NEXT:   switchInt(copy(_4)) -> [0: bb3, otherwise: bb2]
 // CHECK-NEXT: }
 int test_two_calls_cond(int x) {
     if (foo(x) > bar(x))

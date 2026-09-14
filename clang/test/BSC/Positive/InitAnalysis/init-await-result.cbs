@@ -1,0 +1,47 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// The value of an _Await expression initializes its destination.
+
+void *calloc(unsigned long, unsigned long);
+void free(void *);
+void exit(int);
+
+struct PollResult<T> {
+    _Bool isPending;
+    T res;
+};
+struct PollResult<T> struct PollResult<T>::pending() {
+    struct PollResult<T> this;
+    this.isPending = 1;
+    this.res = 0;
+    return this;
+}
+_Bool struct PollResult<T>::is_completed(struct PollResult<T> *this, T *out) {
+    *out = this->res;
+    return !this->isPending;
+}
+struct PollResult<T> struct PollResult<T>::completed(T result) {
+    struct PollResult<T> this;
+    this.isPending = 0;
+    this.res = result;
+    return this;
+}
+_Trait Future<T> {
+    struct PollResult<T> poll(This* this);
+    void free(This* this);
+};
+
+_Async int g(int v) { return v; }
+
+_Async int decl_init(void) {
+    int x = 1;
+    int r = _Await g(x);
+    return r;
+}
+
+_Async int assigned(void) {
+    int r;
+    r = _Await g(1);
+    return r;
+}

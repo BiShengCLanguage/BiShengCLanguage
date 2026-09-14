@@ -1,0 +1,54 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// A constant condition in a conditional expression or a logical operator
+// folds to a direct goto, and the unselected operand is removed.
+
+// CHECK-LABEL: fn test_ternary_const
+// CHECK-NOT:    switchInt
+// CHECK:        _2 = const 1
+// CHECK-NOT:    copy(_1)
+// CHECK:        return
+_Safe int test_ternary_const(void) {
+    int x;
+    int y = 0 ? x : 1;
+    return y;
+}
+
+// CHECK-LABEL: fn test_gnu_conditional_const
+// CHECK-NOT:    switchInt
+// CHECK-NOT:    copy(_1)
+// CHECK:        return
+_Safe int test_gnu_conditional_const(void) {
+    int x;
+    int y = 1 ?: x;
+    return y;
+}
+
+// CHECK-LABEL: fn test_logical_and_const
+// CHECK-NOT:    switchInt
+// CHECK:        _2 = const 0
+// CHECK-NOT:    copy(_1)
+// CHECK:        return
+_Safe int test_logical_and_const(void) {
+    int x;
+    int y = 0 && x;
+    return y;
+}
+
+// CHECK-LABEL: fn test_logical_or_const
+// CHECK-NOT:    switchInt
+// CHECK:        _2 = const 1
+// CHECK-NOT:    copy(_1)
+// CHECK:        return
+_Safe int test_logical_or_const(void) {
+    int x;
+    int y = 1 || x;
+    return y;
+}
+
+// A non-constant condition still branches.
+// CHECK-LABEL: fn test_ternary_var
+// CHECK:        switchInt(copy(_1))
+int test_ternary_var(int c) {
+    return c ? 1 : 2;
+}

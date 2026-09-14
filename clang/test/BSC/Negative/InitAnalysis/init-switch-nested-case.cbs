@@ -1,0 +1,76 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// A case or default label nested inside a sub-statement of the switch body
+// is still a jump target of the switch, so its statements are lowered and
+// checked. Safe zones reject these labels, so the functions are unsafe.
+
+int case_in_block(int n) {
+    int x;
+    int r = 0;
+    switch (n) {
+        { case 1: r = x; break; } // expected-error {{use of uninitialized value: 'x'}}
+        default: r = 3;
+    }
+    return r;
+}
+
+int default_in_block(int n) {
+    int x;
+    int r = 0;
+    switch (n) {
+        case 1: r = 1; break;
+        { default: r = x; } // expected-error {{use of uninitialized value: 'x'}}
+    }
+    return r;
+}
+
+int case_in_if(int n, int c) {
+    int x;
+    int r = 0;
+    switch (n) {
+        if (c) { case 1: r = x; } // expected-error {{use of uninitialized value: 'x'}}
+        break;
+    }
+    return r;
+}
+
+int duff(int n) {
+    int x;
+    int r = 0;
+    switch (n) {
+    case 0:
+        do {
+            r = r + 1;
+        case 1:
+            r = r + x; // expected-error {{use of uninitialized value: 'x'}}
+        } while (r < 4);
+    }
+    return r;
+}
+
+// A label nested in a sub-statement binds to the innermost switch.
+int inner_switch(int n, int m) {
+    int x;
+    int r = 0;
+    switch (n) {
+    case 0:
+        switch (m) {
+            { case 1: r = x; } // expected-error {{use of uninitialized value: 'x'}}
+        }
+        break;
+    }
+    return r;
+}
+
+// Entering the nested case directly skips the initialization that the
+// fall-through path performs.
+int fallthrough_skips_init(int n) {
+    int x;
+    int r = 0;
+    switch (n) {
+    case 0:
+        x = 1;
+        { case 1: r = x; } // expected-error {{use of possibly uninitialized value: 'x'}}
+    }
+    return r;
+}

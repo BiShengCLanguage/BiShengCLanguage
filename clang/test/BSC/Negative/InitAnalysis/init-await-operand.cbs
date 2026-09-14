@@ -1,0 +1,51 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -uninit-check=all -verify %s
+
+// The operand of _Await is evaluated, so the reads it contains are checked.
+
+void *calloc(unsigned long, unsigned long);
+void free(void *);
+void exit(int);
+
+struct PollResult<T> {
+    _Bool isPending;
+    T res;
+};
+struct PollResult<T> struct PollResult<T>::pending() {
+    struct PollResult<T> this;
+    this.isPending = 1;
+    this.res = 0;
+    return this;
+}
+_Bool struct PollResult<T>::is_completed(struct PollResult<T> *this, T *out) {
+    *out = this->res;
+    return !this->isPending;
+}
+struct PollResult<T> struct PollResult<T>::completed(T result) {
+    struct PollResult<T> this;
+    this.isPending = 0;
+    this.res = result;
+    return this;
+}
+_Trait Future<T> {
+    struct PollResult<T> poll(This* this);
+    void free(This* this);
+};
+
+_Async int g(int v) { return v; }
+
+_Async int decl_init(void) {
+    int x;
+    int r = _Await g(x); // expected-error {{use of uninitialized value: 'x'}}
+    return r;
+}
+
+_Async int discarded(void) {
+    int x;
+    _Await g(x); // expected-error {{use of uninitialized value: 'x'}}
+    return 0;
+}
+
+_Async int returned(void) {
+    int x;
+    return _Await g(x); // expected-error {{use of uninitialized value: 'x'}}
+}

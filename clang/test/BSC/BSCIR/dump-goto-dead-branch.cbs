@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// A constant-condition if still lowers its untaken branch: a goto may enter
+// it through a label, and the code after the if stays reachable.
+
+// CHECK-LABEL: fn test_goto_into_dead_then
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   _0 = copy(_1)
+// CHECK-NEXT:   StorageDead(_1)
+// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT: }
+// CHECK:      bb1: {{[{]}}
+// CHECK-NEXT:   return
+// CHECK-NEXT: }
+_Safe int test_goto_into_dead_then(void) {
+    int x;
+    goto L;
+    if (0) { L: x = 1; }
+    return x;
+}
+
+// Without a jump into it, the untaken branch is unreachable and removed.
+// CHECK-LABEL: fn test_dead_then_removed
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 2
+// CHECK-NOT:    const 1
+// CHECK:      return
+_Safe int test_dead_then_removed(void) {
+    int x;
+    if (0) { x = 1; }
+    x = 2;
+    return x;
+}

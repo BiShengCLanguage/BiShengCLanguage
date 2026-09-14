@@ -65,6 +65,7 @@ public:
   Operand VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *E);
   Operand VisitSafeExpr(SafeExpr *SE);
   Operand VisitStmtExpr(StmtExpr *SE);
+  Operand VisitAwaitExpr(AwaitExpr *AE);
   Operand VisitStmt(Stmt *S); // fallback
 
 private:
@@ -89,6 +90,13 @@ private:
     unsigned ScopeDepth; // ScopeStack depth when the loop/switch was entered
   };
   SmallVector<BreakableScope, 4> BreakableScopes;
+
+  // --- Case labels register with the innermost switch ---
+  struct SwitchScope {
+    SmallVector<std::pair<llvm::APInt, BasicBlockId>, 4> Targets;
+    Optional<BasicBlockId> DefaultBB;
+  };
+  SmallVector<SwitchScope, 4> SwitchScopes;
 
   // --- Scope tracking for StorageDead emission ---
   struct ScopeInfo {
@@ -128,15 +136,19 @@ private:
   void lowerForStmt(const ForStmt *FS);
   void lowerDoWhileStmt(const DoStmt *DS);
   void lowerSwitchStmt(const SwitchStmt *SS);
+  void lowerSwitchCase(const SwitchCase *SC);
 
   /// Emit a boolean branch: switchInt(Cond) -> [0: FalseBB, otherwise: TrueBB].
   /// Uses 0-match so that any non-zero value (pointer, int) is truthy.
   void emitBoolSwitch(Operand Cond, BasicBlockId TrueBB, BasicBlockId FalseBB);
 
-  /// Emit a branch for a loop condition. If the condition is a compile-time
-  /// constant, emits a direct goto; otherwise emits switchInt.
-  void emitCondBranch(const Expr *Cond, BasicBlockId BodyBB,
-                          BasicBlockId ExitBB);
+  /// Emit a branch on a condition: a direct goto when it is a compile-time
+  /// constant, otherwise switchInt.
+  void emitCondBranch(const Expr *Cond, BasicBlockId TrueBB,
+                      BasicBlockId FalseBB);
+
+  /// Goto Target if the current block is unterminated.
+  void emitFallthrough(BasicBlockId Target);
 
   void lowerBreakStmt(const BreakStmt *BS);
   void lowerContinueStmt(const ContinueStmt *CS);

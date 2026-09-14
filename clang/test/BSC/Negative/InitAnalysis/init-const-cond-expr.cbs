@@ -1,0 +1,61 @@
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
+
+// A constant condition selects one arm of a conditional expression at
+// compile time; the selected arm and the evaluated operand of a logical
+// operator are still checked.
+
+_Safe int ternary_true_arm(void) {
+    int x;
+    int y = 1 ? x : 0; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int ternary_false_arm(void) {
+    int x;
+    int y = 0 ? 0 : x; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int gnu_conditional_false(void) {
+    int x;
+    int y = 0 ?: x; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int logical_and_true(void) {
+    int x;
+    int y = 1 && x; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int logical_or_false(void) {
+    int x;
+    int y = 0 || x; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+// The condition itself is always evaluated.
+_Safe int condition_read(void) {
+    int c;
+    int y = c ? 1 : 0; // expected-error {{use of uninitialized value: 'c'}}
+    return y;
+}
+
+// A statement expression carries its reads wherever it is evaluated.
+_Safe int stmtexpr_live_arm(void) {
+    int x;
+    int y = 1 ? ({ x; 0; }) : 2; // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}
+
+_Safe int stmtexpr_condition(void) {
+    int x;
+    if (({ x; 0; })) { } // expected-error {{use of uninitialized value: 'x'}}
+    return 0;
+}
+
+_Safe int stmtexpr_logical_and(void) {
+    int x;
+    int y = 1 && ({ x; 0; }); // expected-error {{use of uninitialized value: 'x'}}
+    return y;
+}

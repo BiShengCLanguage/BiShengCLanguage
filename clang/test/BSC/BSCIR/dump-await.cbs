@@ -1,0 +1,49 @@
+// RUN: %clang_cc1 -fsyntax-only -fbsc-experimental -dump-bscir %s 2>&1 | FileCheck %s
+
+// The operand of _Await is lowered; its call and argument reads reach the IR.
+
+void *calloc(unsigned long, unsigned long);
+void free(void *);
+void exit(int);
+
+struct PollResult<T> {
+    _Bool isPending;
+    T res;
+};
+struct PollResult<T> struct PollResult<T>::pending() {
+    struct PollResult<T> this;
+    this.isPending = 1;
+    this.res = 0;
+    return this;
+}
+_Bool struct PollResult<T>::is_completed(struct PollResult<T> *this, T *out) {
+    *out = this->res;
+    return !this->isPending;
+}
+struct PollResult<T> struct PollResult<T>::completed(T result) {
+    struct PollResult<T> this;
+    this.isPending = 0;
+    this.res = result;
+    return this;
+}
+_Trait Future<T> {
+    struct PollResult<T> poll(This* this);
+    void free(This* this);
+};
+
+_Async int g(int v) { return v; }
+
+// CHECK-LABEL: fn test_await_call
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_1)
+// CHECK-NEXT:   _1 = const 1
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   _3 = call __g(copy(_1)) -> bb2
+// CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _4 = copy(_3)
+// CHECK-NEXT:   _2 = copy(_4)
+_Async int test_await_call(void) {
+    int x = 1;
+    int r = _Await g(x);
+    return r;
+}
