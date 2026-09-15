@@ -1,0 +1,119 @@
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --input-file=%t-rw.c %s
+// RUN: %clang -std=c11 -pedantic-errors %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+// When rewriting BSC source to C, an `if constexpr` becomes an ordinary `if`
+// whose untaken branch is a discarded statement. That branch is dead code and
+// is not covered by all BSC analyses, so it is dropped: only the taken branch
+// is emitted, and the discarded one becomes an empty branch.
+//
+// `dropped_ill_formed` below is accepted by BSC only because the statement that
+// is not a C constant expression sits in the discarded branch; it must not leak
+// into the generated C (this file is compiled with -std=c11 -pedantic-errors).
+
+int taken_then(void) {
+    int b = 0;
+    if constexpr (1) {
+        b = 6;
+    } else {
+        b = 5;
+    }
+    return b;
+}
+
+int taken_else(void) {
+    int b = 0;
+    if constexpr (0) {
+        b = 5;
+    } else {
+        b = 6;
+    }
+    return b;
+}
+
+int chain(void) {
+    int b = 0;
+    if constexpr (0) {
+        b = 1;
+    } else if constexpr (0) {
+        b = 2;
+    } else if constexpr (1) {
+        b = 3;
+    } else {
+        b = 4;
+    }
+    return b;
+}
+
+int no_else(void) {
+    int b = 0;
+    if constexpr (1) {
+        b = 1;
+    }
+    if constexpr (0) {
+        b = 2;
+    }
+    return b;
+}
+
+int dropped_ill_formed(void) {
+    int b = 0;
+    if constexpr (1) {
+        b = 7;
+    } else {
+        _Static_assert(sizeof(int) == 4.0, "discarded");
+    }
+    return b;
+}
+
+int main(void) {
+    if (taken_then() != 6) return 1;
+    if (taken_else() != 6) return 2;
+    if (chain() != 3) return 3;
+    if (no_else() != 1) return 4;
+    if (dropped_ill_formed() != 7) return 5;
+    return 0;
+}
+
+// CHECK: int taken_then(void) {
+// CHECK-NEXT:     int b = 0;
+// CHECK-NEXT:     if (1) {
+// CHECK-NEXT:         b = 6;
+// CHECK-NEXT:     } else {}
+// CHECK-NEXT:     return b;
+// CHECK-NEXT: }
+// CHECK-EMPTY:
+// CHECK-NEXT: int taken_else(void) {
+// CHECK-NEXT:     int b = 0;
+// CHECK-NEXT:     if (0) {} else {
+// CHECK-NEXT:         b = 6;
+// CHECK-NEXT:     }
+// CHECK-NEXT:     return b;
+// CHECK-NEXT: }
+// CHECK-EMPTY:
+// CHECK-NEXT: int chain(void) {
+// CHECK-NEXT:     int b = 0;
+// CHECK-NEXT:     if (0) {} else if (0) {} else if (1) {
+// CHECK-NEXT:         b = 3;
+// CHECK-NEXT:     } else {}
+// CHECK-NEXT:     return b;
+// CHECK-NEXT: }
+// CHECK-EMPTY:
+// CHECK-NEXT: int no_else(void) {
+// CHECK-NEXT:     int b = 0;
+// CHECK-NEXT:     if (1) {
+// CHECK-NEXT:         b = 1;
+// CHECK-NEXT:     }
+// CHECK-NEXT:     if (0) {}
+// CHECK-NEXT:     return b;
+// CHECK-NEXT: }
+// CHECK-EMPTY:
+// CHECK-NEXT: int dropped_ill_formed(void) {
+// CHECK-NEXT:     int b = 0;
+// CHECK-NEXT:     if (1) {
+// CHECK-NEXT:         b = 7;
+// CHECK-NEXT:     } else {}
+// CHECK-NEXT:     return b;
+// CHECK-NEXT: }
+// CHECK-EMPTY:

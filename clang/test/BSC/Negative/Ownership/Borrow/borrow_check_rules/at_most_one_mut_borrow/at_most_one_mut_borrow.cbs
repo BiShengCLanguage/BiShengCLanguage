@@ -113,7 +113,7 @@ void test11() {
   int *_Borrow p1 = &_Mut local;
   const int *_Borrow p2 = &_Const local;
   int *_Owned oriPtr = safe_malloc<int>(0);
-  if (1) {
+  if (local) {
     p1 = &_Mut *oriPtr; // expected-note {{mutable borrow occurs here}}
     p2 = &_Const *oriPtr; // expected-error {{cannot borrow '*oriPtr' as immutable because it is also borrowed as mutable}}
   } else {

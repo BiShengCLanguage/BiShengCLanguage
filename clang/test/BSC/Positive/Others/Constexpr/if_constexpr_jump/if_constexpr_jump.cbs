@@ -1,0 +1,59 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+// expected-no-diagnostics
+
+// Jumps within the same arm of an `if constexpr`, and jumps from an arm to
+// outside of it, are allowed. The generated C is checked as well: dropping the
+// discarded statement cannot leave a dangling label behind.
+
+int same_discarded_arm(int a) {
+    if constexpr (1) {
+        a = 1;
+    } else {
+        goto L;
+L:      a = 2;
+    }
+    return a;
+}
+
+int same_taken_arm(int a) {
+    if constexpr (1) {
+        goto L;
+L:      a = 3;
+    } else {
+        a = 4;
+    }
+    return a;
+}
+
+int jump_out_of_arm(int a) {
+    if constexpr (1) {
+        goto L;
+    } else {
+        a = 5;
+    }
+L:  return a;
+}
+
+void generic_same_arm<int N>(void) {
+    if constexpr (N == 1) {
+        goto L;
+L:      ;
+    } else {
+    }
+}
+
+int main(void) {
+    if (same_discarded_arm(0) != 1)
+        return 1;
+    if (same_taken_arm(0) != 3)
+        return 2;
+    if (jump_out_of_arm(7) != 7)
+        return 3;
+    generic_same_arm<1>();
+    generic_same_arm<2>();
+    return 0;
+}

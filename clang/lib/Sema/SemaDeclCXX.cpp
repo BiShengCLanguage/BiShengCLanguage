@@ -1860,14 +1860,31 @@ static bool CheckConstexprDeclStmt(Sema &SemaRef, const FunctionDecl *Dcl,
 
     case Decl::Enum:
     case Decl::CXXRecord:
+#if ENABLE_BSC
+    // BSC: in C mode a struct/union definition is represented by Decl::Record
+    // instead of Decl::CXXRecord. Treat it the same way as the other tag types
+    // above so that struct/union and enum behave consistently.
+    case Decl::Record:
+#endif
       // C++1y allows types to be defined, not just declared.
       if (cast<TagDecl>(DclIt)->isThisDeclarationADefinition()) {
         if (Kind == Sema::CheckConstexprKind::Diagnose) {
+#if ENABLE_BSC
+          // BSC allows local type definitions in constexpr function bodies and
+          // does not diagnose them as a C++14 extension.
+          if (!SemaRef.getLangOpts().BSC)
+            SemaRef.Diag(DS->getBeginLoc(),
+                         SemaRef.getLangOpts().CPlusPlus14
+                             ? diag::warn_cxx11_compat_constexpr_type_definition
+                             : diag::ext_constexpr_type_definition)
+                << isa<CXXConstructorDecl>(Dcl);
+#else
           SemaRef.Diag(DS->getBeginLoc(),
                        SemaRef.getLangOpts().CPlusPlus14
                            ? diag::warn_cxx11_compat_constexpr_type_definition
                            : diag::ext_constexpr_type_definition)
               << isa<CXXConstructorDecl>(Dcl);
+#endif
         } else if (!SemaRef.getLangOpts().CPlusPlus14) {
           return false;
         }

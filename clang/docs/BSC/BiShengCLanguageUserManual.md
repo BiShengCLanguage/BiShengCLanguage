@@ -774,11 +774,16 @@ PointerType<T> foo<T>() { ... }
 定义“编译时计算”的类型：
 bool,char(signed char, unsigned char), 整数类型（包括 int 以及被 short/signed/unsigned/long/long long 等修饰的 int 类型，不包括 enum 类型），以及这些类型的别名。
 
-定义“常量计算”上下文，也就是 constexpr 修饰的变量和函数可以作为常量使用的场景：
-- 可以用于 static_assert 中，第一个条件参数属于“常量计算”上下文
-- 可以用于定义定长数组，数组长度属于“常量计算”上下文
-- 可以用于初始化其它 constexpr 常量
-- 可以用于常量泛型的实参
+定义“常量计算”上下文：凡是毕昇C要求“整型常量表达式”的位置，都属于“常量计算”上下文，constexpr 修饰的变量和 constexpr 函数调用都可以用在这些位置。常见场景包括：
+- `_Static_assert` 的条件表达式
+- 定长数组的数组长度
+- 初始化其它 constexpr 常量
+- 常量泛型的实参
+- 全局变量、静态变量的初始化表达式
+- switch 语句的 case 标签
+- 枚举常量的初始值
+- 结构体位域的宽度
+- _Alignas 的对齐值
 
 下面举例说明什么是“常量计算”上下文。
 ```c
@@ -807,6 +812,13 @@ int main() {
     _Static_assert(a == 5, "fail");
     _Static_assert(foo() == 5, "fail");
 
+    //可以用于 case 标签、枚举常量、位域宽度和 _Alignas
+    switch (a) { case 5: break; default: break; }
+    enum LocalE { E1 = a };
+    struct LocalS { int bit : a; };
+    constexpr int align = 8;
+    _Alignas(align) int v;
+
     return 0;
 }
 ```
@@ -825,40 +837,73 @@ constexpr int b; //error: constexpr variable 'b' must be initialized by a consta
 constexpr int a = 5;
 a = 10; //error: redefinition of 'a' with a different type: 'int' vs 'const int'
 ```
-3. constexpr 修饰常量的类型只能是上述“编译时计算”的类型
+3. constexpr 修饰常量的类型只能是上述“编译时计算”的类型，不能是浮点数、指针类型。
 ```c
-constexpr float a = 5.0;//error: BSC constexpr variable does not support type 'const float'
+constexpr float a = 5.0; // error
+
+constexpr int b = 1;
+constexpr int* ptr = &g; // error
+
+int foo();
+constexpr int (*fp)() = foo; // error
 ```
 4. constexpr 修饰的常量的初始化表达式必须可以在编译时求值，否则要报错。可编译时求值的常量表达式可以是：
 - 字面量
 - constexpr 修饰的常量
 - sizeof,_Alignof 表达式
 - 以可编译时求值的常量表达式作为实参，调用 constexpr 函数
-- 由以下运算符组合起来的常量表达式，也是常量表达式：+,-,*,/,%,>,<,==,!=,<=,>=,&,|,^,~,!,&&,||,<<,>>,?:
+- 由以下运算符组合起来的常量表达式，也是常量表达式（其中的 & 表示按位与）：+,-,*,/,%,>,<,==,!=,<=,>=,&,|,^,~,!,&&,||,<<,>>,?:
+- 强制类型转换表达式，如 (int)、(unsigned char)、(long) 等，但是不允许涉及指针类型的强制类型转换
 
 举例说明：
 ```c
-//场景1
-int a = 10;
-constexpr int b = a;//error
-//场景2
-constexpr int a = 10;
-constexpr int b = a;
-//场景3
-constexpr int a = sizeof(int);
-constexpr int b = sizeof(int);
-//场景4
-constexpr int foo(int a) {
-    return 5;
-};
-constexpr int a = 10;
-constexpr int b = foo(a);
-//场景5
-constexpr int b = 1 == 1.0;
+constexpr int v1 = 10; // 字面量
+constexpr int v2 = v1;  // constexpr 修饰的常量
+constexpr int v3 = sizeof(int); // sizeof
+constexpr int v4 = _Alignof(int); // _Alignof
+
+// 调用 constexpr 函数
+constexpr int foo(int a) { return 5; };
+constexpr int v5 = foo(10);
+
+constexpr int v6 = 1 == 1.0; // 常量表达式的运算结果
+constexpr int v7 = (int)1.9; // 强转，c 的值为 1
+constexpr int v8 = (float)1; // 强转，d 的值为 1
+
+constexpr int a = 0;
+constexpr int v9 = (int)(long)&a; // error，不允许涉及指针类型的强制类型转换
 ```
 
-5. 函数指针可以使用 constexpr 修饰，函数指针可以指向 constexpr 函数
-6. constexpr 可以修饰指针变量，但其只能指向全局变量或静态变量
+如果常量表达式在求值过程中出现未定义行为，那么它也不是可编译时求值的常量表达式：
+- 除数为 0 的除法或取模运算
+- 有符号整数溢出
+- 移位位数大于等于操作数类型的宽度，或移位位数为负数
+- 数组下标越界，例如对字符串字面量使用越界的下标
+- 浮点数除以 0
+
+```c
+constexpr int a = 1 / 0;              //error: division by zero
+constexpr int b = 1 % 0;              //error: division by zero
+constexpr int c = 2147483647 + 1;     //error: value 2147483648 is outside the range of representable values of type 'int'
+constexpr int d = 1 << 40;            //error（同时给出 shift count >= width of type 告警）
+constexpr int e2 = 1 << -1;           //error: negative shift count -1
+constexpr char f = "ab"[5];           //error: cannot refer to element 5 of array of 3 elements in a constant expression
+constexpr int g2 = (int)(1.0 / 0.0);  //error: division by zero
+```
+
+需要说明的是，只有当求值过程真正执行到该运算时才会报错。短路求值（&&、||）和 ?: 中没有被选中的分支不会被求值，因此其中即使包含未定义行为也不会报错：
+
+```c
+constexpr int x = 0 && (1 / 0);     //ok，&& 的右操作数不会被求值
+constexpr int y = 0 ? (1 / 0) : 5;  //ok，?: 中没有被选中的分支不会被求值
+```
+
+相比于 const 变量，constexpr 变量：
+1. 必须初始化
+2. 只能修饰“编译时计算”类型
+3. 可以用作常量表达式
+
+其他规则与 const 变量相同。constexpr 变量的存储期和链接性(storage duration 与 linkage)与同作用域的 const 变量相同。
 
 ###### constexpr 修饰函数
 
@@ -882,7 +927,43 @@ constexpr int foo<T>();
 - constexpr 函数体内不允许调用非 constexpr 函数
 - constexpr 函数体内不允许访问外部的非 constexpr 变量
 - constexpr 函数体内不允许内嵌汇编
-- constexpr 函数体内允许定义不使用 constexpr 修饰的局部变量，这些变量也只能是“编译时计算”的类型
+- constexpr 函数体内允许定义局部变量，但(1)这些变量只能是“编译时计算”的类型；(2)这些变量在函数体内不可被修改（赋值、自增等）
+```c
+constexpr int foo(int n) {
+    int s = 0;
+    s = 1; //error
+    return s;
+}
+
+constexpr int bar(int n) {
+    int s = n + 1;
+    return s * 2;   //ok，只读取局部变量的值
+}
+```
+- constexpr 函数体内支持 if 语句、constexpr if 语句、switch 语句，也支持递归调用
+```c
+constexpr int fib(int n) {
+    if (n == 0 || n == 1) return n;
+    return fib(n - 1) + fib(n - 2); //ok，支持递归
+}
+
+_Static_assert(fib(10) == 55, "fail");
+```
+- constexpr 函数体内不支持 for、while、do-while 循环语句，也不支持 goto 语句
+```c
+constexpr int foo(int n) {
+    while (n > 0) { //error: statement not allowed in constexpr function
+        n--;
+    }
+    return n;
+}
+
+constexpr int bar(int n) {
+    goto Label; //error
+Label:
+    return n;
+}
+```
 
 5. 在非“常量计算”的上下文中，constexpr 修饰的函数可以当作普通函数使用，实参不需要是常量，返回值也不需要是常量。在“常量计算”的上下文中，实参和返回值都要求是常量表达式，否则会报错
 ```c
@@ -900,9 +981,14 @@ int main(){
     return 0;
 }
 ```
-6. constexpr 可以修饰成员函数，包括普通成员函数和静态成员函数
+6. constexpr 可以修饰成员函数，包括实例成员函数和静态成员函数
 ```c
-//普通成员函数，参数 This* this 不属于编译时计算类型
+//实例成员函数，参数可以使用 This this (This 必须是“编译时计算”类型)
+constexpr int int::foo(This this) {
+  return this+1;
+}
+
+//This* this 不属于编译时计算类型，以下形式报错
 constexpr int int::foo1(This* this) { //error
     return 5;
 }
@@ -917,9 +1003,9 @@ int main() {
     return 0;
 }
 ```
-6. constexpr 不允许修饰 _Async 函数
-7. constexpr 不允许支持变长参数
-8. 函数的形参不能用 constexpr 修饰
+7. constexpr 不允许修饰 _Async 函数
+8. constexpr 不允许支持变长参数
+9. 函数的形参不能用 constexpr 修饰
 ```c
 int foo1(constexpr int a) { //error
     return 5;
@@ -1193,7 +1279,7 @@ int main() {
 }
 ```
 
-constexpr if 语句中，因为条件表达式是编译时计算的常量表达式，求值为 false 的分支会被定义为 “discarded statement”，会在编译期作为死代码被消除。
+constexpr if 语句中，因为条件表达式是编译时计算的常量表达式，求值为 false 的分支会被定义为 “discarded statement”，会在编译期作为死代码被消除。源源变换时 discarded statement 会被去除。
 例如：
 ```c
 if constexpr (<cond>) {  //如果<cond>的值为true
@@ -1204,7 +1290,7 @@ if constexpr (<cond>) {  //如果<cond>的值为true
 ```
 
 对于 discarded statement，有如下规则：
-1. 在非泛型上下文内，discarded statement 仍然需要做完整的语法语义检查。
+1. 在非泛型上下文内，discarded statement 仍然需要做完整的语法语义检查（包括安全区的规则检查）。毕昇C的内存安全检查（所有权、借用、空指针、初始化）则不会执行。
 2. 在泛型上下文内，discarded statement 不会被实例化，也就不会进行实例化之后的语义检查。
 例如：
 ```c
@@ -1226,6 +1312,41 @@ int main() {
     foo<int>(5);
     foo<int*>(&b);
     return 0;
+}
+```
+
+此外，`if constexpr` 下对于 `goto` 的使用还有以下限制：如果有 `goto` 跳转的目标是 `if constexpr` 的其中一个分支，那么这条 `goto` 语句必须在这个分支内，即不允许从 `if constexpr` 外部或另一分支跳转到当前分支。允许从 `if constexpr` 其中一个分支内使用 `goto` 跳转到 `if constexpr` 外。以上规则同时适用于泛型与非泛型上下文。
+```c
+void f1(void) {
+    if constexpr (1) {
+        goto L; // error，goto 从 taken 分支跳入 discarded 分支，报错
+    } else {
+L:      ;
+    }
+}
+
+void f2(void) {
+    if constexpr (1) {
+        goto L; // ok，goto 与 label 在同一个分支内
+L:      ;
+    } else {
+    }
+}
+
+void f3(void) {
+    if constexpr (1) {
+        goto L; // ok，label 在 if constexpr 之外，允许跳转
+    } else {
+    }
+L:  ;
+}
+
+void f4<int N>(void) {
+    if constexpr (N == 1) {
+        goto L; // error。即使泛型上下文中该分支在某次实例化时被丢弃，泛型定义处依然报错
+    } else {
+L:      ;
+    }
 }
 ```
 

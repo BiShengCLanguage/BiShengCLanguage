@@ -1,0 +1,63 @@
+// RUN: %clang_cc1 -verify %s
+
+// Both arms of an `if constexpr` are protected scopes: a `goto` may not jump
+// into them from outside, nor from the other arm. This holds for any condition
+// value, and for a generic function it is checked on the definition itself, so
+// a jump that is dead in some instantiation is still rejected.
+
+void goto_into_discarded(void) {
+    if constexpr (1) { // expected-note {{jump enters controlled statement of constexpr if}}
+        goto L;        // expected-error {{cannot jump from this goto statement to its label}}
+    } else {
+L:      ;
+    }
+}
+
+void goto_into_other_arm(void) {
+    if constexpr (1) { // expected-note {{jump enters controlled statement of constexpr if}}
+L:      ;
+    } else {
+        goto L;        // expected-error {{cannot jump from this goto statement to its label}}
+    }
+}
+
+void goto_after_if(void) {
+    if constexpr (1) { // expected-note {{jump enters controlled statement of constexpr if}}
+L:      ;
+    } else {
+    }
+    goto L;            // expected-error {{cannot jump from this goto statement to its label}}
+}
+
+// Not instantiated: the diagnostic is emitted for the generic definition.
+void generic_goto_into_discarded<int N>(void) {
+    if constexpr (N == 1) { // expected-note {{jump enters controlled statement of constexpr if}}
+        goto L;             // expected-error {{cannot jump from this goto statement to its label}}
+    } else {
+L:      ;
+    }
+}
+
+// Not instantiated either.
+void generic_goto_into_taken<int N>(void) {
+    if constexpr (N == 1) { // expected-note {{jump enters controlled statement of constexpr if}}
+L:      ;
+    } else {
+        goto L;             // expected-error {{cannot jump from this goto statement to its label}}
+    }
+}
+
+// Instantiated below: reported once for the definition and once per
+// instantiation.
+void generic_goto_instantiated<int N>(void) {
+    if constexpr (N == 1) { // expected-note 2 {{jump enters controlled statement of constexpr if}}
+L:      ;
+    } else {
+    }
+    goto L;                 // expected-error 2 {{cannot jump from this goto statement to its label}}
+}
+
+int main(void) {
+    generic_goto_instantiated<1>(); // expected-note {{in instantiation of function template specialization 'generic_goto_instantiated<1>' requested here}}
+    return 0;
+}

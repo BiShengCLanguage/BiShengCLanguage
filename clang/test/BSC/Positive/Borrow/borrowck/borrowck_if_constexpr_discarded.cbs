@@ -1,0 +1,136 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -fbsc-experimental -Xclang -ast-dump -fsyntax-only %s | FileCheck %s --check-prefix=DUMP
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+// RUN: FileCheck %s --check-prefix=REWRITE < %t-rw.c
+// expected-no-diagnostics
+
+// The untaken branch of an `if constexpr` is a discarded statement: it is dead
+// code, so the borrow checker must not analyse it (the initialization,
+// nullability and ownership checks skip it as well). Only the taken branch is
+// checked.
+
+void use_int(int v) { (void)v; }
+
+void discard_else(void) {
+  if constexpr (1) {
+    int a = 1;
+    int *_Borrow p = &_Mut a;
+    *p = 2;
+    use_int(a);
+  } else {
+    // Alias xor mutability: would be "cannot borrow 'p' as mutable more than
+    // once at a time" if this branch were reachable.
+    int a = 1;
+    int *_Borrow p = &_Mut a;
+    int *_Borrow *_Borrow q1 = &_Mut p;
+    int *_Borrow *_Borrow q2 = &_Mut p;
+    **q1 = 2;
+    **q2 = 3;
+
+    // Shared reborrow of a mutably borrowed pointer: would be "cannot borrow
+    // 'r1' as immutable because it is also borrowed as mutable".
+    int b = 1;
+    int *_Borrow r1 = &_Mut b;
+    int *_Borrow const *_Borrow r2 = &_Const r1;
+    use_int(**r2);
+    *r1 = 4;
+
+    // Borrow checking skips this branch but must not remove it from the AST.
+    int discarded_marker = 0;
+    use_int(discarded_marker);
+  }
+}
+
+void discard_then(void) {
+  if constexpr (0) {
+    // Alias xor mutability in the "then" branch.
+    int a = 1;
+    int *_Borrow p = &_Mut a;
+    int *_Borrow *_Borrow q1 = &_Mut p;
+    int *_Borrow *_Borrow q2 = &_Mut p;
+    **q1 = 2;
+    **q2 = 3;
+  } else {
+    int a = 1;
+    int *_Borrow p = &_Mut a;
+    *p = 5;
+    use_int(a);
+  }
+}
+
+// A discarded statement nested inside a discarded statement.
+void nested(void) {
+  if constexpr (1) {
+    int a = 1;
+    int *_Borrow p = &_Mut a;
+    *p = 6;
+    use_int(a);
+  } else {
+    if constexpr (0) {
+      int b = 1;
+      int *_Borrow q1 = &_Mut b;
+      int *_Borrow q2 = &_Mut b;
+      *q1 = 7;
+      *q2 = 8;
+    }
+  }
+}
+
+// The discarded statement may also be a single statement instead of a block.
+void single_statement(void) {
+  int c = 0;
+  if constexpr (0)
+    while (c < 1) {
+      int a = 1;
+      int *_Borrow p = &_Mut a;
+      int *_Borrow *_Borrow q1 = &_Mut p;
+      int *_Borrow *_Borrow q2 = &_Mut p;
+      **q1 = 2;
+      **q2 = 3;
+    }
+  else
+    c = 1;
+
+  if constexpr (1)
+    c = 2;
+  else
+    while (c < 2) {
+      int b = 1;
+      int *_Borrow p = &_Mut b;
+      int *_Borrow *_Borrow q1 = &_Mut p;
+      int *_Borrow *_Borrow q2 = &_Mut p;
+      **q1 = 2;
+      **q2 = 3;
+    }
+  use_int(c);
+}
+
+int main(void) {
+  discard_else();
+  discard_then();
+  nested();
+  single_statement();
+  return 0;
+}
+
+// The discarded statements are dropped from the generated C: only the taken
+// branches appear.
+// REWRITE: void discard_else(void) {
+// REWRITE: *p = 2;
+// REWRITE-NOT: q2
+// REWRITE-NOT: discarded_marker
+// REWRITE: void discard_then(void) {
+// REWRITE: *p = 5;
+// REWRITE-NOT: q1
+// REWRITE-NOT: q2
+// REWRITE: void nested(void) {
+// REWRITE: *p = 6;
+// REWRITE-NOT: q2
+// REWRITE: int main(void) {
+
+// The borrow checker only skips discarded statements, it does not remove them
+// from the AST.
+// DUMP: VarDecl {{.*}} discarded_marker

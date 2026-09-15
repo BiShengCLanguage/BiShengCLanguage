@@ -349,6 +349,27 @@ void StmtPrinter::VisitAttributedStmt(AttributedStmt *Node) {
   PrintStmt(Node->getSubStmt(), 0);
 }
 
+#if ENABLE_BSC
+/// Return the compile-time value of the condition of a constexpr `if`, if it is
+/// known. Used when rewriting BSC source to C: the untaken branch of an
+/// `if constexpr` is a discarded statement and is not emitted.
+static bool getConstexprIfValue(const IfStmt *If, const ASTContext *Context,
+                                bool &Value) {
+  const Expr *Cond = If->getCond();
+  if (const auto *CE = dyn_cast<ConstantExpr>(Cond)) {
+    if (CE->hasAPValueResult()) {
+      const APValue Result = CE->getAPValueResult();
+      if (Result.isInt()) {
+        Value = !Result.getInt().isZero();
+        return true;
+      }
+    }
+  }
+  return Context && !Cond->isValueDependent() &&
+         Cond->EvaluateAsBooleanCondition(Value, *Context);
+}
+#endif
+
 void StmtPrinter::PrintRawIfStmt(IfStmt *If) {
   if (If->isConsteval()) {
     OS << "if ";
@@ -365,6 +386,69 @@ void StmtPrinter::PrintRawIfStmt(IfStmt *If) {
     }
     return;
   }
+
+#if ENABLE_BSC
+  // When rewriting BSC source to C, an `if constexpr` becomes an ordinary `if`.
+  // Its untaken branch is a discarded statement: it never executes, it is not
+  // covered by all BSC analyses and it need not be expressible in C. Do not
+  // emit it, but keep the `if` so the generated code still mirrors the source.
+  bool DropThen = false, DropElse = false;
+  if (Policy.RewriteBSC && If->isConstexpr()) {
+    bool CondValue;
+    if (getConstexprIfValue(If, Context, CondValue)) {
+      DropThen = !CondValue;
+      DropElse = CondValue;
+    }
+  }
+
+  if (DropThen || DropElse) {
+    OS << "if (";
+    if (If->getInit())
+      PrintInitStmt(If->getInit(), 4);
+    if (const DeclStmt *DS = If->getConditionVariableDeclStmt())
+      PrintRawDeclStmt(DS);
+    else
+      PrintExpr(If->getCond());
+    OS << ')';
+
+    bool HasElse = If->getElse() != nullptr;
+
+    // The "then" branch is emitted only when it is not a discarded statement.
+    if (DropThen) {
+      OS << " {}";
+      OS << (HasElse ? " " : NL);
+    } else if (auto *CS = dyn_cast<CompoundStmt>(If->getThen())) {
+      OS << ' ';
+      PrintRawCompoundStmt(CS);
+      OS << (HasElse ? " " : NL);
+    } else {
+      OS << NL;
+      PrintStmt(If->getThen());
+      if (HasElse)
+        Indent();
+    }
+
+    // The "else" branch is emitted only when it is not a discarded statement;
+    // an `else` that is a discarded statement is printed empty.
+    if (HasElse) {
+      OS << "else";
+      if (DropElse) {
+        OS << " {}" << NL;
+      } else if (auto *CS = dyn_cast<CompoundStmt>(If->getElse())) {
+        OS << ' ';
+        PrintRawCompoundStmt(CS);
+        OS << NL;
+      } else if (auto *ElseIf = dyn_cast<IfStmt>(If->getElse())) {
+        OS << ' ';
+        PrintRawIfStmt(ElseIf);
+      } else {
+        OS << NL;
+        PrintStmt(If->getElse());
+      }
+    }
+    return;
+  }
+#endif
 
   OS << "if (";
   if (If->getInit())

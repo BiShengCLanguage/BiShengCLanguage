@@ -24,7 +24,7 @@ int *_Borrow test1(int *_Borrow p) {
 
 int *_Borrow test2(int *_Borrow p) {
   int local = 42;
-  while (0)
+  while (local)
     return &_Mut local; // expected-error {{'local' does not live long enough}}
                        // expected-note@-1 {{'local' dropped here while still borrowed}}
   return &_Mut local; // expected-error {{'local' does not live long enough}}

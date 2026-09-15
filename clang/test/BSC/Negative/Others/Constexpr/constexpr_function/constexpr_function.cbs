@@ -42,6 +42,19 @@ constexpr int foo9() { // expected-error {{constexpr function never produces a c
     return 1;
 }
 
+// A void-typed discarded-value expression is allowed in a constexpr function
+// body, but it must not hide an otherwise non-constant operand.
+constexpr int foo9_void() { // expected-error {{constexpr function never produces a constant expression}}
+    (void)bar(); // expected-note {{subexpression not valid in a constant expression}}
+    return 1;
+}
+
+constexpr int foo9_void_mutate() { // expected-error {{constexpr function never produces a constant expression}}
+    int s = 0;
+    (void)(s++); // expected-note {{subexpression not valid in a constant expression}}
+    return s;
+}
+
 constexpr int foo10<T>() {
     T a = 5;  //expected-error {{BSC constexpr function does not support type 'float'}}
     return 1;

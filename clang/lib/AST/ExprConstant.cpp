@@ -14863,7 +14863,13 @@ static bool Evaluate(APValue &Result, EvalInfo &Info, const Expr *E) {
       return false;
     Result = Value;
   } else if (T->isVoidType()) {
+#if ENABLE_BSC
+    // BSC supports void-typed expressions (e.g. `(void)1;`) in constexpr
+    // function bodies, just like C++11 and later.
+    if (!Info.getLangOpts().CPlusPlus11 && !Info.getLangOpts().BSC)
+#else
     if (!Info.getLangOpts().CPlusPlus11)
+#endif
       Info.CCEDiag(E, diag::note_constexpr_nonliteral)
         << E->getType();
     if (!EvaluateVoid(E, Info))

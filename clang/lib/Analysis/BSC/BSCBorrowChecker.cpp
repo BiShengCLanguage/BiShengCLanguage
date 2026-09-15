@@ -760,7 +760,8 @@ Environment::Environment(const FunctionDecl &fd, const CFG &cfg,
       callExprParamRegions(std::move(RG.CallExprParamRegions)),
       recordRegionLayouts(std::move(RG.RecordRegionLayouts)),
       defVarianceMap(std::move(DVA.DefVarianceMap)),
-      freeRegions(std::move(RG.FreeRegions)) {
+      freeRegions(std::move(RG.FreeRegions)),
+      reachability(cfg) {
 #if DEBUG_PRINT
   printRegionMap();
 #endif
@@ -2030,6 +2031,9 @@ void Liveness::Compute() {
     changed = false;
 
     for (const CFGBlock *B : env.cfg.const_nodes()) {
+      if (!env.isReachable(B))
+        continue;
+
       SimulateBlock(fact, B,
                     [](auto _p, auto _a, auto _s, auto _v, auto _l) {});
       changed |= SetFrom(liveness[B], fact);
@@ -2100,6 +2104,9 @@ template <typename CB> void Liveness::Walk(CB callback) {
   LivenessFact fact;
 
   for (const CFGBlock *B : env.cfg.const_nodes()) {
+    if (!env.isReachable(B))
+      continue;
+
     SimulateBlock(fact, B, callback);
   }
 }
@@ -2123,6 +2130,9 @@ LoansInScope::LoansInScope(const Environment &env, const RegionCheck &rc)
   // Collect the full set of loans, including explicit loans and implicit
   // mutable reborrows from aggregate copies.
   for (const CFGBlock *Block : env.cfg.const_reverse_nodes()) {
+    if (!env.isReachable(Block))
+      continue;
+
     for (CFGBlock::const_iterator It = Block->begin(), End = Block->end();
          It != End; ++It) {
       Point P = Point::Create(Block, It);
@@ -2233,6 +2243,9 @@ void LoansInScope::Compute() {
     changed = false;
 
     for (const CFGBlock *B : env.cfg.const_reverse_nodes()) {
+      if (!env.isReachable(B))
+        continue;
+
       SimulateBlock(fact, B, [](auto _p, auto _s) {});
       changed |= SetFrom(loansInScopeAfterBlock[B], fact);
     }
@@ -2245,6 +2258,9 @@ template <typename CB> void LoansInScope::Walk(CB callback) {
   LoansFact fact;
 
   for (const CFGBlock *B : env.cfg.const_reverse_nodes()) {
+    if (!env.isReachable(B))
+      continue;
+
     SimulateBlock(fact, B, [&](Point point, LoansFact &fact) {
       // Convert from the LoansFact into a vector of loans.
       loans.clear();
@@ -2754,6 +2770,9 @@ void RegionCheck::InitFreeRegions() {
            "free region should already have a region variable");
     RegionVariable RV = It->second;
     for (const CFGBlock *block : env.cfg.const_nodes()) {
+      if (!env.isReachable(block))
+        continue;
+
       for (CFGBlock::const_iterator it = block->begin(), ei = block->end();
            it != ei; ++it) {
         Point point = Point::Create(block, it);
@@ -2770,6 +2789,9 @@ void RegionCheck::InitFreeRegions() {
 
 void RegionCheck::GenerateActions() {
   for (const CFGBlock *Block : env.cfg.const_nodes()) {
+    if (!env.isReachable(Block))
+      continue;
+
     for (CFGBlock::const_iterator it = Block->begin(), ei = Block->end();
          it != ei; ++it) {
       const CFGElement &Elem = *it;

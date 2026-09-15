@@ -17,9 +17,7 @@ int main() {
 // CHECK-NEXT:     int b;
 // CHECK-NEXT:     if (35) {
 // CHECK-NEXT:         b = 6;
-// CHECK-NEXT:     } else {
-// CHECK-NEXT:         b = 5;
-// CHECK-NEXT:     }
+// CHECK-NEXT:     } else {}
 // CHECK-NEXT:     return 0;
 // CHECK-NEXT: }
 

@@ -1,0 +1,90 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// The borrow checker only analyses code that can execute: CFG blocks that are
+// unreachable from the entry block are skipped, exactly like the other BSC
+// safety analyses (ownership and nullability) do. Such dead code is not only
+// the discarded statement of an `if constexpr`, but any branch or statement
+// that a constant condition makes unreachable.
+
+void use_int(int v) { (void)v; }
+
+void use_mut(int *_Borrow v) { (void)v; }
+
+// The `else` branch of a constant condition is unreachable.
+void unreachable_else_of_constant_condition(void) {
+  int a = 1;
+  if (1) {
+    a = 2;
+  } else {
+    int b = 1;
+    int *_Borrow p = &_Mut b;
+    int *_Borrow *_Borrow q1 = &_Mut p;
+    int *_Borrow *_Borrow q2 = &_Mut p;
+    **q1 = 3;
+    **q2 = 4;
+  }
+  use_int(a);
+}
+
+// ... and so is the `then` branch of a constant condition.
+void unreachable_then_of_constant_condition(void) {
+  int a = 1;
+  if (0) {
+    int b = 1;
+    int *_Borrow p = &_Mut b;
+    int *_Borrow *_Borrow q1 = &_Mut p;
+    int *_Borrow *_Borrow q2 = &_Mut p;
+    **q1 = 3;
+    **q2 = 4;
+  } else {
+    a = 2;
+  }
+  use_int(a);
+}
+
+// The body of a loop whose condition is a constant false value is unreachable.
+void unreachable_loop_body(void) {
+  int a = 1;
+  while (0) {
+    int b = 1;
+    int *_Borrow p = &_Mut b;
+    int *_Borrow *_Borrow q1 = &_Mut p;
+    int *_Borrow *_Borrow q2 = &_Mut p;
+    **q1 = 3;
+    **q2 = 4;
+  }
+  use_int(a);
+}
+
+// Code following a `return` that always executes is unreachable.
+void unreachable_after_return(void) {
+  int a = 1;
+  use_mut(&_Mut a);
+  return;
+  int b = 1;
+  int *_Borrow p = &_Mut b;
+  int *_Borrow *_Borrow q1 = &_Mut p;
+  int *_Borrow *_Borrow q2 = &_Mut p;
+  **q1 = 3;
+  **q2 = 4;
+}
+
+// A reachable branch is still checked: the alias-xor-mutability violation below
+// is reported by the negative tests, not here.
+void reachable_code_is_still_checked(int c) {
+  int a = 1;
+  if (c) {
+    use_int(a);
+  }
+}
+
+int main(void) {
+  unreachable_else_of_constant_condition();
+  unreachable_then_of_constant_condition();
+  unreachable_loop_body();
+  unreachable_after_return();
+  reachable_code_is_still_checked(1);
+  return 0;
+}

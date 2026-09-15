@@ -53,11 +53,7 @@ int main() {
 }
 
 // CHECK:static void foo_int(int a) {
-// CHECK-NEXT:    if (0)
-// CHECK-NEXT:        ;
-// CHECK-NEXT:    else if (0)
-// CHECK-NEXT:        ;
-// CHECK-NEXT:    else {
+// CHECK-NEXT:    if (0) {} else if (0) {} else {
 // CHECK-NEXT:        printf("T is a generic case\n");
 // CHECK-NEXT:    }
 // CHECK-NEXT:}
@@ -70,19 +66,13 @@ int main() {
 // CHECK-NEXT:}
 // CHECK-EMPTY:
 // CHECK-NEXT:static void foo_struct_G(struct G a) {
-// CHECK-NEXT:    if (0)
-// CHECK-NEXT:        ;
-// CHECK-NEXT:    else if (1)
+// CHECK-NEXT:    if (0) {} else if (1) {
 // CHECK-NEXT:        printf("T is a struct\n");
 // CHECK-NEXT:    }
 // CHECK-NEXT:}
 // CHECK-EMPTY:
 // CHECK-NEXT:static void struct_S_int_foo(struct S_int *this) {
-// CHECK-NEXT:    if (0)
-// CHECK-NEXT:        ;
-// CHECK-NEXT:    else if (0)
-// CHECK-NEXT:        ;
-// CHECK-NEXT:    else {
+// CHECK-NEXT:    if (0) {} else if (0) {} else {
 // CHECK-NEXT:        printf("T is a generic case\n");
 // CHECK-NEXT:    }
 // CHECK-NEXT:}
@@ -95,9 +85,7 @@ int main() {
 // CHECK-NEXT:}
 // CHECK-EMPTY:
 // CHECK-NEXT:static void struct_S_struct_G_foo(struct S_struct_G *this) {
-// CHECK-NEXT:    if (0)
-// CHECK-NEXT:        ;
-// CHECK-NEXT:    else if (1)
+// CHECK-NEXT:    if (0) {} else if (1) {
 // CHECK-NEXT:        printf("T is a struct\n");
 // CHECK-NEXT:    }
 // CHECK-NEXT:}

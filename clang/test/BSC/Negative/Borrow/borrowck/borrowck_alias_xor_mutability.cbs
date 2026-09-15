@@ -62,3 +62,17 @@ void alias_arrow_field_path_conflicts_through_second_level(void) {
   **q = 3;
   *r = 4;
 }
+
+// The discarded branch of an `if constexpr` is not borrow checked, but the
+// taken branch still is.
+void if_constexpr_taken_branch_is_checked(void) {
+  if constexpr (0) {
+  } else {
+    int a = 1;
+    int *_Borrow p = &_Mut a;
+    int *_Borrow *_Borrow q1 = &_Mut p; // expected-note {{first mut borrow occurs here}}
+    int *_Borrow *_Borrow q2 = &_Mut p; // expected-error {{cannot borrow 'p' as mutable more than once at a time}}
+    **q1 = 2;
+    **q2 = 3;
+  }
+}

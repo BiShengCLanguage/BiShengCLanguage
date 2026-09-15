@@ -17,6 +17,7 @@
 
 #include "clang/AST/BSC/TypeBSC.h"
 #include "clang/AST/Decl.h"
+#include "clang/Analysis/Analyses/CFGReachabilityAnalysis.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/Sema.h"
@@ -808,6 +809,10 @@ public:
   /// the same order as the corresponding Ty region parameters.
   const DefVarianceMap defVarianceMap;
   const FreeRegionList freeRegions;
+  /// Reachability of the CFG blocks: blocks that cannot be reached from the
+  /// entry block are statically dead code. Queries populate an internal cache,
+  /// hence `mutable`.
+  mutable CFGReverseBlockReachabilityAnalysis reachability;
 
 #if DEBUG_PRINT
   void printRegionMapKey(RegionMapKeyTy Key) const;
@@ -818,6 +823,16 @@ public:
 public:
   Environment(const FunctionDecl &fd, const CFG &cfg, const ASTContext &Ctx,
               RegionGenerator &RG, DefVarianceAnalysis &DVA);
+
+  /// Returns true if \p B can be reached from the entry block. The analysis must
+  /// ignore the blocks that cannot be reached: they are statically dead code
+  /// (e.g. the discarded statement of an `if constexpr`) and never execute.
+  bool isReachable(const CFGBlock *B) const {
+    const CFGBlock &Entry = cfg.getEntry();
+    // `isReachable(Entry, Entry)` is false by design: the entry block is the
+    // starting point, so it is always reachable.
+    return B == &Entry || reachability.isReachable(&Entry, B);
+  }
 
   /// Returns references to the precomputed regions associated with an AST key.
   llvm::SmallVector<const RegionName *, 2>

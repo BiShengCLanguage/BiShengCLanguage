@@ -1,0 +1,41 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang -fbsc-experimental %s -o %t.output
+// RUN: %t.output
+
+// Local struct/union/enum type definitions are allowed in constexpr function
+// bodies, consistently with the enum handling and with C++1y, and are not
+// diagnosed as a C++14 extension.
+
+// expected-no-diagnostics
+
+constexpr int local_struct(void) {
+    struct LocalS { int a; };
+    return 1;
+}
+_Static_assert(local_struct() == 1, "fail");
+
+constexpr int local_union(void) {
+    union LocalU { int a; char b; };
+    return 2;
+}
+_Static_assert(local_union() == 2, "fail");
+
+constexpr int local_enum(void) {
+    enum LocalE { A = 3 };
+    return A;
+}
+_Static_assert(local_enum() == 3, "fail");
+
+constexpr int local_forward_decl(void) {
+    struct LocalF;
+    return 4;
+}
+_Static_assert(local_forward_decl() == 4, "fail");
+
+int main(void) {
+    _Static_assert(local_struct() == 1, "fail");
+    _Static_assert(local_union() == 2, "fail");
+    _Static_assert(local_enum() == 3, "fail");
+    _Static_assert(local_forward_decl() == 4, "fail");
+    return 0;
+}
