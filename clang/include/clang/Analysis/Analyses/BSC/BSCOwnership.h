@@ -18,6 +18,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Stmt.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
+#include "clang/Analysis/Analyses/BSC/BSCPlace.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Sema/Sema.h"
@@ -368,8 +369,52 @@ public:
     };
     using OwnershipSet = llvm::BitVector;
 
+    // Field-path state is keyed by bsc::Place: a root variable followed by
+    // field / deref / index projections, mirroring the historical string
+    // paths ("f.g", "arr[]", "f*", "pp**" — see BSCOwnership.cpp for the
+    // key-shape mapping). Membership is structural (DenseMapInfo over
+    // places), while iteration reproduces the historical SmallSet<std::string,
+    // 10> order contract: up to 10 elements iterate in insertion order (an
+    // erase keeps the relative order of the rest, a re-insert appends at the
+    // end), and once an 11th distinct element is inserted the set stays in
+    // "grown" mode and iterates lexicographically by the historical key
+    // spelling (the old std::set overflow). Field lists in diagnostics
+    // depend on this order. One deliberate corner-case divergence: after
+    // growing, SmallSet returns to insertion order once fully emptied,
+    // while Grown here is sticky — unreachable in practice (per-function
+    // field counts rarely reach 11) and only diagnostic order would differ.
+    class FieldSet {
+      llvm::SmallVector<const bsc::Place *, 10> Order;
+      llvm::DenseSet<const bsc::Place *> Set;
+      bool Grown = false;
+      mutable llvm::SmallVector<const bsc::Place *, 16> SortedCache;
+      mutable bool CacheValid = false;
+
+      void ensureSorted() const;
+
+    public:
+      using const_iterator =
+          typename llvm::SmallVector<const bsc::Place *, 16>::const_iterator;
+
+      bool insert(const bsc::Place *P);
+      bool erase(const bsc::Place *P);
+      size_t count(const bsc::Place *P) const { return Set.count(P); }
+      void clear() {
+        Order.clear();
+        Set.clear();
+        CacheValid = false;
+      }
+      size_t size() const { return Set.size(); }
+      bool empty() const { return Set.empty(); }
+      const_iterator begin() const;
+      const_iterator end() const;
+      bool operator==(const FieldSet &RHS) const;
+      bool operator!=(const FieldSet &RHS) const { return !(*this == RHS); }
+    };
+
+    // One shared set type across the three families.
     // owned pointer struct status, e.g. struct S * owned s
-    using OPSOwnedField = llvm::SmallSet<std::string, 10>;
+    using OPSOwnedField = FieldSet;
     llvm::DenseMap<const VarDecl *, OwnershipSet> OPSStatus;
     llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSAllOwnedFields;
     llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSOwnedOwnedFields;
@@ -377,7 +422,7 @@ public:
     llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSMovedOwnedFields;
 
     // struct status, e.g. struct S s
-    using SOwnedField = llvm::SmallSet<std::string, 10>;
+    using SOwnedField = FieldSet;
     llvm::DenseMap<const VarDecl *, OwnershipSet> SStatus;
     llvm::DenseMap<const VarDecl *, SOwnedField> SAllOwnedFields;
     llvm::DenseMap<const VarDecl *, SOwnedField> SOwnedOwnedFields;
@@ -385,10 +430,12 @@ public:
     // Owned field paths never yet assigned; distinguishes uninitialized from
     // moved-out at field granularity.
     llvm::DenseMap<const VarDecl *, SOwnedField> SUninitOwnedFields;
+    // Owned field paths moved out on some branch; a merge preserves them (and
+    // may simultaneously keep may-own state for leak diagnostics).
     llvm::DenseMap<const VarDecl *, SOwnedField> SMovedOwnedFields;
 
     // basic owned pointer status, e.g. int * owned p
-    using BOPOwnedField = llvm::SmallSet<std::string, 10>;
+    using BOPOwnedField = FieldSet;
     llvm::DenseMap<const VarDecl *, OwnershipSet> BOPStatus;
     llvm::DenseMap<const VarDecl *, BOPOwnedField> BOPAllOwnedFields;
     llvm::DenseMap<const VarDecl *, BOPOwnedField> BOPOwnedOwnedFields;
@@ -408,13 +455,16 @@ public:
     void set(const VarDecl *VD, Status S);
     void reset(const VarDecl *VD, Status S);
     void resetAll(const VarDecl *VD);
-    void init(const VarDecl *VD);
+    // Methods that build field-path places from the AST take the ASTContext
+    // (arena + PlaceBuilder) as a parameter: OwnershipStatus itself holds no
+    // context.
+    void init(const VarDecl *VD, ASTContext &Ctx);
     void setToOwned(const VarDecl *VD);
     void setToAllMoved(const VarDecl *VD);
-    void setToAllMoved(const Expr *E);
+    void setToAllMoved(const Expr *E, ASTContext &Ctx);
     void setToNull(const VarDecl *VD);
-    void setToNull(const Expr *E);
-    void setOwnedFieldNull(const VarDecl *VD, const std::string &fieldPath);
+    void setToNull(const Expr *E, ASTContext &Ctx);
+    void setOwnedFieldNull(const VarDecl *VD, const bsc::Place *fieldPath);
     void assumeAllOwnedFieldsNull(const VarDecl *VD);
     // __assume_null(t) on a struct-value variable (VD in SStatus): drop ownership
     // of every registered owned field of the struct value.
@@ -423,16 +473,16 @@ public:
     // ownership of every owned field nested under `fieldPath` (prefix match),
     // on whichever host (OPS owned struct pointer or S struct value) tracks VD.
     void assumeOwnedFieldsUnderNull(const VarDecl *VD,
-                                   const std::string &fieldPath);
+                                    const bsc::Place *fieldPath);
     // __forget(*s) / __forget(t) / __forget(s->in): the Moved-semantics
     // counterparts of assumeAllOwnedFieldsNull / assumeAllSFieldsNull /
     // assumeOwnedFieldsUnderNull (fields abandoned, not asserted null).
     void forgetAllOwnedFields(const VarDecl *VD);
     void forgetAllSFields(const VarDecl *VD);
     void forgetOwnedFieldsUnderPath(const VarDecl *VD,
-                                    const std::string &fieldPath);
+                                    const bsc::Place *fieldPath);
     void setToMoved(const VarDecl *VD);
-    void setToMoved(const Expr *E);
+    void setToMoved(const Expr *E, ASTContext &Ctx);
 
     // whole-array / struct-field ownership transitions applied
     // by the dataflow when a qualifying for-loop transfers array elements.
@@ -441,21 +491,20 @@ public:
     void setArrayElemMoved(const VarDecl *VD);
     void setArrayElemOwned(const VarDecl *VD);
     void setArrayElemNull(const VarDecl *VD);
-  void setArrayFieldMoved(const VarDecl *VD, const std::string &fieldName);
-  void setArrayFieldOwned(const VarDecl *VD, const std::string &fieldName);
-  void setArrayFieldNull(const VarDecl *VD, const std::string &fieldName);
+    void setArrayFieldMoved(const VarDecl *VD, const bsc::Place *fieldName);
+    void setArrayFieldOwned(const VarDecl *VD, const bsc::Place *fieldName);
+    void setArrayFieldNull(const VarDecl *VD, const bsc::Place *fieldName);
     // Shared by the three setArrayField*: after erasing / inserting fieldName
     // (and its `fieldName.` prefix children) in the per-VD owned set, refresh
     // the aggregate bit state from the owned count vs the static field list.
-    void refreshArrayFieldState(const VarDecl *VD,
-                                const llvm::SmallSet<std::string, 10> &Owned,
-                                const llvm::SmallSet<std::string, 10> &All);
+    void refreshArrayFieldState(const VarDecl *VD, const FieldSet &Owned,
+                                const FieldSet &All);
     // Whether the aggregate is (possibly) uninitialized, or owns nothing (the
     // whole aggregate / the given field is null). Shared by the move-out checks
     // (BOP uses status bits; S/OPS use the per-field sets).
     bool arrayAggregateUninit(const VarDecl *VD) const;
     bool arrayAggregateNull(const VarDecl *VD,
-                            const std::string &fieldName) const;
+                            const bsc::Place *fieldName) const;
     // Whether a null clear (`= nullptr`) of the aggregate / field drops nothing:
     // no path of it can still hold an owning value (Null, Moved, Moved|Null,
     // uninitialized, ... all count, but any Owned component does not). Such a
@@ -465,7 +514,7 @@ public:
     // Unlike arrayAggregateNull this deliberately rejects Owned|Null: owning on
     // one path is not cleared by a single null assignment.
     bool arrayAggregateNotOwned(const VarDecl *VD,
-                                const std::string &fieldName) const;
+                                const bsc::Place *fieldName) const;
     // Whether the aggregate is in the forbidden Owned|Moved state at a
     // qualifying for-loop's end: the element possibly owns a value on some path
     // and was moved out on another. A null path is compatible with both (a null
@@ -481,7 +530,7 @@ public:
     // free(null) / `= nullptr` changes nothing. A field that is only possibly
     // null but was already moved on another path (Moved|Null) is NOT a null
     // no-op: transferring it again may double free.
-    bool arrayElemNullNoop(const VarDecl *VD, const std::string &field) const;
+    bool arrayElemNullNoop(const VarDecl *VD, const bsc::Place *field) const;
 
     // Remove the aggregate state of a set of owned-element arrays. Used by the
     // loop-header dataflow to drop the back-edge state of arrays covered by a
@@ -500,36 +549,40 @@ public:
                 bool isStar, bool isAddrMut);
     llvm::SmallVector<OwnershipDiagInfo>
     checkOPSFieldUse(const VarDecl *VD, const SourceLocation &Loc,
-                     std::string fullFieldName, bool isGetAddr);
+                     const bsc::Place *fullFieldName, bool isGetAddr,
+                     bool IsAggregateAccess = false);
     llvm::SmallVector<OwnershipDiagInfo>
     checkOPSAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkOPSDerefAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkOPSFieldAssign(const VarDecl *VD, const SourceLocation &Loc,
-                        std::string fullFieldName);
+                        const bsc::Place *fullFieldName,
+                        bool IsAggregateAccess = false);
 
     llvm::SmallVector<OwnershipDiagInfo>
     checkSUse(const VarDecl *VD, const SourceLocation &Loc, bool isGetAddr, bool isAddrMut);
     llvm::SmallVector<OwnershipDiagInfo>
     checkSFieldUse(const VarDecl *VD, const SourceLocation &Loc,
-                   std::string fullFieldName, bool isGetAddr);
+                   const bsc::Place *fullFieldName, bool isGetAddr,
+                   bool IsAggregateAccess = false);
     llvm::SmallVector<OwnershipDiagInfo>
     checkSAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkSFieldAssign(const VarDecl *VD, const SourceLocation &Loc,
-                      std::string fullFieldName);
+                      const bsc::Place *fullFieldName,
+                      bool IsAggregateAccess = false);
 
     llvm::SmallVector<OwnershipDiagInfo>
     checkBOPUse(const VarDecl *VD, const SourceLocation &Loc, bool isGetAddr, bool isAddrMut);
     llvm::SmallVector<OwnershipDiagInfo>
     checkBOPFieldUse(const VarDecl *VD, const SourceLocation &Loc,
-                     std::string fullFieldName, bool isGetAddr);
+                     const bsc::Place *fullFieldName, bool isGetAddr);
     llvm::SmallVector<OwnershipDiagInfo>
     checkBOPAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkBOPFieldAssign(const VarDecl *VD, const SourceLocation &Loc,
-                        std::string fullFieldName);
+                        const bsc::Place *fullFieldName);
 
     llvm::SmallVector<OwnershipDiagInfo>
     checkCastOPS(const VarDecl *VD, const SourceLocation &Loc);
@@ -537,7 +590,7 @@ public:
     checkCastBOP(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkCastField(const VarDecl *VD, const SourceLocation &Loc,
-                   std::string fullFieldName);
+                   const bsc::Place *fullFieldName);
     llvm::SmallVector<OwnershipDiagInfo>
     checkMemoryLeak(const VarDecl *VD, const SourceLocation &Loc,
                     bool isDestructor);
@@ -570,12 +623,19 @@ public:
           BOPAllOwnedFields(bopaof), BOPOwnedOwnedFields(bopoof) {}
 
   private:
+    // init* build the registered key places root-relative: Parent threads the
+    // place of the enclosing field chain from the root variable (nullptr at
+    // the root). Field keys are Field chains from the root; nested owned
+    // pointer keys are Deref(Field(...)); array-field levels are Index.
     void initOPS(const RecordDecl *RD, const VarDecl *VD, Source source,
-                 int depth = 10, std::string parentFieldName = "");
+                 ASTContext &Ctx, int depth = 10,
+                 const bsc::Place *Parent = nullptr);
     void initS(const RecordDecl *RD, const VarDecl *VD, Source source,
-               int depth = 10, std::string parentFieldName = "");
-    void initBOP(QualType QT, const VarDecl *VD, Source source, int depth = 10,
-                 std::string parentFieldName = "");
+               ASTContext &Ctx, int depth = 10,
+               const bsc::Place *Parent = nullptr);
+    void initBOP(QualType QT, const VarDecl *VD, Source source,
+                 ASTContext &Ctx, int depth = 10,
+                 const bsc::Place *Parent = nullptr);
     std::string collectMovedFields(const VarDecl *VD);
 
     friend class OwnerShip;
