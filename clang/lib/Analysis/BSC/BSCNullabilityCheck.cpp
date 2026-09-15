@@ -572,12 +572,26 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       if (Op == UO_AddrMutDeref || Op == UO_AddrConstDeref) {
         return getExprPathNullability(cast<UnaryOperator>(E)->getSubExpr());
       }
+      if (cast<UnaryOperator>(E)->isIncrementDecrementOp()) {
+        // ++p / p++ / --p / p-- only offset the pointer; the resulting value
+        // keeps the operand's nullability.
+        return getExprPathNullability(cast<UnaryOperator>(E)->getSubExpr());
+      }
       break;
     }
     case Expr::BinaryOperatorClass: {
       BinaryOperator::Opcode Op = cast<BinaryOperator>(E)->getOpcode();
       if (Op == BO_Comma || Op == BO_Assign) {
         return getExprPathNullability(cast<BinaryOperator>(E)->getRHS());
+      }
+      if (Op == BO_Add || Op == BO_Sub) {
+        // Pointer arithmetic (p + n, n + p, p - n) only offset the pointer;
+        // the resulting value keeps the operand's nullability.
+        BinaryOperator *B = cast<BinaryOperator>(E);
+        if (B->getLHS()->getType()->isPointerType())
+          return getExprPathNullability(B->getLHS());
+        if (B->getRHS()->getType()->isPointerType())
+          return getExprPathNullability(B->getRHS());
       }
       break;
     }

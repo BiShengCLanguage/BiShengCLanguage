@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only -verify %s
+
+// Pointer arithmetic (p + n, n + p, p - n) and increment/decrement (++p, p++,
+// --p, p--) only offset the address; they never turn a possibly-null pointer
+// non-null. The nullability of the pointer operand must be preserved, so a
+// nullable pointer laundered through an offset must not reach a '_Nonnull'.
+
+void plain(void) {
+    int a = 0;
+
+    int *p0 = nullptr;
+    int *_Nonnull p01 = p0;     // expected-error {{cannot assign possibly-null status pointer 'p0' to a '_Nonnull' pointer}}
+    int *_Nonnull p02 = p0 + 0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull p03 = p0 + 1; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull p04 = p0 + a; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull p05 = 0 + p0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull p06 = p0 - 1; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void array_elem(void) {
+    int a = 0;
+
+    int *_Borrow _ArrayElem _Nullable p2 = nullptr;
+    int *_Borrow _ArrayElem p21 = p2;     // expected-error {{cannot assign possibly-null status pointer 'p2' to a '_Nonnull' pointer}}
+    int *_Borrow _ArrayElem p22 = p2 + 0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Borrow _ArrayElem p23 = p2 + 1; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Borrow _ArrayElem p24 = p2 + a; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void incdec(void) {
+    int *p = nullptr;
+    int *_Nonnull q1 = p++; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull q2 = ++p; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull q3 = p--; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+    int *_Nonnull q4 = --p; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+void assign_stmt(void) {
+    int *p = nullptr;
+    int *_Nonnull q;
+    q = p + 1; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+int *_Nonnull return_offset(int *p) {
+    return p + 1; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+// An offset on a non-null pointer stays non-null — no false positives.
+void positive(void) {
+    int a = 0;
+    int arr[4];
+    int *p = &a;
+    int *_Nonnull ok1 = p + 0;
+    int *_Nonnull ok2 = 1 + p;
+    int *_Nonnull ok3 = p - 1;
+    int *_Nonnull ok4 = arr + 1;
+    int *_Nonnull ok5 = p++;
+
+    // After a null check narrows p, an offset is fine too.
+    int *r = nullptr;
+    if (r) {
+        int *_Nonnull ok6 = r + 1;
+    }
+}
