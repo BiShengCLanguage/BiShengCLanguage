@@ -38,7 +38,7 @@
 #include "clang/AST/UnresolvedSet.h"
 #if ENABLE_BSC
 #include "clang/AST/BSC/TypeBSC.h"
-#include "clang/Analysis/Analyses/BSC/BSCNullabilityCheck.h"
+#include "clang/Analysis/Analyses/BSC/BSCPlace.h"
 #endif
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/CharInfo.h"
@@ -165,6 +165,40 @@ static bool checkBSCRawTransferBuiltinCommon(Sema &S, CallExpr *TheCall,
   if (checkArgCount(S, TheCall, 1))
     return true;
   return false;
+}
+
+/// Reject a builtin argument that claims ownership about a value reached
+/// through a _Borrow pointer. The argument is lowered to a `bsc::Place` (root
+/// variable + Field/Deref projections, `w->p` normalized to `(*w).p`); the
+/// access goes through a borrow when the chain dereferences a borrow-qualified
+/// pointer.
+static bool checkOwnedArgThroughBorrow(Sema &S, CallExpr *TheCall) {
+  const Expr *ArgE = TheCall->getArg(0);
+  bsc::PlaceBuilder PB(S.getASTContext());
+  const bsc::Place *P = PB.Build(ArgE);
+  if (!P)
+    return false;
+  // A Deref node whose base cell is a borrow pointer marks a borrow-rooted
+  // access (any depth: raw or owned pointer hops in between are followed).
+  bool ThroughBorrow = false;
+  for (const bsc::Place *Cur = P; Cur; Cur = Cur->getBase()) {
+    if (Cur->getKind() != bsc::Place::Kind::Deref || !Cur->getBase())
+      continue;
+    QualType PtrTy = Cur->getBase()->getType()->getQualType();
+    if (PtrTy->isPointerType() && PtrTy.isBorrowQualified())
+      ThroughBorrow = true;
+  }
+  if (!ThroughBorrow)
+    return false;
+  // Ownership claimed by the call: the accessed cell must itself carry
+  // ownership — an _Owned pointer, or a struct that (recursively) contains
+  // owned fields. NoPointer looks through no pointer at all, so this also
+  // holds for a raw/nullable cell whose pointee merely contains owned data.
+  QualType OrigTy = ArgE->IgnoreParenImpCasts()->getType();
+  if (!OrigTy.isOrContainsOwned(BSCLookThrough::NoPointer))
+    return false;
+  S.Diag(ArgE->getBeginLoc(), diag::err_move_borrow);
+  return true;
 }
 
 /// Validate first argument for __move[_array]_to_raw
@@ -2404,6 +2438,8 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
       Diag(ArgE->getBeginLoc(), diag::err_assume_null_unsupported_type);
       return ExprError();
     }
+    if (checkOwnedArgThroughBorrow(*this, TheCall))
+      return ExprError();
     break;
   }
   case Builtin::BI__forget: {
@@ -2411,7 +2447,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     // promising the analyzer the pointer will neither be freed nor moved
     // again. It is a raw escape hatch (pure analyzer hint, codegen emits
     // nothing), so it is forbidden in a safe zone.
-    if (getLangOpts().BSC && IsInSafeZone()) {
+    if (getLangOpts().BSC && IsInEvaluatedSafeZone()) {
       return ExprError(Diag(TheCall->getBeginLoc(), diag::err_unsafe_action)
                        << "__forget");
     }
@@ -2435,6 +2471,8 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
       Diag(ArgE->getBeginLoc(), diag::note_forget_complex_arg_hint);
       return ExprError();
     }
+    if (checkOwnedArgThroughBorrow(*this, TheCall))
+      return ExprError();
     break;
   }
 #endif

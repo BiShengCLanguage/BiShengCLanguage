@@ -352,3 +352,53 @@ _Safe void test_struct_var_bare_ptr_no_warning(struct VarBarePtr t) {
   _Unsafe { __assume_null(t); }
 }
 
+// === _Borrow path rejection ===
+// Assuming null for a path through a _Borrow pointer claims ownership
+// decisions about a value the borrower does not own, so it is rejected like
+// any other ownership move through a borrow.
+
+struct W { int *_Owned _Nullable p; };
+void test_borrow_field(struct W *_Borrow w) {
+  _Unsafe { __assume_null(w->p); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Same through the deref-paren form.
+void test_borrow_field_deref(struct W *_Borrow w) {
+  _Unsafe { __assume_null((*w).p); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Same through a const borrow.
+void test_const_borrow_field(struct W *_Borrow w) {
+  const struct W *_Borrow cw = w;
+  _Unsafe { __assume_null(cw->p); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Same for the whole-struct forms: the dereferenced struct (*w) recursively
+// contains an owned pointer field.
+void test_borrow_whole_struct(struct W *_Borrow w) {
+  _Unsafe { __assume_null(*w); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Paths that hop through an intermediate pointer field keep tracking back to
+// the borrow root: the callee here assumes null for the whole pointee struct
+// reached through the owned pointer field dp.
+struct Inner { int *_Owned _Nullable p; };
+struct OuterB { struct Inner *_Owned _Nullable dp; };
+void test_borrow_through_owned_ptr_field(struct OuterB *_Borrow w) {
+  _Unsafe { __assume_null(*w->dp); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// The embedded-substruct field form w->dp->in.
+struct Holder { struct Inner in; };
+struct OuterH { struct Holder *_Owned _Nullable dp; };
+void test_borrow_through_owned_ptr_field_embedded(struct OuterH *_Borrow w) {
+  _Unsafe { __assume_null(w->dp->in); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// A raw pointer field hop is tracked too — the root is still the borrow.
+struct InnerE { struct Inner in; };
+struct OuterRaw { struct InnerE *d; };
+void test_borrow_through_raw_ptr_field(struct OuterRaw *_Borrow w) {
+  _Unsafe { __assume_null(w->d->in); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+

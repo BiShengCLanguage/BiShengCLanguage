@@ -27,6 +27,21 @@ _Safe void test_forbidden_in_safe_zone_expr(void) {
   (void)__forget(p); // expected-error {{__forget is forbidden in the safe zone}}
 }
 
+// Rule 1 exception: unevaluated contexts never run the call, so the ban is
+// relaxed there (IsInEvaluatedSafeZone), matching __assume_null.
+_Safe unsigned long test_sizeof_in_safe_zone(void) {
+  int *_Owned _Nullable p = nullptr;
+  return sizeof(__forget(p));
+}
+
+_Safe void test_typeof_in_safe_zone(void) {
+  int *_Owned _Nullable p = nullptr;
+  // __forget returns void; take the address-of-void pointer form so the
+  // typeof declaration is itself valid.
+  __typeof__(__forget(p)) *x = 0;
+  (void)x;
+}
+
 // Rule 2: argument must be an _Owned pointer. A _Nonnull (non-owned) pointer
 // is rejected.
 _Safe int *_Nonnull get_nonnull(void);
@@ -81,4 +96,39 @@ void test_array_subscript_arg(void) {
 // free(p) on the owned variable itself.
 void test_deref_chain_arg(int *_Owned *_Nonnull q) {
   _Unsafe { __forget(*q); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
+}
+
+// Forgetting a struct field through a _Borrow path would drop the ownership
+// of a value the borrower does not own (and let the real owner leak), so it
+// is rejected like any other ownership move through a borrow.
+struct W { int *_Owned p; };
+
+void test_forget_borrow_field(struct W *_Borrow w) {
+  _Unsafe { __forget(w->p); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Same through the deref-paren form.
+void test_forget_borrow_field_deref(struct W *_Borrow w) {
+  _Unsafe { __forget((*w).p); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Same through a const borrow.
+void test_forget_const_borrow_field(struct W *_Borrow w) {
+  const struct W *_Borrow cw = w;
+  _Unsafe { __forget(cw->p); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// A hop through an intermediate pointer field keeps tracking back to the
+// borrow root: the field dp is an owned pointer, and the forgotten field q
+// lives in its pointee struct.
+struct DeepF { int *_Owned q; };
+struct MidF { struct DeepF *_Owned _Nullable dp; };
+void test_forget_borrow_through_ptr_field(struct MidF *_Borrow w) {
+  _Unsafe { __forget(w->dp->q); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// A raw pointer field hop is tracked too — the root is still the borrow.
+struct MidR { struct DeepF *d; };
+void test_forget_borrow_through_raw_ptr_field(struct MidR *_Borrow w) {
+  _Unsafe { __forget(w->d->q); } // expected-error {{cannot take ownership of a borrowed value}}
 }
