@@ -2445,7 +2445,7 @@ int *_Owned g_arr[2]; // error: 全局数组元素不能被 _Owned 修饰
 struct A g_arr2[2]; // error: 全局数组元素不能是含 _Owned 成员的结构体
 ```
 
-6. `_Owned`指针不支持下标运算、算术运算（指针偏移操作），但支持比较运算。`_Owned _ArrayElem`指针支持下标运算（详见 [3.3.1.2 节](#3312-_owned-_arrayelem-指针)）。
+6. `_Owned`指针不支持下标运算、算术运算（指针偏移操作），但支持比较运算。`_Owned _ArrayElem`指针支持下标运算（详见 [3.3.1.1 节](#3311-_owned-_arrayelem-指针)）。
 
 ```c
 #include "bishengc_safety.hbs" // BiShengC 语言提供的头文件，用于安全地进行内存分配及释放
@@ -3334,7 +3334,7 @@ int main() {
 }
 ```
 
-如果表达式 `e` 是数组下标表达式 `arr[i]`，则 `&_Mut arr[i]` 与 `&_Const arr[i]` 的结果类型为 `T *_Borrow _ArrayElem` 或 `const T *_Borrow _ArrayElem`，它们可以分别隐式转换为 `T *_Borrow` 或 `const T *_Borrow`。详细规则见 [3.3.1.3 节](#3313-_borrow-_arrayelem-指针)。
+如果表达式 `e` 是数组下标表达式 `arr[i]`，则 `&_Mut arr[i]` 与 `&_Const arr[i]` 的结果类型为 `T *_Borrow _ArrayElem` 或 `const T *_Borrow _ArrayElem`，它们可以分别隐式转换为 `T *_Borrow` 或 `const T *_Borrow`。详细规则见 [3.3.1.2 节](#3312-_borrow-_arrayelem-指针)。
 
 #### 3.2.2. 借用左值表达式和借用对象的生命周期
 
@@ -4136,7 +4136,7 @@ int main() { return 0; }
 
 7.  允许对借用类型使用 `sizeof`、`alignof`操作符，并且借用类型的 `sizeof`、`alignof`结果与裸指针类型的结果一致。
 
-8. 没有 `_ArrayElem` 修饰的借用指针不支持下标运算、算术运算。关于 `_Borrow _ArrayElem` 允许的操作（下标、算术、比较等），详见 [3.3.1.3 节](#3313-_borrow-_arrayelem-指针)。
+8. 没有 `_ArrayElem` 修饰的借用指针不支持下标运算、算术运算。关于 `_Borrow _ArrayElem` 允许的操作（下标、算术、比较等），详见 [3.3.1.2 节](#3312-_borrow-_arrayelem-指针)。
 
 9. 允许相同类型（可以忽略指向类型顶层的 `const` `volatile` `restrict` 修饰符）的借用指针之间，使用比较运算符 `==`、`!=`、`>`、`<`、`>=`、`<=`。
 
@@ -4164,19 +4164,9 @@ int * _Borrow _ArrayElem p2; // ok, _Borrow _ArrayElem 指针是指向数组元�
 int * _ArrayElem p3; // error, _ArrayElem 不能加在裸指针上
 ```
 
-##### 3.3.1.1. 指向类型限制
+需要注意的是，`_ArrayElem` 仅用于区分指向单个对象的指针与指向数组元素的指针，并不记录数组长度。因此毕昇C 不对 `_ArrayElem` 指针的运算与解引用做越界检查，安全区同样不提供空间内存安全保证，越界访问需由用户自行避免。
 
-对于 `T * _Owned _ArrayElem` 与 `T * _Borrow _ArrayElem` 指针，其指向类型 `T` 以及（对结构体来说）其所有递归展开后的成员不能是 `_Borrow` 指针或含 `_Borrow` 成员的类型。指向类型为 `_Owned` 指针或含 `_Owned` 成员的结构体是允许的（详见 [3.3.3 节](#333-_owned-类型作为数组成员)）。
-
-```c
-void test(void) {
-  int * _Borrow _ArrayElem p1 = ...; // ok, T = int
-  int * _Borrow * _Borrow _ArrayElem p2 = ...; // error, T = int * _Borrow
-  int * _Owned * _Borrow _ArrayElem p3 = ...; // ok, T = int * _Owned
-}
-```
-
-##### 3.3.1.2. `_Owned _ArrayElem` 指针
+##### 3.3.1.1. `_Owned _ArrayElem` 指针
 
 `_Owned _ArrayElem` 修饰的指针表示指向数组的带所有权的指针。除非明确说明或单独列出 `_Owned _ArrayElem` 的情况，否则 [3.1 节](#31-所有权) 中对 `_Owned` 指针的规则同样适用于 `_Owned _ArrayElem`。
 
@@ -4241,7 +4231,7 @@ int main() {
 
 2. 允许进行 `T * _Owned _ArrayElem` 与 `void * _Owned _ArrayElem` 之间的显式类型转换: `T * _Owned _ArrayElem` 可在安全区显式转为 `void * _Owned _ArrayElem`，但 `void * _Owned _ArrayElem` 只能在非安全区显式转为 `T * _Owned _ArrayElem`。其他指向类型不一致的转换（如 `T * _Owned _ArrayElem` 转 `U * _Owned _ArrayElem`）均不允许。
 
-##### 3.3.1.3. `_Borrow _ArrayElem` 指针
+##### 3.3.1.2. `_Borrow _ArrayElem` 指针
 
 `_Borrow _ArrayElem` 指针表示指向数组元素的借用指针。除非明确说明或单独列出 `_Borrow _ArrayElem` 的情况，否则 [3.2 节](#32-借用) 中对 `_Borrow` 指针的规则同样适用于 `_Borrow _ArrayElem`。
 
@@ -8225,7 +8215,7 @@ _Safe void example(void) {
 `safe_malloc_array` 是 BiShengC 语言提供的用于分配数组的安全内存分配函数。
 该函数接收一个泛型类型参数 `T`、数组长度 `size` 以及用于初始化每个元素的值 `initializer`，在堆上分配一块足以存放 `size` 个 `T` 类型对象的内存，并将每个元素初始化为 `initializer`。
 该函数的返回值为 `T * _Owned _ArrayElem` 类型，即指向分配好的堆数组的 `_Owned _ArrayElem` 指针。
-关于 `_Owned _ArrayElem` 指针的语义与使用限制，可参考 [3.3.1.2](#3312-_owned-_arrayelem-指针) 节。
+关于 `_Owned _ArrayElem` 指针的语义与使用限制，可参考 [3.3.1.1](#3311-_owned-_arrayelem-指针) 节。
 
 ```c
 #include "bishengc_safety.hbs"
@@ -8259,7 +8249,7 @@ _Safe void example(void) {
 }
 ```
 
-由于 `_Owned _ArrayElem` 指针不允许进行指针算术运算，在调用 `safe_free_array` 前必须保证传入的是未偏移的数组首地址，否则可能导致 invalid free。若需要对数组进行偏移访问，应先生成 `_Borrow _ArrayElem` 借用指针后再进行运算（参见 [3.3.1.2](#3312-_owned-_arrayelem-指针) 节）。
+由于 `_Owned _ArrayElem` 指针不允许进行指针算术运算，在调用 `safe_free_array` 前必须保证传入的是未偏移的数组首地址，否则可能导致 invalid free。若需要对数组进行偏移访问，应先生成 `_Borrow _ArrayElem` 借用指针后再进行运算（参见 [3.3.1.1](#3311-_owned-_arrayelem-指针) 节）。
 
 #### 6.1.6. `safe_calloc_array`
 
