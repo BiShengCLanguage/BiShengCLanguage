@@ -113,7 +113,10 @@ def err_extended_type_not_instantiated_type : Error<
   "extended type of a BSC member function cannot be an instantiated type">;
 def err_conflicting_function_declarations : Error<
   "conflicting function declarations for %0">;
-  
+def err_bsc_generic_variable : Error<
+  "generic variable %0 is not supported; generic parameters can only be "
+  "applied to functions, structs, unions and typealiases">;
+
 // BSC constexpr warnings and errors.
 def err_constexpr_func_unsupported : Error<
   "BSC constexpr function does not support %0">;

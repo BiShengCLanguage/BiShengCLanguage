@@ -7955,6 +7955,17 @@ NamedDecl *Sema::ActOnVariableDeclarator(
       Diag(D.getIdentifierLoc(), diag::err_variables_not_trait_pointer);
       return nullptr;
     }
+    // 'T v<T>;': a variable has no instantiation point, so its dependent
+    // type cannot be lowered by CodeGen. The BSC scope spec guard keeps
+    // static member definitions ('A<T> B<T>::aa;') working.
+    if (getLangOpts().BSC && !TemplateParamLists.empty() &&
+        (R->isDependentType() ||
+         D.getName().getKind() == UnqualifiedIdKind::IK_TemplateId) &&
+        !D.isInvalidType() && !D.getBSCScopeSpec().isNotEmpty()) {
+      Diag(D.getIdentifierLoc(), diag::err_bsc_generic_variable)
+          << Name;
+      return nullptr;
+    }
     #endif
     NewVD = VarDecl::Create(Context, DC, D.getBeginLoc(), D.getIdentifierLoc(),
                             II, R, TInfo, SC);

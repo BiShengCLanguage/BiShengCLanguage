@@ -146,7 +146,7 @@ now INIT-010.)
 
 ---
 
-## MISC — declaration / dispatch consistency (6 errors)
+## MISC — declaration / dispatch consistency (7 errors)
 
 (MISC-007 is retired: `err_struct_member_redeclared` was removed — the emit site now reuses upstream C's `err_duplicate_member`, so `struct` and `_Owned struct` report identically. Codes are not renumbered.)
 
@@ -160,6 +160,7 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | MISC-004 | err_bsc_incompatible_heterogeneous_redecl_variadic | redeclaration of `%0` %select{is not\|is}1 variadic, previous declaration %select{is\|is not}1 variadic | `note_previous_declaration` |
 | MISC-005 | err_bsc_no_matching_heterogeneous_function_call | no matching declaration of `%0` for call type `%1` | One note per candidate redecl callable from the caller's safe zone: `note_bsc_heterogeneous_candidate_arg_count` — call passes %0 argument%s0 but candidate takes %1 (param count mismatch); `note_bsc_heterogeneous_candidate_arg_mismatch` — argument %0 of type %1 doesn't match parameter type %2 (per-argument mismatch); `note_bsc_heterogeneous_candidate` — candidate declaration has type %0 (fallback for other mismatches). When the caller is in a safe zone, only `_Safe` redecls are visited, so no notes are emitted if every redecl is `_Unsafe`. |
 | MISC-006 | err_bsc_no_matching_heterogeneous_function_assign | no matching declaration of `%0` for assignment to `%1` | `note_bsc_heterogeneous_candidate` — candidate declaration has type %0 (one per redecl visible from the destination's safe-zone context). |
+| MISC-008 | err_bsc_generic_variable | generic variable `%0` is not supported; generic parameters can only be applied to functions, structs, unions and typealiases | — |
 
 ---
 
@@ -218,11 +219,11 @@ Catch-all for small-count categories that don't merit their own feature: heterog
 | OWN-       | owned                         | 45     | 1        |
 | BOR-       | borrow                        | 21     | 0        |
 | INIT-      | initialization                | 31     | 0        |
-| MISC-      | declaration / dispatch        | 6      | 0        |
+| MISC-      | declaration / dispatch        | 7      | 0        |
 | SZONE-     | safe zone                     | 12     | 0        |
 | NONNULL-   | nonnull pointer               | 3      | 0        |
 | NULLABLE-  | nullable pointer              | 7      | 0        |
-| **Total**  |                               | **124** | **1**   |
+| **Total**  |                               | **125** | **1**   |
 
 Plus **29 BSC-specific notes**, each tied to one or more of the errors above (see the Notes column per row).
 

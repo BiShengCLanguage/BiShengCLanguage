@@ -12,7 +12,7 @@ _Trait F int::foo2(int* this); // expected-error {{only _Trait pointer type is a
 _Trait G<T> {};
 _Trait G<T> foo3(); // expected-error {{use of undeclared identifier 'T'}}
 _Trait G<T> foo4<T>(); // expected-error {{only _Trait pointer type is allowed to be declared}}
-_Trait G<T>(*call2)(); // expected-error {{only _Trait pointer type is allowed to be declared}}
+_Trait G<T>(*call2)(); // expected-error {{generic variable 'call2' is not supported}}
 _Trait G<T> int::foo5(int* this);  // expected-error {{use of undeclared identifier 'T'}}
 
 _Trait G<int> foo6();  // expected-error {{only _Trait pointer type is allowed to be declared}}

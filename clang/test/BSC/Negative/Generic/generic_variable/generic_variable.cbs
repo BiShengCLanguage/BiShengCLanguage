@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// A generic declaration on a variable has no instantiation point;
+// its dependent type cannot be lowered by CodeGen (previously crashed
+// tentative-definition emission in ConvertType).
+
+T gval<T>;
+// expected-error@-1 {{generic variable 'gval' is not supported; generic parameters can only be applied to functions, structs, unions and typealiases}}
+
+int g2<T>;
+// expected-error@-1 {{generic variable 'g2' is not supported; generic parameters can only be applied to functions, structs, unions and typealiases}}
+
+T ginit<T> = 0;
+// expected-error@-1 {{generic variable 'ginit' is not supported; generic parameters can only be applied to functions, structs, unions and typealiases}}
+
+T *gptr<T> = 0;
+// expected-error@-1 {{generic variable 'gptr' is not supported; generic parameters can only be applied to functions, structs, unions and typealiases}}
+
+struct S<T> { T x; };
+struct S<T> *gsptr<T> = 0;
+// expected-error@-1 {{generic variable 'gsptr' is not supported; generic parameters can only be applied to functions, structs, unions and typealiases}}
+
+int main(void) { return 0; }
