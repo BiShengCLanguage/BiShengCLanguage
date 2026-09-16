@@ -1,0 +1,30 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+struct S {
+  int value;
+  int array[4];
+};
+
+#define MANUAL_OFFSETOF(TYPE, MEMBER)                                        \
+  ((unsigned long)&(((TYPE *)0)->MEMBER))
+
+int main(void) {
+  int value = 0;
+  int *_Borrow p = &_Mut value;
+  unsigned long field = __builtin_offsetof(struct S, value);
+  unsigned long element = __builtin_offsetof(struct S, array[2]);
+  unsigned long manualField = MANUAL_OFFSETOF(struct S, value);
+  unsigned long manualElement = MANUAL_OFFSETOF(struct S, array[2]);
+  if (__builtin_offsetof(struct S, array[2]) <=
+      __builtin_offsetof(struct S, value))
+    return 1;
+  if (MANUAL_OFFSETOF(struct S, array[2]) <=
+      MANUAL_OFFSETOF(struct S, value))
+    return 1;
+  if (field != manualField || element != manualElement)
+    return 1;
+  *p = 1;
+  return field < element && value == 1 ? 0 : 1;
+}

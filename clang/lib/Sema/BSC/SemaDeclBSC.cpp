@@ -1206,6 +1206,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
     case Stmt::GNUNullExprClass:
     case Stmt::ImplicitValueInitExprClass:
     case Stmt::IntegerLiteralClass:
+    case Stmt::OffsetOfExprClass:
     case Stmt::PredefinedExprClass:
     case Stmt::StringLiteralClass:
     case Stmt::UnaryExprOrTypeTraitExprClass:

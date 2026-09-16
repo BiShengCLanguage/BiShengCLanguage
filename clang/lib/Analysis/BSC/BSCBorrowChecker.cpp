@@ -1567,6 +1567,8 @@ public:
     Sources.push_back(PB.Build(ME));
   }
 
+  void VisitOffsetOfExpr(const OffsetOfExpr *OOE) { (void)OOE; }
+
   void VisitReturnStmt(const ReturnStmt *RS) {
     Kind = Action::Return;
     unsigned NumReturnRegions =
