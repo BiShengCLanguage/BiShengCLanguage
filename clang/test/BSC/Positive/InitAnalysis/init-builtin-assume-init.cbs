@@ -1,3 +1,4 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
 // RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
 // expected-no-diagnostics
 
@@ -98,4 +99,61 @@ _Safe void test_nested_field(void) {
     _Unsafe { __assume_initialized(&n.l.x); }
     n.y = 0;
     use_nest(n); // ok — l.x + y → promotes l → promotes n
+}
+
+// Every supported form, parenthesized or not, discharges a contract.
+struct Inner { int x; };
+
+_Safe void test_contract_deref(struct Inner *__attribute__((ensure_init)) p) {
+    _Unsafe { __assume_initialized(&*p); }
+}
+
+_Safe void test_contract_member(struct Inner *__attribute__((ensure_init)) p) {
+    _Unsafe { __assume_initialized(&p->x); }
+}
+
+_Safe void test_contract_parens(struct Inner *__attribute__((ensure_init)) p) {
+    _Unsafe { __assume_initialized(&(*(p))); }
+}
+
+_Safe int test_if_ret_deref(struct Inner *__attribute__((ensure_init_if_ret(0))) p) {
+    _Unsafe { __assume_initialized(&*p); }
+    return 0;
+}
+
+_Safe int test_if_ret_member(struct Inner *__attribute__((ensure_init_if_ret(0))) p) {
+    _Unsafe { __assume_initialized(&p->x); }
+    return 0;
+}
+
+void test_local_unsafe(void) {
+    int x;
+    __assume_initialized(&x);
+    int y = x;
+    (void)y;
+}
+
+void test_nested_field_unsafe(void) {
+    struct Nest n;
+    __assume_initialized(&n.l.x);
+    int y = n.l.x;
+    (void)y;
+}
+
+void test_contract_deref_unsafe(struct Inner *__attribute__((ensure_init)) p) {
+    __assume_initialized(&*p);
+}
+
+void test_contract_member_parens_unsafe(struct Inner *__attribute__((ensure_init)) p) {
+    __assume_initialized(&(p)->x);
+}
+
+int test_if_ret_deref_unsafe(struct Inner *__attribute__((ensure_init_if_ret(0))) p) {
+    __assume_initialized(&*p);
+    return 0;
+}
+
+int test_if_ret_member_unsafe(struct Inner *__attribute__((ensure_init_if_ret(0))) p) {
+    __assume_initialized(&p->x);
+    return 0;
 }

@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
 
 // Test __assume_initialized: negative cases — use before call,
 // use on wrong path. Only allowed in _Unsafe zones.
@@ -120,4 +121,47 @@ _Safe void test_reject_ternary(int cond,
 // named local — reject.
 _Safe void test_reject_compound_literal(void) {
     _Unsafe { __assume_initialized(&((struct Inner){0}).x); } // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+// A written cast in the address-of path: the analyzer lowers a place through
+// implicit conversions only, so a cast is not one of the supported forms.
+_Safe void test_reject_cast_on_deref(struct Inner *__attribute__((ensure_init)) p) {
+    _Unsafe { __assume_initialized(&*(struct Inner *)p); } // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+_Safe void test_reject_cast_on_member_base(struct Inner *__attribute__((ensure_init)) p) {
+    _Unsafe { __assume_initialized(&((struct Inner *)p)->x); } // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+_Safe void test_reject_cast_on_local(void) {
+    int x;
+    _Unsafe { __assume_initialized(&*(int *)&x); } // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+_Safe int test_reject_cast_on_if_ret_deref(struct Inner *__attribute__((ensure_init_if_ret(0))) p) {
+    _Unsafe { __assume_initialized(&*(struct Inner *)p); } // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+    return 0;
+}
+
+void test_reject_cast_on_local_unsafe(void) {
+    int x;
+    __assume_initialized(&*(int *)&x); // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+void test_reject_cast_on_local_member_base_unsafe(void) {
+    struct Inner s;
+    __assume_initialized(&((struct Inner *)&s)->x); // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+void test_reject_cast_on_pointer_variable_unsafe(struct Inner *q) {
+    __assume_initialized(&*(struct Inner *)q); // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+void test_reject_cast_on_deref_unsafe(struct Inner *__attribute__((ensure_init)) p) {
+    __assume_initialized(&*(struct Inner *)p); // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+}
+
+int test_reject_cast_on_if_ret_member_base_unsafe(struct Inner *__attribute__((ensure_init_if_ret(0))) p) {
+    __assume_initialized(&((struct Inner *)p)->x); // expected-error {{unsupported __assume_initialized argument}} expected-note {{the argument must be '&' applied to a variable}}
+    return 0;
 }

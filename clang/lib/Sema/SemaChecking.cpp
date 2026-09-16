@@ -2365,7 +2365,8 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     // non-addressing-path shape — __assume_initialized is a pure analyzer
     // hint and codegen emits nothing, so any other expression would be
     // silently dropped at runtime.
-    const Expr *E = UO->getSubExpr()->IgnoreParenCasts();
+    // Peel only what BSCIR's lowerToPlace peels, so accepted means lowerable.
+    const Expr *E = UO->getSubExpr()->IgnoreParenImpCasts();
     while (true) {
       if (isa<DeclRefExpr>(E))
         break;
@@ -2375,12 +2376,12 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
         return ExprError();
       }
       if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-        E = ME->getBase()->IgnoreParenCasts();
+        E = ME->getBase()->IgnoreParenImpCasts();
         continue;
       }
       if (const auto *Inner = dyn_cast<UnaryOperator>(E)) {
         if (Inner->getOpcode() == UO_Deref) {
-          E = Inner->getSubExpr()->IgnoreParenCasts();
+          E = Inner->getSubExpr()->IgnoreParenImpCasts();
           continue;
         }
       }
