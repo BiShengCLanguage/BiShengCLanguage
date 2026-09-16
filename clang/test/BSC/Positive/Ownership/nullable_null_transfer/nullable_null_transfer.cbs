@@ -189,3 +189,62 @@ void assign_via_void(void) {
     int *_Owned _Nullable q;
     q = (int *_Owned _Nullable)(void *_Owned _Nullable)p;
 }
+
+void *malloc(unsigned long);
+
+// ---------------------------------------------------------------------------
+// SafeExpr transparency (_Safe / _Unsafe inherit value, type and value
+// category from the sub-expression, so a must-be-null source stays
+// must-be-null through the wrapper).
+// ---------------------------------------------------------------------------
+
+// Init through _Safe / _Unsafe wrappers.
+void safeexpr_init_bop(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable r = _Safe(p);
+    int *_Owned _Nullable s = _Unsafe(p);
+}
+
+// Nested wrappers and a cast under the wrapper.
+void safeexpr_nested(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable r = _Safe(_Safe(p));
+    int *_Owned _Nullable s = _Safe((int *_Owned _Nullable)_Safe(p));
+}
+
+// Comma RHS and ternary arms wrapped in _Safe.
+void safeexpr_comma(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable r = (0, _Safe(p));
+}
+
+void safeexpr_ternary(_Bool c) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable q = 0;
+    int *_Owned _Nullable r = c ? _Safe(p) : _Safe(q);
+}
+
+// Assign through a wrapper; the destination keeps the Null state, so a
+// later reassignment is allowed (no "still holds an _Owned value").
+void safeexpr_assign_then_reassign(void) {
+    int *_Owned _Nullable p = 0;
+    int *_Owned _Nullable r = 0;
+    r = _Safe(p);
+    int *_Owned fresh = __take_from_raw((int *)malloc(4));
+    r = fresh;
+    __move_to_raw(r);
+}
+
+// Struct-value field null-clear through a wrapper.
+struct WS { int *_Owned _Nullable f; };
+void safeexpr_struct_field(void) {
+    int *_Owned _Nullable p = 0;
+    struct WS s = {0};
+    s.f = _Safe(p);
+}
+
+// A null constant wrapped in _Safe and taken from raw: the builtin's
+// null-ness must survive the wrapper.
+void safeexpr_take_from_raw_null(void) {
+    int *_Owned _Nullable r = __take_from_raw(_Unsafe((int *)0));
+}

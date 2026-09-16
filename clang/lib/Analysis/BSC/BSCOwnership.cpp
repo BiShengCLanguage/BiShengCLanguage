@@ -3117,7 +3117,7 @@ public:
   /// implicit casts, value-preserving C-style casts, comma RHS, and ternary
   /// with both arms must-be-null.
   bool isExprRefToNullOwnedVar(const Expr *E) const {
-    E = E->IgnoreParenImpCasts();
+    E = E->IgnoreParenImpCastsSafe();
     if (E->isNullExpr(OS.ctx))
       return true;
     if (const CStyleCastExpr *CSCE = dyn_cast<CStyleCastExpr>(E))

@@ -35,6 +35,8 @@ bool Expr::isNullExpr(ASTContext &Ctx) const {
     return ICE->getSubExpr()->isNullExpr(Ctx);
   } else if (const ParenExpr *PE = dyn_cast<ParenExpr>(this)) {
     return PE->getSubExpr()->isNullExpr(Ctx);
+  } else if (const SafeExpr *SE = dyn_cast<SafeExpr>(this)) {
+    return SE->getSubExpr()->isNullExpr(Ctx);
   } else if (const CallExpr *CE = dyn_cast<CallExpr>(this)) {
     if (const FunctionDecl *FD = CE->getDirectCallee()) {
       if (CE->getNumArgs() == 1) {

@@ -141,3 +141,25 @@ _Safe void paren_deref_null_ops_safe(void) {
     int *_Owned _Nullable q = (*p).f; // expected-error {{cannot dereference possibly-null status pointer 'p'}}
     (void)q;
 }
+
+// ---------------------------------------------------------------------------
+// SafeExpr transparency must not launder ownership the other way: a
+// genuinely-owned value through _Safe keeps its Owned state
+// ---------------------------------------------------------------------------
+
+void *malloc(unsigned long);
+
+void safeexpr_owned_still_leaks(void) {
+    int *_Owned p = __take_from_raw((int *)malloc(4));
+    int *_Owned r = _Safe(p);
+    (void)r;
+} // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
+
+void safeexpr_owned_reassign_still_rejected(void) {
+    int *_Owned p = __take_from_raw((int *)malloc(4));
+    int *_Owned r = 0;
+    r = _Safe(p);
+    int *_Owned fresh = __take_from_raw((int *)malloc(4));
+    r = fresh; // expected-error {{cannot assign to 'r' because it still holds an _Owned value; move or free it first}}
+} // expected-error {{memory leak because 'r' is not freed or moved before it goes out of scope}}
+
