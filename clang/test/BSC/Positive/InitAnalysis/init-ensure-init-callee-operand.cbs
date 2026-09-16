@@ -1,0 +1,99 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// Once the callee is written, calling through it reads an initialized place.
+
+typedef int (*FP)(int);
+typedef _Safe int (*SFP)(int);
+typedef struct { FP f; int n; } Table;
+typedef struct { SFP f; int n; } SafeTable;
+
+_Safe int sh(int x) { return x; }
+int h(int x) { return x; }
+
+_Safe int safe_local(void) {
+    SFP f = sh;
+    return f(1);
+}
+
+int unsafe_local(void) {
+    FP f = h;
+    return f(1);
+}
+
+_Safe int safe_after_write(SFP *_Borrow __attribute__((ensure_init)) out) {
+    *out = sh;
+    return (*out)(1);
+}
+
+_Safe int safe_field_after_write(SafeTable *_Borrow __attribute__((ensure_init)) out) {
+    out->f = sh;
+    out->n = 0;
+    return out->f(1);
+}
+
+int after_write(FP *_Borrow __attribute__((ensure_init)) out) {
+    *out = h;
+    return (*out)(1);
+}
+
+int field_after_write(Table *_Borrow __attribute__((ensure_init)) out) {
+    out->f = h;
+    out->n = 0;
+    return out->f(1);
+}
+
+_Safe int safe_if_ret_after_write(SFP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    *out = sh;
+    return (*out)(1);
+}
+
+_Safe int safe_if_ret_field_after_write(SafeTable *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    out->f = sh;
+    out->n = 0;
+    return out->f(1);
+}
+
+int if_ret_after_write(FP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    *out = h;
+    return (*out)(1);
+}
+
+int if_ret_field_after_write(Table *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    out->f = h;
+    out->n = 0;
+    return out->f(1);
+}
+
+// A direct call names its callee by declaration, not through the pointee.
+_Safe int safe_direct_call(SFP *_Borrow __attribute__((ensure_init)) out) {
+    int r = sh(1);
+    *out = sh;
+    return r;
+}
+
+int direct_call(FP *_Borrow __attribute__((ensure_init)) out) {
+    int r = h(1);
+    *out = h;
+    return r;
+}
+
+int if_ret_direct_call(FP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int r = h(1);
+    *out = h;
+    return r;
+}
+
+// Calling through an unrelated pointer says nothing about the contract.
+int unrelated_pointer(FP *_Borrow __attribute__((ensure_init)) out, FP *other) {
+    int r = (*other)(1);
+    *out = h;
+    return r;
+}
+
+int if_ret_unrelated_pointer(FP *_Borrow __attribute__((ensure_init_if_ret(0))) out, FP *other) {
+    int r = (*other)(1);
+    *out = h;
+    return r;
+}

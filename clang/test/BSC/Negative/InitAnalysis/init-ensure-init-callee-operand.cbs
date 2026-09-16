@@ -1,0 +1,116 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
+
+// An indirect call loads its callee, so the load reads what it names.
+
+typedef int (*FP)(int);
+typedef _Safe int (*SFP)(int);
+typedef struct { FP f; int n; } Table;
+typedef struct { SFP f; int n; } SafeTable;
+
+_Safe int sh(int x) { return x; }
+int h(int x) { return x; }
+
+// A plain local is checked in an unsafe function only under -uninit-check=all.
+_Safe int safe_local(void) {
+    SFP f;
+    return f(1); // expected-error {{use of uninitialized value: 'f'}}
+}
+
+_Safe int safe_field(void) {
+    SafeTable t;
+    return t.f(1); // expected-error {{use of uninitialized value: 't.f'}}
+}
+
+int unsafe_local(void) {
+    FP f;
+    return f(1); // all-error {{use of uninitialized value: 'f'}}
+}
+
+int unsafe_field(void) {
+    Table t;
+    return t.f(1); // all-error {{use of uninitialized value: 't.f'}}
+}
+
+// A contract pointee is checked in every zone and mode.
+_Safe int safe_through_pointee(SFP *_Borrow __attribute__((ensure_init)) out) {
+    int r = (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = sh;
+    return r;
+}
+
+_Safe int safe_through_pointee_discarded(SFP *_Borrow __attribute__((ensure_init)) out) {
+    (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = sh;
+    return 0;
+}
+
+_Safe int safe_through_field(SafeTable *_Borrow __attribute__((ensure_init)) out) {
+    int r = out->f(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    out->f = sh;
+    out->n = 0;
+    return r;
+}
+
+int through_pointee(FP *_Borrow __attribute__((ensure_init)) out) {
+    int r = (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = h;
+    return r;
+}
+
+int through_pointee_discarded(FP *_Borrow __attribute__((ensure_init)) out) {
+    (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = h;
+    return 0;
+}
+
+int through_field(Table *_Borrow __attribute__((ensure_init)) out) {
+    int r = out->f(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    out->f = h;
+    out->n = 0;
+    return r;
+}
+
+int through_raw_pointee(FP *__attribute__((ensure_init)) out) {
+    int r = (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = h;
+    return r;
+}
+
+_Safe int safe_if_ret_through_pointee(SFP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int r = (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = sh;
+    return r;
+}
+
+_Safe int safe_if_ret_through_pointee_discarded(SFP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = sh;
+    return 0;
+}
+
+_Safe int safe_if_ret_through_field(SafeTable *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int r = out->f(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    out->f = sh;
+    out->n = 0;
+    return r;
+}
+
+int if_ret_through_pointee(FP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int r = (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = h;
+    return r;
+}
+
+int if_ret_through_pointee_discarded(FP *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    (*out)(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = h;
+    return 0;
+}
+
+int if_ret_through_field(Table *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int r = out->f(1); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    out->f = h;
+    out->n = 0;
+    return r;
+}

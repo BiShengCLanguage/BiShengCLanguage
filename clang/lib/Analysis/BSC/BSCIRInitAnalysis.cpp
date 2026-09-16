@@ -1701,6 +1701,10 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
     // A terminator operand reads the pointee just as an assignment does.
     if (T.K == Terminator::Call) {
       const auto &CD = T.getCall();
+      // An indirect call loads its callee, so that load reads the pointee too.
+      if (CD.Callee.K != Operand::Constant)
+        checkEnsureInitPointeeRead(CD.Callee.getPlace(), State,
+                                   TempToEnsureInitParam, T.Loc, Diags);
       llvm::DenseSet<unsigned> ExemptArgIndices = collectExemptArgIndices(CD);
       for (unsigned I = 0; I < CD.Args.size(); ++I) {
         if (ExemptArgIndices.count(I) || CD.Args[I].K == Operand::Constant)
