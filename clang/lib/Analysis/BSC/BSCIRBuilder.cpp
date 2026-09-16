@@ -192,8 +192,15 @@ void BSCIRBuilder::lowerDiscardedExpr(const Expr *E) {
     }
 
   Operand Op = lowerToOperand(E);
+  // An identity cast emits nothing, so look through it for the load it wraps.
+  const Expr *Load = E->IgnoreParens();
+  while (const auto *CE = dyn_cast<CastExpr>(Load)) {
+    if (CE->getCastKind() != CK_NoOp)
+      break;
+    Load = CE->getSubExpr()->IgnoreParens();
+  }
   // A discarded lvalue-to-rvalue conversion still loads the place.
-  const auto *ICE = dyn_cast<ImplicitCastExpr>(E);
+  const auto *ICE = dyn_cast<ImplicitCastExpr>(Load);
   if (ICE && ICE->getCastKind() == CK_LValueToRValue &&
       (Op.K == Operand::Copy || Op.K == Operand::Move)) {
     LocalId Tmp = TheBody->addTemp(E->getType(), E->getExprLoc());

@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -uninit-check=all -verify=expected,all %s
 
 // An expression statement whose value is discarded still loads the place it
 // names, so it is checked like any other read.
@@ -54,4 +55,100 @@ _Safe void for_increment_comma(void) {
 _Safe void discarded_stmt_expr(void) {
     int x;
     ({ x; }); // expected-error {{use of uninitialized value: 'x'}}
+}
+
+// An identity cast emits nothing of its own, so the load it wraps is still
+// the read that is discarded.
+
+_Safe void identity_cast(void) {
+    int x;
+    (int)x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe void qualified_identity_cast(void) {
+    int x;
+    (const int)x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+// A converting cast emits the conversion, which reads the place itself.
+_Safe void converting_cast(void) {
+    int x;
+    (long)x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+// The same holds for the pointee of an init contract.
+int contract_identity_cast(int *__attribute__((ensure_init)) out) {
+    (int)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 7;
+    return 0;
+}
+
+int contract_converting_cast(int *__attribute__((ensure_init)) out) {
+    (long)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 7;
+    return 0;
+}
+
+int contract_qualified_identity_cast(int *__attribute__((ensure_init)) out) {
+    (const int)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 7;
+    return 0;
+}
+
+_Safe int safe_contract_identity_cast(int *_Borrow __attribute__((ensure_init)) out) {
+    (int)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 7;
+    return 0;
+}
+
+_Safe int safe_contract_converting_cast(int *_Borrow __attribute__((ensure_init)) out) {
+    (long)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 7;
+    return 0;
+}
+
+int if_ret_identity_cast(int *__attribute__((ensure_init_if_ret(0))) out) {
+    (int)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 7;
+    return 0;
+}
+
+int if_ret_qualified_identity_cast(int *__attribute__((ensure_init_if_ret(0))) out) {
+    (const int)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 7;
+    return 0;
+}
+
+int if_ret_converting_cast(int *__attribute__((ensure_init_if_ret(0))) out) {
+    (long)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 7;
+    return 0;
+}
+
+_Safe int safe_if_ret_identity_cast(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    (int)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 7;
+    return 0;
+}
+
+_Safe int safe_if_ret_converting_cast(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    (long)*out; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 7;
+    return 0;
+}
+
+// A plain local is checked in an unsafe function only under -uninit-check=all.
+void unsafe_identity_cast(void) {
+    int x;
+    (int)x; // all-error {{use of uninitialized value: 'x'}}
+}
+
+void unsafe_qualified_identity_cast(void) {
+    int x;
+    (const int)x; // all-error {{use of uninitialized value: 'x'}}
+}
+
+void unsafe_converting_cast(void) {
+    int x;
+    (long)x; // all-error {{use of uninitialized value: 'x'}}
 }
