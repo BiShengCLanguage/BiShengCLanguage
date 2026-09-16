@@ -15931,6 +15931,18 @@ bool Sema::CheckParmsForFunctionDef(ArrayRef<ParmVarDecl *> Parameters,
         Diag(Param->getLocation(), diag::err_attribute_pointers_only)
             << Attr->getSpelling() << 1;
 
+#if ENABLE_BSC
+    // Like the parameter's own type, a contract's pointee must be complete here.
+    if (Param->hasAttr<EnsureInitAttr>() || Param->hasAttr<EnsureInitIfRetAttr>()) {
+      QualType Pointee = Param->getType()->getPointeeType();
+      if (!Pointee.isNull())
+        RequireCompleteType(Param->getLocation(), Pointee,
+                            diag::err_ensure_init_incomplete_pointee,
+                            Param->hasAttr<EnsureInitIfRetAttr>(),
+                            Param->getDeclName());
+    }
+#endif
+
     // Check for parameter names shadowing fields from the class.
     if (LangOpts.CPlusPlus && !Param->isInvalidDecl()) {
       // The owning context for the parameter should be the function, but we

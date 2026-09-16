@@ -6552,6 +6552,17 @@ void init_empty(struct Empty *__attribute__((ensure_init)) out) {
 } // ok: *out 无可初始化存储，契约自动满足
 ```
 
+被修饰的形参不能指向 `void`；在函数定义中，其指向的类型必须是完整类型（仅有声明时不作此要求）。
+
+```c
+struct Handle;
+void handle_init(struct Handle *__attribute__((ensure_init)) h);   // ok：仅声明
+void wrap(struct Handle *__attribute__((ensure_init)) h) {         // error：定义中 struct Handle 不完整
+    handle_init(h);
+}
+void fill(void *__attribute__((ensure_init)) buf);                 // error：指向 void
+```
+
 ```c
 _Safe void init_safe(int *_Borrow __attribute__((ensure_init)) out);
 
@@ -6707,7 +6718,7 @@ _Safe void bar(int *_Borrow p, int *_Borrow q) {
 }
 ```
 
-**2. 被修饰形参的类型必须是「指向 non-const 类型的裸指针或可变借用」。**
+**2. 被修饰形参的类型必须是「指向 non-const、非 `void` 类型的裸指针或可变借用」；在函数定义中，其指向的类型还必须是完整类型（仅有声明时不作此要求）。**
 
 ```c
 _Safe int foo(int *_Borrow __attribute__((ensure_init_if_ret(1))), int,
@@ -6715,6 +6726,12 @@ _Safe int foo(int *_Borrow __attribute__((ensure_init_if_ret(1))), int,
 typedef _Safe int (*FP)(int *_Borrow __attribute__((ensure_init_if_ret(1))),
                         int __attribute__((ensure_init_if_ret(0))), int);          // error：第二个形参不是指针/借用
 int bar(int *, int, const int *_Borrow __attribute__((ensure_init_if_ret(0))));   // error：第三个形参指向 const
+int qux(void *__attribute__((ensure_init_if_ret(0))));                            // error：指向 void
+struct Handle;
+int try_open(struct Handle *__attribute__((ensure_init_if_ret(0))) h);            // ok：仅声明
+int try_open(struct Handle *__attribute__((ensure_init_if_ret(0))) h) {           // error：定义中 struct Handle 不完整
+    return -1;
+}
 ```
 
 **3. 函数返回类型必须是整数类型或 `_Bool`。**
@@ -6751,8 +6768,8 @@ FP2 g4 = bar; // ok
 **6. 重声明一致性。** 同安全级别（`_Safe`/`_Safe`、`_Unsafe`/`_Unsafe`）的多份声明之间，`ensure_init_if_ret` 的有无及 `arg` 必须一致；若 `_Unsafe` 声明带它，则配对的 `_Safe` 声明对应形参也必须带且 `arg` 相同。
 
 ```c
-int baz(void *, int, int);
-_Safe int baz(void *_Borrow __attribute__((ensure_init_if_ret(0))), int, int);  // ok
+int baz(int *, int, int);
+_Safe int baz(int *_Borrow __attribute__((ensure_init_if_ret(0))), int, int);   // ok
 
 _Safe int goo(int *_Borrow __attribute__((ensure_init_if_ret(0))), int);
 _Safe int goo(int *_Borrow __attribute__((ensure_init_if_ret(2))), int);        // error：两份 _Safe 声明 arg 不同

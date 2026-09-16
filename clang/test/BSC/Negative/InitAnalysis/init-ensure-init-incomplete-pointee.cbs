@@ -1,0 +1,64 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// A contract's pointee must be complete in a function definition, like the
+// type of any parameter there.
+
+struct Late;   // expected-note 4 {{forward declaration of 'struct Late'}}
+struct Never;  // expected-note 4 {{forward declaration of 'struct Never'}}
+struct Handle; // expected-note 2 {{forward declaration of 'struct Handle'}}
+
+void handle_init(struct Handle *__attribute__((ensure_init)) h);
+_Safe int safe_handle_try(struct Handle *_Borrow __attribute__((ensure_init_if_ret(0))) h);
+
+void completed_after(struct Late *__attribute__((ensure_init)) out) { // expected-error {{__attribute__((ensure_init)) parameter 'out' points to incomplete type 'struct Late' in a function definition}}
+}
+
+_Safe void safe_completed_after(struct Late *_Borrow __attribute__((ensure_init)) out) { // expected-error {{__attribute__((ensure_init)) parameter 'out' points to incomplete type 'struct Late' in a function definition}}
+}
+
+int if_ret_completed_after(struct Late *__attribute__((ensure_init_if_ret(0))) out) { // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' points to incomplete type 'struct Late' in a function definition}}
+    return 0;
+}
+
+_Safe int safe_if_ret_completed_after(struct Late *_Borrow __attribute__((ensure_init_if_ret(0))) out) { // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' points to incomplete type 'struct Late' in a function definition}}
+    return 0;
+}
+
+struct Late { int a; int b; };
+
+void never_completed(struct Never *__attribute__((ensure_init)) out) { // expected-error {{__attribute__((ensure_init)) parameter 'out' points to incomplete type 'struct Never' in a function definition}}
+}
+
+_Safe void safe_never_completed(struct Never *_Borrow __attribute__((ensure_init)) out) { // expected-error {{__attribute__((ensure_init)) parameter 'out' points to incomplete type 'struct Never' in a function definition}}
+}
+
+int if_ret_never_completed(struct Never *__attribute__((ensure_init_if_ret(0))) out) { // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' points to incomplete type 'struct Never' in a function definition}}
+    return -1;
+}
+
+_Safe int safe_if_ret_never_completed(struct Never *_Borrow __attribute__((ensure_init_if_ret(0))) out) { // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' points to incomplete type 'struct Never' in a function definition}}
+    return -1;
+}
+
+// A void pointee can never be completed, so it is rejected on the attribute.
+void void_pointee_decl(void *__attribute__((ensure_init)) out); // expected-error {{'ensure_init' attribute only applies to pointer parameters to a non-void type}}
+int if_ret_void_pointee_decl(void *__attribute__((ensure_init_if_ret(0))) out); // expected-error {{'ensure_init_if_ret' attribute only applies to pointer parameters to a non-void type}}
+_Safe void safe_void_pointee_decl(void *_Borrow __attribute__((ensure_init)) out); // expected-error {{'ensure_init' attribute only applies to pointer parameters to a non-void type}}
+
+void void_pointee(void *__attribute__((ensure_init)) out) { // expected-error {{'ensure_init' attribute only applies to pointer parameters to a non-void type}}
+}
+
+int if_ret_void_pointee(void *__attribute__((ensure_init_if_ret(0))) out) { // expected-error {{'ensure_init_if_ret' attribute only applies to pointer parameters to a non-void type}}
+    return -1;
+}
+
+// Passing the pointer on does not help: the definition still names an
+// incomplete pointee.
+void delegating_wrapper(struct Handle *__attribute__((ensure_init)) h) { // expected-error {{__attribute__((ensure_init)) parameter 'h' points to incomplete type 'struct Handle' in a function definition}}
+    handle_init(h);
+}
+
+_Safe int safe_if_ret_delegating_wrapper(struct Handle *_Borrow __attribute__((ensure_init_if_ret(0))) h) { // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'h' points to incomplete type 'struct Handle' in a function definition}}
+    return safe_handle_try(h);
+}

@@ -1,0 +1,70 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// Only a definition needs the pointee complete; a declaration may name an
+// incomplete one, and callers may use it.
+struct Handle;
+void handle_init(struct Handle *__attribute__((ensure_init)) h);
+int handle_try(struct Handle *__attribute__((ensure_init_if_ret(0))) h);
+_Safe void safe_handle_init(struct Handle *_Borrow __attribute__((ensure_init)) h);
+_Safe int safe_handle_try(struct Handle *_Borrow __attribute__((ensure_init_if_ret(0))) h);
+
+void use_handle(struct Handle *h) {
+    handle_init(h);
+    (void)handle_try(h);
+}
+
+_Safe void safe_use_handle(struct Handle *_Borrow h) {
+    safe_handle_init(h);
+    (void)safe_handle_try(h);
+}
+
+// The pointee only has to be complete by the definition.
+struct Late;
+void writes_fields(struct Late *__attribute__((ensure_init)) out);
+int if_ret_writes_fields(struct Late *__attribute__((ensure_init_if_ret(0))) out);
+_Safe void safe_writes_fields(struct Late *_Borrow __attribute__((ensure_init)) out);
+
+struct Late { int a; int b; };
+
+void writes_fields(struct Late *__attribute__((ensure_init)) out) {
+    out->a = 1;
+    out->b = 2;
+}
+
+int if_ret_writes_fields(struct Late *__attribute__((ensure_init_if_ret(0))) out) {
+    out->a = 1;
+    out->b = 2;
+    return 0;
+}
+
+_Safe void safe_writes_fields(struct Late *_Borrow __attribute__((ensure_init)) out) {
+    out->a = 1;
+    out->b = 2;
+}
+
+// A complete type with no storage satisfies the contract on its own.
+struct Empty {};
+struct OnlyEmpty { struct Empty e; };
+struct Nested { struct OnlyEmpty o; };
+
+void empty_pointee(struct Empty *__attribute__((ensure_init)) out) {
+}
+
+void only_empty_fields(struct OnlyEmpty *__attribute__((ensure_init)) out) {
+}
+
+void nested_empty_fields(struct Nested *__attribute__((ensure_init)) out) {
+}
+
+_Safe void safe_empty_pointee(struct Empty *_Borrow __attribute__((ensure_init)) out) {
+}
+
+int if_ret_empty_pointee(struct Empty *__attribute__((ensure_init_if_ret(0))) out) {
+    return 0;
+}
+
+_Safe int safe_if_ret_empty_pointee(struct Empty *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return 0;
+}

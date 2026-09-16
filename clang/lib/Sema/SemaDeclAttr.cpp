@@ -8318,6 +8318,11 @@ static ParmVarDecl *checkInitContractParam(Sema &S, Decl *D,
         << AL << "raw pointer or mutable borrow parameters to a non-const type";
     return nullptr;
   }
+  if (ParamTy->getPointeeType()->isVoidType()) {
+    S.Diag(AL.getLoc(), diag::err_attribute_wrong_decl_type_str)
+        << AL << "pointer parameters to a non-void type";
+    return nullptr;
+  }
   return PVD;
 }
 

@@ -333,6 +333,10 @@ def err_ensure_init_maybe_not_init : Error<
   "'*%0' may not be initialized on all paths at return in __attribute__((ensure_init)) function">,
   BSCDiag<"INIT", 8,
           "`note_ensure_init_ptr_reassigned_here` — same trigger as INIT-007">;
+def err_ensure_init_incomplete_pointee : Error<
+  "__attribute__((%select{ensure_init|ensure_init_if_ret}0)) parameter %1 "
+  "points to incomplete type %2 in a function definition">,
+  BSCDiag<"INIT", 33>;
 def err_ensure_init_reassigned : Error<
   "__attribute__((ensure_init)) not satisfied: '%0' is reassigned before '*%0' "
   "is initialized, so '*%0' is not initialized at return">,
