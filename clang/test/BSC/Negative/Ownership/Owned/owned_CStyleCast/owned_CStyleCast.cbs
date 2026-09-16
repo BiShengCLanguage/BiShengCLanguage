@@ -44,7 +44,7 @@ void test4_1(int* _Owned * _Owned p0, float** p1) {
 void test5(float _Owned f1, float* _Owned f2){ //expected-error {{type of 'float' cannot be qualified by '_Owned'}}
     int _Owned a1 = (int _Owned)f1;   //expected-error 2 {{type of 'int' cannot be qualified by '_Owned'}}
     int* _Owned a2 = (int* _Owned)f2; //expected-error {{incompatible _Owned types, cannot cast 'float *_Owned' to 'int *_Owned'}}
-    void* _Owned a4 = (void* _Owned)0;   //expected-error {{incompatible _Owned types, cannot cast 'int' to 'void *_Owned'}}
+    void* _Owned a4 = (void* _Owned)0;
 }
 
 void test6(int** _Owned p) {

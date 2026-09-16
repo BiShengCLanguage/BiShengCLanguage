@@ -1,0 +1,329 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// A pointer-typed null pointer constant -- `(void *)0` and therefore the NULL
+// macro -- is accepted wherever nullptr is accepted: raw, _Owned and _Borrow
+// pointers may be initialized, assigned, passed, returned and compared against
+// it, in both the unsafe zone and the safe zone.
+
+#define NULL ((void *)0)
+
+void take_raw(int *p) {}
+void take_owned(int *_Owned _Nullable p) { _Unsafe((void)__move_to_raw(p)); }
+void take_borrow(int *_Borrow _Nullable p) {}
+
+// ------------------------------ unsafe zone ------------------------------
+
+// Raw pointer initialization, assignment, argument and return.
+void init_raw_pointer(void) {
+  int *p0 = (void *)0;
+  int *p1 = NULL;
+  (void)p0;
+  (void)p1;
+}
+
+void assign_raw_pointer(void) {
+  int *p;
+  p = (void *)0;
+  p = NULL;
+}
+
+void call_raw_pointer(void) {
+  take_raw((void *)0);
+  take_raw(NULL);
+}
+
+int *return_raw_void_zero(void) { return (void *)0; }
+int *return_raw_null(void) { return NULL; }
+
+// _Owned pointer initialization, assignment, argument and return.
+void init_owned_pointer(void) {
+  int *_Owned _Nullable p0 = (void *)0;
+  int *_Owned _Nullable p1 = NULL;
+}
+
+void assign_owned_pointer(void) {
+  int *_Owned _Nullable p = nullptr;
+  p = (void *)0;
+  p = NULL;
+}
+
+void call_owned_pointer(void) {
+  take_owned((void *)0);
+  take_owned(NULL);
+}
+
+int *_Owned _Nullable return_owned_void_zero(void) { return (void *)0; }
+int *_Owned _Nullable return_owned_null(void) { return NULL; }
+
+// _Borrow pointer initialization, assignment, argument and return.
+void init_borrow_pointer(void) {
+  int *_Borrow _Nullable p0 = (void *)0;
+  int *_Borrow _Nullable p1 = NULL;
+}
+
+void assign_borrow_pointer(int *_Borrow _Nullable p) {
+  p = (void *)0;
+  p = NULL;
+}
+
+void call_borrow_pointer(void) {
+  take_borrow((void *)0);
+  take_borrow(NULL);
+}
+
+int *_Borrow _Nullable return_borrow_void_zero(int *_Borrow _Nullable anchor) {
+  return (void *)0;
+}
+
+int *_Borrow _Nullable return_borrow_null(int *_Borrow _Nullable anchor) {
+  return NULL;
+}
+
+// ------------------------------ explicit casts ------------------------------
+
+void cast_raw(void) {
+  int *p0 = (int *)(void *)0;
+  int *p1 = (int *)NULL;
+  (void)p0;
+  (void)p1;
+}
+
+void cast_owned(void) {
+  int *_Owned _Nullable p = (int *_Owned _Nullable)NULL;
+  int *_Owned _Nullable q = (int *_Owned _Nullable)0;
+  _Unsafe((void)__move_to_raw(q));
+}
+
+void cast_borrow(void) {
+  int *_Borrow _Nullable p = (int *_Borrow _Nullable)(void *)0;
+  // The integer-zero spelling must be accepted as a null borrow without
+  // crashing the borrow checker.
+  int *_Borrow _Nullable q = (int *_Borrow _Nullable)0;
+  (void)p;
+  (void)q;
+}
+
+// ------------------- equivalent null pointer constant spellings -------------------
+
+// `(void *)0` can be written in several equivalent ways; all of them are null
+// pointer constants and must behave like NULL.
+void equivalent_spellings_raw(void) {
+  int *p0 = (void *)0;
+  int *p1 = (void *)(0);
+  int *p2 = (void *)(1 - 1);
+  int *p3 = ((void *)0);
+  int *p4 = (void *)(0L);
+  int *p5 = (void *)(2 - 2);
+  if (p0 == (void *)(0)) {
+  }
+  if (p1 != (void *)(1 - 1)) {
+  }
+  (void)p2;
+  (void)p3;
+  (void)p4;
+  (void)p5;
+}
+
+void equivalent_spellings_owned(void) {
+  int *_Owned _Nullable p0 = (void *)(0);
+  int *_Owned _Nullable p1 = (void *)(1 - 1);
+  take_owned((void *)(0));
+  take_owned((void *)(1 - 1));
+  p0 = (void *)(2 - 2);
+  _Unsafe((void)__move_to_raw(p0));
+  _Unsafe((void)__move_to_raw(p1));
+}
+
+void equivalent_spellings_borrow(void) {
+  int *_Borrow _Nullable p0 = (void *)(0);
+  int *_Borrow _Nullable p1 = (void *)(1 - 1);
+  take_borrow((void *)(0));
+  take_borrow((void *)(1 - 1));
+  if (p0 == (void *)(0)) {
+  }
+  (void)p1;
+}
+
+void equivalent_spellings_cast(void) {
+  int *_Owned _Nullable o = (int *_Owned _Nullable)(void *)(0);
+  int *_Owned _Nullable o2 = (int *_Owned _Nullable)(void *)(1 - 1);
+  int *_Borrow _Nullable b = (int *_Borrow _Nullable)(void *)(0);
+  int *_Borrow _Nullable b2 = (int *_Borrow _Nullable)(void *)(1 - 1);
+  _Unsafe((void)__move_to_raw(o));
+  _Unsafe((void)__move_to_raw(o2));
+  (void)b;
+  (void)b2;
+}
+
+// ------------------------ comparison / null checks ------------------------
+
+int compare_raw(void) {
+  int *p = NULL;
+  if (p == (void *)0)
+    return 0;
+  if (p != NULL)
+    return 1;
+  return 2;
+}
+
+int compare_owned(void) {
+  int *_Owned _Nullable p = (void *)0;
+  if (p == NULL)
+    return 0;
+  if (p != NULL)
+    return 1;
+  return 2;
+}
+
+int compare_borrow(int *_Borrow _Nullable p) {
+  int r = 0;
+  if (p == (void *)0)
+    r++;
+  if (p != NULL)
+    r++;
+  return r;
+}
+
+// ------------------------------ safe zone ------------------------------
+
+_Safe void safe_init_raw(void) {
+  int *p0 = (void *)0;
+  int *p1 = NULL;
+  (void)p0;
+  (void)p1;
+}
+
+_Safe void safe_assign_raw(void) {
+  int *p = nullptr;
+  p = (void *)0;
+  p = NULL;
+}
+
+_Safe void safe_take_raw(int *p) {}
+
+_Safe void safe_call_raw(void) {
+  safe_take_raw((void *)0);
+  safe_take_raw(NULL);
+}
+
+_Safe int *safe_return_raw(void) { return NULL; }
+
+_Safe void safe_init_owned(void) {
+  int *_Owned _Nullable p0 = (void *)0;
+  int *_Owned _Nullable p1 = NULL;
+}
+
+_Safe void safe_assign_owned(void) {
+  int *_Owned _Nullable p = nullptr;
+  p = (void *)0;
+  p = NULL;
+}
+
+_Safe void safe_take_owned(int *_Owned _Nullable p) {
+  _Unsafe((void)__move_to_raw(p));
+}
+
+_Safe void safe_call_owned(void) {
+  safe_take_owned((void *)0);
+  safe_take_owned(NULL);
+}
+
+_Safe int *_Owned _Nullable safe_return_owned(void) { return (void *)0; }
+
+_Safe void safe_init_borrow(void) {
+  int *_Borrow _Nullable p0 = (void *)0;
+  int *_Borrow _Nullable p1 = NULL;
+}
+
+_Safe void safe_assign_borrow(int *_Borrow _Nullable p) {
+  p = (void *)0;
+  p = NULL;
+}
+
+_Safe void safe_take_borrow(int *_Borrow _Nullable p) {}
+
+_Safe void safe_call_borrow(void) {
+  safe_take_borrow((void *)0);
+  safe_take_borrow(NULL);
+}
+
+_Safe int *_Borrow _Nullable
+safe_return_borrow(int *_Borrow _Nullable anchor) {
+  return NULL;
+}
+
+_Safe void safe_cast_owned(void) {
+  int *_Owned _Nullable p = (int *_Owned _Nullable)NULL;
+  int *_Owned _Nullable q = (int *_Owned _Nullable)0;
+  _Unsafe((void)__move_to_raw(q));
+}
+
+_Safe void safe_cast_borrow(void) {
+  int *_Borrow _Nullable p = (int *_Borrow _Nullable)(void *)0;
+  int *_Borrow _Nullable q = (int *_Borrow _Nullable)0;
+  (void)p;
+  (void)q;
+}
+
+_Safe void safe_equivalent_spellings(void) {
+  int *a = (void *)(0);
+  int *b = (void *)(1 - 1);
+  int *_Owned _Nullable o = (void *)(1 - 1);
+  int *_Borrow _Nullable br = (void *)(0);
+  if (br == (void *)(0)) {
+  }
+  (void)a;
+  (void)b;
+  _Unsafe((void)__move_to_raw(o));
+}
+
+// A null check against NULL narrows the pointer just like a check against
+// nullptr, so the dereference below is accepted.
+_Safe int safe_narrowing(int *_Borrow _Nullable p) {
+  if (p != NULL)
+    return *p;
+  return p == (void *)0;
+}
+
+// ------------------------------ struct fields ------------------------------
+
+typedef struct {
+  int *p;
+} S1;
+
+typedef struct {
+  int *_Owned _Nullable p;
+} S2;
+
+typedef struct {
+  int *_Borrow _Nullable p;
+} S3;
+
+typedef struct {
+  int *p;
+  int *_Borrow _Nullable q;
+} S4;
+
+void init_raw_field(void) { S1 s = {NULL}; (void)s; }
+
+void init_owned_field(void) {
+  S2 s = {(void *)0};
+  _Unsafe((void)__move_to_raw(s.p));
+}
+
+void init_borrow_field(void) { S3 s = {NULL}; (void)s; }
+
+void assign_mixed_field(S4 s) {
+  s = (S4){nullptr, NULL};
+  (void)s;
+}
+
+void assign_borrow_field(S3 s) { s.p = (void *)0; }
+
+_Safe void safe_init_owned_field(void) {
+  S2 s = {NULL};
+  _Unsafe((void)__move_to_raw(s.p));
+}
+
+_Safe void safe_init_borrow_field(void) { S3 s = {NULL}; (void)s; }

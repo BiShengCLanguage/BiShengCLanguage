@@ -2917,17 +2917,24 @@ void CastOperation::CheckCStyleCast() {
       SrcExpr = ExprError();
       return;
     }
+    // A null pointer constant (NULL, which expands to ((void *)0), or integer
+    // zero) can be cast to any _Owned/_Borrow pointer, just like nullptr.
+    const bool SrcIsNullPointerConstant =
+        SrcExpr.get()->isNullPointerConstant(
+            Self.Context, Expr::NPC_ValueDependentIsNull) != Expr::NPCK_NotNull;
     // bsc owned type CStyleCast
-    if (SrcExpr.get()->getType().isOwnedPointerOrOwnedStruct() ||
-        DestType.isOwnedPointerOrOwnedStruct()) {
+    if (!SrcIsNullPointerConstant &&
+        (SrcExpr.get()->getType().isOwnedPointerOrOwnedStruct() ||
+         DestType.isOwnedPointerOrOwnedStruct())) {
       if (!Self.CheckOwnedQualTypeCStyleCast(DestType, SrcExpr.get()->getType(), SrcExpr.get()->getExprLoc())) {
         SrcExpr = ExprError();
         return;
       }
     }
     // bsc borrow type CStyleCast
-    if (SrcExpr.get()->getType().isBorrowQualified() ||
-        DestType.isBorrowQualified()) {
+    if (!SrcIsNullPointerConstant &&
+        (SrcExpr.get()->getType().isBorrowQualified() ||
+         DestType.isBorrowQualified())) {
       if (!Self.CheckBorrowQualTypeCStyleCast(DestType,
                                               SrcExpr.get()->getType(),
                                               SrcExpr.get()->getExprLoc())) {
@@ -2935,7 +2942,7 @@ void CastOperation::CheckCStyleCast() {
         return;
       }
     }
-    {
+    if (!SrcIsNullPointerConstant) {
       auto hasOwnedInPtrChain = [](const PointerType *PT) -> bool {
         QualType Pointee = PT->getPointeeType();
         while (true) {

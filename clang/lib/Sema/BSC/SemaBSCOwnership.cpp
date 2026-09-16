@@ -217,9 +217,9 @@ bool Sema::CheckOwnedQualTypeAssignment(QualType LHSType, Expr* RHSExpr) {
     IsLiteral = true;
   }
   SourceLocation ExprLoc = RHSExpr->getBeginLoc();
-  // Owned pointer can be inited by nullptr.
+  // Owned pointer can be initialized by a null pointer constant
   if (LHSCanType.isOwnedPointer() &&
-      isa<CXXNullPtrLiteralExpr>(RHSExpr->IgnoreParens()))
+      RHSExpr->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNull))
     return true;
 
   bool Res = true;
@@ -706,9 +706,9 @@ bool Sema::CheckBorrowQualTypeAssignment(QualType LHSType, ExprResult &RHS) {
       }
     }
 
-    // Borrow pointer can be inited by nullptr.
+    // Borrow pointer can be initialized by a null pointer constant
     if (LHSCanType.isBorrowPointer() &&
-        isa<CXXNullPtrLiteralExpr>(RHSExpr->IgnoreParens()))
+        RHSExpr->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNull))
       return true;
 
     if (LHSCanType->isVoidPointerType()) {

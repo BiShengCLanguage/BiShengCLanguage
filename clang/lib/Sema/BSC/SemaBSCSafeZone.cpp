@@ -350,7 +350,14 @@ static int CheckCallAssignmentConstraints(Sema &S, FunctionDecl *FD,
 
   for (unsigned I = 0; I < NumParams; ++I) {
     QualType ParamType = FD->getParamDecl(I)->getType();
-    QualType ArgType = Args[I]->getType();
+    Expr *Arg = Args[I];
+    QualType ArgType = Arg->getType();
+
+    // A null pointer constant (nullptr, integer 0, or (void *)0 / NULL) is
+    // compatible with any pointer parameter, just like nullptr_t below.
+    if (ParamType->isPointerType() &&
+        Arg->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNull))
+      continue;
 
     if (!S.DoPointerTypesSatisfyAssignmentConstraints(ParamType, ArgType))
       return (int)I;
@@ -919,9 +926,10 @@ bool Sema::IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast) {
     return true;
   }
 
-  // Init any pointer (raw, owned, or borrow) by nullptr is allowed in the safezone
+  // Init any pointer (raw, owned, or borrow) by a null pointer constant
+  // is allowed in the safezone.
   if (DestType->isPointerType()) {
-    if (isa<CXXNullPtrLiteralExpr>(E->IgnoreParens()))
+    if (E->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNull))
       return true;
 
     // Allow initializing 'char*' pointers with string literals.

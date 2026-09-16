@@ -10950,20 +10950,6 @@ Sema::CheckSingleAssignmentConstraints(QualType LHSType, ExprResult &CallerRHS,
        LHSType->isBlockPointerType()) &&
       RHS.get()->isNullPointerConstant(Context,
                                        Expr::NPC_ValueDependentIsNull)) {
-#if ENABLE_BSC
-    // In BSC, owned/borrow pointers only accept nullptr and integer 0,
-    // not (void *)0.
-    if (getLangOpts().BSC) {
-      if (LHSType.isOwnedPointer() &&
-          RHS.get()->getType()->isVoidPointerType()) {
-        return IncompatibleOwnedPointer;
-      }
-      if (LHSType.isBorrowQualified() &&
-          RHS.get()->getType()->isVoidPointerType()) {
-        return IncompatibleBorrowPointer;
-      }
-    }
-#endif
     if (Diagnose || ConvertRHS) {
       CastKind Kind;
       CXXCastPath Path;
@@ -13643,7 +13629,8 @@ QualType Sema::CheckCompareOperands(ExprResult &LHS, ExprResult &RHS,
         LCanPointeeTy = LHSType->castAs<PointerType>()->getPointeeType().getCanonicalType();
       }
 
-      if (!CheckBorrowQualTypeCompare(LHSType, RHSType)) {
+      if (!LHSIsNull && !RHSIsNull &&
+          !CheckBorrowQualTypeCompare(LHSType, RHSType)) {
         Diag(Loc, diag::err_borrow_qualcheck_compare) << RHSType << LHSType;
         return computeResultTy();
       }

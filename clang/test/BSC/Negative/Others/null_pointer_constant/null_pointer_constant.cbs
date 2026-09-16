@@ -123,15 +123,3 @@ _Safe void test_safe_zone_null_pointer_constants(void) {
     int *_Nullable pe = ZERO;  // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *_Nullable'}}
     int *_Nullable pa = 1 - 1; // expected-warning {{expression which evaluates to zero treated as a null pointer constant of type 'int *_Nullable'}}
 }
-
-//===----------------------------------------------------------------===//
-// _Owned/_Borrow pointers reject the (void *)0 form.
-//===----------------------------------------------------------------===//
-
-void test_owned_borrow_reject_void_star_zero(void) {
-    int *_Owned _Nullable po = (void*)0; // expected-error {{incompatible _Owned types, cannot cast 'void *' to 'int *_Owned _Nullable'}}
-    int local = 1;
-    int *_Borrow _Nullable pb = &_Mut local;
-    pb = (void*)0; // expected-error {{incompatible _Borrow types, cannot cast 'void *' to 'int *_Borrow _Nullable'}}
-    pb = nullptr;  // ok
-}

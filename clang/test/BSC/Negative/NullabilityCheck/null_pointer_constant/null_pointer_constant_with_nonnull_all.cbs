@@ -1,0 +1,106 @@
+// RUN: %clang_cc1 -nullability-check=all -fsyntax-only -verify %s
+
+// With -nullability-check=all the nullability analysis also covers the unsafe
+// zone: initializing, assigning, passing or returning a null pointer constant
+// (NULL, (void *)0, or integer 0) for a '_Nonnull' pointer must be diagnosed.
+
+#define NULL ((void *)0)
+
+void take_nonnull(int *_Nonnull p) { (void)p; }
+
+// ---------------- unsafe zone ----------------
+
+// Initialization.
+void test_unsafe_nonnull_init(void) {
+  int *_Nonnull p1 = NULL;      // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = (void *)0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p3 = 0;         // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  (void)p1;
+  (void)p2;
+  (void)p3;
+}
+
+// Assignment.
+void test_unsafe_nonnull_assign(void) {
+  int x = 0;
+  int *_Nonnull p = &x;
+  p = NULL;      // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  p = (void *)0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  p = 0;         // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+// Argument passing.
+void test_unsafe_nonnull_pass(void) {
+  take_nonnull(NULL);      // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  take_nonnull((void *)0); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  take_nonnull(0);         // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+// Return.
+int *_Nonnull test_unsafe_nonnull_return(void) {
+  return NULL; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+int *_Nonnull test_unsafe_nonnull_return_void_zero(void) {
+  return (void *)0; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+int *_Nonnull test_unsafe_nonnull_return_zero(void) {
+  return 0; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+// Explicit casts to _Nonnull _Owned/_Borrow.
+void test_unsafe_nonnull_cast(void) {
+  int *_Owned _Nonnull o = (int *_Owned _Nonnull)NULL;
+  // expected-error@-1 {{cannot cast a possibly-null status pointer to a '_Nonnull' pointer}} expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Borrow _Nonnull b = (int *_Borrow _Nonnull)(void *)0;
+  // expected-error@-1 {{cannot cast a possibly-null status pointer to a '_Nonnull' pointer}} expected-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  _Unsafe((void)__move_to_raw(o));
+  (void)b;
+}
+
+// Equivalent spellings of the null pointer constant are rejected as well.
+void test_unsafe_nonnull_equivalent_spellings(void) {
+  int *_Nonnull p1 = (void *)(0); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = (void *)(1 - 1); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  take_nonnull((void *)(0)); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  take_nonnull((void *)(1 - 1)); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  (void)p1;
+  (void)p2;
+}
+
+int *_Nonnull test_unsafe_nonnull_return_equivalent(void) {
+  return (void *)(1 - 1); // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+// ---------------- safe zone ----------------
+
+_Safe void safe_take_nonnull(int *_Nonnull p) { (void)p; }
+
+_Safe void test_safe_nonnull_init(void) {
+  int *_Nonnull p1 = NULL;      // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = (void *)0; // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p3 = 0;         // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  (void)p1;
+  (void)p2;
+  (void)p3;
+}
+
+_Safe void test_safe_nonnull_pass(void) {
+  safe_take_nonnull(NULL);      // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  safe_take_nonnull((void *)0); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  safe_take_nonnull(0);         // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+}
+
+_Safe int *_Nonnull test_safe_nonnull_return(void) {
+  return NULL; // expected-error {{cannot return a possibly-null status pointer as a '_Nonnull' pointer}}
+}
+
+_Safe void test_safe_nonnull_equivalent_spellings(void) {
+  int *_Nonnull p1 = (void *)(0); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  int *_Nonnull p2 = (void *)(1 - 1); // expected-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  safe_take_nonnull((void *)(0)); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  safe_take_nonnull((void *)(1 - 1)); // expected-error {{cannot pass a possibly-null status pointer to a '_Nonnull' parameter}}
+  (void)p1;
+  (void)p2;
+}

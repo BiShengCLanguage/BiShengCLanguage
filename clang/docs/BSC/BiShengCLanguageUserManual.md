@@ -3962,9 +3962,11 @@ int main() {
 3. 只允许在非安全区进行 `T * _Borrow` 和 `T *` 之间的转换。从 `T * _Borrow p` 转到 `T * q` 是对 `p` 的一次使用（影响 `p` 的 NLL 计算），后续对 `q` 的操作不影响 `p` 的 NLL 计算。从 `T * q` 转到 `T * _Borrow p` 等效于 `p = &_Mut *q` (当类型 `T` 带 `const` 修饰时等效于 `p = &_Const *q`)。
 ```C
 int main() {
-  int *_Borrow p = (int *_Borrow)NULL; // ok: 非安全区允许 T * _Borrow 和 T * 之间的转换
+  int x = 0;
+  int *r = &x;
+  int *_Borrow p = (int *_Borrow)r; // ok: 非安全区允许 T * _Borrow 和 T * 之间的转换
   int *q = p; // error: 类型转换必须是显式的，禁止隐式类型转换
-  _Safe { int *_Borrow p = (int *_Borrow)NULL; } // error: 安全区禁止 T * _Borrow 和 T * 之间的转换
+  _Safe { int *_Borrow p2 = (int *_Borrow)r; } // error: 安全区禁止 T * _Borrow 和 T * 之间的转换
   return 0;
 }
 ```
@@ -4653,13 +4655,13 @@ _Safe void test_fields(void) {
 
 BSC 编译器会在编译时检查指针的可空性，避免出现解引用空指针、通过空指针访问成员等不安全行为。
 
-BSC 不允许在安全区内使用宏 `NULL`，但是 C 风格编程不可避免地使用空指针来描述逻辑：
+C 风格编程不可避免地使用空指针来描述逻辑：
 
 1. 一个指针的指向需要在运行时才能确定，那么我们可以将指针初始化为空指针，在后续再根据运行状态来修改指向
 2. 对于可空指针，在使用前需要判断该指针是否为空指针
 
-BSC 引入了 `nullptr` 关键字来替代 `NULL`。
-用户可以定义 Nullable 指针，并将其初始化为 `nullptr`。
+BSC 同时支持 `nullptr` 关键字和 C 的宏 `NULL`，两者都是空指针常量，可以互换使用。
+用户可以定义 Nullable 指针，并将其初始化为 `NULL` 或 `nullptr`。
 需要对 Nullable 指针判空才能解引用。
 
 我们用一个简单的例子来学习如何定义指针的 nullabiliy 并使用它：
@@ -4853,7 +4855,7 @@ int main() {
 - `if (!p)` `if (p && q)` `if (p || q)`
 - `while (!s.p)`  `while (s.p && s.q)` `while (s.p || s.q)`
 
-3. 显式和空指针做比较 `e == nullptr` `e != nullptr` 
+3. 显式和空指针做比较 `e == nullptr` `e != nullptr`
 
 - 比较运算符具有对称性，因此 `nullptr == e` 和 `nullptr != e` 也支持
 

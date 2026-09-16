@@ -91,28 +91,28 @@ _Unsafe int h_caller(int x) {
 }
 
 _Safe int g_comp_nullable(int *_Borrow _ArrayElem _Nullable p) {
-  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'int *_Borrow _ArrayElem _Nullable' cannot be compared}}
+  if (p != ((void*)0)) {
     return p[0];
   }
   return -1;
 }
 
 _Safe int g_comp_nonnull(int *_Borrow _ArrayElem _Nonnull p) {
-  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'int *_Borrow _ArrayElem _Nonnull' cannot be compared}}
+  if (p != ((void*)0)) {
     return p[0];
   }
   return -1;
 }
 
 _Safe int g_const_comp_nullable(const int *_Borrow _ArrayElem _Nullable p) {
-  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'const int *_Borrow _ArrayElem _Nullable' cannot be compared}}
+  if (p != ((void*)0)) {
     return p[0];
   }
   return -1;
 }
 
 _Safe int g_const_comp_nonnull(const int *_Borrow _ArrayElem _Nonnull p) {
-  if (p != ((void*)0)) { // expected-error {{incompatible _Borrow types, 'void *' and 'const int *_Borrow _ArrayElem _Nonnull' cannot be compared}}
+  if (p != ((void*)0)) {
     return p[0];
   }
   return -1;

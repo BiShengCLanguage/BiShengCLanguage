@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+// Test that NULL and other null pointer constants match pointer parameters in
+// heterogeneous _Safe/_Unsafe overload resolution, just like nullptr.
+
+#define NULL ((void *)0)
+
+typedef struct A {
+    int a;
+} A;
+
+// Test 1: NULL matches a _Nullable _Borrow parameter from an unsafe caller.
+void foo(const A* a);
+_Safe void foo(const A* _Borrow _Nullable a);
+
+void test_unsafe_nullable_borrow(void) {
+    foo(NULL);
+    foo((void*)0);
+    foo(nullptr);
+}
+
+// Test 2: NULL matches a _Nullable _Owned parameter from a safe caller.
+void bar(int* p);
+_Safe void bar(int* _Owned _Nullable p);
+
+_Safe void test_safe_nullable_owned(void) {
+    bar(NULL);
+    bar((void*)0);
+    bar(0);
+}
+
+// Test 3: multiple parameters, one of which is NULL.
+void baz(int* p, float* q);
+_Safe void baz(int* _Borrow p, float* _Borrow _Nullable q);
+
+_Safe void test_mixed(int* _Borrow bp) {
+    baz(bp, NULL);
+    baz(bp, (void*)0);
+}

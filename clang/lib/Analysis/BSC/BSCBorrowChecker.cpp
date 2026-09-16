@@ -1435,7 +1435,12 @@ public:
     QualType TargetTy = CSCE->getType();
     const Expr *SubExpr = CSCE->getSubExpr();
 
-    if (TargetTy.isBorrowQualified()) {
+    const QualType SrcTy = SubExpr->getType();
+    // Casting to a borrow pointer reborrows the pointed-to place. A null
+    // pointer constant of non-pointer type (e.g. `(int *_Borrow)0`) has no
+    // place to reborrow, so it is handled as a plain value use below.
+    if (TargetTy.isBorrowQualified() &&
+        (SrcTy->isPointerType() || SrcTy->isArrayType())) {
       // Casting to a borrow pointer reborrows the pointed-to place.
       Kind = Action::Borrow;
       BK = TargetTy.isConstBorrow() ? BorrowKind::Shared : BorrowKind::Mut;
