@@ -1,0 +1,79 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
+
+// An array index in an offsetof is evaluated at run time, so the reads it
+// contains are checked like any other.
+
+struct Inner { int a; int arr[4]; };
+struct Outer { int pad; struct Inner in[2]; };
+
+_Safe unsigned long index_read(void) {
+    int i;
+    return __builtin_offsetof(struct Inner, arr[i]); // expected-error {{use of uninitialized value: 'i'}}
+}
+
+_Safe unsigned long computed_index(int n) {
+    int i;
+    return __builtin_offsetof(struct Inner, arr[i + n]); // expected-error {{use of uninitialized value: 'i'}}
+}
+
+_Safe unsigned long index_before_field(void) {
+    int i;
+    return __builtin_offsetof(struct Outer, in[i].a); // expected-error {{use of uninitialized value: 'i'}}
+}
+
+_Safe unsigned long two_indexes(int n) {
+    int i;
+    return __builtin_offsetof(struct Outer, in[n].arr[i]); // expected-error {{use of uninitialized value: 'i'}}
+}
+
+// The result is a value like any other: using it uninitialized is not the
+// issue, reading the index is.
+_Safe unsigned long index_read_in_assignment(void) {
+    int i;
+    unsigned long off;
+    off = __builtin_offsetof(struct Inner, arr[i]); // expected-error {{use of uninitialized value: 'i'}}
+    return off;
+}
+
+// A plain local is checked in an unsafe function only under -uninit-check=all.
+unsigned long unsafe_index_read(void) {
+    int i;
+    return __builtin_offsetof(struct Inner, arr[i]); // all-error {{use of uninitialized value: 'i'}}
+}
+
+unsigned long unsafe_two_indexes(int n) {
+    int i;
+    return __builtin_offsetof(struct Outer, in[n].arr[i]); // all-error {{use of uninitialized value: 'i'}}
+}
+
+// A contract pointee is checked in every zone and mode.
+_Safe unsigned long safe_contract_index(int *_Borrow __attribute__((ensure_init)) out) {
+    unsigned long off = __builtin_offsetof(struct Inner, arr[*out]); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 0;
+    return off;
+}
+
+unsigned long contract_index(int *__attribute__((ensure_init)) out) {
+    unsigned long off = __builtin_offsetof(struct Inner, arr[*out]); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 0;
+    return off;
+}
+
+unsigned long contract_index_before_field(int *__attribute__((ensure_init)) out) {
+    unsigned long off = __builtin_offsetof(struct Outer, in[*out].a); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 0;
+    return off;
+}
+
+_Safe unsigned long safe_if_ret_index(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    unsigned long off = __builtin_offsetof(struct Inner, arr[*out]); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 0;
+    return off;
+}
+
+unsigned long if_ret_index(int *__attribute__((ensure_init_if_ret(0))) out) {
+    unsigned long off = __builtin_offsetof(struct Inner, arr[*out]); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+    *out = 0;
+    return off;
+}

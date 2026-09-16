@@ -1171,6 +1171,20 @@ Operand BSCIRBuilder::VisitVAArgExpr(VAArgExpr *E) {
   return Operand::createCopy(TmpPlace);
 }
 
+Operand BSCIRBuilder::VisitOffsetOfExpr(OffsetOfExpr *E) {
+  // A non-constant offsetof evaluates its array index expressions; the offset
+  // they compute is not modelled.
+  for (unsigned I = 0, N = E->getNumExpressions(); I != N; ++I)
+    lowerDiscardedExpr(E->getIndexExpr(I));
+  LocalId Tmp = TheBody->addTemp(E->getType(), E->getExprLoc());
+  Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
+  emit(Statement::createAssign(
+      TmpPlace,
+      Rvalue::createUse(Operand::createConstant(APValue(), E->getType())),
+      currentSafeZone(), E, E->getExprLoc()));
+  return Operand::createCopy(TmpPlace);
+}
+
 Operand BSCIRBuilder::VisitPredefinedExpr(PredefinedExpr *E) {
   // __func__, __FUNCTION__, __PRETTY_FUNCTION__ — treat as string constant.
   if (auto *SL = E->getFunctionName())

@@ -51,6 +51,7 @@ public:
   Operand VisitMemberExpr(MemberExpr *ME);
   Operand VisitArraySubscriptExpr(ArraySubscriptExpr *ASE);
   Operand VisitVAArgExpr(VAArgExpr *E);
+  Operand VisitOffsetOfExpr(OffsetOfExpr *E);
   Operand VisitPredefinedExpr(PredefinedExpr *E);
   Operand VisitCompoundLiteralExpr(CompoundLiteralExpr *E);
   Operand VisitAtomicExpr(AtomicExpr *E);

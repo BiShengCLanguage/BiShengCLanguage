@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -fsyntax-only -dump-bscir %s 2>&1 | FileCheck %s
+
+// A run-time array index in an offsetof is evaluated, so it reaches the IR;
+// the offset it computes is not modelled.
+
+struct Inner { int a; int arr[4]; };
+
+// CHECK-LABEL: fn test_runtime_index
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   StorageLive(_2)
+// CHECK-NEXT:   _2 = copy(_1)
+// CHECK-NEXT:   _3 = copy(_2)
+// CHECK-NEXT:   _4 = const(unsigned long)
+// CHECK-NEXT:   _0 = copy(_4)
+unsigned long test_runtime_index(int n) {
+    int i = n;
+    return __builtin_offsetof(struct Inner, arr[i]);
+}
+
+// A constant index folds to the offset itself, reading nothing.
+// CHECK-LABEL: fn test_constant_index
+// CHECK:        _0 = const 12
+// CHECK-NEXT:   goto -> bb1
+unsigned long test_constant_index(void) {
+    return __builtin_offsetof(struct Inner, arr[2]);
+}
+
+// Every read in the index expression reaches the IR.
+// CHECK-LABEL: fn test_two_indexes
+// CHECK:      bb0: {{[{]}}
+// CHECK-NEXT:   _3 = BinOp(+, copy(_1), copy(_2))
+// CHECK-NEXT:   _4 = const(unsigned long)
+unsigned long test_two_indexes(int n, int m) {
+    return __builtin_offsetof(struct Inner, arr[n + m]);
+}

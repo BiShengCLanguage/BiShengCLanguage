@@ -1,0 +1,61 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// An offsetof with no run-time index reads nothing, and an initialized index
+// is read like any initialized value.
+
+struct Inner { int a; int arr[4]; };
+struct Outer { int pad; struct Inner in[2]; };
+
+_Safe unsigned long plain_field(void) {
+    return __builtin_offsetof(struct Inner, a);
+}
+
+_Safe unsigned long constant_index(void) {
+    return __builtin_offsetof(struct Inner, arr[2]);
+}
+
+_Safe unsigned long nested_constant_index(void) {
+    return __builtin_offsetof(struct Outer, in[1].arr[3]);
+}
+
+_Safe unsigned long initialized_index(int n) {
+    int i = n;
+    return __builtin_offsetof(struct Inner, arr[i]);
+}
+
+// The offsetof result initializes its destination.
+_Safe unsigned long result_is_initialized(int n) {
+    unsigned long off = __builtin_offsetof(struct Inner, arr[n]);
+    return off;
+}
+
+unsigned long unsafe_constant_index(void) {
+    return __builtin_offsetof(struct Outer, in[1].arr[3]);
+}
+
+unsigned long unsafe_initialized_index(int n) {
+    int i = n;
+    return __builtin_offsetof(struct Inner, arr[i]);
+}
+
+_Safe unsigned long safe_contract_index_after_write(int *_Borrow __attribute__((ensure_init)) out) {
+    *out = 1;
+    return __builtin_offsetof(struct Inner, arr[*out]);
+}
+
+unsigned long contract_index_after_write(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    return __builtin_offsetof(struct Inner, arr[*out]);
+}
+
+_Safe unsigned long safe_if_ret_index_after_write(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    *out = 1;
+    return __builtin_offsetof(struct Inner, arr[*out]);
+}
+
+unsigned long if_ret_index_after_write(int *__attribute__((ensure_init_if_ret(0))) out) {
+    *out = 1;
+    return __builtin_offsetof(struct Inner, arr[*out]);
+}
