@@ -1656,6 +1656,15 @@ static QualType ConvertDeclSpecToType(TypeProcessingState &state
   case DeclSpec::TST_conditionalType: {
     llvm::Optional<bool> CondResult = DS.getConditionalCondResult();
     Expr *CondExpr = DS.getConditionalCondExpr();
+    // The condition is not instantiation-dependent, yet its value is unknown:
+    // ActOnCondition already diagnosed it (it is not an integer constant
+    // expression) and error-recovered.
+    // Error-recover with a placeholder type instead.
+    if (!CondResult && !CondExpr->isInstantiationDependent()) {
+      Result = Context.IntTy;
+      declarator.setInvalidType(true);
+      break;
+    }
     QualType CondType1 = S.GetTypeFromParser(DS.getConditionalType1());
     QualType CondType2 = S.GetTypeFromParser(DS.getConditionalType2());
     Result = Context.getConditionalType(CondResult, CondExpr, CondType1, CondType2);

@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -verify %s
+
+// A __conditional whose condition is not an integer constant expression is
+// diagnosed and error-recovered. The parser must not leave a ConditionalType
+// without an underlying type behind: the condition is not instantiation
+// dependent, so the type is not dependent either and is kept for good in the
+// AST. Any later query of its size or alignment (e.g. the 'return' and the
+// 'sizeof' below) then used to recurse forever in ASTContext::getTypeInfoImpl
+// and crash the compiler.
+
+int non_constant_condition(void) {
+  int c = 1;
+  __conditional(c, int, double) a = 5; // expected-error {{constexpr if condition is not a constant expression}}
+  return a;
+}
+
+int unsupported_condition_type(void) {
+  __conditional(1.0, int, double) a = 5; // expected-error {{BSC constexpr if condition expression does not support type 'double'}}
+  return a;
+}
+
+int non_constant_condition_sizeof(void) {
+  int c = 1;
+  __conditional(c, int, double) a[3]; // expected-error {{constexpr if condition is not a constant expression}}
+  return (int)sizeof(a);
+}
+
+int non_constant_condition_in_generic<T>(void) {
+  int c = 1;
+  __conditional(c, T, double) a; // expected-error {{constexpr if condition is not a constant expression}}
+  (void)a;
+  return 0;
+}
+
+int main(void) {
+  return non_constant_condition() + unsupported_condition_type() +
+         non_constant_condition_sizeof();
+}

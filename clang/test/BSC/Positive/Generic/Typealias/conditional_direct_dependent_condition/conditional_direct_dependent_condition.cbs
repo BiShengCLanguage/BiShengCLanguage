@@ -1,0 +1,23 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+// __conditional can be used directly (without going through an alias template)
+// inside a generic function, with an instantiation-dependent condition. The
+// resulting type is dependent and is resolved when the enclosing generic
+// function is instantiated; it must not be error-recovered just because the
+// condition value is unknown while parsing the generic definition.
+
+int size_of_selected<T>(void) {
+  __conditional(__is_integral(T), char, short) v;
+  v = 0;
+  return (int)sizeof(v);
+}
+
+int main(void) {
+  if (size_of_selected<int>() != 1)   // selects char
+    return 1;
+  if (size_of_selected<double>() != 2) // selects short
+    return 2;
+  return 0;
+}
