@@ -93,6 +93,14 @@ static void CollectArgumentCalls(Stmt *S, bool InCallArg,
     CollectArgumentCalls(Child, InCallArg, ArgCalls);
 }
 
+// Whether a CFGStmt element is a discarded expression statement (e.g. `*p;`)
+// rather than a sub-expression hoisted by the setAllAlwaysAdd() CFG build —
+// hoisted ones are analyzed inline by their enclosing statement instead.
+static bool IsDiscardedExprStmt(const Stmt *S, ParentMap &PM) {
+  const auto *E = dyn_cast<Expr>(S);
+  return E && !PM.isConsumedExpr(E);
+}
+
 static llvm::SmallSet<string, 10>
 findPrefixStrings(const llvm::SmallSet<string, 10> fieldSet, string prefix) {
   llvm::SmallSet<string, 10> prefixStrings = {};
@@ -3079,6 +3087,10 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
 
   enum Operation { None, Assign, Move, GetAddr };
   Operation op = Operation::None;
+  // True while visiting a discarded expression statement: transfer semantics
+  // (assignment RHS consumption, ++/-- writes) degrade to read-only checks
+  // because those ran through their own hoisted CFGStmt elements already.
+  bool ReadOnlyMode = false;
 
 public:
   TransferFunctions(OwnershipImpl &os, Ownership::OwnershipStatus &Stat,
@@ -3103,6 +3115,7 @@ public:
   void VisitReturnStmt(ReturnStmt *RS);
   void VisitLifetimeEnds(VarDecl *VD, SourceLocation SL, bool isDestructor);
   void VisitStmt(Stmt *S);
+  void VisitDiscardedExpr(Stmt *S);
   void VisitUnaryOperator(UnaryOperator *UO);
   void VisitAbstractConditionalOperator(AbstractConditionalOperator *ACO);
   void VisitBinaryConditionalOperator(BinaryConditionalOperator *BCO);
@@ -3208,6 +3221,26 @@ void TransferFunctions::VisitStmt(Stmt *S) {
       Visit(C);
     }
   }
+}
+
+/// Visit a discarded expression statement (`*p;`, `(void)*p;`, `(p, *p);`,
+/// `s.p;`) as a read-only use of its bases: op == GetAddr checks
+/// use-of-moved / use-of-uninit without consuming ownership.
+///
+/// Sub-expressions with real transfer semantics (assignments, calls,
+/// ++/--) must not re-run that semantics here — they already ran through
+/// their own hoisted CFGStmt elements.
+void TransferFunctions::VisitDiscardedExpr(Stmt *S) {
+  if (auto *E = dyn_cast<Expr>(S))
+    if (isa<DeclRefExpr>(E->IgnoreParenCasts()))
+      return;
+  bool Saved = ReadOnlyMode;
+  ReadOnlyMode = true;
+  op = GetAddr;
+  Visit(S);
+  op = None;
+  isAddrMut = false;
+  ReadOnlyMode = Saved;
 }
 
 void TransferFunctions::VisitStmtExpr(StmtExpr *SE) {
@@ -3863,6 +3896,10 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
     }
     op = GetAddr;
   } else if (UO->isIncrementDecrementOp()) {
+    // Discarded-statement recursion: ++/-- ran through its own hoisted
+    // CFGStmt element; skip (see the assignment case above).
+    if (ReadOnlyMode)
+      return;
     op = Assign;
   }
   Visit(UO->getSubExpr());
@@ -3871,6 +3908,12 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
 
 void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
   if (BO->isAssignmentOp()) {
+    // Discarded-statement recursion: the assignment's real semantics ran
+    // through its own hoisted CFGStmt element; re-checking its operands here
+    // would inspect the RHS after that transfer already consumed it, so the
+    // whole sub-expression is skipped.
+    if (ReadOnlyMode)
+      return;
     Expr *LHS = BO->getLHS();
     Expr *RHS = BO->getRHS();
 
@@ -3906,8 +3949,15 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     if (BO->getOpcode() == BO_Comma) {
       // comma operator is not symmetric, the LHS never consumes ownership
       op = GetAddr;
+      // Its value is discarded: a bare-reference LHS (`(p, *p);`) is the
+      // unused-value-suppression idiom and is not checked (same rule as
+      // VisitDiscardedExpr's top level).
+      if (!(ReadOnlyMode &&
+            isa<DeclRefExpr>(BO->getLHS()->IgnoreParenCasts())))
+        Visit(BO->getLHS());
+    } else {
+      Visit(BO->getLHS());
     }
-    Visit(BO->getLHS());
     op = VisitMode;
     Visit(BO->getRHS());
   }
@@ -4649,14 +4699,29 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
 
     if (elem.getAs<CFGStmt>()) {
       const Stmt *S = elem.castAs<CFGStmt>().getStmt();
-      if (isa<DeclStmt>(S) || isa<CallExpr>(S) ||
+      // Any non-whitelisted element in statement position (e.g. `*p;`,
+      // `s.p;`, `(p == q);`) is a discarded expression statement: visited as
+      // a read-only use of its bases. Hoisted sub-expressions are skipped —
+      // they are re-visited inline by their enclosing statement, and a
+      // standalone read-only visit would check the base before the current
+      // dataflow iteration runs the consuming transfer (false positive once
+      // the iteration re-enters the block with the post-transfer state).
+      // Whitelisted statements keep priority: `f(p);` in statement position
+      // is both discarded-position and a real-semantics CallExpr, and the
+      // latter wins.
+      bool HasRealSemantics =
+          isa<DeclStmt>(S) || isa<CallExpr>(S) ||
           (isa<BinaryOperator>(S) &&
            dyn_cast<BinaryOperator>(S)->isAssignmentOp()) ||
           (isa<UnaryOperator>(S) &&
            dyn_cast<UnaryOperator>(S)->isIncrementDecrementOp()) ||
-          isa<ReturnStmt>(S)) {
+          isa<ReturnStmt>(S);
+      bool IsDiscardedStmt =
+          !HasRealSemantics &&
+          IsDiscardedExprStmt(S, analysisContext.getParentMap());
+      if (HasRealSemantics || IsDiscardedStmt) {
         // Handling CallExpr iff it is a CFG stmt.
-        if (isa<CallExpr>(S)) {
+        if (HasRealSemantics && isa<CallExpr>(S)) {
           // Nested calls inside an enclosing call's argument list are
           // analyzed inline by that enclosing call (see CollectArgumentCalls)
           // skip their hoisted CFGStmt elements.
@@ -4664,7 +4729,10 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
             continue;
           TF.SetHandlingCallExpr();
         }
-        TF.Visit(const_cast<Stmt *>(S));
+        if (IsDiscardedStmt)
+          TF.VisitDiscardedExpr(const_cast<Stmt *>(S));
+        else
+          TF.Visit(const_cast<Stmt *>(S));
       }
     }
 

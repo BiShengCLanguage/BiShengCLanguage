@@ -1,0 +1,100 @@
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value);
+
+void safe_free<T>(T *_Owned p);
+
+// Test 1: Basic discarded deref-read after free (FN case)
+int test_discarded_deref(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);  // consume p
+    *p;       // expected-error {{use of moved value: 'p'}}
+    return 0;
+}
+
+// Test 2: Discarded deref-read with (void) cast
+int test_void_cast_deref(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    (void)*p;   // expected-error {{use of moved value: 'p'}}
+    return 0;
+}
+
+// Test 3: Discarded deref-read in comma expression
+int test_comma_deref(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    (p, *p);    // expected-error {{use of moved value: 'p'}}
+    return 0;
+}
+
+// Test 4: Control - non-discarded read (should already work)
+int test_non_discarded_read(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    int x = *p; // expected-error {{use of moved value: 'p'}}
+    return 0;
+}
+
+// Test 5: Control - write after free (should already work)
+int test_write_after_free(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    *p = 99;    // expected-error {{use of moved value: 'p'}}
+    return 0;
+}
+
+// Test 6: Discarded member access after field move-out
+struct S { int *_Owned v; };
+
+int test_discarded_member_access(void) {
+    struct S s = {0};
+    s.v = safe_malloc<int>(1);
+    int *_Owned r = s.v;   // move s.v out
+    safe_free(r);
+    s.v;  // expected-error {{use of moved value: 's.v'}}
+    return 0;
+}
+
+// Test 7: Discarded deref of member access
+int test_discarded_deref_member(void) {
+    struct S s = {0};
+    s.v = safe_malloc<int>(1);
+    int *_Owned r = s.v;   // move s.v out
+    safe_free(r);
+    *s.v;  // expected-error {{use of moved value: 's.v'}}
+    return 0;
+}
+
+// Test 8: Valid use before free (no error expected)
+int test_valid_use_before_free(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    *p;       // OK: p is still owned
+    safe_free(p);
+    return 0;
+}
+
+// Test 9: Discarded comparison reads freed value
+void test_discarded_comparison(int *_Owned q) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    (p == q);  // expected-error {{use of moved value: 'p'}}
+    safe_free(q);
+}
+
+// Test 10: Discarded short-circuit reads freed value on the true path
+void test_discarded_short_circuit(int c) {
+    int *_Owned q = safe_malloc<int>(1);
+    safe_free(q);
+    (c && *q);  // expected-error {{use of moved value: 'q'}}
+}
+
+// Test 11: Bare variable statement reads no memory — no diagnostics
+int test_bare_var_statement(void) {
+    int *_Owned a[10];
+    (void)a;   // unused-value suppression idiom: not a use
+    return 0;
+}
