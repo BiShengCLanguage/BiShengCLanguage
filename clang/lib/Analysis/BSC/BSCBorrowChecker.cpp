@@ -1502,6 +1502,14 @@ public:
       return;
     }
 
+    // A scalar initializer list only wraps its first effective initializer.
+    // Sema has already diagnosed empty or excess scalar initializers.
+    if (ILE->getType()->isScalarType()) {
+      if (ILE->getNumInits() != 0)
+        Visit(ILE->getInit(0));
+      return;
+    }
+
     assert(Dest && "tracked initializer list should have a destination");
     Kind = Action::Aggregate;
     AK = ActionAggregate::AggregateKind::Init;

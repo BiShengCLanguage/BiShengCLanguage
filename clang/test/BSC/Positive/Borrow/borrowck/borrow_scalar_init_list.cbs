@@ -1,0 +1,20 @@
+// RUN: %clang %s -o %t.output
+// RUN: %t.output
+// expected-no-diagnostics
+
+int scalar_string_borrow_init_list(void) {
+  const char *_Borrow p = {"hello"};
+  return *p == 'h' ? 0 : 1;
+}
+
+int scalar_mut_borrow_init_list(void) {
+  int value = 1;
+  int *_Borrow p = {&_Mut value};
+  *p = 2;
+  return value == 2 ? 0 : 1;
+}
+
+int main(void) {
+  return scalar_string_borrow_init_list() ||
+         scalar_mut_borrow_init_list();
+}
