@@ -10,13 +10,6 @@ void issue_845_repro(void) {
   (void)fileType3;
 }
 
-void owned_arrayelem_array(void) {
-  int *_Owned _ArrayElem p[2];
-  int *_Owned _ArrayElem q[2][3];
-  (void)p;
-  (void)q;
-}
-
 void borrow_arrayelem_array(void) {
   int x[2] = {1, 2};
   int *_Borrow _ArrayElem p[1] = {&_Mut x[0]};

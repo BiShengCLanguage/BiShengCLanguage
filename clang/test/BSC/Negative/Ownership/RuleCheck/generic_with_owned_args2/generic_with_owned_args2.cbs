@@ -17,17 +17,17 @@ void Func_1<T>()
 {
     _Static_assert(__is_same(T _Owned, _Owned T), "fail"); // expected-error 2 {{type of 'int' cannot be qualified by '_Owned'}}
     T _Owned a; // expected-error {{type of 'int' cannot be qualified by '_Owned'}}
-    (void)a;
+    (void)a; // expected-error 2 {{use of uninitialized value: 'a'}}
 }
 
 void test() {
-    Func_1<int*>();
+    Func_1<int*>(); // expected-note {{in instantiation of function template specialization 'Func_1<int *>' requested here}}
     return;
 }
 
 
 void test2() {
-    Func_1<int* _Owned>();
+    Func_1<int* _Owned>(); // expected-note {{in instantiation of function template specialization 'Func_1<int *_Owned>' requested here}}
 }
 
 typedef int* _Owned ownedIntPtr;

@@ -27,7 +27,7 @@ int test_void_cast_deref(void) {
 int test_comma_deref(void) {
     int *_Owned p = safe_malloc<int>(1);
     safe_free(p);
-    (p, *p);    // expected-error {{use of moved value: 'p'}}
+    (p, *p);    // expected-error 2 {{use of moved value: 'p'}}
     return 0;
 }
 
@@ -92,9 +92,42 @@ void test_discarded_short_circuit(int c) {
     (c && *q);  // expected-error {{use of moved value: 'q'}}
 }
 
-// Test 11: Bare variable statement reads no memory — no diagnostics
+// Test 11: A discarded cast reads an uninitialized owned array
 int test_bare_var_statement(void) {
     int *_Owned a[10];
-    (void)a;   // unused-value suppression idiom: not a use
+    (void)a; // expected-error {{use of uninitialized value: 'a'}}
     return 0;
+}
+
+// Test 12: A live discarded bare reference is valid
+int test_live_bare_var_statement(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    p;
+    safe_free(p);
+    return 0;
+}
+
+// Test 13: A discarded bare reference still reads ownership state
+int test_moved_bare_var_statement(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    p; // expected-error {{use of moved value: 'p'}}
+    return 0;
+}
+
+// Test 14: sizeof does not evaluate its moved operand
+int test_sizeof_moved_var(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    safe_free(p);
+    sizeof(p);
+    return 0;
+}
+
+// Test 15: A comma LHS is evaluated even when the RHS has side effects
+int test_comma_side_effect(void) {
+    int *_Owned p = safe_malloc<int>(1);
+    int a = 0;
+    safe_free(p);
+    (p, a++); // expected-error {{use of moved value: 'p'}}
+    return a;
 }

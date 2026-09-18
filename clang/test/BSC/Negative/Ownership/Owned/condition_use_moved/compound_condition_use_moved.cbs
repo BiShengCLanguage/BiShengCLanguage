@@ -1,0 +1,138 @@
+// RUN: %clang_cc1 -Wno-unused-value -verify %s
+
+_Safe T *_Owned safe_malloc<T>(T);
+_Safe void safe_free<T>(T *_Owned);
+
+// The first operand is evaluated in a logical-operator terminator block.
+int test(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int a = 1;
+  safe_free<int>(p);
+  if (p && a) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// Every intermediate block in a nested logical condition must be checked.
+int test1(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int a = 1;
+  int b = 1;
+  safe_free<int>(p);
+  if (a && p && b) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// Logical-or creates the same intermediate condition-block shape.
+int test2(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int a = 0;
+  safe_free<int>(p);
+  if (p || a) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// The final operand remains owned by the IfStmt block and is checked once.
+int test3(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int a = 1;
+  safe_free<int>(p);
+  if (a && p) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// Both arms of a conditional operator are checked as condition reads.
+int test4(int c) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int *_Owned _Nullable q = safe_malloc<int>(2);
+  safe_free<int>(p);
+  safe_free<int>(q);
+  // expected-error@+2 {{use of moved value: 'p'}}
+  // expected-error@+1 {{use of moved value: 'q'}}
+  if (c ? p : q) {
+    return 1;
+  }
+  return 0;
+}
+
+// Conditional arms may contain independently short-circuited expressions.
+int test5(int c) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int *_Owned _Nullable p1 = safe_malloc<int>(2);
+  int *_Owned _Nullable p2 = safe_malloc<int>(3);
+  int *_Owned _Nullable p3 = safe_malloc<int>(4);
+  int *_Owned _Nullable p4 = safe_malloc<int>(5);
+  safe_free<int>(p);
+  safe_free<int>(p1);
+  safe_free<int>(p2);
+  safe_free<int>(p3);
+  safe_free<int>(p4);
+  // expected-error@+5 {{use of moved value: 'p'}}
+  // expected-error@+4 {{use of moved value: 'p1'}}
+  // expected-error@+3 {{use of moved value: 'p2'}}
+  // expected-error@+2 {{use of moved value: 'p3'}}
+  // expected-error@+1 {{use of moved value: 'p4'}}
+  if (c ? p && p1 && p2 : p3 || p4) {
+    return 1;
+  }
+  return 0;
+}
+
+// GNU binary conditional checks both its shared condition and fallback.
+int test6(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int *_Owned _Nullable q = safe_malloc<int>(2);
+  safe_free<int>(p);
+  safe_free<int>(q);
+  // expected-error@+2 {{use of moved value: 'p'}}
+  // expected-error@+1 {{use of moved value: 'q'}}
+  if (p ?: q) {
+    return 1;
+  }
+  return 0;
+}
+
+// GNU binary conditional preserves short-circuit checks in both operands.
+int test7(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int *_Owned _Nullable p1 = safe_malloc<int>(2);
+  int *_Owned _Nullable p2 = safe_malloc<int>(3);
+  int *_Owned _Nullable p3 = safe_malloc<int>(4);
+  safe_free<int>(p);
+  safe_free<int>(p1);
+  safe_free<int>(p2);
+  safe_free<int>(p3);
+  // expected-error@+4 {{use of moved value: 'p'}}
+  // expected-error@+3 {{use of moved value: 'p1'}}
+  // expected-error@+2 {{use of moved value: 'p2'}}
+  // expected-error@+1 {{use of moved value: 'p3'}}
+  if ((p && p1) ?: (p2 || p3)) {
+    return 1;
+  }
+  return 0;
+}
+
+// The result operand of a comma expression is read by the condition.
+int test8(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int a = 1;
+  safe_free<int>(p);
+  if ((++a, p)) { // expected-error {{use of moved value: 'p'}}
+    return 1;
+  }
+  return 0;
+}
+
+// The discarded operand of a comma condition is still evaluated.
+int test9(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  int a = 1;
+  safe_free<int>(p);
+  if ((p, a)) { // expected-error {{use of moved value: 'p'}}
+    return 1;
+  }
+  return 0;
+}

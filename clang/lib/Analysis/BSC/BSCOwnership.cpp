@@ -101,6 +101,49 @@ static bool IsDiscardedExprStmt(const Stmt *S, ParentMap &PM) {
   return E && !PM.isConsumedExpr(E);
 }
 
+// Whether Terminator identifies a block that evaluates part of a statement
+// condition. Short-circuit operators split their operands across blocks, so
+// intermediate blocks have a logical BinaryOperator terminator rather than
+// the owning control statement.
+static bool IsStatementConditionTerminator(const Stmt *Terminator,
+                                           ParentMap &PM) {
+  if (!Terminator)
+    return false;
+
+  if (isa<IfStmt, WhileStmt, DoStmt, ForStmt, SwitchStmt>(Terminator))
+    return true;
+
+  const auto *BO = dyn_cast<BinaryOperator>(Terminator);
+  if (!BO || !BO->isLogicalOp())
+    return false;
+
+  const Stmt *S = BO;
+  while (const Stmt *Parent = PM.getParent(S)) {
+    if (const auto *IS = dyn_cast<IfStmt>(Parent))
+      return IS->getCond() == S;
+    if (const auto *WS = dyn_cast<WhileStmt>(Parent))
+      return WS->getCond() == S;
+    if (const auto *DS = dyn_cast<DoStmt>(Parent))
+      return DS->getCond() == S;
+    if (const auto *FS = dyn_cast<ForStmt>(Parent))
+      return FS->getCond() == S;
+    if (const auto *SS = dyn_cast<SwitchStmt>(Parent))
+      return SS->getCond() == S;
+
+    const auto *ParentExpr = dyn_cast<Expr>(Parent);
+    if (!ParentExpr)
+      return false;
+    if (const auto *ParentBO = dyn_cast<BinaryOperator>(ParentExpr)) {
+      if (!ParentBO->isLogicalOp())
+        return false;
+    } else if (!isa<ParenExpr, ImplicitCastExpr>(ParentExpr)) {
+      return false;
+    }
+    S = Parent;
+  }
+  return false;
+}
+
 static llvm::SmallSet<string, 10>
 findPrefixStrings(const llvm::SmallSet<string, 10> fieldSet, string prefix) {
   llvm::SmallSet<string, 10> prefixStrings = {};
@@ -3087,7 +3130,7 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
 
   enum Operation { None, Assign, Move, GetAddr };
   Operation op = Operation::None;
-  // True while visiting a discarded expression statement: transfer semantics
+  // True while revisiting an expression for read checks: transfer semantics
   // (assignment RHS consumption, ++/-- writes) degrade to read-only checks
   // because those ran through their own hoisted CFGStmt elements already.
   bool ReadOnlyMode = false;
@@ -3115,7 +3158,7 @@ public:
   void VisitReturnStmt(ReturnStmt *RS);
   void VisitLifetimeEnds(VarDecl *VD, SourceLocation SL, bool isDestructor);
   void VisitStmt(Stmt *S);
-  void VisitDiscardedExpr(Stmt *S);
+  void VisitReadOnlyExpr(Stmt *S);
   void VisitUnaryOperator(UnaryOperator *UO);
   void VisitAbstractConditionalOperator(AbstractConditionalOperator *ACO);
   void VisitBinaryConditionalOperator(BinaryConditionalOperator *BCO);
@@ -3223,17 +3266,13 @@ void TransferFunctions::VisitStmt(Stmt *S) {
   }
 }
 
-/// Visit a discarded expression statement (`*p;`, `(void)*p;`, `(p, *p);`,
-/// `s.p;`) as a read-only use of its bases: op == GetAddr checks
+/// Visit an expression as a read-only use of its bases: op == GetAddr checks
 /// use-of-moved / use-of-uninit without consuming ownership.
 ///
 /// Sub-expressions with real transfer semantics (assignments, calls,
 /// ++/--) must not re-run that semantics here — they already ran through
 /// their own hoisted CFGStmt elements.
-void TransferFunctions::VisitDiscardedExpr(Stmt *S) {
-  if (auto *E = dyn_cast<Expr>(S))
-    if (isa<DeclRefExpr>(E->IgnoreParenCasts()))
-      return;
+void TransferFunctions::VisitReadOnlyExpr(Stmt *S) {
   bool Saved = ReadOnlyMode;
   ReadOnlyMode = true;
   op = GetAddr;
@@ -3950,12 +3989,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     if (BO->getOpcode() == BO_Comma) {
       // comma operator is not symmetric, the LHS never consumes ownership
       op = GetAddr;
-      // Its value is discarded: a bare-reference LHS (`(p, *p);`) is the
-      // unused-value-suppression idiom and is not checked (same rule as
-      // VisitDiscardedExpr's top level).
-      if (!(ReadOnlyMode &&
-            isa<DeclRefExpr>(BO->getLHS()->IgnoreParenCasts())))
-        Visit(BO->getLHS());
+      Visit(BO->getLHS());
     } else {
       Visit(BO->getLHS());
     }
@@ -4111,6 +4145,14 @@ void TransferFunctions::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr* 
 void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
   if (CSCE->getType()->isVoidPointerType() &&
       CSCE->getType().isOwnedPointer()) {
+    // A condition inspects the operand without committing the cast's move.
+    if (ReadOnlyMode) {
+      Operation SavedOp = op;
+      op = GetAddr;
+      Visit(CSCE->getSubExpr());
+      op = SavedOp;
+      return;
+    }
 
     // ignore explicit/implicit casts, get canonical expr
     const Expr *InnerE = CSCE->getSubExpr()->IgnoreParenCastsSafe();
@@ -4693,6 +4735,18 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
                        StmtExprsWithDeferredLifetimeEnds);
   SmallVector<std::pair<const VarDecl *, SourceLocation>, 4>
       DeferredStmtExprLifetimeEnds;
+  const Stmt *Terminator = block->getTerminatorStmt();
+  const Expr *Condition = nullptr;
+  if (IsStatementConditionTerminator(
+          Terminator, analysisContext.getParentMap())) {
+    Condition = block->getLastCondition();
+    if (!Condition) {
+      const Stmt *TerminatorCondition = block->getTerminatorCondition();
+      Condition = dyn_cast_or_null<Expr>(TerminatorCondition);
+    }
+    if (Condition)
+      Condition = Condition->IgnoreParenImpCasts();
+  }
 
   for (CFGBlock::const_iterator it = block->begin(), ei = block->end();
        it != ei; ++it) {
@@ -4731,7 +4785,7 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
           TF.SetHandlingCallExpr();
         }
         if (IsDiscardedStmt)
-          TF.VisitDiscardedExpr(const_cast<Stmt *>(S));
+          TF.VisitReadOnlyExpr(const_cast<Stmt *>(S));
         else
           TF.Visit(const_cast<Stmt *>(S));
       }
@@ -4750,6 +4804,9 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
                            isDestructor);
     }
   }
+
+  if (Condition)
+    TF.VisitReadOnlyExpr(const_cast<Expr *>(Condition));
 
   for (const auto &LifetimeEnd : DeferredStmtExprLifetimeEnds)
     TF.VisitLifetimeEnds(const_cast<VarDecl *>(LifetimeEnd.first),

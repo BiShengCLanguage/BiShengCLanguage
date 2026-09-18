@@ -14,5 +14,5 @@ void test1(int *_Owned _Nullable p) {
 void test2(int *_Owned _Nullable p) {
   do {
     release(p); // expected-error {{use of moved value: 'p'}}
-  } while(p != nullptr);
+  } while(p != nullptr); // expected-error {{use of moved value: 'p'}}
 }

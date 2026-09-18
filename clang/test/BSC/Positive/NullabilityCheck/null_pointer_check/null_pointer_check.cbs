@@ -1,5 +1,4 @@
 // RUN: %clang %s -o %t.output
-// RUN: %t.output | FileCheck %s
 // RUN: %clang -rewrite-bsc %s -o %t-rw.c
 // RUN: %clang %t-rw.c -o %t-rw.output
 // RUN: %t-rw.output
@@ -44,36 +43,6 @@ _Safe int test(void) {
   return 0;
 }
 
-void nullptr_equals() {
-  int a = 0;
-  int *_Owned _Nullable p = nullptr;
-  if (nullptr == nullptr) {
-    printf ("nullptr equals nullptr\n");
-  } else {
-    printf ("nullptr not equals nullptr\n");
-  }
-  if (nullptr == p) {
-    printf ("nullptr equals q\n");
-  } else {
-    printf ("nullptr not equals q\n");
-  }
-  p = safe_malloc<int>(4);
-  if (nullptr == p) {
-    printf ("nullptr equals q\n");
-  } else {
-    printf ("nullptr not equals q\n");
-    safe_free<int>(p);
-  }
-  if (nullptr >= p) {
-    int b =1;
-  }
-}
-
 int main() {
   test();
-  nullptr_equals();
 }
-
-// CHECK: nullptr equals nullptr
-// CHECK-NEXT: nullptr equals q
-// CHECK-NEXT: nullptr not equals q

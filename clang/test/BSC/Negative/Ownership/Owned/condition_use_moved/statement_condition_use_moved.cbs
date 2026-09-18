@@ -1,0 +1,148 @@
+// RUN: %clang_cc1 -verify %s
+
+_Safe T *_Owned safe_malloc<T>(T);
+_Safe void safe_free<T>(T *_Owned);
+int consume(int *_Owned);
+int printf(const char *, ...);
+
+// A statement condition must read through its comparison expression.
+int test(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  if (*p == 1) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// A bare reference in a statement condition is a read-only ownership use.
+int test1(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  if (p) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// A consuming call used as a condition must run its transfer only once.
+int test2(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  if (consume(p))
+    return 1;
+  return 0;
+}
+
+// A while terminator has the same read semantics as an if terminator.
+int test3(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  while (*p) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// A do-while condition is attached to a DoStmt terminator.
+int test4(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  int count = 0;
+  do {
+    count++;
+  } while (*p); // expected-error {{use of moved value: 'p'}}
+  return count;
+}
+
+// A for-loop condition is attached to a ForStmt terminator.
+int test5(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  for (; *p;) // expected-error {{use of moved value: 'p'}}
+    return 1;
+  return 0;
+}
+
+// A switch condition is attached to a SwitchStmt terminator.
+int test6(void) {
+  int *_Owned p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  switch (*p) { // expected-error {{use of moved value: 'p'}}
+  default:
+    return 0;
+  }
+}
+
+// An assignment used as a condition must run its transfer only once.
+int test7(void) {
+  int *_Owned _Nullable p = nullptr;
+  int *_Owned _Nullable q = safe_malloc<int>(1);
+  if ((p = q)) {
+    safe_free<int>(p);
+    return 1;
+  }
+  safe_free<int>(p);
+  return 0;
+}
+
+// A read-only cast condition must not hide the outstanding ownership.
+int test8(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  if ((void *_Owned)p)
+    return 1; // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+  return 0; // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+}
+
+// A cast condition must leave its operand available for a later transfer.
+int test9(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  if ((void *_Owned)p)
+    printf("111");
+  safe_free<int>(p);
+  return 0;
+}
+
+// Suppressing the cast transfer must preserve read diagnostics.
+int test10(void) {
+  int *_Owned _Nullable p = safe_malloc<int>(1);
+  safe_free<int>(p);
+  if ((void *_Owned)p) // expected-error {{use of moved value: 'p'}}
+    printf("111");
+  return 0;
+}
+
+struct S {
+  int *_Owned _Nullable p;
+};
+
+// A field cast in a condition must not move that field.
+int test11(void) {
+  struct S s = {safe_malloc<int>(1)};
+  if ((void *_Owned)s.p)
+    printf("111");
+  safe_free<int>(s.p);
+  return 0;
+}
+
+// A relational condition must reject a nullable pointer moved on one branch.
+void nullptr_equals() {
+  int a = 0;
+  int *_Owned _Nullable p = nullptr;
+  if (nullptr == nullptr) {
+    printf ("nullptr equals nullptr\n");
+  } else {
+    printf ("nullptr not equals nullptr\n");
+  }
+  if (nullptr == p) {
+    printf ("nullptr equals q\n");
+  } else {
+    printf ("nullptr not equals q\n");
+  }
+  p = safe_malloc<int>(4);
+  if (nullptr == p) {
+    printf ("nullptr equals q\n");
+  } else {
+    printf ("nullptr not equals q\n");
+    safe_free<int>(p);
+  }
+  if (nullptr >= p) { // expected-error {{use of moved value: 'p'}}
+    int b =1;
+  }
+}

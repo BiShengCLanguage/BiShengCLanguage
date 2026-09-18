@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct T1 { int *_Owned ptr; };
+struct T2 { int *_Owned _ArrayElem ptr; };
+
+// Discarded casts read one- and two-dimensional _ArrayElem arrays.
+void test(void) {
+  int *_Owned _ArrayElem p[2];
+  int *_Owned _ArrayElem q[2][3];
+  (void)p; // expected-error {{use of uninitialized value: 'p'}}
+  (void)q; // expected-error {{use of uninitialized value: 'q'}}
+}
+
+// Discarded casts read owned arrays and aggregates with owned fields.
+void test1(void) {
+  int *_Owned a[10];
+  int *_Owned b[10][10];
+  struct T1 sa[4];
+  struct T1 *_Owned _ArrayElem p1;
+  struct T2 *_Owned _ArrayElem p2;
+  (void)a;  // expected-error {{use of uninitialized value: 'a'}}
+  (void)b;  // expected-error {{use of uninitialized value: 'b'}}
+  (void)sa; // expected-error {{use of partially moved value: 'sa', sa.ptr is moved}}
+  (void)p1; // expected-error {{use of uninitialized value: 'p1'}}
+  (void)p2; // expected-error {{use of uninitialized value: 'p2'}}
+}
