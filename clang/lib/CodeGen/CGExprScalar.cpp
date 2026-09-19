@@ -449,7 +449,6 @@ public:
   }
   #if ENABLE_BSC
   Value *VisitAwaitExpr(AwaitExpr *E) { return Visit(E->getSubExpr()); }
-  Value *VisitSafeExpr(SafeExpr *E) { return Visit(E->getSubExpr()); }
 #endif
 
   // Leaves.

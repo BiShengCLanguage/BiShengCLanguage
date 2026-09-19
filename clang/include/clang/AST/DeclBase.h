@@ -1651,10 +1651,6 @@ class DeclContext {
     /// have a body, once we're done parsing it.
     uint64_t WillHaveBody : 1;
 
-#if ENABLE_BSC
-    uint64_t SafeZoneSpecifier : 2;
-#endif
-
     /// Indicates that this function is a multiversioned
     /// function using attribute 'target'.
     uint64_t IsMultiVersion : 1;

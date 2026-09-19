@@ -291,21 +291,8 @@ bool Sema::HasSafeZoneInStmt(const Stmt *CompStmt) {
     if (!child) {
       continue;
     }
-    if (auto *CompChild = dyn_cast<CompoundStmt>(child)) {
-      if (CompChild->getCompSafeZoneSpecifier() == SZ_Safe) {
-        return true;
-      }
-    }
-    if (auto *CompChild = dyn_cast<SafeStmt>(child)) {
-      if (CompChild->getSafeZoneSpecifier() == SZ_Safe) {
-        return true;
-      }
-    }
-    if (auto *CompChild = dyn_cast<SafeExpr>(child)) {
-      if (CompChild->getSafeZoneSpecifier() == SZ_Safe) {
-        return true;
-      }
-    }
+    if (SafeZoneAttr::getSafeZoneSpec(child) == SZ_Safe)
+      return true;
     if (HasSafeZoneInStmt(child)) {
       return true;
     }
@@ -348,8 +335,8 @@ bool Sema::CheckBSCEnsureInitIfRetRedecl(FunctionDecl *Old, FunctionDecl *New) {
   if (!Old->hasPrototype() || !New->hasPrototype() ||
       Old->getNumParams() != New->getNumParams())
     return false;
-  bool OldSafe = Old->getSafeZoneSpecifier() == SZ_Safe;
-  bool NewSafe = New->getSafeZoneSpecifier() == SZ_Safe;
+  bool OldSafe = Old->isSafe();
+  bool NewSafe = New->isSafe();
   bool SameSafety = (OldSafe == NewSafe);
   bool Failed = false;
   for (unsigned I = 0; I < Old->getNumParams(); ++I) {
@@ -392,7 +379,7 @@ bool Sema::HasSafeZoneInFunction(const FunctionDecl* FnDecl) {
   if (!FnDecl || !FnDecl->getBody()) {
     return false;
   }
-  if (FnDecl->getSafeZoneSpecifier() == SZ_Safe) {
+  if (FnDecl->isSafe()) {
     return true;
   }
   CompoundStmt *FuncBody = cast<CompoundStmt>(FnDecl->getBody());
@@ -463,9 +450,7 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
           break;
         }
       }
-      RequireInitCheck = HasSafeZoneInFunction(FD) ||
-                         FD->getSafeZoneSpecifier() == SZ_Safe ||
-                         HasEnsureInitParams;
+      RequireInitCheck = HasSafeZoneInFunction(FD) || HasEnsureInitParams;
     }
     break;
   case LangOptions::UC_ALL:
@@ -749,12 +734,6 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       ICE->setSubExpr(SubExpr.get());
       return MaybeDecayArrayToPointer(ICE, NeedDecay);
     }
-    case Stmt::SafeExprClass: {
-      SafeExpr *SE = cast<SafeExpr>(E);
-      ExprResult SubExpr = AsPlace(SE->getSubExpr());
-      SE->setSubExpr(SubExpr.get());
-      return MaybeDecayArrayToPointer(SE, NeedDecay);
-    }
     case Stmt::SubstNonTypeTemplateParmExprClass: {
       // Transparent wrapper around the substituted value; lower the inner
       // expression directly.
@@ -853,8 +832,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
 
           CompoundStmt *CS = CompoundStmt::Create(
               SemaRef.Context, Stmts, FPOptionsOverride(),
-              Operand->getBeginLoc(), Operand->getEndLoc(),
-              SafeZoneSpecifier::SZ_None);
+              Operand->getBeginLoc(), Operand->getEndLoc());
           StmtExpr *SE = new (SemaRef.Context)
               StmtExpr(CS, Result.get()->getType(), Operand->getBeginLoc(),
                        Operand->getEndLoc(), 0);
@@ -945,8 +923,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
         ExprIntoDest(BranchDest, Branch);
         return CompoundStmt::Create(
             SemaRef.Context, Stmts, FPOptionsOverride(),
-            Branch->getBeginLoc(), Branch->getEndLoc(),
-            SafeZoneSpecifier::SZ_None);
+            Branch->getBeginLoc(), Branch->getEndLoc());
       };
 
       CompoundStmt *TrueCS = BuildBranch(CO->getTrueExpr());
@@ -1004,11 +981,6 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       ExprResult SubExpr = AsOperand(ICE->getSubExpr());
       ICE->setSubExpr(SubExpr.get());
       PushAssignOrExpr(Dest, ICE);
-      return;
-    }
-    case Stmt::SafeExprClass: {
-      SafeExpr *SE = cast<SafeExpr>(E);
-      ExprIntoDest(Dest, SE->getSubExpr());
       return;
     }
     case Stmt::SubstNonTypeTemplateParmExprClass: {
@@ -1154,12 +1126,6 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       ICE->setSubExpr(SubExpr.get());
       return ICE;
     }
-    case Stmt::SafeExprClass: {
-      SafeExpr *SE = cast<SafeExpr>(E);
-      ExprResult SubExpr = AsOperand(SE->getSubExpr());
-      SE->setSubExpr(SubExpr.get());
-      return SE;
-    }
     case Stmt::SubstNonTypeTemplateParmExprClass: {
       // Transparent wrapper around the substituted value; lower the inner
       // expression directly.
@@ -1179,7 +1145,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
     Stmts.push_back(Result.get());
     CompoundStmt *CS = CompoundStmt::Create(
         SemaRef.Context, Stmts, FPOptionsOverride(), E->getBeginLoc(),
-        E->getEndLoc(), SafeZoneSpecifier::SZ_None);
+        E->getEndLoc());
     StmtExpr *SE = new (SemaRef.Context)
         StmtExpr(CS, Result.get()->getType(), E->getBeginLoc(), E->getEndLoc(),
                  0);
@@ -1193,7 +1159,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
 
     CompoundStmt *CS = CompoundStmt::Create(
         SemaRef.Context, Stmts, FPOptionsOverride(), E->getBeginLoc(),
-        E->getEndLoc(), SafeZoneSpecifier::SZ_None);
+        E->getEndLoc());
     StmtExpr *SE = new (SemaRef.Context)
         StmtExpr(CS, E->getType(), E->getBeginLoc(), E->getEndLoc(), 0);
     replacedNodesMap.Insert(SE, E);
@@ -1302,7 +1268,7 @@ public:
     Stmts.insert(Stmts.begin(), TempDecls.begin(), TempDecls.end());
     CompoundStmt *NewCS = CompoundStmt::Create(
         SemaRef.Context, Stmts, FPOptionsOverride(), CS->getLBracLoc(),
-        CS->getRBracLoc(), CS->getCompSafeZoneSpecifier());
+        CS->getRBracLoc());
     replacedNodesMap.Insert(NewCS, CS);
 
     return NewCS;
@@ -1322,7 +1288,7 @@ public:
 
       CompoundStmt *CS = CompoundStmt::Create(
           SemaRef.Context, Stmts, FPOptionsOverride(), Init->getBeginLoc(),
-          Init->getEndLoc(), SafeZoneSpecifier::SZ_None);
+          Init->getEndLoc());
       StmtExpr *SE = new (SemaRef.Context)
           StmtExpr(CS, Result.get()->getType(), Init->getBeginLoc(),
                    Init->getEndLoc(), 0);
@@ -1449,13 +1415,6 @@ public:
     ExprResult Res = AsOperand(RV);
     RS->setRetValue(Res.get());
     return RS;
-  }
-
-  StmtResult TransformSafeStmt(SafeStmt *SS) {
-    StmtResult Res = getDerived().TransformStmt(SS->getSubStmt());
-    SS->setSubStmt(Res.get());
-
-    return SS;
   }
 
   StmtResult TransformSwitchStmt(SwitchStmt *SS) {
@@ -1698,6 +1657,22 @@ public:
     return LS;
   }
 
+  StmtResult TransformAttributedStmt(AttributedStmt *AS, StmtDiscardKind SDK) {
+    Stmt *Sub = AS->getSubStmt();
+    if (replacedNodesMap.Contains(Sub)) {
+      Sub = replacedNodesMap.Get(Sub);
+    }
+    StmtResult ResSub = getDerived().TransformStmt(Sub, SDK);
+    if (ResSub.isInvalid())
+      return StmtError();
+    if (ResSub.get() == AS->getSubStmt())
+      return AS;
+    Stmt *New = AttributedStmt::Create(getSema().Context, AS->getAttrLoc(),
+                                       AS->getAttrs(), ResSub.get());
+    replacedNodesMap.Insert(New, AS);
+    return New;
+  }
+
   StmtResult TransformReturnStmt(ReturnStmt *RS) {
     if (replacedNodesMap.Contains(RS))
       return replacedNodesMap.Get(RS);
@@ -1714,16 +1689,6 @@ public:
 
     RS->setRetValue(E);
     return RS;
-  }
-
-  StmtResult TransformSafeStmt(SafeStmt *SS) {
-    Stmt *Sub = SS->getSubStmt();
-    if (replacedNodesMap.Contains(Sub)) {
-      Sub = replacedNodesMap.Get(Sub);
-    }
-    StmtResult ResSub = getDerived().TransformStmt(Sub);
-    SS->setSubStmt(ResSub.get());
-    return SS;
   }
 
   StmtResult TransformSwitchStmt(SwitchStmt *SS) {
@@ -1916,17 +1881,6 @@ public:
     PE->setSubExpr(Res.get());
 
     return PE;
-  }
-
-  ExprResult TransformSafeExpr(SafeExpr *SE) {
-    Expr *Sub = SE->getSubExpr();
-    if (replacedNodesMap.Contains(Sub)) {
-      Sub = replacedNodesMap.Get(Sub);
-    }
-    ExprResult Res = getDerived().TransformExpr(Sub);
-    SE->setSubExpr(Res.get());
-
-    return SE;
   }
 
   ExprResult TransformStmtExpr(StmtExpr *SE) {

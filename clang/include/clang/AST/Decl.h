@@ -2668,13 +2668,7 @@ public:
   /// Set whether the "async" keyword was specified for this function.
   void setAsyncSpecified(bool I) { FunctionDeclBits.IsAsyncSpecified = I; }
 
-  void setSafeZoneSpecifier(SafeZoneSpecifier I) {
-    FunctionDeclBits.SafeZoneSpecifier = I;
-  }
-
-  SafeZoneSpecifier getSafeZoneSpecifier() const {
-    return (SafeZoneSpecifier)FunctionDeclBits.SafeZoneSpecifier;
-  }
+  bool isSafe() const { return getType()->castAs<FunctionType>()->isSafe(); }
 #endif
 
   /// Determine whether the "inline" keyword was specified for this

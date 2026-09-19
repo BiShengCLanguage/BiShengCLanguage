@@ -13,9 +13,6 @@
 
 #include "clang/AST/ASTDumper.h"
 #include "clang/AST/ASTContext.h"
-#if ENABLE_BSC
-#include "clang/AST/BSC/StmtBSC.h"
-#endif
 #include "clang/AST/DeclLookups.h"
 #include "clang/AST/JSONNodeDumper.h"
 #include "clang/Basic/Builtins.h"
@@ -151,18 +148,6 @@ void ASTDumper::VisitTraitTemplateDecl(const TraitTemplateDecl *D) {
 void ASTDumper::VisitVarTemplateDecl(const VarTemplateDecl *D) {
   dumpTemplateDecl(D, false);
 }
-
-#if ENABLE_BSC
-void ASTDumper::VisitCompoundStmt(const CompoundStmt *Node) {
-  VisitStmt(Node);
-  SafeZoneSpecifier SafeZoneSpec = Node->getCompSafeZoneSpecifier();
-  if (SafeZoneSpec == SZ_Safe) {
-    OS << " _Safe";
-  } else if (SafeZoneSpec == SZ_Unsafe) {
-    OS << " _Unsafe";
-  }
-}
-#endif
 
 //===----------------------------------------------------------------------===//
 // Type method implementations

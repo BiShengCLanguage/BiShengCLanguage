@@ -99,9 +99,6 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   case Stmt::CompoundStmtClass:
   case Stmt::DeclStmtClass:
   case Stmt::LabelStmtClass:
-#if ENABLE_BSC
-  case Stmt::SafeStmtClass:
-#endif
   case Stmt::AttributedStmtClass:
   case Stmt::GotoStmtClass:
   case Stmt::BreakStmtClass:
@@ -446,11 +443,6 @@ bool CodeGenFunction::EmitSimpleStmt(const Stmt *S,
   case Stmt::LabelStmtClass:
     EmitLabelStmt(cast<LabelStmt>(*S));
     break;
-#if ENABLE_BSC
-  case Stmt::SafeStmtClass:
-    EmitSafeStmt(cast<SafeStmt>(*S));
-    break;
-#endif
   case Stmt::AttributedStmtClass:
     EmitAttributedStmt(cast<AttributedStmt>(*S));
     break;
@@ -689,11 +681,6 @@ void CodeGenFunction::LexicalScope::rescopeLabels() {
   }
 }
 
-#if ENABLE_BSC
-void CodeGenFunction::EmitSafeStmt(const SafeStmt &S) {
-  EmitStmt(S.getSubStmt());
-}
-#endif
 
 void CodeGenFunction::EmitLabelStmt(const LabelStmt &S) {
   EmitLabel(S.getDecl());

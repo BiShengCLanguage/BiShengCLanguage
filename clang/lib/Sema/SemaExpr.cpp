@@ -7769,9 +7769,11 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
     TheCall->getCallee()->HasBSCScopeSpec = Fn->HasBSCScopeSpec;
     if (getLangOpts().BSC) {
       // _Unsafe function call is forbidden in the safe zone
-      if (IsInEvaluatedSafeZone() &&
-          (Fn->getType()->checkFunctionProtoType(SZ_None) ||
-           Fn->getType()->checkFunctionProtoType(SZ_Unsafe))) {
+      QualType CalleeTy = Fn->getType();
+      if (CalleeTy->isFunctionPointerType())
+        CalleeTy = CalleeTy->getPointeeType();
+      const auto *Proto = CalleeTy->getAs<FunctionProtoType>();
+      if (IsInEvaluatedSafeZone() && Proto && !Proto->isSafe()) {
         Diag(Fn->getBeginLoc(), diag::err_unsafe_action)
             << "_Unsafe function call";
       }
@@ -14770,7 +14772,7 @@ static void DiagnoseRecursiveConstFields(Sema &S, const Expr *E,
 /// transparent projections recursively, but stop at a raw-pointer boundary
 /// because raw pointers do not preserve BSC borrow mutability.
 static bool IsBehindConstBorrow(const Expr *E) {
-  E = E->IgnoreParenImpCastsSafe();
+  E = E->IgnoreParenImpCasts();
 
   auto CheckPointerProjection = [](const Expr *Pointer) {
     QualType PointerTy = Pointer->getType();
@@ -14779,7 +14781,7 @@ static bool IsBehindConstBorrow(const Expr *E) {
 
     // Array-to-pointer decay does not introduce a source-level raw-pointer
     // boundary. Continue from the array lvalue that was decayed.
-    const Expr *Core = Pointer->IgnoreParensSafe();
+    const Expr *Core = Pointer->IgnoreParens();
     if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Core)) {
       if (ICE->getCastKind() == CK_ArrayToPointerDecay)
         return IsBehindConstBorrow(ICE->getSubExpr());
@@ -15515,7 +15517,7 @@ bool Sema::IsAddrBorrowDerefOp(ExprResult &OrigOp) {
   // UO_AddrMutDeref / UO_AddrConstDeref. The rewrite then emits &*p (not
   // &(*p)), which is well-defined in C even for a null pointer.
   if (UnaryOperator *uOp =
-          dyn_cast<UnaryOperator>(OrigOp.get()->IgnoreParenImpCastsSafe())) {
+          dyn_cast<UnaryOperator>(OrigOp.get()->IgnoreParenImpCasts())) {
     if (uOp->getOpcode() == UO_Deref) {
       OrigOp = uOp->getSubExpr();
       return true;
@@ -15530,7 +15532,7 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
                                                UnaryOperatorKind &Opc,
                                                SourceLocation OpLoc) {
   const auto *Subscript =
-      dyn_cast<ArraySubscriptExpr>(InputExpr->IgnoreParenImpCastsSafe());
+      dyn_cast<ArraySubscriptExpr>(InputExpr->IgnoreParenImpCasts());
   if (Opc == UO_AddrMut || Opc == UO_AddrMutDeref) {
     if (CheckAccessBehindConstBorrow(
             InputExpr, OpLoc, *this, /*IsBorrowed=*/true,
@@ -17243,7 +17245,7 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
 #if ENABLE_BSC
   if (getLangOpts().BSC && Opc == UO_AddrMutDeref) {
     auto *CO = dyn_cast<ConditionalOperator>(
-        Input.get()->IgnoreParenImpCastsSafe());
+        Input.get()->IgnoreParenImpCasts());
     auto IsMutBorrow = [](QualType T) {
       return T.isBorrowPointer() && !T.isConstBorrow();
     };
@@ -18529,7 +18531,7 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
 #endif
     if (getLangOpts().CPlusPlus
 #if ENABLE_BSC
-        || IsInEvaluatedSafeZone() || IsSafeFunctionPointerType(DstType)
+        || IsInEvaluatedSafeZone() || DstType->isSafeFunctionOrPointer()
 #endif
     ) {
       DiagKind = diag::err_typecheck_convert_incompatible_function_pointer;

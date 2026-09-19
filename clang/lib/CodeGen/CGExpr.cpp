@@ -1364,10 +1364,6 @@ LValue CodeGenFunction::EmitLValue(const Expr *E) {
   }
   case Expr::ParenExprClass:
     return EmitLValue(cast<ParenExpr>(E)->getSubExpr());
-#if ENABLE_BSC
-  case Expr::SafeExprClass:
-    return EmitLValue(cast<SafeExpr>(E)->getSubExpr());
-#endif
   case Expr::GenericSelectionExprClass:
     return EmitLValue(cast<GenericSelectionExpr>(E)->getResultExpr());
   case Expr::PredefinedExprClass:

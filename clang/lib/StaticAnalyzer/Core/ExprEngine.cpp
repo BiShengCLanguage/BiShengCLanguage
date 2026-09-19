@@ -1486,10 +1486,6 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
       Engine.addAbortedBlock(node, currBldrCtx->getBlock());
       break;
     }
-#if ENABLE_BSC
-    case Stmt::SafeExprClass:
-      llvm_unreachable("SafeExprs already handled.");
-#endif
     case Stmt::ParenExprClass:
       llvm_unreachable("ParenExprs already handled.");
     case Stmt::GenericSelectionExprClass:
@@ -1512,9 +1508,6 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::NullStmtClass:
     case Stmt::SwitchStmtClass:
     case Stmt::WhileStmtClass:
-#if ENABLE_BSC
-    case Stmt::SafeStmtClass:
-#endif
     case Expr::MSDependentExistsStmtClass:
       llvm_unreachable("Stmt should not be in analyzer evaluation loop");
     case Stmt::ImplicitValueInitExprClass:

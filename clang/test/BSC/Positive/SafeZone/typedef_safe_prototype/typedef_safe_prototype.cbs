@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// The zone is part of the function type, so a typedef carries it.
+typedef _Safe void SafeFn(void);
+
+// A _Safe declaration and an _Unsafe definition.
+SafeFn f;
+void f(void) {}
+
+// Same pair, the other order.
+void h(void) {}
+SafeFn h;
+
+_Safe void g(void) {
+  f();
+  h();
+}

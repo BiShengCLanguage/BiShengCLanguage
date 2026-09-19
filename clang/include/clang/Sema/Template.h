@@ -364,20 +364,20 @@ enum class TemplateSubstitutionKind : char {
     unsigned NumArgsInPartiallySubstitutedPack;
 
 #if ENABLE_BSC
-    SafeZoneSpecifier SafeZoneSpec;
+    bool IsSafe;
 #endif
   public:
     LocalInstantiationScope(Sema &SemaRef, bool CombineWithOuterScope = false
 #if ENABLE_BSC
                             ,
-                            SafeZoneSpecifier SafeZoneSpec = SZ_None
+                            bool IsSafe = false
 #endif
                             )
         : SemaRef(SemaRef), Outer(SemaRef.CurrentInstantiationScope),
           CombineWithOuterScope(CombineWithOuterScope)
 #if ENABLE_BSC
           ,
-          SafeZoneSpec(SafeZoneSpec)
+          IsSafe(IsSafe)
 #endif
     {
       SemaRef.CurrentInstantiationScope = this;
@@ -418,7 +418,7 @@ enum class TemplateSubstitutionKind : char {
           new LocalInstantiationScope(SemaRef, CombineWithOuterScope
 #if ENABLE_BSC
                                       ,
-                                      SafeZoneSpec
+                                      IsSafe
 #endif
           );
 
@@ -461,8 +461,8 @@ enum class TemplateSubstitutionKind : char {
       }
     }
 #if ENABLE_BSC
-    SafeZoneSpecifier getScopeSafeZoneSpecifier() const { return SafeZoneSpec; }
-    void setScopeSafeZoneSpecifier(SafeZoneSpecifier SZ) { SafeZoneSpec = SZ; }
+    bool isSafe() const { return IsSafe; }
+    void setIsSafe(bool Safe) { IsSafe = Safe; }
 #endif
     /// Find the instantiation of the declaration D within the current
     /// instantiation scope.
@@ -514,6 +514,24 @@ enum class TemplateSubstitutionKind : char {
     /// Determine whether D is a pack expansion created in this scope.
     bool isLocalPackExpansion(const Decl *D);
   };
+#if ENABLE_BSC
+  class InstantiationSafeZoneRAII {
+    LocalInstantiationScope *Scope;
+    bool Old;
+
+  public:
+    InstantiationSafeZoneRAII(Sema &S, SafeZoneSpecifier Keyword)
+        : Scope(Keyword == SZ_None ? nullptr : S.CurrentInstantiationScope),
+          Old(Scope && Scope->isSafe()) {
+      if (Scope)
+        Scope->setIsSafe(Keyword == SZ_Safe);
+    }
+    ~InstantiationSafeZoneRAII() {
+      if (Scope)
+        Scope->setIsSafe(Old);
+    }
+  };
+#endif
 
   class TemplateDeclInstantiator
     : public DeclVisitor<TemplateDeclInstantiator, Decl *>

@@ -323,8 +323,8 @@ let Class = FunctionProtoType in {
     let Read = [{ node->getRefQualifier() }];
   }
 #ifdef BSC
-  def : Property<"safeZoneSpec", UInt32> {
-    let Read = [{ static_cast<uint32_t>(node->getFunSafeZoneSpecifier()) }];
+  def : Property<"isSafe", Bool> {
+    let Read = [{ node->isSafe() }];
   }
 #endif
   def : Property<"exceptionSpecifier", ExceptionSpecInfo> {
@@ -351,7 +351,7 @@ let Class = FunctionProtoType in {
     epi.TypeQuals = methodQualifiers;
     epi.RefQualifier = refQualifier;
 #if ENABLE_BSC
-    epi.SafeZoneSpec = static_cast<SafeZoneSpecifier>(safeZoneSpec);
+    epi.IsSafe = isSafe;
 #endif
     epi.ExceptionSpec = exceptionSpecifier;
     epi.ExtParameterInfos =

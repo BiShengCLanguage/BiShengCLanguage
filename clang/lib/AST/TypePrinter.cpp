@@ -142,10 +142,18 @@ namespace {
     unsigned Indentation;
     bool HasEmptyPlaceHolder = false;
     bool InsideCCAttribute = false;
+#if ENABLE_BSC
+    // The leading _Safe is printed once per declarator.
+    bool SafeSpecifierPrinted;
+#endif
 
   public:
     explicit TypePrinter(const PrintingPolicy &Policy, unsigned Indentation = 0)
-        : Policy(Policy), Indentation(Indentation) {}
+        : Policy(Policy), Indentation(Indentation)
+#if ENABLE_BSC
+          , SafeSpecifierPrinted(Policy.SuppressSafeSpecifier)
+#endif
+    {}
 
     void print(const Type *ty, Qualifiers qs, raw_ostream &OS,
                StringRef PlaceHolder);
@@ -1065,6 +1073,12 @@ FunctionProtoType::printExceptionSpecification(raw_ostream &OS,
 
 void TypePrinter::printFunctionProtoBefore(const FunctionProtoType *T,
                                            raw_ostream &OS) {
+#if ENABLE_BSC
+  if (T->isSafe() && !Policy.RewriteBSC && !SafeSpecifierPrinted) {
+    OS << "_Safe ";
+    SafeSpecifierPrinted = true;
+  }
+#endif
   if (T->hasTrailingReturn()) {
     OS << "auto ";
     if (!HasEmptyPlaceHolder)
@@ -1122,6 +1136,9 @@ void TypePrinter::printFunctionProtoAfter(const FunctionProtoType *T,
       if (ABI != ParameterABI::Ordinary)
         OS << "__attribute__((" << getParameterABISpelling(ABI) << ")) ";
 
+#if ENABLE_BSC
+      SaveAndRestore<bool> OwnDeclarator(SafeSpecifierPrinted, false);
+#endif
       print(T->getParamType(i), OS, StringRef());
     }
   }

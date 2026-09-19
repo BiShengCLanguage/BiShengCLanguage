@@ -306,11 +306,6 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::ParenExprClass:
     return ClassifyInternal(Ctx, cast<ParenExpr>(E)->getSubExpr());
 
-#if ENABLE_BSC
-  case Expr::SafeExprClass:
-    return ClassifyInternal(Ctx, cast<SafeExpr>(E)->getSubExpr());
-#endif
-
     // C11 6.5.1.1p4: [A generic selection] is an lvalue, a function designator,
     // or a void expression if its result expression is, respectively, an
     // lvalue, a function designator, or a void expression.

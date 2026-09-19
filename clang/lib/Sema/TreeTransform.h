@@ -17,7 +17,6 @@
 #include "TypeLocBuilder.h"
 #if ENABLE_BSC
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #endif
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
@@ -1332,26 +1331,6 @@ public:
                               SourceLocation ColonLoc, Stmt *SubStmt) {
     return SemaRef.ActOnLabelStmt(IdentLoc, L, ColonLoc, SubStmt);
   }
-
-#if ENABLE_BSC
-  /// Build a new safe statement.
-  ///
-  /// By default, performs semantic analysis to build the new statement.
-  /// Subclasses may override this routine to provide different behavior.
-  StmtResult RebuildSafeStmt(SourceLocation SafeZoneLoc,
-                             SafeZoneSpecifier safeZoneSpec, Stmt *SubStmt) {
-    return SemaRef.ActOnSafeStmt(SafeZoneLoc, safeZoneSpec, SubStmt);
-  }
-
-  /// Build a new safe expression.
-  ///
-  /// By default, performs semantic analysis to build the new statement.
-  /// Subclasses may override this routine to provide different behavior.
-  ExprResult RebuildSafeExpr(SourceLocation SafeZoneLoc,
-                             SafeZoneSpecifier safeZoneSpec, Expr *SubExpr) {
-    return SemaRef.ActOnSafeExpr(SafeZoneLoc, safeZoneSpec, SubExpr);
-  }
-#endif
 
   /// Build a new attributed statement.
   ///
@@ -7530,16 +7509,6 @@ TreeTransform<Derived>::TransformCompoundStmt(CompoundStmt *S,
                                               bool IsStmtExpr) {
   Sema::CompoundScopeRAII CompoundScope(getSema());
 
-#if ENABLE_BSC
-  SafeZoneSpecifier SafeZoneSpec = SZ_None;
-  if (S->getCompSafeZoneSpecifier() != SZ_None) {
-    SafeZoneSpec = S->getCompSafeZoneSpecifier();
-  } else {
-    SafeZoneSpec = getSema().getInstantiationSafeZoneSpecifier();
-  }
-  Sema::InsSafeZoneRAII InsSafeZone(getSema(), SafeZoneSpec);
-#endif
-
   const Stmt *ExprResult = S->getStmtExprResult();
   bool SubStmtInvalid = false;
   bool SubStmtChanged = false;
@@ -7569,18 +7538,11 @@ TreeTransform<Derived>::TransformCompoundStmt(CompoundStmt *S,
   if (!getDerived().AlwaysRebuild() &&
       !SubStmtChanged)
     return S;
-#if ENABLE_BSC
-  StmtResult Stmt = getDerived().RebuildCompoundStmt(
-      S->getLBracLoc(), Statements, S->getRBracLoc(), IsStmtExpr);
-  if (!Stmt.isInvalid()) {
-    auto *CS = dyn_cast<CompoundStmt>(Stmt.get());
-    CS->setCompSafeZoneSpecifier(S->getCompSafeZoneSpecifier());
-  }
-  return Stmt;
-#else
-  return getDerived().RebuildCompoundStmt(S->getLBracLoc(), Statements,
-                                          S->getRBracLoc(), IsStmtExpr);
-#endif
+
+  return getDerived().RebuildCompoundStmt(S->getLBracLoc(),
+                                          Statements,
+                                          S->getRBracLoc(),
+                                          IsStmtExpr);
 }
 
 template<typename Derived>
@@ -7661,41 +7623,6 @@ TreeTransform<Derived>::TransformLabelStmt(LabelStmt *S, StmtDiscardKind SDK) {
                                        cast<LabelDecl>(LD), SourceLocation(),
                                        SubStmt.get());
 }
-
-#if ENABLE_BSC
-template <typename Derived>
-StmtResult TreeTransform<Derived>::TransformSafeStmt(SafeStmt *S) {
-  SafeZoneSpecifier OldSafeZoneSpec =
-      getSema().getInstantiationSafeZoneSpecifier();
-  getSema().setInstantiationSafeZoneSpecifier(S->getSafeZoneSpecifier());
-  StmtResult SubStmt = getDerived().TransformStmt(S->getSubStmt());
-  if (SubStmt.isInvalid()) {
-    getSema().setInstantiationSafeZoneSpecifier(OldSafeZoneSpec);
-    return StmtError();
-  }
-  StmtResult Stmt = getDerived().RebuildSafeStmt(
-      S->getSafeLoc(), S->getSafeZoneSpecifier(), SubStmt.get());
-  getSema().setInstantiationSafeZoneSpecifier(OldSafeZoneSpec);
-  return Stmt;
-}
-
-template <typename Derived>
-ExprResult TreeTransform<Derived>::TransformSafeExpr(SafeExpr *E) {
-  SafeZoneSpecifier OldSafeZoneSpec =
-      getSema().getInstantiationSafeZoneSpecifier();
-  getSema().setInstantiationSafeZoneSpecifier(E->getSafeZoneSpecifier());
-  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
-  if (SubExpr.isInvalid()) {
-    getSema().setInstantiationSafeZoneSpecifier(OldSafeZoneSpec);
-    return ExprError();
-  }
-
-  ExprResult Stmt = getDerived().RebuildSafeExpr(
-      E->getSafeLoc(), E->getSafeZoneSpecifier(), SubExpr.get());
-  getSema().setInstantiationSafeZoneSpecifier(OldSafeZoneSpec);
-  return Stmt;
-}
-#endif
 
 template <typename Derived>
 const Attr *TreeTransform<Derived>::TransformAttr(const Attr *R) {
@@ -10952,8 +10879,18 @@ TreeTransform<Derived>::TransformParenExpr(ParenExpr *E) {
   if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
     return E;
 
+#if ENABLE_BSC
+  ExprResult Paren = getDerived().RebuildParenExpr(SubExpr.get(),
+                                                   E->getLParen(),
+                                                   E->getRParen());
+  if (E->getSafeZoneSpec() != SZ_None && Paren.isUsable())
+    return getSema().ActOnSafeExpr(E->getSafeZoneSpec(), E->getLParen(),
+                                   E->getRParen(), Paren.get());
+  return Paren;
+#else
   return getDerived().RebuildParenExpr(SubExpr.get(), E->getLParen(),
                                        E->getRParen());
+#endif
 }
 
 /// The operand of a unary address-of operator has special rules: it's

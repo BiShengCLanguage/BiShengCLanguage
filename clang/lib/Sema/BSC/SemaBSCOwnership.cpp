@@ -316,7 +316,7 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
     return false;
   if (isUnevaluatedContext())
     return false;
-  E = E->IgnoreParenCastsSafe();
+  E = E->IgnoreParenCasts();
   if (auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_LNot)
       return CheckTemporaryVarMemoryLeak(UO->getSubExpr());
@@ -383,7 +383,7 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
     return false;
   if (RootDecl)
     *RootDecl = nullptr;
-  E = E->IgnoreParenImpCastsSafe();
+  E = E->IgnoreParenImpCasts();
   // Try to fill RootDecl from a borrow-qualified pointer expression when it is
   // a plain variable; composite pointer expressions have no single root.
   auto NoteRootIfSimple = [&](const Expr *PtrExpr) {
@@ -392,7 +392,7 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
   };
 
   if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    const Expr *Base = ME->getBase()->IgnoreParenImpCastsSafe();
+    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
     QualType BaseTy = Base->getType();
     if (BaseTy->isPointerType()) {
       // `->`: the pointer base itself decides. Raw pointer bases (including
@@ -425,7 +425,7 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
   }
 
   if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
-    const Expr *Base = ASE->getBase()->IgnoreParenImpCastsSafe();
+    const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
     QualType BaseTy = Base->getType();
     if (BaseTy->isPointerType()) {
       // `p[i]`: the pointer base decides (composite pointer expressions are
@@ -445,7 +445,7 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
 
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref) {
-      const Expr *Operand = UO->getSubExpr()->IgnoreParenImpCastsSafe();
+      const Expr *Operand = UO->getSubExpr()->IgnoreParenImpCasts();
       QualType OperandTy = Operand->getType();
       // A raw pointer operand is untracked; an owned pointer operand is
       // followed to its own provenance.
@@ -475,7 +475,7 @@ void Sema::CheckMoveFromBorrow(Expr* E, SourceLocation SL) {
     return;
   if (isUnevaluatedContext())
     return;
-  E = E->IgnoreParenCastsSafe();
+  E = E->IgnoreParenCasts();
   // Recurse through result-producing paths of composite expressions so that
   // `T *_Owned tmp = (*p1, *p2)`, `q ?: null`, and `cond ? *p1 : *p2` don't
   // silently skip the check. Each arm is reported at its own location so that
@@ -802,7 +802,7 @@ ExprResult Sema::MaybeCreateImplicitMutableReborrow(QualType DestType,
   // Explicit borrow operators already carry the reborrow represented by this
   // conversion. Look through syntax-only wrappers to avoid nesting another
   // implicit &_Mut * around them.
-  Expr *Core = Source->IgnoreParenImpCastsSafe();
+  Expr *Core = Source->IgnoreParenImpCasts();
   const auto *UO = dyn_cast<UnaryOperator>(Core);
   bool HasExplicitReborrow =
       UO && (UO->getOpcode() == UO_AddrMut ||

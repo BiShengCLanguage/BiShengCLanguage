@@ -8339,11 +8339,11 @@ static void handleEnsureInitAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 
 // Spec: a literal (possibly wrapped/negated), not an arbitrary constant expr.
 static bool isIntegerLiteralShapedExpr(const Expr *E) {
-  E = E->IgnoreParenImpCastsSafe();
+  E = E->IgnoreParenImpCasts();
   while (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() != UO_Minus && UO->getOpcode() != UO_Plus)
       return false;
-    E = UO->getSubExpr()->IgnoreParenImpCastsSafe();
+    E = UO->getSubExpr()->IgnoreParenImpCasts();
   }
   return isa<IntegerLiteral>(E) || isa<CXXBoolLiteralExpr>(E);
 }

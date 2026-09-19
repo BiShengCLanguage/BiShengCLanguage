@@ -4933,12 +4933,6 @@ recurse:
     E = cast<ParenExpr>(E)->getSubExpr();
     goto recurse;
 
-#if ENABLE_BSC
-  case Expr::SafeExprClass:
-    E = cast<SafeExpr>(E)->getSubExpr();
-    goto recurse;
-#endif
-
   case Expr::ConceptSpecializationExprClass: {
     //  <expr-primary> ::= L <mangled-name> E # external name
     Out << "L_Z";

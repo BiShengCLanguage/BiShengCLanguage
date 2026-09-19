@@ -654,46 +654,46 @@ struct Statement {
   LocalId getStorageLocal() const { assert(K == StorageLive || K == StorageDead); return Data.storage.Local; }
 
   // --- Common fields ---
-  SafeZoneSpecifier SafeZone = SZ_None;
+  bool IsSafe = false;
   const Stmt *OriginalStmt = nullptr;
   SourceLocation Loc;
 
   // --- Factories ---
   static Statement createAssign(Place Dest, Rvalue Src,
-                                 SafeZoneSpecifier SZ = SZ_None,
+                                 bool IsSafe,
                                  const Stmt *Orig = nullptr,
                                  SourceLocation Loc = SourceLocation()) {
     Statement S(Assign);
     S.Data.assign.Dest = std::move(Dest);
     S.Data.assign.Src = std::move(Src);
-    S.SafeZone = SZ;
+    S.IsSafe = IsSafe;
     S.OriginalStmt = Orig;
     S.Loc = Loc;
     return S;
   }
 
-  static Statement createStorageLive(LocalId L, SafeZoneSpecifier SZ = SZ_None,
+  static Statement createStorageLive(LocalId L, bool IsSafe,
                                       SourceLocation Loc = SourceLocation()) {
     Statement S(StorageLive);
     S.Data.storage.Local = L;
-    S.SafeZone = SZ;
+    S.IsSafe = IsSafe;
     S.Loc = Loc;
     return S;
   }
 
-  static Statement createStorageDead(LocalId L, SafeZoneSpecifier SZ = SZ_None,
+  static Statement createStorageDead(LocalId L, bool IsSafe,
                                       SourceLocation Loc = SourceLocation()) {
     Statement S(StorageDead);
     S.Data.storage.Local = L;
-    S.SafeZone = SZ;
+    S.IsSafe = IsSafe;
     S.Loc = Loc;
     return S;
   }
 
-  static Statement createNop(SafeZoneSpecifier SZ = SZ_None,
+  static Statement createNop(bool IsSafe,
                               SourceLocation Loc = SourceLocation()) {
     Statement S(Nop);
-    S.SafeZone = SZ;
+    S.IsSafe = IsSafe;
     S.Loc = Loc;
     return S;
   }
@@ -701,20 +701,20 @@ struct Statement {
   // --- Special members ---
   Statement() : K(Nop) {}
   ~Statement() { destroy(); }
-  Statement(const Statement &O) : K(O.K), SafeZone(O.SafeZone),
+  Statement(const Statement &O) : K(O.K), IsSafe(O.IsSafe),
       OriginalStmt(O.OriginalStmt), Loc(O.Loc) { copyConstruct(O); }
-  Statement(Statement &&O) noexcept : K(O.K), SafeZone(O.SafeZone),
+  Statement(Statement &&O) noexcept : K(O.K), IsSafe(O.IsSafe),
       OriginalStmt(O.OriginalStmt), Loc(O.Loc) { moveConstruct(std::move(O)); }
   Statement &operator=(const Statement &O) {
     if (this != &O) {
-      destroy(); K = O.K; SafeZone = O.SafeZone;
+      destroy(); K = O.K; IsSafe = O.IsSafe;
       OriginalStmt = O.OriginalStmt; Loc = O.Loc; copyConstruct(O);
     }
     return *this;
   }
   Statement &operator=(Statement &&O) noexcept {
     if (this != &O) {
-      destroy(); K = O.K; SafeZone = O.SafeZone;
+      destroy(); K = O.K; IsSafe = O.IsSafe;
       OriginalStmt = O.OriginalStmt; Loc = O.Loc; moveConstruct(std::move(O));
     }
     return *this;
@@ -814,35 +814,35 @@ struct Terminator {
   DropData &getDrop() { assert(K == Drop); return Data.drop; }
 
   // --- Common fields ---
-  SafeZoneSpecifier SafeZone = SZ_None;
+  bool IsSafe = false;
   const Stmt *OriginalStmt = nullptr;
   SourceLocation Loc;
 
   // --- Factories ---
   static Terminator createGoto(BasicBlockId Target,
-                                SafeZoneSpecifier SZ = SZ_None) {
+                                bool IsSafe) {
     Terminator T(Goto);
     T.Data.go.Target = Target;
-    T.SafeZone = SZ;
+    T.IsSafe = IsSafe;
     return T;
   }
 
   static Terminator createSwitchInt(
       Operand Discriminant,
       SmallVector<std::pair<llvm::APInt, BasicBlockId>, 4> Targets,
-      BasicBlockId Otherwise, SafeZoneSpecifier SZ = SZ_None) {
+      BasicBlockId Otherwise, bool IsSafe) {
     Terminator T(SwitchInt);
     T.Data.sw.Discriminant = std::move(Discriminant);
     T.Data.sw.Targets = std::move(Targets);
     T.Data.sw.Otherwise = Otherwise;
-    T.SafeZone = SZ;
+    T.IsSafe = IsSafe;
     return T;
   }
 
   static Terminator createCall(Operand Callee, SmallVector<Operand, 4> Args,
                                 Place Dest, BasicBlockId Successor,
-                                const FunctionDecl *FD = nullptr,
-                                SafeZoneSpecifier SZ = SZ_None,
+                                const FunctionDecl *FD,
+                                bool IsSafe,
                                 const Stmt *Orig = nullptr,
                                 SourceLocation Loc = SourceLocation(),
                                 bool Diverges = false,
@@ -857,30 +857,30 @@ struct Terminator {
     T.Data.call.Decl = FD;
     T.Data.call.ArgPlaces = std::move(ArgPlaces);
     T.Data.call.CalleeProtoType = ProtoType;
-    T.SafeZone = SZ;
+    T.IsSafe = IsSafe;
     T.OriginalStmt = Orig;
     T.Loc = Loc;
     return T;
   }
 
   static Terminator createDrop(Place Dropped, BasicBlockId Successor,
-                                SafeZoneSpecifier SZ = SZ_None) {
+                                bool IsSafe) {
     Terminator T(Drop);
     T.Data.drop.Dropped = std::move(Dropped);
     T.Data.drop.Successor = Successor;
-    T.SafeZone = SZ;
+    T.IsSafe = IsSafe;
     return T;
   }
 
-  static Terminator createReturn(SafeZoneSpecifier SZ = SZ_None) {
+  static Terminator createReturn(bool IsSafe) {
     Terminator T(Return);
-    T.SafeZone = SZ;
+    T.IsSafe = IsSafe;
     return T;
   }
 
-  static Terminator createUnreachable(SafeZoneSpecifier SZ = SZ_None) {
+  static Terminator createUnreachable(bool IsSafe) {
     Terminator T(Unreachable);
-    T.SafeZone = SZ;
+    T.IsSafe = IsSafe;
     return T;
   }
 
@@ -914,20 +914,20 @@ struct Terminator {
   // --- Special members ---
   Terminator() : K(Unreachable) {}
   ~Terminator() { destroy(); }
-  Terminator(const Terminator &O) : K(O.K), SafeZone(O.SafeZone),
+  Terminator(const Terminator &O) : K(O.K), IsSafe(O.IsSafe),
       OriginalStmt(O.OriginalStmt), Loc(O.Loc) { copyConstruct(O); }
-  Terminator(Terminator &&O) noexcept : K(O.K), SafeZone(O.SafeZone),
+  Terminator(Terminator &&O) noexcept : K(O.K), IsSafe(O.IsSafe),
       OriginalStmt(O.OriginalStmt), Loc(O.Loc) { moveConstruct(std::move(O)); }
   Terminator &operator=(const Terminator &O) {
     if (this != &O) {
-      destroy(); K = O.K; SafeZone = O.SafeZone;
+      destroy(); K = O.K; IsSafe = O.IsSafe;
       OriginalStmt = O.OriginalStmt; Loc = O.Loc; copyConstruct(O);
     }
     return *this;
   }
   Terminator &operator=(Terminator &&O) noexcept {
     if (this != &O) {
-      destroy(); K = O.K; SafeZone = O.SafeZone;
+      destroy(); K = O.K; IsSafe = O.IsSafe;
       OriginalStmt = O.OriginalStmt; Loc = O.Loc; moveConstruct(std::move(O));
     }
     return *this;
@@ -999,9 +999,8 @@ struct BasicBlock {
   SmallVector<Statement, 8> Statements;
   Terminator Term;
 
-  BasicBlock() : Id{0}, Term(Terminator::createUnreachable()) {}
-  explicit BasicBlock(BasicBlockId Id)
-      : Id(Id), Term(Terminator::createUnreachable()) {}
+  BasicBlock() : Id{0} {}
+  explicit BasicBlock(BasicBlockId Id) : Id(Id) {}
 };
 
 //===----------------------------------------------------------------------===//
@@ -1023,7 +1022,7 @@ struct Body {
   // Pre-computed predecessor map
   llvm::DenseMap<BasicBlockId, SmallVector<BasicBlockId, 4>> Predecessors;
 
-  SafeZoneSpecifier FuncSafeZone = SZ_None;
+  bool IsSafe = false;
 
   /// Total number of region variables allocated by the builder.
   /// Prepared for future borrow checker integration (not consumed yet).

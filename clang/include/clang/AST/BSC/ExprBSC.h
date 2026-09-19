@@ -57,51 +57,6 @@ private:
   friend class ASTStmtWriter;
 };
 
-class SafeExpr : public Expr {
-  SafeZoneSpecifier SafeZoneSpec;
-  SourceLocation Loc;
-  Stmt *SubExpr;
-
-public:
-  SafeExpr(SourceLocation loc, SafeZoneSpecifier safeZoneSpec, Expr *val)
-      : Expr(SafeExprClass, val->getType(), val->getValueKind(),
-             val->getObjectKind()),
-        SafeZoneSpec(safeZoneSpec), Loc(loc), SubExpr(val) {
-    setDependence(val->getDependence());
-  }
-
-  /// Construct an empty safe expression.
-  explicit SafeExpr(EmptyShell Empty) : Expr(SafeExprClass, Empty) {}
-
-  const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
-  Expr *getSubExpr() { return cast<Expr>(SubExpr); }
-  void setSubExpr(Expr *E) {
-    SubExpr = E;
-    setDependence(E->getDependence());
-  }
-
-  SafeZoneSpecifier getSafeZoneSpecifier() const { return SafeZoneSpec; }
-  void setSafeZoneSpecifier(SafeZoneSpecifier sz) { SafeZoneSpec = sz; }
-
-  SourceLocation getBeginLoc() const LLVM_READONLY { return Loc; }
-  SourceLocation getEndLoc() const LLVM_READONLY {
-    return SubExpr->getEndLoc();
-  }
-
-  SourceLocation getSafeLoc() const { return Loc; }
-  void setSafeLoc(SourceLocation loc) { Loc = loc; }
-
-  static bool classof(const Stmt *T) {
-    return T->getStmtClass() == SafeExprClass;
-  }
-
-  // Iterators
-  child_range children() { return child_range(&SubExpr, &SubExpr + 1); }
-  const_child_range children() const {
-    return const_child_range(&SubExpr, &SubExpr + 1);
-  }
-};
-
 } // namespace clang
 
 #endif // ENABLE_BSC

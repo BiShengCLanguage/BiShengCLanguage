@@ -2525,23 +2525,10 @@ static void filterNonConflictingPreviousTypedefDecls(Sema &S,
 }
 
 #if ENABLE_BSC
-/// Extract the SafeZoneSpecifier from a function pointer type.
-/// Returns SZ_None if the type is not a function pointer.
-static SafeZoneSpecifier extractSafeZoneSpecFromFunctionPointer(QualType FPType) {
-  if (const PointerType *PT = FPType->getAs<PointerType>()) {
-    if (const FunctionProtoType *FPT =
-            PT->getPointeeType()->getAs<FunctionProtoType>()) {
-      return FPT->getFunSafeZoneSpecifier();
-    }
-  }
-  return SZ_None;
-}
-
 /// Manual 3.6.5.4 through a function pointer: the _Unsafe pointee must satisfy
 /// the unsafe-safe refinement relation with respect to the _Safe one.
 static bool functionPointerSatisfiesUnsafeSafeRefinement(
     ASTContext &Ctx, QualType OldType, QualType NewType,
-    SafeZoneSpecifier OldSZS, SafeZoneSpecifier NewSZS,
     UnsafeSafeRefinementMismatchInfo *MismatchOut) {
   QualType OldPointee = OldType->getPointeeType();
   QualType NewPointee = NewType->getPointeeType();
@@ -2559,8 +2546,8 @@ static bool functionPointerSatisfiesUnsafeSafeRefinement(
     return false;
   }
 
-  return functionTypeSatisfiesUnsafeSafeRefinement(
-      Ctx, OldPointee, NewPointee, OldSZS, NewSZS, MismatchOut);
+  return functionTypeSatisfiesUnsafeSafeRefinement(Ctx, OldPointee, NewPointee,
+                                                   MismatchOut);
 }
 
 #if ENABLE_BSC
@@ -2716,12 +2703,9 @@ bool Sema::isIncompatibleTypedef(TypeDecl *Old, TypedefNameDecl *New) {
         OldType->isFunctionPointerType() &&
         NewType->isFunctionPointerType()) {
 
-      SafeZoneSpecifier OldSZS = extractSafeZoneSpecFromFunctionPointer(OldType);
-      SafeZoneSpecifier NewSZS = extractSafeZoneSpecFromFunctionPointer(NewType);
-
       // Manual 3.6.5: mixed _Safe/_Unsafe redeclaration.
-      // SZ_None and SZ_Unsafe are both treated as unsafe.
-      if ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe)) {
+      if (OldType->isSafeFunctionOrPointer() !=
+          NewType->isSafeFunctionOrPointer()) {
         // Manual 3.6.5.1 rule 5: no mixed declarations for generics.
         TypedefNameDecl *OldTypedef = dyn_cast<TypedefNameDecl>(Old);
         if ((OldTypedef && OldTypedef->getDescribedTemplateParams()) ||
@@ -2736,7 +2720,7 @@ bool Sema::isIncompatibleTypedef(TypeDecl *Old, TypedefNameDecl *New) {
 
         UnsafeSafeRefinementMismatchInfo Mismatch;
         if (functionPointerSatisfiesUnsafeSafeRefinement(
-                Context, OldType, NewType, OldSZS, NewSZS, &Mismatch))
+                Context, OldType, NewType, &Mismatch))
           return false;
 
         diagnoseUnsafeSafeRefinementFailure(*this, New, Old, Mismatch);
@@ -3255,6 +3239,13 @@ static void checkNewAttributesAfterDef(Sema &S, Decl *New, const Decl *Old) {
       continue; // regular attr merging will take care of validating this.
     }
 
+#if ENABLE_BSC
+    if (isa<SafeZoneAttr>(NewAttribute)) {
+      // A mixed-mode _Safe/_Unsafe redeclaration may follow the definition.
+      ++I;
+      continue;
+    }
+#endif
     if (isa<C11NoReturnAttr>(NewAttribute)) {
       // C's _Noreturn is allowed to be added to a function after it is defined.
       ++I;
@@ -3563,8 +3554,7 @@ static void mergeParamDeclAttributes(ParmVarDecl *newDecl,
     const auto *NewFD = dyn_cast<FunctionDecl>(newDecl->getDeclContext());
     const auto *OldFD = dyn_cast<FunctionDecl>(oldDecl->getDeclContext());
     if (NewFD && OldFD &&
-        (NewFD->getSafeZoneSpecifier() == SZ_Safe) !=
-            (OldFD->getSafeZoneSpecifier() == SZ_Safe))
+        NewFD->isSafe() != OldFD->isSafe())
       SkipBSCContractAttrs = true;
   }
 #endif
@@ -4123,9 +4113,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
   // carry ensure_init that the _Safe side lacks.
   if (getLangOpts().BSC && Old->hasPrototype() && New->hasPrototype() &&
       Old->getNumParams() == New->getNumParams()) {
-    bool SameSafety =
-        (Old->getSafeZoneSpecifier() == SZ_Safe) ==
-        (New->getSafeZoneSpecifier() == SZ_Safe);
+    bool SameSafety = Old->isSafe() == New->isSafe();
     if (SameSafety) {
       for (unsigned I = 0; I < Old->getNumParams(); ++I) {
         if (Old->getParamDecl(I)->hasAttr<EnsureInitAttr>() !=
@@ -4140,8 +4128,8 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
       }
     } else {
       // Cross-safety: _Unsafe side must not have ensure_init that _Safe lacks.
-      FunctionDecl *SafeDecl = (Old->getSafeZoneSpecifier() == SZ_Safe) ? Old : New;
-      FunctionDecl *UnsafeDecl = (Old->getSafeZoneSpecifier() == SZ_Safe) ? New : Old;
+      FunctionDecl *SafeDecl = Old->isSafe() ? Old : New;
+      FunctionDecl *UnsafeDecl = Old->isSafe() ? New : Old;
       for (unsigned I = 0; I < Old->getNumParams(); ++I) {
         if (!SafeDecl->getParamDecl(I)->hasAttr<EnsureInitAttr>() &&
             UnsafeDecl->getParamDecl(I)->hasAttr<EnsureInitAttr>()) {
@@ -4356,12 +4344,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
     // use standard type compatibility rules.
     bool SatisfiesUnsafeSafeRefinement = false;
     if (getLangOpts().BSC) {
-      SafeZoneSpecifier OldSZS = Old->getSafeZoneSpecifier();
-      SafeZoneSpecifier NewSZS = New->getSafeZoneSpecifier();
-
-      // Check if this is a mixed _Safe/_Unsafe redeclaration (safe vs. unsafe).
-      // SZ_None and SZ_Unsafe are both "unsafe" — treat them as the same level.
-      if ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe)) {
+      if (Old->isSafe() != New->isSafe()) {
         // Generic functions cannot have mixed _Safe/_Unsafe redeclarations.
         if (New->getDescribedFunctionTemplate() ||
             Old->getDescribedFunctionTemplate()) {
@@ -4378,7 +4361,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
 
         UnsafeSafeRefinementMismatchInfo Mismatch;
         if (!functionTypeSatisfiesUnsafeSafeRefinement(
-                Context, OldFuncType, NewFuncType, OldSZS, NewSZS, &Mismatch)) {
+                Context, OldFuncType, NewFuncType, &Mismatch)) {
           diagnoseUnsafeSafeRefinementFailure(*this, New, Old, Mismatch);
           return true;
         }
@@ -4429,10 +4412,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
       }
 
       // BSC: mixed _Safe/_Unsafe redeclaration (manual 3.6.5).
-      SafeZoneSpecifier OldSZS = Old->getSafeZoneSpecifier();
-      SafeZoneSpecifier NewSZS = New->getSafeZoneSpecifier();
-      // SZ_None and SZ_Unsafe are both "unsafe" — treat them as the same level.
-      bool IsMixedModeRedecl = ((OldSZS == SZ_Safe) != (NewSZS == SZ_Safe));
+      bool IsMixedModeRedecl = Old->isSafe() != New->isSafe();
 
       // Manual 3.6.5.1 rule 3 governs instead of plain compatibility.
       if (IsMixedModeRedecl) {
@@ -4452,7 +4432,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
 
         UnsafeSafeRefinementMismatchInfo Mismatch;
         if (!functionTypeSatisfiesUnsafeSafeRefinement(
-                Context, OldFuncType, NewFuncType, OldSZS, NewSZS, &Mismatch)) {
+                Context, OldFuncType, NewFuncType, &Mismatch)) {
           diagnoseUnsafeSafeRefinementFailure(*this, New, Old, Mismatch);
           return true;
         }
@@ -6897,9 +6877,7 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
     // parenthesized expression.
     if (D.getDeclSpec().getSafeZoneSpecifier() != SZ_None &&
         !R->isFunctionPointerType() && !R->isFunctionType()) {
-      if (!getCurScope() ||
-          (getCurScope() &&
-           getCurScope()->getScopeSafeZoneSource() != SZS_SafeStmt))
+      if (!getCurScope() || getCurScope()->getStmtSafeZoneLoc().isInvalid())
         Diag(D.getDeclSpec().getSafeZoneSpecifierLoc(),
              diag::err_safe_zone_decl)
             << D.getDeclSpec().getSafeZoneSpecifier();
@@ -10177,8 +10155,12 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   if (!NewFD) return nullptr;
 
 #if ENABLE_BSC
-  SafeZoneSpecifier FuncZoneSpec = D.getDeclSpec().getSafeZoneSpecifier();
-  NewFD->setSafeZoneSpecifier(FuncZoneSpec);
+  if (SafeZoneSpecifier SZ = D.getDeclSpec().getSafeZoneSpecifier())
+    NewFD->addAttr(SafeZoneAttr::Create(
+        Context, D.getDeclSpec().getSafeZoneSpecifierLoc(),
+        AttributeCommonInfo::AS_Keyword,
+        SZ == SZ_Safe ? SafeZoneAttr::Keyword_Safe
+                      : SafeZoneAttr::Keyword_Unsafe));
 #endif
 
   if (OriginalLexicalContext && OriginalLexicalContext->isObjCContainer())
@@ -12355,7 +12337,7 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     // Check variadic functions in safe zones with format attribute
     // For function definitions, we need to check if either the definition
     // or the declaration has the format attribute
-    if (DeclIsDefn && NewFD->getSafeZoneSpecifier() == SZ_Safe &&
+    if (DeclIsDefn && NewFD->isSafe() &&
         NewFD->isVariadic() && !NewFD->hasAttr<FormatAttr>()) {
       // Check if the previous declaration has the format attribute
       bool prevHasFormatAttr = false;
@@ -14789,8 +14771,6 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
     switch (E->getStmtClass()) {
     case Expr::ParenExprClass:
       return GetExprNK(cast<ParenExpr>(E)->getSubExpr());
-    case Expr::SafeExprClass:
-      return GetExprNK(cast<SafeExpr>(E)->getSubExpr());
     case Expr::ImplicitCastExprClass:
       return GetExprNK(cast<ImplicitCastExpr>(E)->getSubExpr());
     case Expr::CallExprClass: {

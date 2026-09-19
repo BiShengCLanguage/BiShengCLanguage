@@ -2170,8 +2170,12 @@ private:
 #if ENABLE_BSC
   StmtResult ParseSafeStatement(ParsedStmtContext StmtCtx);
   ExprResult ParseSafeExpression();
-  struct ScopeSafeZoneInfo getCurScopeSafeZoneInfo();
-  void setCurScopeSafeZoneInfo(struct ScopeSafeZoneInfo SZ);
+  struct ScopeSafeZoneInfo {
+    bool IsSafe;
+    SourceLocation StmtKeywordLoc;
+  };
+  ScopeSafeZoneInfo getCurScopeSafeZoneInfo();
+  void setCurScopeSafeZoneInfo(ScopeSafeZoneInfo SZ);
 #endif
   StmtResult ParseCaseStatement(ParsedStmtContext StmtCtx,
                                 bool MissingCase = false,

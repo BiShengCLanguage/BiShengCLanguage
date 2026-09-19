@@ -12,6 +12,7 @@
 
 #if ENABLE_BSC
 
+#include "clang/AST/Attr.h"
 #include "clang/AST/BSC/ExprBSC.h"
 #include "clang/AST/ParentMap.h"
 #include "clang/AST/StmtVisitor.h"
@@ -164,8 +165,6 @@ VarDecl *getVarDeclFromExpr(Expr *E) {
     return getVarDeclFromExpr(ICE->getSubExpr());
   if (auto *PE = dyn_cast<ParenExpr>(E))
     return getVarDeclFromExpr(PE->getSubExpr());
-  if (auto *SE = dyn_cast<SafeExpr>(E))
-    return getVarDeclFromExpr(SE->getSubExpr());
   if (auto *BO = dyn_cast<BinaryOperator>(E))
     return getVarDeclFromExpr(BO->getLHS());
   return nullptr;
@@ -178,8 +177,6 @@ MemberExpr *getMemberExprFromExpr(Expr *E) {
     return getMemberExprFromExpr(ICE->getSubExpr());
   if (auto *PE = dyn_cast<ParenExpr>(E))
     return getMemberExprFromExpr(PE->getSubExpr());
-  if (auto *SE = dyn_cast<SafeExpr>(E))
-    return getMemberExprFromExpr(SE->getSubExpr());
   return nullptr;
 }
 
@@ -192,7 +189,7 @@ MemberExpr *getMemberExprFromExpr(Expr *E) {
 /// Returns nullptr when the base is not rooted at a compound literal, in
 /// which case the static element/field type should be trusted as before.
 static InitListExpr *getCompoundLiteralInitList(Expr *Base, ASTContext &Ctx) {
-  Base = Base->IgnoreParenImpCastsSafe();
+  Base = Base->IgnoreParenImpCasts();
   if (auto *CLE = dyn_cast<CompoundLiteralExpr>(Base))
     return dyn_cast<InitListExpr>(CLE->getInitializer());
   // `((struct SArr){0}).arr` — the base is a MemberExpr whose base is a
@@ -262,7 +259,7 @@ static std::string getDiagNameFromExpr(Expr *E) {
   if (!E)
     return {};
 
-  E = E->IgnoreParenImpCastsSafe();
+  E = E->IgnoreParenImpCasts();
   if (auto *BO = dyn_cast<BinaryOperator>(E)) {
     if (BO->getOpcode() == BO_Comma || BO->getOpcode() == BO_Assign)
       return getDiagNameFromExpr(BO->getRHS());
@@ -355,8 +352,6 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
     switch (E->getStmtClass()) {
     case Expr::ParenExprClass:
       return getExprPathNullability(cast<ParenExpr>(E)->getSubExpr());
-    case Expr::SafeExprClass:
-      return getExprPathNullability(cast<SafeExpr>(E)->getSubExpr());
     case Expr::ImplicitCastExprClass:
       return getExprPathNullability(cast<ImplicitCastExpr>(E)->getSubExpr());
     case Expr::CompoundLiteralExprClass:
@@ -454,7 +449,7 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
         // path-sensitive nullability, exactly like &_Mut *p.
         if (Op != UO_AddrOf) {
           if (auto *ASE = dyn_cast<ArraySubscriptExpr>(
-                  cast<UnaryOperator>(E)->getSubExpr()->IgnoreParenImpCastsSafe())) {
+                  cast<UnaryOperator>(E)->getSubExpr()->IgnoreParenImpCasts())) {
             Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
             if (Base->getType().getCanonicalType()->isPointerType())
               return getExprPathNullability(Base);
@@ -566,30 +561,14 @@ bool TransferFunctions::IsStmtInSafeZone(Stmt *S) {
     return false;
   const Stmt *ParentStmt = PM.getParent(S);
   while (ParentStmt) {
-    if (auto *CS = dyn_cast<CompoundStmt>(ParentStmt)) {
-      SafeZoneSpecifier SafeZoneSpec = CS->getCompSafeZoneSpecifier();
-      if (SafeZoneSpec == SZ_Safe)
-        return true;
-      if (SafeZoneSpec == SZ_Unsafe)
-        return false;
-    }
-    if (auto *SS = dyn_cast<SafeStmt>(ParentStmt)) {
-      SafeZoneSpecifier SafeZoneSpec = SS->getSafeZoneSpecifier();
-      if (SafeZoneSpec == SZ_Safe)
-        return true;
-      if (SafeZoneSpec == SZ_Unsafe)
-        return false;
-    }
-    if (auto *SE = dyn_cast<SafeExpr>(ParentStmt)) {
-      SafeZoneSpecifier SafeZoneSpec = SE->getSafeZoneSpecifier();
-      if (SafeZoneSpec == SZ_Safe)
-        return true;
-      if (SafeZoneSpec == SZ_Unsafe)
-        return false;
-    }
+    SafeZoneSpecifier SafeZoneSpec = SafeZoneAttr::getSafeZoneSpec(ParentStmt);
+    if (SafeZoneSpec == SZ_Safe)
+      return true;
+    if (SafeZoneSpec == SZ_Unsafe)
+      return false;
     ParentStmt = PM.getParent(ParentStmt);
   }
-  return Fd.getSafeZoneSpecifier() == SZ_Safe;
+  return Fd.isSafe();
 }
 
 bool TransferFunctions::ShouldReportNullPtrError(Stmt *S) {
@@ -1007,13 +986,6 @@ bool TransferFunctions::IsDirectBorrowAddrOperand(Stmt *S) {
       Cur = PE;
       continue;
     }
-    // _Safe(...) / _Unsafe(...) are transparent wrappers around the subscript,
-    // so &_Mut _Safe(p[0]) / &_Mut _Unsafe(p[0]) are exempt exactly like
-    // &_Mut (p[0]).
-    if (auto *SE = dyn_cast<SafeExpr>(Parent)) {
-      Cur = SE;
-      continue;
-    }
     if (auto *UO = dyn_cast<UnaryOperator>(Parent)) {
       UnaryOperator::Opcode Op = UO->getOpcode();
       if (Op != UO_AddrMut && Op != UO_AddrConst)
@@ -1065,7 +1037,7 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
 void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
   if (ME->isArrow()) {
     if (getExprPathNullability(ME->getBase()) == NullabilityKind::Nullable && ShouldReportNullPtrError(ME)) {
-      Expr *Base = ME->getBase()->IgnoreParenImpCastsSafe();
+      Expr *Base = ME->getBase()->IgnoreParenImpCasts();
       NullabilityCheckDiagInfo DI(Base->getExprLoc(),
                                   NullablePointerAccessMember,
                                   getDiagNameFromExpr(ME->getBase()));

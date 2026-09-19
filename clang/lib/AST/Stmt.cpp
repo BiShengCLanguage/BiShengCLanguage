@@ -16,7 +16,6 @@
 #include "clang/AST/Attr.h"
 #if ENABLE_BSC
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #endif
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclGroup.h"
@@ -227,10 +226,6 @@ const Stmt *Stmt::stripLabelLikeStatements() const {
       S = SC->getSubStmt();
     else if (const auto *AS = dyn_cast<AttributedStmt>(S))
       S = AS->getSubStmt();
-#if ENABLE_BSC
-    else if (const auto *SS = dyn_cast<SafeStmt>(S))
-      S = SS->getSubStmt();
-#endif
     else
       return S;
   }
@@ -370,16 +365,8 @@ int64_t Stmt::getID(const ASTContext &Context) const {
 }
 
 CompoundStmt::CompoundStmt(ArrayRef<Stmt *> Stmts, FPOptionsOverride FPFeatures,
-                           SourceLocation LB, SourceLocation RB
-#if ENABLE_BSC
-                           , SafeZoneSpecifier SafeZoneSpec
-#endif
-                           )
-    : Stmt(CompoundStmtClass), LBraceLoc(LB), RBraceLoc(RB)
-#if ENABLE_BSC
-    ,  SafeZoneSpec(SafeZoneSpec)
-#endif
-    {
+                           SourceLocation LB, SourceLocation RB)
+    : Stmt(CompoundStmtClass), LBraceLoc(LB), RBraceLoc(RB) {
   CompoundStmtBits.NumStmts = Stmts.size();
   CompoundStmtBits.HasFPFeatures = FPFeatures.requiresTrailingStorage();
   setStmts(Stmts);
@@ -396,19 +383,12 @@ void CompoundStmt::setStmts(ArrayRef<Stmt *> Stmts) {
 
 CompoundStmt *CompoundStmt::Create(const ASTContext &C, ArrayRef<Stmt *> Stmts,
                                    FPOptionsOverride FPFeatures,
-                                   SourceLocation LB, SourceLocation RB
-#if ENABLE_BSC
-                                   , SafeZoneSpecifier SafeZoneSpec
-#endif
-                                   ) {
+                                   SourceLocation LB, SourceLocation RB) {
   void *Mem =
-      C.Allocate(totalSizeToAlloc<Stmt *, FPOptionsOverride>(Stmts.size(),  FPFeatures.requiresTrailingStorage()),
-      alignof(CompoundStmt));
-  return new (Mem) CompoundStmt(Stmts, FPFeatures, LB, RB
-#if ENABLE_BSC
-                                , SafeZoneSpec
-#endif
-  );
+      C.Allocate(totalSizeToAlloc<Stmt *, FPOptionsOverride>(
+                     Stmts.size(), FPFeatures.requiresTrailingStorage()),
+                 alignof(CompoundStmt));
+  return new (Mem) CompoundStmt(Stmts, FPFeatures, LB, RB);
 }
 
 CompoundStmt *CompoundStmt::CreateEmpty(const ASTContext &C, unsigned NumStmts,

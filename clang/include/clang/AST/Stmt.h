@@ -318,6 +318,17 @@ protected:
   };
   enum { NumExprBits = NumStmtBits + 5 + llvm::BitWidth<ExprDependence> };
 
+#if ENABLE_BSC
+  class ParenExprBitfields {
+    friend class ParenExpr;
+
+    unsigned : NumExprBits;
+
+    /// The zone `_Safe(e)` / `_Unsafe(e)` opens; SZ_None for plain parentheses.
+    unsigned SafeZoneSpec : 2;
+  };
+#endif
+
   class ConstantExprBitfields {
     friend class ASTStmtReader;
     friend class ASTStmtWriter;
@@ -1022,6 +1033,9 @@ protected:
 
     // Expressions
     ExprBitfields ExprBits;
+#if ENABLE_BSC
+    ParenExprBitfields ParenExprBits;
+#endif
     ConstantExprBitfields ConstantExprBits;
     PredefinedExprBitfields PredefinedExprBits;
     DeclRefExprBitfields DeclRefExprBits;
@@ -1415,19 +1429,9 @@ class CompoundStmt final
   /// The location of the closing "}".
   SourceLocation RBraceLoc;
 
-#if ENABLE_BSC
-  SafeZoneSpecifier SafeZoneSpec;
-
-  CompoundStmt(ArrayRef<Stmt *> Stmts, FPOptionsOverride FPFeatures,
-               SourceLocation LB, SourceLocation RB,
-               SafeZoneSpecifier SafeZoneSpec = SZ_None);
-  explicit CompoundStmt(EmptyShell Empty)
-      : Stmt(CompoundStmtClass, Empty), SafeZoneSpec(SZ_None) {}
-#else
   CompoundStmt(ArrayRef<Stmt *> Stmts, FPOptionsOverride FPFeatures,
                SourceLocation LB, SourceLocation RB);
   explicit CompoundStmt(EmptyShell Empty) : Stmt(CompoundStmtClass, Empty) {}
-#endif
 
   void setStmts(ArrayRef<Stmt *> Stmts);
 
@@ -1444,19 +1448,11 @@ class CompoundStmt final
 public:
   static CompoundStmt *Create(const ASTContext &C, ArrayRef<Stmt *> Stmts,
                               FPOptionsOverride FPFeatures, SourceLocation LB,
-                              SourceLocation RB
-#if ENABLE_BSC
-                              , SafeZoneSpecifier SafeZoneSpec = SZ_None
-#endif
-  );
+                              SourceLocation RB);
 
   // Build an empty compound statement with a location.
   explicit CompoundStmt(SourceLocation Loc)
-      : Stmt(CompoundStmtClass), LBraceLoc(Loc), RBraceLoc(Loc)
-#if ENABLE_BSC
-        , SafeZoneSpec(SZ_None)
-#endif
-  {
+      : Stmt(CompoundStmtClass), LBraceLoc(Loc), RBraceLoc(Loc) {
     CompoundStmtBits.NumStmts = 0;
     CompoundStmtBits.HasFPFeatures = 0;
   }
@@ -1549,12 +1545,6 @@ public:
   const Stmt *getStmtExprResult() const {
     return const_cast<CompoundStmt *>(this)->getStmtExprResult();
   }
-
-#if ENABLE_BSC
-  SafeZoneSpecifier getCompSafeZoneSpecifier() const { return SafeZoneSpec; }
-
-  void setCompSafeZoneSpecifier(SafeZoneSpecifier sz) { SafeZoneSpec = sz; }
-#endif
 
   SourceLocation getBeginLoc() const { return LBraceLoc; }
   SourceLocation getEndLoc() const { return RBraceLoc; }

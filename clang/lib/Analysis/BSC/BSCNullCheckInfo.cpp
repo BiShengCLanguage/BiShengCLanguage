@@ -98,7 +98,7 @@ bool containsArrayAccess(const Expr *E) {
 /// Otherwise return nullptr.
 /// Caller must ensure Cond is not nullptr, and Cond is a simple expression
 const Expr *getTrackablePtr(const Expr *Cond) {
-  Cond = Cond->IgnoreParenImpCastsSafe();
+  Cond = Cond->IgnoreParenImpCasts();
   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
     // for condition like (x, p), rhs may be trackable
     if (BO->getOpcode() == BO_Comma) {

@@ -1575,10 +1575,6 @@ enum StmtCode {
   /// A LabelStmt record.
   STMT_LABEL,
 
-#if ENABLE_BSC
-  /// A SafeStmt record.
-  STMT_SAFE,
-#endif
   /// An AttributedStmt record.
   STMT_ATTRIBUTED,
 
@@ -1654,10 +1650,6 @@ enum StmtCode {
   /// A ParenListExpr record.
   EXPR_PAREN_LIST,
 
-#if ENABLE_BSC
-  /// A SafeExpr record.
-  EXPR_SAFE,
-#endif
   /// A UnaryOperator record.
   EXPR_UNARY_OPERATOR,
 

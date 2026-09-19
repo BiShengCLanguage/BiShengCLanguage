@@ -92,9 +92,6 @@ void ASTStmtWriter::VisitCompoundStmt(CompoundStmt *S) {
 #endif
   Record.push_back(S->size());
   Record.push_back(S->hasStoredFPFeatures());
-#if ENABLE_BSC
-  Record.push_back(S->getCompSafeZoneSpecifier());
-#endif
   for (auto *CS : S->body())
 #if ENABLE_BSC
   {
@@ -147,24 +144,6 @@ void ASTStmtWriter::VisitLabelStmt(LabelStmt *S) {
   Record.AddSourceLocation(S->getIdentLoc());
   Code = serialization::STMT_LABEL;
 }
-
-#if ENABLE_BSC
-void ASTStmtWriter::VisitSafeStmt(SafeStmt *S) {
-  VisitStmt(S);
-  Record.push_back(S->getSafeZoneSpecifier());
-  Record.AddStmt(S->getSubStmt());
-  Record.AddSourceLocation(S->getSafeLoc());
-  Code = serialization::STMT_SAFE;
-}
-
-void ASTStmtWriter::VisitSafeExpr(SafeExpr *E) {
-  VisitExpr(E);
-  Record.push_back(E->getSafeZoneSpecifier());
-  Record.AddStmt(E->getSubExpr());
-  Record.AddSourceLocation(E->getSafeLoc());
-  Code = serialization::EXPR_SAFE;
-}
-#endif
 
 void ASTStmtWriter::VisitAttributedStmt(AttributedStmt *S) {
   VisitStmt(S);
@@ -755,6 +734,9 @@ void ASTStmtWriter::VisitParenExpr(ParenExpr *E) {
   Record.AddSourceLocation(E->getLParen());
   Record.AddSourceLocation(E->getRParen());
   Record.AddStmt(E->getSubExpr());
+#if ENABLE_BSC
+  Record.push_back(E->getSafeZoneSpec());
+#endif
   Code = serialization::EXPR_PAREN;
 }
 

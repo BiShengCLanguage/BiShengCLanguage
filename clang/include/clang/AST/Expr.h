@@ -914,28 +914,6 @@ public:
     return const_cast<Expr *>(this)->IgnoreParenCasts();
   }
 
-#if ENABLE_BSC
-  /// BSC variants of the IgnoreParens / IgnoreParenImpCasts / IgnoreParenCasts
-  /// strip family that additionally peel BSC's SafeExpr (the AST node produced
-  /// by _Safe(...) / _Unsafe(...)). SafeExpr inherits its value, type, and
-  /// value-category from its sub-expression and so is transparent to "what is
-  /// the real expression we're checking?" questions; BSC predicates that resolve
-  /// trackable VarDecls or dispatch on AST shape should prefer these variants
-  /// over the generic ones.
-  Expr *IgnoreParensSafe() LLVM_READONLY;
-  const Expr *IgnoreParensSafe() const {
-    return const_cast<Expr *>(this)->IgnoreParensSafe();
-  }
-  Expr *IgnoreParenImpCastsSafe() LLVM_READONLY;
-  const Expr *IgnoreParenImpCastsSafe() const {
-    return const_cast<Expr *>(this)->IgnoreParenImpCastsSafe();
-  }
-  Expr *IgnoreParenCastsSafe() LLVM_READONLY;
-  const Expr *IgnoreParenCastsSafe() const {
-    return const_cast<Expr *>(this)->IgnoreParenCastsSafe();
-  }
-#endif
-
   /// Skip conversion operators. If this Expr is a call to a conversion
   /// operator, return the argument.
   Expr *IgnoreConversionOperatorSingleStep() LLVM_READONLY;
@@ -2160,6 +2138,9 @@ public:
       : Expr(ParenExprClass, val->getType(), val->getValueKind(),
              val->getObjectKind()),
         L(l), R(r), Val(val) {
+#if ENABLE_BSC
+    ParenExprBits.SafeZoneSpec = SZ_None;
+#endif
     setDependence(computeDependence(this));
   }
 
@@ -2170,6 +2151,12 @@ public:
   const Expr *getSubExpr() const { return cast<Expr>(Val); }
   Expr *getSubExpr() { return cast<Expr>(Val); }
   void setSubExpr(Expr *E) { Val = E; }
+#if ENABLE_BSC
+  SafeZoneSpecifier getSafeZoneSpec() const {
+    return static_cast<SafeZoneSpecifier>(ParenExprBits.SafeZoneSpec);
+  }
+  void setSafeZoneSpec(SafeZoneSpecifier SZ) { ParenExprBits.SafeZoneSpec = SZ; }
+#endif
 
   SourceLocation getBeginLoc() const LLVM_READONLY { return L; }
   SourceLocation getEndLoc() const LLVM_READONLY { return R; }

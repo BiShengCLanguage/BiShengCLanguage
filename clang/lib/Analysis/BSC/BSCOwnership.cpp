@@ -264,7 +264,7 @@ static pair<const Expr *, string> getMemberFullField(const MemberExpr *ME) {
   string memberFieldName = ME->getMemberNameInfo().getAsString();
 
   while (true) {
-    base = base->IgnoreParenImpCastsSafe();
+    base = base->IgnoreParenImpCasts();
     if (const MemberExpr *me = dyn_cast<MemberExpr>(base)) {
       memberFieldName =
           me->getMemberNameInfo().getAsString() + "." + memberFieldName;
@@ -280,10 +280,10 @@ static pair<const Expr *, string> getMemberFullField(const MemberExpr *ME) {
 /// Peel a leading dereference from a member-expr base so that `p->f` and
 /// `(*p).f` resolve to the same root DeclRefExpr.
 static const DeclRefExpr *getRootDREFromMemberBase(const Expr *Base) {
-  const Expr *E = Base->IgnoreParenImpCastsSafe();
+  const Expr *E = Base->IgnoreParenImpCasts();
   if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref)
-      E = UO->getSubExpr()->IgnoreParenImpCastsSafe();
+      E = UO->getSubExpr()->IgnoreParenImpCasts();
   }
   return dyn_cast<DeclRefExpr>(E);
 }
@@ -295,16 +295,16 @@ static const DeclRefExpr *getRootDREFromMemberBase(const Expr *Base) {
 static const VarDecl *PeelArrayElemBase(const Expr *E) {
   if (!E)
     return nullptr;
-  const Expr *Base = E->IgnoreParenImpCastsSafe();
+  const Expr *Base = E->IgnoreParenImpCasts();
   if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(Base)) {
-    Base = ASE->getBase()->IgnoreParenImpCastsSafe();
+    Base = ASE->getBase()->IgnoreParenImpCasts();
     while (const ArraySubscriptExpr *Inner =
                dyn_cast<ArraySubscriptExpr>(Base))
-      Base = Inner->getBase()->IgnoreParenImpCastsSafe();
+      Base = Inner->getBase()->IgnoreParenImpCasts();
   } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(Base)) {
-    Base = ME->getBase()->IgnoreParenImpCastsSafe();
+    Base = ME->getBase()->IgnoreParenImpCasts();
     while (const ArraySubscriptExpr *A = dyn_cast<ArraySubscriptExpr>(Base))
-      Base = A->getBase()->IgnoreParenImpCastsSafe();
+      Base = A->getBase()->IgnoreParenImpCasts();
   } else {
     return nullptr;
   }
@@ -455,14 +455,7 @@ static string concatUnmovedFields(const VarDecl *VD,
 }
 
 static bool IsCastFromVoidPointer(Expr *E) {
-  while (true) {
-    E = E->IgnoreParenImpCasts();
-    if (SafeExpr *SE = dyn_cast<SafeExpr>(E)) {
-      E = SE->getSubExpr();
-    } else {
-      break;
-    }
-  }
+  E = E->IgnoreParenImpCasts();
 
   if (AbstractConditionalOperator *ACO =
           dyn_cast<AbstractConditionalOperator>(E)) {
@@ -3419,7 +3412,7 @@ public:
   /// implicit casts, value-preserving C-style casts, comma RHS, and ternary
   /// with both arms must-be-null.
   bool isExprRefToNullOwnedVar(const Expr *E) const {
-    E = E->IgnoreParenImpCastsSafe();
+    E = E->IgnoreParenImpCasts();
     if (E->isNullExpr(OS.ctx))
       return true;
     if (const CStyleCastExpr *CSCE = dyn_cast<CStyleCastExpr>(E))
@@ -4430,12 +4423,12 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
     }
 
     // ignore explicit/implicit casts, get canonical expr
-    const Expr *InnerE = CSCE->getSubExpr()->IgnoreParenCastsSafe();
+    const Expr *InnerE = CSCE->getSubExpr()->IgnoreParenCasts();
     // The value of a comma expression is its RHS; keep peeling nested comma RHS.
     while (const BinaryOperator *BO = dyn_cast<BinaryOperator>(InnerE)) {
       if (BO->getOpcode() != BO_Comma)
         break;
-      InnerE = BO->getRHS()->IgnoreParenCastsSafe();
+      InnerE = BO->getRHS()->IgnoreParenCasts();
     }
 
     // @code

@@ -25,16 +25,8 @@ using namespace clang::bscir;
 // Helper: Safe zone to string
 //===----------------------------------------------------------------------===//
 
-static const char *safeZoneStr(SafeZoneSpecifier SZ) {
-  switch (SZ) {
-  case SZ_None:
-    return "";
-  case SZ_Safe:
-    return " [safe]";
-  case SZ_Unsafe:
-    return " [unsafe]";
-  }
-  return "";
+static const char *safeZoneStr(bool IsSafe) {
+  return IsSafe ? " [safe]" : " [unsafe]";
 }
 
 //===----------------------------------------------------------------------===//
@@ -231,7 +223,7 @@ void clang::bscir::dumpStatement(const Statement &S, const Body &B,
     OS << "nop";
     break;
   }
-  OS << safeZoneStr(S.SafeZone);
+  OS << safeZoneStr(S.IsSafe);
   OS << "\n";
 }
 
@@ -309,7 +301,7 @@ void clang::bscir::dumpTerminator(const Terminator &T, const Body &B,
     OS << "unreachable";
     break;
   }
-  OS << safeZoneStr(T.SafeZone);
+  OS << safeZoneStr(T.IsSafe);
   OS << "\n";
 }
 
@@ -355,8 +347,7 @@ void clang::bscir::dumpBody(const Body &B, llvm::raw_ostream &OS) {
   }
   OS << ") -> " << typeStr(B.Locals[0].Ty);
 
-  OS << safeZoneStr(B.FuncSafeZone);
-  OS << " {\n";
+  OS << safeZoneStr(B.IsSafe) << " {\n";
 
   // Print locals
   OS << "  // Locals:\n";

@@ -4,6 +4,7 @@
 
 #include "TreeTransform.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/SourceLocation.h"
@@ -15,15 +16,15 @@ using namespace clang;
 using namespace sema;
 
 namespace {
-/// Unwrap one SafeStmt wrapper (_Safe / _Unsafe regions in BSC).
-Stmt *bscStripSafeStmt(Stmt *S) {
-  if (auto *SS = dyn_cast<SafeStmt>(S))
-    return SS->getSubStmt();
+Stmt *bscStripSafeZone(Stmt *S) {
+  if (auto *AS = dyn_cast<AttributedStmt>(S))
+    if (SafeZoneAttr::getSafeZoneSpec(AS) != SZ_None)
+      return AS->getSubStmt();
   return S;
 }
 
 CompoundStmt *bscGetBodyCompound(Stmt *Body) {
-  return dyn_cast<CompoundStmt>(bscStripSafeStmt(Body));
+  return dyn_cast<CompoundStmt>(bscStripSafeZone(Body));
 }
 
 BSCMethodDecl *buildBSCMethodDecl(ASTContext &C, DeclContext *DC,
@@ -442,7 +443,7 @@ public:
     bool HasControlTransferExpr = false;
     for (auto *C : CS->children()) {
       Stmt *S = const_cast<Stmt *>(C);
-      Stmt *Inner = bscStripSafeStmt(S);
+      Stmt *Inner = bscStripSafeZone(S);
       // Add destructor call if-stmt for all defined vardecls before exit current block
       if (isa<ReturnStmt>(Inner) || isa<BreakStmt>(Inner) || isa<ContinueStmt>(Inner)) {
         HasControlTransferExpr = true;
@@ -452,10 +453,11 @@ public:
       RecursiveASTVisitor<InsertDestructorCallStmt>::TraverseStmt(C);
       if (isa<CompoundStmt>(S)) {
         Statements.push_back(ReplaceCompoundMap.lookup(cast<CompoundStmt>(S)));
-      } else if (auto *SS = dyn_cast<SafeStmt>(S)) {
-        if (auto *InnerCS = dyn_cast<CompoundStmt>(SS->getSubStmt())) {
+      } else if (auto *AS = dyn_cast<AttributedStmt>(S)) {
+        if (auto *InnerCS = dyn_cast<CompoundStmt>(Inner)) {
           if (CompoundStmt *NewC = ReplaceCompoundMap.lookup(InnerCS))
-            SS->setSubStmt(NewC);
+            S = AttributedStmt::Create(SemaRef.getASTContext(),
+                                       AS->getAttrLoc(), AS->getAttrs(), NewC);
           Statements.push_back(S);
         } else if (isa<BinaryOperator>(Inner)) {
           emitReassignSequence(Statements, S, Inner);
@@ -503,15 +505,14 @@ public:
     }
     auto NewCPStmt = CompoundStmt::Create(SemaRef.getASTContext(), Statements,
                                           FPOptionsOverride(),
-                                          CS->getLBracLoc(), CS->getRBracLoc(),
-                                          CS->getCompSafeZoneSpecifier());
+                                          CS->getLBracLoc(), CS->getRBracLoc());
     ReplaceCompoundMap[CS] = NewCPStmt;
     return false;
   }
 
   SmallVector<Stmt *> CreateStatements(Stmt *S) {
     SmallVector<Stmt *> Statements;
-    Stmt *Inner = bscStripSafeStmt(S);
+    Stmt *Inner = bscStripSafeZone(S);
     if (isa<ReturnStmt>(Inner) || isa<BreakStmt>(Inner) || isa<ContinueStmt>(Inner)) {
       SmallVector<Stmt *> IfStmts = AddIfStmts(Inner);
       Statements.insert(Statements.end(), IfStmts.begin(), IfStmts.end());
@@ -547,17 +548,15 @@ public:
 
   // Replace a body stmt: if compound, look up in ReplaceCompoundMap;
   // otherwise synthesize a compound via CreateNewCompoundStmt.
-  // Handles SafeStmt wrapping transparently.
   template <typename SetBodyFn>
   void ReplaceBody(Stmt *Body, SetBodyFn SetBody) {
-    SafeStmt *SS = dyn_cast<SafeStmt>(Body);
-    Stmt *Inner = bscStripSafeStmt(Body);
-    if (auto *CS = dyn_cast<CompoundStmt>(Inner)) {
-      if (auto *NewCompound = ReplaceCompoundMap.lookup(CS)) {
-        if (SS)
-          SS->setSubStmt(NewCompound);
-        else
-          SetBody(NewCompound);
+    auto *AS = dyn_cast<AttributedStmt>(Body);
+    if (auto *CS = dyn_cast<CompoundStmt>(bscStripSafeZone(Body))) {
+      if (Stmt *New = ReplaceCompoundMap.lookup(CS)) {
+        if (AS)
+          New = AttributedStmt::Create(SemaRef.getASTContext(),
+                                       AS->getAttrLoc(), AS->getAttrs(), New);
+        SetBody(New);
       }
     } else {
       SetBody(CreateNewCompoundStmt(Body));
@@ -565,7 +564,6 @@ public:
   }
 
   // Traverse a loop/branch body, replacing its CompoundStmt via the map.
-  // Handles the case where the body is wrapped in a SafeStmt.
   template <typename SetBodyFn>
   void TraverseAndReplaceBody(Stmt *Body, SetBodyFn SetBody) {
     RecursiveASTVisitor<InsertDestructorCallStmt>::TraverseStmt(Body);

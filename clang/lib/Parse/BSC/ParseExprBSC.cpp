@@ -217,12 +217,13 @@ ExprResult Parser::ParseSafeExpression() {
     Diag(Tok, diag::err_expected_lparen_after) << "_Safe";
     return ExprError();
   }
-  struct ScopeSafeZoneInfo newInfo = {SafeZoneSpec, SZS_SafeStmt, SafeLoc};
+  struct ScopeSafeZoneInfo newInfo = {SafeZoneSpec == SZ_Safe, SafeLoc};
   struct ScopeSafeZoneInfo oldInfo = getCurScopeSafeZoneInfo();
   setCurScopeSafeZoneInfo(newInfo);
 
   ParenParseOption ParenExprType = SimpleExpr;
   ParsedType CastTy;
+  SourceLocation LParenLoc = Tok.getLocation();
   SourceLocation RParenLoc;
   ExprResult SubExpr =
       ParseParenExpression(ParenExprType, false, false, CastTy, RParenLoc);
@@ -231,7 +232,8 @@ ExprResult Parser::ParseSafeExpression() {
     return ExprError();
   }
 
-  ExprResult Expr = Actions.ActOnSafeExpr(SafeLoc, SafeZoneSpec, SubExpr.get());
+  ExprResult Expr = Actions.ActOnSafeExpr(SafeZoneSpec, LParenLoc, RParenLoc,
+                                          SubExpr.get());
   setCurScopeSafeZoneInfo(oldInfo);
   return Expr;
 }

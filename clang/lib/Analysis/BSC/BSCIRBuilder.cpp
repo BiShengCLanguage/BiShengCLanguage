@@ -16,11 +16,12 @@
 #include "clang/Analysis/Analyses/BSC/BSCIRBuilder.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/IgnoreExpr.h"
 #include "clang/AST/Stmt.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/TargetInfo.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -34,17 +35,15 @@ BSCIRBuilder::BSCIRBuilder(ASTContext &Ctx, const FunctionDecl &FD)
     : Ctx(Ctx), FD(FD) {
   TheBody = std::make_unique<Body>();
   TheBody->SourceFD = &FD;
-  TheBody->FuncSafeZone = FD.getSafeZoneSpecifier();
+  TheBody->IsSafe = FD.isSafe();
 }
 
 //===----------------------------------------------------------------------===//
 // Safe Zone Computation
 //===----------------------------------------------------------------------===//
 
-SafeZoneSpecifier BSCIRBuilder::currentSafeZone() const {
-  if (!SafeZoneStack.empty())
-    return SafeZoneStack.back();
-  return TheBody->FuncSafeZone;
+bool BSCIRBuilder::inSafeZone() const {
+  return SafeZoneStack.empty() ? TheBody->IsSafe : SafeZoneStack.back();
 }
 
 //===----------------------------------------------------------------------===//
@@ -55,7 +54,7 @@ BasicBlockId BSCIRBuilder::createBlock() { return TheBody->addBlock(); }
 
 void BSCIRBuilder::emitFallthrough(BasicBlockId Target) {
   if (TheBody->getBlock(CurrentBlock).Term.K == Terminator::Unreachable)
-    setTerminator(Terminator::createGoto(Target, currentSafeZone()));
+    setTerminator(Terminator::createGoto(Target, inSafeZone()));
 }
 
 BasicBlockId BSCIRBuilder::switchToBlock(BasicBlockId NewBlock) {
@@ -99,16 +98,18 @@ bool BSCIRBuilder::shouldMove(const Expr *E) const {
          Ty.isOrContainsOwned(BSCLookThrough::NoPointer);
 }
 
+// `_Unsafe(lvalue)` still denotes the place, only in another zone.
 Place BSCIRBuilder::lowerToPlace(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
-
-  // '_Unsafe(lvalue)' still denotes the place, only in another zone.
-  if (auto *SE = dyn_cast<SafeExpr>(E)) {
-    SafeZoneStack.push_back(SE->getSafeZoneSpecifier());
-    Place P = lowerToPlace(SE->getSubExpr());
-    SafeZoneStack.pop_back();
-    return P;
-  }
+  auto LeaveZones = llvm::make_scope_exit(
+      [this, Depth = SafeZoneStack.size()] { SafeZoneStack.truncate(Depth); });
+  auto EnterZoneAndIgnoreParens = [&](Expr *Cur) {
+    if (const auto *PE = dyn_cast<ParenExpr>(Cur))
+      if (PE->getSafeZoneSpec() != SZ_None)
+        SafeZoneStack.push_back(PE->getSafeZoneSpec() == SZ_Safe);
+    return IgnoreParensSingleStep(Cur);
+  };
+  E = IgnoreExprNodes(E, EnterZoneAndIgnoreParens,
+                      IgnoreImplicitCastsExtraSingleStep);
 
   if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
@@ -158,7 +159,7 @@ Place BSCIRBuilder::lowerToPlace(const Expr *E) {
     Place IdxPlace(IdxLocal, ASE->getIdx()->getType(),
                    ASE->getIdx()->getExprLoc());
     emit(Statement::createAssign(IdxPlace, Rvalue::createUse(Idx),
-                                 currentSafeZone()));
+                                 inSafeZone()));
     return Base.project(
         ProjectionElem::createIndex(IdxLocal, ASE->getType()),
         TheBody->getAllocator(), ASE->getExprLoc());
@@ -169,7 +170,7 @@ Place BSCIRBuilder::lowerToPlace(const Expr *E) {
   LocalId Tmp = TheBody->addTemp(E->getType(), E->getExprLoc());
   Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
   emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Op),
-                               currentSafeZone()));
+                               inSafeZone()));
   return TmpPlace;
 }
 
@@ -206,7 +207,7 @@ void BSCIRBuilder::lowerDiscardedExpr(const Expr *E) {
     LocalId Tmp = TheBody->addTemp(E->getType(), E->getExprLoc());
     Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
     emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Op),
-                                 currentSafeZone(), E, E->getExprLoc()));
+                                 inSafeZone(), E, E->getExprLoc()));
   }
 }
 
@@ -265,12 +266,12 @@ void BSCIRBuilder::emitLocalsCleanup(ArrayRef<LocalId> Locals,
       SourceLocation DropLoc = Loc.isValid() ? Loc : LD.DeclLoc;
       Place P(L, LD.Ty, DropLoc);
       BasicBlockId SuccBB = createBlock();
-      setTerminator(Terminator::createDrop(P, SuccBB, currentSafeZone()));
+      setTerminator(Terminator::createDrop(P, SuccBB, inSafeZone()));
       TheBody->getBlock(CurrentBlock).Term.Loc = DropLoc;
       switchToBlock(SuccBB);
     }
     if (CK == CleanupKind::DropAndStorageDead)
-      emit(Statement::createStorageDead(L, currentSafeZone()));
+      emit(Statement::createStorageDead(L, inSafeZone()));
   }
 }
 
@@ -298,14 +299,6 @@ void BSCIRBuilder::emitScopeExit(SourceLocation ScopeEndLoc) {
 void BSCIRBuilder::lowerStmt(const Stmt *S) {
   if (!S)
     return;
-
-  // SafeStmt: push safe zone, lower body, pop
-  if (auto *SS = dyn_cast<SafeStmt>(S)) {
-    SafeZoneStack.push_back(SS->getSafeZoneSpecifier());
-    lowerStmt(SS->getSubStmt());
-    SafeZoneStack.pop_back();
-    return;
-  }
 
   if (auto *CS = dyn_cast<CompoundStmt>(S)) {
     lowerCompoundStmt(CS);
@@ -377,7 +370,12 @@ void BSCIRBuilder::lowerStmt(const Stmt *S) {
     return;
 
   if (auto *AS = dyn_cast<AttributedStmt>(S)) {
+    SafeZoneSpecifier Zone = SafeZoneAttr::getSafeZoneSpec(AS);
+    if (Zone != SZ_None)
+      SafeZoneStack.push_back(Zone == SZ_Safe);
     lowerStmt(AS->getSubStmt());
+    if (Zone != SZ_None)
+      SafeZoneStack.pop_back();
     return;
   }
 
@@ -388,18 +386,10 @@ void BSCIRBuilder::lowerStmt(const Stmt *S) {
   }
 
   // Fallback: emit nop
-  emit(Statement::createNop(currentSafeZone(), S->getBeginLoc()));
+  emit(Statement::createNop(inSafeZone(), S->getBeginLoc()));
 }
 
 void BSCIRBuilder::lowerCompoundStmt(const CompoundStmt *CS) {
-  // Push safe zone if this compound has one
-  bool PushedSafeZone = false;
-  SafeZoneSpecifier CompSZ = CS->getCompSafeZoneSpecifier();
-  if (CompSZ != SZ_None) {
-    SafeZoneStack.push_back(CompSZ);
-    PushedSafeZone = true;
-  }
-
   // Push scope for StorageDead tracking
   ScopeStack.push_back({});
 
@@ -407,9 +397,6 @@ void BSCIRBuilder::lowerCompoundStmt(const CompoundStmt *CS) {
     lowerStmt(S);
 
   emitScopeExit(CS->getRBracLoc());
-
-  if (PushedSafeZone)
-    SafeZoneStack.pop_back();
 }
 
 void BSCIRBuilder::lowerIfStmt(const IfStmt *IS) {
@@ -441,7 +428,7 @@ void BSCIRBuilder::emitBoolSwitch(Operand Cond, BasicBlockId TrueBB,
   Targets.push_back({llvm::APInt(1, 0), FalseBB});
   setTerminator(Terminator::createSwitchInt(std::move(Cond),
                                             std::move(Targets), TrueBB,
-                                            currentSafeZone()));
+                                            inSafeZone()));
 }
 
 void BSCIRBuilder::emitCondBranch(const Expr *Cond, BasicBlockId TrueBB,
@@ -450,7 +437,7 @@ void BSCIRBuilder::emitCondBranch(const Expr *Cond, BasicBlockId TrueBB,
   if (CondOp.K == Operand::Constant && CondOp.getConstVal().isInt()) {
     bool IsTrue = CondOp.getConstVal().getInt() != 0;
     setTerminator(Terminator::createGoto(IsTrue ? TrueBB : FalseBB,
-                                         currentSafeZone()));
+                                         inSafeZone()));
     return;
   }
   emitBoolSwitch(std::move(CondOp), TrueBB, FalseBB);
@@ -462,7 +449,7 @@ void BSCIRBuilder::lowerWhileStmt(const WhileStmt *WS) {
   BasicBlockId ExitBB = createBlock();
 
   // Goto cond
-  setTerminator(Terminator::createGoto(CondBB, currentSafeZone()));
+  setTerminator(Terminator::createGoto(CondBB, inSafeZone()));
 
   // Condition block
   switchToBlock(CondBB);
@@ -498,13 +485,13 @@ void BSCIRBuilder::lowerForStmt(const ForStmt *FS) {
   BasicBlockId ExitBB = createBlock();
 
   // Goto cond
-  setTerminator(Terminator::createGoto(CondBB, currentSafeZone()));
+  setTerminator(Terminator::createGoto(CondBB, inSafeZone()));
 
   // Condition block
   switchToBlock(CondBB);
   if (!FS->getCond()) {
     // No condition = always true (for(;;))
-    setTerminator(Terminator::createGoto(BodyBB, currentSafeZone()));
+    setTerminator(Terminator::createGoto(BodyBB, inSafeZone()));
   } else {
     emitCondBranch(FS->getCond(), BodyBB, ExitBB);
   }
@@ -522,7 +509,7 @@ void BSCIRBuilder::lowerForStmt(const ForStmt *FS) {
   switchToBlock(IncrBB);
   if (FS->getInc())
     lowerDiscardedExpr(FS->getInc());
-  setTerminator(Terminator::createGoto(CondBB, currentSafeZone()));
+  setTerminator(Terminator::createGoto(CondBB, inSafeZone()));
 
   // Exit
   switchToBlock(ExitBB);
@@ -538,7 +525,7 @@ void BSCIRBuilder::lowerDoWhileStmt(const DoStmt *DS) {
   BasicBlockId ExitBB = createBlock();
 
   // Goto body
-  setTerminator(Terminator::createGoto(BodyBB, currentSafeZone()));
+  setTerminator(Terminator::createGoto(BodyBB, inSafeZone()));
 
   // Body block
   switchToBlock(BodyBB);
@@ -557,6 +544,19 @@ void BSCIRBuilder::lowerDoWhileStmt(const DoStmt *DS) {
   switchToBlock(ExitBB);
 }
 
+// A switch body compound shares the switch scope, so its zones open here.
+static const Stmt *peelSafeZones(const Stmt *S,
+                                 SmallVectorImpl<bool> &Zones) {
+  while (const auto *AS = dyn_cast_or_null<AttributedStmt>(S)) {
+    SafeZoneSpecifier Zone = SafeZoneAttr::getSafeZoneSpec(AS);
+    if (Zone == SZ_None)
+      break;
+    Zones.push_back(Zone == SZ_Safe);
+    S = AS->getSubStmt();
+  }
+  return S;
+}
+
 void BSCIRBuilder::lowerSwitchStmt(const SwitchStmt *SS) {
   Operand Discr = lowerToOperand(SS->getCond());
   BasicBlockId DiscrBB = CurrentBlock;
@@ -571,18 +571,17 @@ void BSCIRBuilder::lowerSwitchStmt(const SwitchStmt *SS) {
 
   // Statements before the first case label are reachable only by goto.
   switchToBlock(createBlock());
-  if (const auto *CS = dyn_cast_or_null<CompoundStmt>(SS->getBody())) {
+  SmallVector<bool, 2> Zones;
+  const Stmt *Body = peelSafeZones(SS->getBody(), Zones);
+  SafeZoneStack.append(Zones.begin(), Zones.end());
+  if (const auto *CS = dyn_cast_or_null<CompoundStmt>(Body)) {
     // The body compound shares the switch scope pushed above.
-    SafeZoneSpecifier CompSZ = CS->getCompSafeZoneSpecifier();
-    if (CompSZ != SZ_None)
-      SafeZoneStack.push_back(CompSZ);
     for (const Stmt *S : CS->body())
       lowerStmt(S);
-    if (CompSZ != SZ_None)
-      SafeZoneStack.pop_back();
   } else {
-    lowerStmt(SS->getBody());
+    lowerStmt(Body);
   }
+  SafeZoneStack.truncate(SafeZoneStack.size() - Zones.size());
   emitFallthrough(ExitBB);
 
   BreakableScopes.pop_back();
@@ -598,11 +597,11 @@ void BSCIRBuilder::lowerSwitchStmt(const SwitchStmt *SS) {
         break;
       }
     }
-    setTerminator(Terminator::createGoto(Target, currentSafeZone()));
+    setTerminator(Terminator::createGoto(Target, inSafeZone()));
   } else {
     setTerminator(Terminator::createSwitchInt(std::move(Discr),
                                               std::move(Sw.Targets), DefaultBB,
-                                              currentSafeZone()));
+                                              inSafeZone()));
   }
 
   switchToBlock(ExitBB);
@@ -631,7 +630,7 @@ void BSCIRBuilder::lowerBreakStmt(const BreakStmt *BS) {
     return;
   emitScopeCleanup(BreakableScopes.back().ScopeDepth, BS->getBreakLoc());
   setTerminator(Terminator::createGoto(BreakableScopes.back().BreakTarget,
-                                       currentSafeZone()));
+                                       inSafeZone()));
   // Create fresh unreachable block for dead code after break
   BasicBlockId DeadBB = createBlock();
   switchToBlock(DeadBB);
@@ -645,7 +644,7 @@ void BSCIRBuilder::lowerContinueStmt(const ContinueStmt *CS) {
     if (Scope.HasContinue) {
       emitScopeCleanup(Scope.ScopeDepth, CS->getContinueLoc());
       setTerminator(Terminator::createGoto(Scope.ContinueTarget,
-                                           currentSafeZone()));
+                                           inSafeZone()));
       break;
     }
   }
@@ -664,7 +663,7 @@ void BSCIRBuilder::lowerGotoStmt(const GotoStmt *GS) {
                              ? It->second
                              : ScopeStack.size(); // no cleanup if unknown
   emitScopeCleanup(TargetDepth, GS->getGotoLoc());
-  setTerminator(Terminator::createGoto(TargetBB, currentSafeZone()));
+  setTerminator(Terminator::createGoto(TargetBB, inSafeZone()));
   // Create fresh block for dead code after goto
   BasicBlockId DeadBB = createBlock();
   switchToBlock(DeadBB);
@@ -699,7 +698,7 @@ void BSCIRBuilder::lowerReturnStmt(const ReturnStmt *RS) {
     ParamLocals.push_back(LocalId{I});
   emitLocalsCleanup(ParamLocals, RS->getReturnLoc(), CleanupKind::DropOnly);
   // Goto return block
-  setTerminator(Terminator::createGoto(ReturnBlock, currentSafeZone()));
+  setTerminator(Terminator::createGoto(ReturnBlock, inSafeZone()));
   // Create fresh block for dead code after return
   BasicBlockId DeadBB = createBlock();
   switchToBlock(DeadBB);
@@ -756,15 +755,15 @@ Operand BSCIRBuilder::VisitBinaryOperator(BinaryOperator *BO) {
       Place TmpPlace(Tmp, BO->getType(), BO->getExprLoc());
       emit(Statement::createAssign(
           TmpPlace, Rvalue::createBinaryOp(CompOp, DestOp, Src),
-          currentSafeZone(), BO, BO->getExprLoc()));
+          inSafeZone(), BO, BO->getExprLoc()));
       emit(Statement::createAssign(Dest, Rvalue::createUse(
                                               Operand::createCopy(TmpPlace)),
-                                   currentSafeZone(), BO, BO->getExprLoc()));
+                                   inSafeZone(), BO, BO->getExprLoc()));
       return Operand::createCopy(Dest);
     }
 
     emit(Statement::createAssign(Dest, Rvalue::createUse(Src),
-                                 currentSafeZone(), BO, BO->getExprLoc()));
+                                 inSafeZone(), BO, BO->getExprLoc()));
     return Operand::createCopy(Dest);
   }
 
@@ -791,15 +790,15 @@ Operand BSCIRBuilder::VisitBinaryOperator(BinaryOperator *BO) {
     Operand ShortOp = Operand::createConstant(
         APValue(llvm::APSInt(llvm::APInt(32, ShortVal), false)), BO->getType());
     emit(Statement::createAssign(ResultPlace, Rvalue::createUse(ShortOp),
-                                 currentSafeZone(), BO, BO->getExprLoc()));
-    setTerminator(Terminator::createGoto(JoinBB, currentSafeZone()));
+                                 inSafeZone(), BO, BO->getExprLoc()));
+    setTerminator(Terminator::createGoto(JoinBB, inSafeZone()));
 
     // RHS block: eval RHS, assign to result
     switchToBlock(RhsBB);
     Operand RHS = lowerToOperand(BO->getRHS());
     emit(Statement::createAssign(ResultPlace, Rvalue::createUse(RHS),
-                                 currentSafeZone(), BO, BO->getExprLoc()));
-    setTerminator(Terminator::createGoto(JoinBB, currentSafeZone()));
+                                 inSafeZone(), BO, BO->getExprLoc()));
+    setTerminator(Terminator::createGoto(JoinBB, inSafeZone()));
 
     // Continue in join block
     switchToBlock(JoinBB);
@@ -828,7 +827,7 @@ Operand BSCIRBuilder::VisitBinaryOperator(BinaryOperator *BO) {
   Place TmpPlace(Tmp, BO->getType(), BO->getExprLoc());
   emit(Statement::createAssign(
       TmpPlace, Rvalue::createBinaryOp(BO->getOpcode(), LHS, RHS),
-      currentSafeZone(), BO, BO->getExprLoc()));
+      inSafeZone(), BO, BO->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
@@ -850,7 +849,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
       emit(Statement::createAssign(
           TmpPlace,
           Rvalue::createRef(BorrowKind::Mut, P, /*IsReborrow=*/true, RId),
-          currentSafeZone(), UO, UO->getExprLoc()));
+          inSafeZone(), UO, UO->getExprLoc()));
       return Operand::createCopy(TmpPlace);
     }
     LocalId Tmp = TheBody->addTemp(UO->getType(), UO->getExprLoc());
@@ -858,7 +857,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
     AddrOfOrigins[Tmp] = P;
     emit(Statement::createAssign(
         TmpPlace, Rvalue::createRef(BorrowKind::Mut, P, /*IsReborrow=*/false, RId),
-        currentSafeZone(), UO, UO->getExprLoc()));
+        inSafeZone(), UO, UO->getExprLoc()));
     return Operand::createCopy(TmpPlace);
   }
 
@@ -875,7 +874,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
                    : P;
     emit(Statement::createAssign(
         TmpPlace, Rvalue::createRef(BorrowKind::Shared, P, IsReborrow, RId),
-        currentSafeZone(), UO, UO->getExprLoc()));
+        inSafeZone(), UO, UO->getExprLoc()));
     return Operand::createCopy(TmpPlace);
   }
 
@@ -888,7 +887,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
     AddrOfOrigins[Tmp] = P;
     emit(Statement::createAssign(
         TmpPlace, Rvalue::createAddressOf(P),
-        currentSafeZone(), UO, UO->getExprLoc()));
+        inSafeZone(), UO, UO->getExprLoc()));
     return Operand::createCopy(TmpPlace);
   }
 
@@ -901,7 +900,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
                                    UO->getExprLoc());
     Place TmpPlace(Tmp, UO->getSubExpr()->getType(), UO->getExprLoc());
     emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Sub),
-                                 currentSafeZone(), UO, UO->getExprLoc()));
+                                 inSafeZone(), UO, UO->getExprLoc()));
     Place Derefed = TmpPlace.project(
         ProjectionElem::createDeref(UO->getType()),
         TheBody->getAllocator());
@@ -934,7 +933,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
       Place OldPlace(Old, UO->getType(), UO->getExprLoc());
       emit(Statement::createAssign(OldPlace,
                                    Rvalue::createUse(Operand::createCopy(Dest)),
-                                   currentSafeZone(), UO, UO->getExprLoc()));
+                                   inSafeZone(), UO, UO->getExprLoc()));
 
       // new = old +/- 1
       LocalId New = TheBody->addTemp(UO->getType(), UO->getExprLoc());
@@ -943,12 +942,12 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
           NewPlace,
           Rvalue::createBinaryOp(IsInc ? BO_Add : BO_Sub,
                                  Operand::createCopy(Dest), One),
-          currentSafeZone(), UO, UO->getExprLoc()));
+          inSafeZone(), UO, UO->getExprLoc()));
 
       // write back: dest = new
       emit(Statement::createAssign(Dest,
                                    Rvalue::createUse(Operand::createCopy(NewPlace)),
-                                   currentSafeZone(), UO, UO->getExprLoc()));
+                                   inSafeZone(), UO, UO->getExprLoc()));
 
       // Post returns the old value
       return Operand::createCopy(OldPlace);
@@ -961,12 +960,12 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
         NewPlace,
         Rvalue::createBinaryOp(IsInc ? BO_Add : BO_Sub,
                                Operand::createCopy(Dest), One),
-        currentSafeZone(), UO, UO->getExprLoc()));
+        inSafeZone(), UO, UO->getExprLoc()));
 
     // write back: dest = new
     emit(Statement::createAssign(Dest,
                                  Rvalue::createUse(Operand::createCopy(NewPlace)),
-                                 currentSafeZone(), UO, UO->getExprLoc()));
+                                 inSafeZone(), UO, UO->getExprLoc()));
 
     return Operand::createCopy(NewPlace);
   }
@@ -977,7 +976,7 @@ Operand BSCIRBuilder::VisitUnaryOperator(UnaryOperator *UO) {
   Place TmpPlace(Tmp, UO->getType(), UO->getExprLoc());
   emit(Statement::createAssign(
       TmpPlace, Rvalue::createUnaryOp(Op, Sub),
-      currentSafeZone(), UO, UO->getExprLoc()));
+      inSafeZone(), UO, UO->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
@@ -1036,7 +1035,7 @@ Operand BSCIRBuilder::VisitCallExpr(CallExpr *CE) {
 
   setTerminator(Terminator::createCall(
       std::move(Callee), std::move(Args), DestPlace, Successor,
-      CalleeDecl, currentSafeZone(), CE, CE->getExprLoc(), Diverges,
+      CalleeDecl, inSafeZone(), CE, CE->getExprLoc(), Diverges,
       std::move(ArgPlaces), CalleeProtoType));
 
   switchToBlock(Successor);
@@ -1073,7 +1072,7 @@ Operand BSCIRBuilder::VisitCastExpr(CastExpr *CE) {
   }
   emit(Statement::createAssign(
       TmpPlace, Rvalue::createCast(CE->getCastKind(), Sub, CE->getType()),
-      currentSafeZone(), CE, CE->getExprLoc()));
+      inSafeZone(), CE, CE->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
@@ -1108,7 +1107,7 @@ void BSCIRBuilder::lowerVLASizeExprs(QualType T, const Stmt *S) {
     LocalId Tmp = TheBody->addTemp(Size->getType(), Size->getExprLoc());
     Place TmpPlace(Tmp, Size->getType(), Size->getExprLoc());
     emit(Statement::createAssign(TmpPlace, Rvalue::createUse(SizeOp),
-                                 currentSafeZone(), S, Size->getExprLoc()));
+                                 inSafeZone(), S, Size->getExprLoc()));
   }
 }
 
@@ -1118,7 +1117,7 @@ Operand BSCIRBuilder::VisitDeclStmt(DeclStmt *DS) {
       // VLA size expressions are evaluated when the declaration is reached
       lowerVLASizeExprs(VD->getType(), DS);
       LocalId Id = getOrCreateLocal(VD);
-      emit(Statement::createStorageLive(Id, currentSafeZone(),
+      emit(Statement::createStorageLive(Id, inSafeZone(),
                                         VD->getLocation()));
 
       // Track this local in the current scope for StorageDead
@@ -1130,7 +1129,7 @@ Operand BSCIRBuilder::VisitDeclStmt(DeclStmt *DS) {
         Operand InitOp = lowerToOperand(Init);
         Place Dest(Id, VD->getType(), VD->getLocation());
         emit(Statement::createAssign(Dest, Rvalue::createUse(InitOp),
-                                     currentSafeZone(), DS,
+                                     inSafeZone(), DS,
                                      VD->getLocation()));
       }
     } else if (auto *TND = dyn_cast<TypedefNameDecl>(D)) {
@@ -1146,7 +1145,7 @@ Operand BSCIRBuilder::VisitReturnStmt(ReturnStmt *RS) {
     Operand RetVal = lowerToOperand(RS->getRetValue());
     Place RetPlace(LocalId{0}, FD.getReturnType(), RS->getReturnLoc());
     emit(Statement::createAssign(RetPlace, Rvalue::createUse(RetVal),
-                                 currentSafeZone(), RS,
+                                 inSafeZone(), RS,
                                  RS->getReturnLoc()));
   }
   return Operand::createConstant(APValue(), Ctx.VoidTy);
@@ -1174,7 +1173,7 @@ Operand BSCIRBuilder::VisitVAArgExpr(VAArgExpr *E) {
   Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
   emit(Statement::createAssign(
       TmpPlace, Rvalue::createUse(Operand::createConstant(APValue(), E->getType())),
-      currentSafeZone(), E, E->getExprLoc()));
+      inSafeZone(), E, E->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
@@ -1188,7 +1187,7 @@ Operand BSCIRBuilder::VisitOffsetOfExpr(OffsetOfExpr *E) {
   emit(Statement::createAssign(
       TmpPlace,
       Rvalue::createUse(Operand::createConstant(APValue(), E->getType())),
-      currentSafeZone(), E, E->getExprLoc()));
+      inSafeZone(), E, E->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
@@ -1227,7 +1226,7 @@ Operand BSCIRBuilder::VisitAtomicExpr(AtomicExpr *E) {
   Operand Callee = Operand::createConstant(APValue(), E->getType());
   auto T = Terminator::createCall(
       std::move(Callee), std::move(Args), DestPlace, Successor,
-      /*FD=*/nullptr, currentSafeZone(), E, E->getExprLoc());
+      /*FD=*/nullptr, inSafeZone(), E, E->getExprLoc());
   T.getCall().CalleeName = std::move(CalleeName);
   setTerminator(std::move(T));
 
@@ -1261,7 +1260,7 @@ Operand BSCIRBuilder::VisitInitListExpr(InitListExpr *ILE) {
       ElemTy = ILE->getType();
     RV = Rvalue::createArray(ElemTy, std::move(Fields));
   }
-  emit(Statement::createAssign(TmpPlace, std::move(RV), currentSafeZone(), ILE,
+  emit(Statement::createAssign(TmpPlace, std::move(RV), inSafeZone(), ILE,
                                ILE->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
@@ -1281,14 +1280,20 @@ Operand BSCIRBuilder::VisitUnaryExprOrTypeTraitExpr(
     Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
     emit(Statement::createAssign(
         TmpPlace, Rvalue::createSizeOf(ArgTy),
-        currentSafeZone(), E, E->getExprLoc()));
+        inSafeZone(), E, E->getExprLoc()));
     return Operand::createCopy(TmpPlace);
   }
   return Operand::createConstant(APValue(), E->getType());
 }
 
 Operand BSCIRBuilder::VisitParenExpr(ParenExpr *PE) {
-  return lowerToOperand(PE->getSubExpr());
+  SafeZoneSpecifier Zone = PE->getSafeZoneSpec();
+  if (Zone != SZ_None)
+    SafeZoneStack.push_back(Zone == SZ_Safe);
+  Operand Result = lowerToOperand(PE->getSubExpr());
+  if (Zone != SZ_None)
+    SafeZoneStack.pop_back();
+  return Result;
 }
 
 Operand BSCIRBuilder::VisitCompoundAssignOperator(CompoundAssignOperator *CAO) {
@@ -1313,7 +1318,7 @@ Operand BSCIRBuilder::VisitAbstractConditionalOperator(
         TheBody->addTemp(Common->getType(), Common->getExprLoc());
     Place CommonPlace(CommonTmp, Common->getType(), Common->getExprLoc());
     emit(Statement::createAssign(CommonPlace, Rvalue::createUse(CommonVal),
-                                 currentSafeZone(), Common,
+                                 inSafeZone(), Common,
                                  Common->getExprLoc()));
     OpaqueValueMap[BCO->getOpaqueValue()] = CommonTmp;
   }
@@ -1332,33 +1337,26 @@ Operand BSCIRBuilder::VisitAbstractConditionalOperator(
   switchToBlock(ThenBB);
   Operand TrueOp = lowerToOperand(CO->getTrueExpr());
   emit(Statement::createAssign(ResultPlace, Rvalue::createUse(TrueOp),
-                               currentSafeZone(), CO, CO->getExprLoc()));
-  setTerminator(Terminator::createGoto(JoinBB, currentSafeZone()));
+                               inSafeZone(), CO, CO->getExprLoc()));
+  setTerminator(Terminator::createGoto(JoinBB, inSafeZone()));
 
   // Else branch: eval false expr, assign to result
   switchToBlock(ElseBB);
   Operand FalseOp = lowerToOperand(CO->getFalseExpr());
   emit(Statement::createAssign(ResultPlace, Rvalue::createUse(FalseOp),
-                               currentSafeZone(), CO, CO->getExprLoc()));
-  setTerminator(Terminator::createGoto(JoinBB, currentSafeZone()));
+                               inSafeZone(), CO, CO->getExprLoc()));
+  setTerminator(Terminator::createGoto(JoinBB, inSafeZone()));
 
   // Continue in join block
   switchToBlock(JoinBB);
   return Operand::createCopy(ResultPlace);
 }
 
-Operand BSCIRBuilder::VisitSafeExpr(SafeExpr *SE) {
-  SafeZoneStack.push_back(SE->getSafeZoneSpecifier());
-  Operand Result = lowerToOperand(SE->getSubExpr());
-  SafeZoneStack.pop_back();
-  return Result;
-}
-
 Operand BSCIRBuilder::VisitGNUNullExpr(GNUNullExpr *E) {
   LocalId Tmp = TheBody->addTemp(E->getType(), E->getExprLoc());
   Place TmpPlace(Tmp, E->getType(), E->getExprLoc());
   emit(Statement::createAssign(TmpPlace, Rvalue::createNullPtr(E->getType()),
-                               currentSafeZone(), E, E->getExprLoc()));
+                               inSafeZone(), E, E->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
@@ -1406,7 +1404,7 @@ Operand BSCIRBuilder::VisitStmtExpr(StmtExpr *SE) {
     Operand Op = lowerToOperand(ValueExpr);
     if (!SE->getType()->isVoidType())
       emit(Statement::createAssign(ResultPlace, Rvalue::createUse(Op),
-                                   currentSafeZone(), SE, SE->getExprLoc()));
+                                   inSafeZone(), SE, SE->getExprLoc()));
   }
 
   emitScopeExit(CS->getRBracLoc());
@@ -1419,13 +1417,13 @@ Operand BSCIRBuilder::VisitAwaitExpr(AwaitExpr *AE) {
   LocalId Tmp = TheBody->addTemp(AE->getType(), AE->getExprLoc());
   Place TmpPlace(Tmp, AE->getType(), AE->getExprLoc());
   emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Sub),
-                               currentSafeZone(), AE, AE->getExprLoc()));
+                               inSafeZone(), AE, AE->getExprLoc()));
   return Operand::createCopy(TmpPlace);
 }
 
 Operand BSCIRBuilder::VisitStmt(Stmt *S) {
   if (S)
-    emit(Statement::createNop(currentSafeZone(), S->getBeginLoc()));
+    emit(Statement::createNop(inSafeZone(), S->getBeginLoc()));
   return Operand::createConstant(APValue(), Ctx.VoidTy);
 }
 
@@ -1469,11 +1467,13 @@ void BSCIRBuilder::prescanLabels(const Stmt *S, unsigned Depth) {
   if (const auto *SS = dyn_cast<SwitchStmt>(S)) {
     // SwitchStmt pushes one scope for the body; a compound body shares it.
     prescanLabels(SS->getCond(), Depth);
-    if (const auto *CS = dyn_cast_or_null<CompoundStmt>(SS->getBody())) {
+    SmallVector<bool, 2> Zones;
+    const Stmt *Body = peelSafeZones(SS->getBody(), Zones);
+    if (const auto *CS = dyn_cast_or_null<CompoundStmt>(Body)) {
       for (const Stmt *Child : CS->body())
         prescanLabels(Child, Depth + 1);
     } else {
-      prescanLabels(SS->getBody(), Depth + 1);
+      prescanLabels(Body, Depth + 1);
     }
     return;
   }
@@ -1516,12 +1516,12 @@ std::unique_ptr<Body> BSCIRBuilder::build() {
     for (unsigned I = TheBody->NumParams; I >= 1; --I)
       ParamLocals.push_back(LocalId{I});
     emitLocalsCleanup(ParamLocals, EndLoc, CleanupKind::DropOnly);
-    setTerminator(Terminator::createGoto(ReturnBlock, currentSafeZone()));
+    setTerminator(Terminator::createGoto(ReturnBlock, inSafeZone()));
   }
 
   // Set return block terminator
   switchToBlock(ReturnBlock);
-  setTerminator(Terminator::createReturn(TheBody->FuncSafeZone));
+  setTerminator(Terminator::createReturn(inSafeZone()));
 
   // Simplify: collapse goto chains, merge blocks, remove dead blocks
   TheBody->simplify();

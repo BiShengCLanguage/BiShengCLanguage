@@ -1347,6 +1347,9 @@ ASTNodeImporter::VisitFunctionProtoType(const FunctionProtoType *T) {
   ToEPI.ExceptionSpec.SourceTemplate =
       importChecked(Err, FromEPI.ExceptionSpec.SourceTemplate);
   ToEPI.ExceptionSpec.Exceptions = ExceptionTypes;
+#if ENABLE_BSC
+  ToEPI.IsSafe = FromEPI.IsSafe;
+#endif
 
   if (Err)
     return std::move(Err);
@@ -7222,8 +7225,15 @@ ExpectedStmt ASTNodeImporter::VisitParenExpr(ParenExpr *E) {
   if (Err)
     return std::move(Err);
 
+#if ENABLE_BSC
+  auto *ToE = new (Importer.getToContext())
+      ParenExpr(ToLParen, ToRParen, ToSubExpr);
+  ToE->setSafeZoneSpec(E->getSafeZoneSpec());
+  return ToE;
+#else
   return new (Importer.getToContext())
       ParenExpr(ToLParen, ToRParen, ToSubExpr);
+#endif
 }
 
 ExpectedStmt ASTNodeImporter::VisitParenListExpr(ParenListExpr *E) {

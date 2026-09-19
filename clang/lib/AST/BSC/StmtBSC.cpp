@@ -12,10 +12,20 @@
 
 #if ENABLE_BSC
 
-#include "clang/AST/BSC/StmtBSC.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/Basic/Linkage.h"
+#include "clang/AST/Attr.h"
+#include "clang/AST/Expr.h"
 
 using namespace clang;
+
+SafeZoneSpecifier SafeZoneAttr::getSafeZoneSpec(const Stmt *S) {
+  if (const auto *AS = dyn_cast<AttributedStmt>(S))
+    for (const Attr *A : AS->getAttrs())
+      if (const auto *Zone = dyn_cast<SafeZoneAttr>(A))
+        return Zone->isSafe() ? SZ_Safe : SZ_Unsafe;
+  if (const auto *PE = dyn_cast<ParenExpr>(S))
+    return PE->getSafeZoneSpec();
+  return SZ_None;
+}
 
 #endif // ENABLE_BSC

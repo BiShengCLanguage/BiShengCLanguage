@@ -3311,9 +3311,7 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
   FunctionTypeBits.Variadic = epi.Variadic;
   FunctionTypeBits.HasTrailingReturn = epi.HasTrailingReturn;
 #if ENABLE_BSC
-  // transform enum 'SafeZoneSpecifier' type to bit value 0 or 1.
-  // unsafe function value is bit 0, safe function value is bit 1.
-  FunctionTypeBits.SafeZoneSpec = epi.SafeZoneSpec & 1;
+  FunctionTypeBits.IsSafe = epi.IsSafe;
 #endif
 
   if (epi.requiresFunctionProtoTypeExtraBitfields()) {
@@ -3527,7 +3525,7 @@ void FunctionProtoType::Profile(llvm::FoldingSetNodeID &ID, QualType Result,
       ID.AddInteger(epi.ExtParameterInfos[i].getOpaqueValue());
   }
 #if ENABLE_BSC
-  ID.AddInteger(epi.SafeZoneSpec & 1);
+  ID.AddBoolean(epi.IsSafe);
 #endif
   epi.ExtInfo.Profile(ID);
   ID.AddBoolean(epi.HasTrailingReturn);

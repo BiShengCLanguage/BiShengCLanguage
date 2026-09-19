@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -fprotect-parens -mreassociate -fsyntax-only -verify %s
+
+// Under these flags the parentheses become __arithmetic_fence, not a ParenExpr.
+void plain(void) {
+  float u;
+  float x = _Safe(u + 1.0f); // expected-error {{use of uninitialized value: 'u'}}
+  (void)x;
+}
+
+T twice<T>(T v) {
+  T u;
+  T r = _Safe(u + v); // expected-error {{use of uninitialized value: 'u'}}
+  return r;
+}
+
+void call(void) {
+  (void)twice<float>(1.0f); // expected-note {{in instantiation of function template specialization 'twice<float>' requested here}}
+}

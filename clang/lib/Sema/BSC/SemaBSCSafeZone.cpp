@@ -34,11 +34,8 @@ bool Sema::IsInSafeZone() const {
     return false;
   }
 
-  if (CurrentInstantiationScope) {
-    return getInstantiationSafeZoneSpecifier() == SZ_Safe;
-  } else {
-    return getCurScope()->getScopeSafeZoneSpecifier() == SZ_Safe;
-  }
+  return CurrentInstantiationScope ? CurrentInstantiationScope->isSafe()
+                                   : getCurScope()->isScopeSafe();
 }
 
 bool Sema::IsInEvaluatedSafeZone() const {
@@ -55,24 +52,10 @@ bool Sema::IsSafeZoneIncDecVoidExpr(Expr *E) {
   if (!E || !E->getType()->isVoidType())
     return false;
   const Expr *Stripped = E->IgnoreParenImpCasts();
-  // Look through safe(expr) so that safe(a++) is recognized.
-  if (const SafeExpr *SE = dyn_cast<SafeExpr>(Stripped))
-    Stripped = SE->getSubExpr()->IgnoreParenImpCasts();
   const UnaryOperator *UO = dyn_cast<UnaryOperator>(Stripped);
   if (!UO)
     return false;
   return UnaryOperator::isIncrementDecrementOp(UO->getOpcode());
-}
-
-bool Sema::IsSafeFunctionPointerType(QualType Type) {
-  if (Type->isFunctionPointerType()) {
-    const FunctionProtoType *LSHFuncType =
-        Type->getPointeeType()->getAs<FunctionProtoType>();
-    if (LSHFuncType && LSHFuncType->getFunSafeZoneSpecifier() == SZ_Safe) {
-      return true;
-    }
-  }
-  return false;
 }
 
 // Allow or not allow base-type conversion in the safe zone
@@ -275,8 +258,7 @@ FunctionDecl *Sema::SelectDeclForMixedModeRedecl(
 
   for (auto *Redecl : CurrentDecl->redecls()) {
     if (auto *FD = dyn_cast<FunctionDecl>(Redecl)) {
-      SafeZoneSpecifier SZS = FD->getSafeZoneSpecifier();
-      if (SZS == SZ_Safe)
+      if (FD->isSafe())
         SafeDecls.push_back(FD);
       else
         UnsafeDecls.push_back(FD);
@@ -320,7 +302,7 @@ void Sema::forEachZoneCallableRedecl(
     auto *RFD = dyn_cast<FunctionDecl>(Redecl);
     if (!RFD)
       continue;
-    if (IsCallerSafe && RFD->getSafeZoneSpecifier() != SZ_Safe)
+    if (IsCallerSafe && !RFD->isSafe())
       continue;
     F(RFD);
   }
@@ -566,8 +548,7 @@ Sema::SelectFunctionDeclForPointerAssignment(Expr *SrcExpr,
     return nullptr;
 
   // Determine if we're in a safe context based on the destination function pointer type.
-  SafeZoneSpecifier DestSZS = DestFuncType->getFunSafeZoneSpecifier();
-  bool IsInSafeContext = (DestSZS == SZ_Safe);
+  bool IsInSafeContext = DestFuncType->isSafe();
 
   // Use the generic selector with a lambda to check function pointer constraints.
   SourceLocation Loc = SrcExpr->getBeginLoc();
@@ -623,7 +604,7 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
              diag::err_bsc_no_matching_mixed_mode_function_assign)
             << FD->getDeclName() << DestType;
         noteMixedModeCandidates(
-            FD, LHSFuncType->getFunSafeZoneSpecifier() == SZ_Safe);
+            FD, LHSFuncType->isSafe());
         return false;
       }
     }
@@ -633,14 +614,9 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
   // - safe -> unsafe: forbidden (widening, but can have multiple incompatible
   //                   unsafe function decls for the same function)
   // - unsafe -> safe: forbidden (narrowing, loss of safety guarantee)
-  if (LHSFuncType->getFunSafeZoneSpecifier() !=
-      RHSFuncType->getFunSafeZoneSpecifier()) {
-    SafeZoneSpecifier DestSZS = LHSFuncType->getFunSafeZoneSpecifier();
-    SafeZoneSpecifier SrcSZS = RHSFuncType->getFunSafeZoneSpecifier();
-
+  if (LHSFuncType->isSafe() != RHSFuncType->isSafe()) {
     // Assigning unsafe function to safe function pointer is forbidden.
-    if (DestSZS == SZ_Safe &&
-        (SrcSZS == SZ_Unsafe || SrcSZS == SZ_None)) {
+    if (LHSFuncType->isSafe()) {
       Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
           << Context.getPointerType(QualType(RHSFuncType, 0)) << DestType;
       Diag(SrcExpr->getBeginLoc(), diag::note_unsafe_to_safe_function_pointer);
@@ -649,8 +625,7 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
 
     // Assigning safe function to unsafe function pointer is allowed
     // only if the function also has an _Unsafe declaration.
-    if ((DestSZS == SZ_Unsafe || DestSZS == SZ_None) &&
-        SrcSZS == SZ_Safe) {
+    if (!LHSFuncType->isSafe()) {
       bool IsChecked = false;
       // Look through & to find the underlying FunctionDecl.
       Expr *Stripped = SrcExpr->IgnoreParenImpCasts();
@@ -662,7 +637,7 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
         if (FunctionDecl *SrcFD = dyn_cast<FunctionDecl>(DRE->getDecl())) {
           if (!llvm::any_of(SrcFD->redecls(), [](const Decl *D) {
               auto *FD = dyn_cast<FunctionDecl>(D);
-              return FD && FD->getSafeZoneSpecifier() != SZ_Safe;
+              return FD && !FD->isSafe();
           })) {
             // Function has no _Unsafe declaration — reject.
             Diag(SrcExpr->getBeginLoc(), diag::err_unsafe_fun_cast)
@@ -694,7 +669,7 @@ bool Sema::IsSafeFunctionPointerTypeCast(QualType DestType, Expr *SrcExpr) {
 
   // conversion to an unsafe type is allowed in the unsafe zone
   // only need to care about the safe zone or safe type
-  if (!IsInEvaluatedSafeZone() && LHSFuncType->getFunSafeZoneSpecifier() != SZ_Safe) {
+  if (!IsInEvaluatedSafeZone() && !LHSFuncType->isSafe()) {
     return true;
   }
 
@@ -748,7 +723,7 @@ static bool EnumDestContainsAllValuesOfSource(const EnumDecl *DestED,
 }
 
 /// Get the type to use in diagnostics for a source expression. Looks through
-/// SafeExpr, ImplicitCastExpr, ParenExpr; for enum constants and enum-typed
+/// ImplicitCastExpr and ParenExpr; for enum constants and enum-typed
 /// variables returns the enum type so the message shows "enum X" instead of "int".
 static QualType getDiagnosticSourceType(Expr *E, ASTContext &Context,
                                         bool &HasImplicitCast) {
@@ -757,10 +732,6 @@ static QualType getDiagnosticSourceType(Expr *E, ASTContext &Context,
     return QualType();
   E = E->IgnoreParens();
   while (true) {
-    if (auto *SE = dyn_cast<SafeExpr>(E)) {
-      E = SE->getSubExpr();
-      continue;
-    }
     if (auto *ICE = dyn_cast<ImplicitCastExpr>(E)) {
       E = ICE->getSubExpr();
       HasImplicitCast = true;
@@ -794,8 +765,6 @@ DeclRefExpr *getDeclRefExprForEnumCoversion(Expr *E) {
   switch (E->getStmtClass()) {
   case Expr::ParenExprClass:
     return getDeclRefExprForEnumCoversion(cast<ParenExpr>(E)->getSubExpr());
-  case Expr::SafeExprClass:
-    return getDeclRefExprForEnumCoversion(cast<SafeExpr>(E)->getSubExpr());
   case Expr::ImplicitCastExprClass:
     return getDeclRefExprForEnumCoversion(
         cast<ImplicitCastExpr>(E)->getSubExpr());
@@ -1381,47 +1350,5 @@ void Sema::DiagnoseBSCPtrArithmetic(SourceLocation OpLoc, StringRef OpSpelling,
   }
   Diag(OpLoc, diag::note_bsc_ptr_arith_fix_named)
       << (suggestArrayElem ? 1 : 0) << VD;
-}
-
-void Sema::PushInsSafeZone(SafeZoneSpecifier SafeZoneSpec) {
-  getCurFunction()->InsCompoundSafeZone.push_back(
-      InsCompoundSafeZoneInfo(SafeZoneSpec));
-}
-
-void Sema::PopInsSafeZone() {
-  FunctionScopeInfo *CurFunction = getCurFunction();
-  assert(!CurFunction->InsCompoundSafeZone.empty() && "mismatched push/pop");
-
-  CurFunction->InsCompoundSafeZone.pop_back();
-}
-
-sema::InsCompoundSafeZoneInfo &Sema::getCurInsCompoundSafeZone() const {
-  return getCurFunction()->InsCompoundSafeZone.back();
-}
-
-void Sema::setInstantiationSafeZoneSpecifier(SafeZoneSpecifier SZ) {
-  if (getCurFunction()) {
-    if (getCurFunction()->InsCompoundSafeZone.size() == 0) {
-      if (CurrentInstantiationScope)
-        CurrentInstantiationScope->setScopeSafeZoneSpecifier(SZ);
-    } else {
-      PopInsSafeZone();
-      PushInsSafeZone(SZ);
-    }
-  }
-}
-
-SafeZoneSpecifier Sema::getInstantiationSafeZoneSpecifier() const {
-  SafeZoneSpecifier SafeZoneSpec = SZ_None;
-  if (getCurFunction()) {
-    if (getCurFunction()->InsCompoundSafeZone.size() == 0) {
-      if (CurrentInstantiationScope)
-        SafeZoneSpec = CurrentInstantiationScope->getScopeSafeZoneSpecifier();
-    } else {
-      SafeZoneSpec =
-          getCurInsCompoundSafeZone().getInsCompoundSafeZoneSpecifier();
-    }
-  }
-  return SafeZoneSpec;
 }
 #endif

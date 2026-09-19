@@ -305,7 +305,7 @@ static bool mergeBlocks(Body &B) {
 
       // Mark Target as dead (unreachable with no statements)
       Target.Statements.clear();
-      Target.Term = Terminator::createUnreachable();
+      Target.Term = Terminator::createUnreachable(BB.Term.IsSafe);
 
       Changed = true;
       // Break out to recompute predecessors before continuing
@@ -333,8 +333,7 @@ static bool simplifyBranches(Body &B) {
       }
     }
     if (AllSame) {
-      SafeZoneSpecifier SZ = BB.Term.SafeZone;
-      BB.Term = Terminator::createGoto(Target, SZ);
+      BB.Term = Terminator::createGoto(Target, BB.Term.IsSafe);
       Changed = true;
     }
   }

@@ -993,9 +993,6 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   // after everything else is read.
 
   FD->setStorageClass(static_cast<StorageClass>(Record.readInt()));
-#if ENABLE_BSC
-  FD->setSafeZoneSpecifier(static_cast<SafeZoneSpecifier>(Record.readInt()));
-#endif
   FD->setInlineSpecified(Record.readInt());
   FD->setImplicitlyInline(Record.readInt());
 #if ENABLE_BSC

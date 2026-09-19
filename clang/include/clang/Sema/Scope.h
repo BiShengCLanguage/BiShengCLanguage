@@ -234,9 +234,9 @@ private:
   void setFlags(Scope *Parent, unsigned F);
 
 #if ENABLE_BSC
-  SafeZoneSpecifier SafeZoneSpec;
-  SafeZoneSource SafeZoneSrc;
-  SourceLocation SafeZoneLoc;
+  bool IsSafe;
+  /// Valid only under a _Safe/_Unsafe statement or paren keyword.
+  SourceLocation StmtSafeZoneLoc;
   /// For a CompoundStmt scope, the location of its opening '{'.
   /// Used by safe-zone diagnostics to point notes at the offending block.
   SourceLocation BraceLoc;
@@ -282,22 +282,16 @@ public:
     return const_cast<Scope*>(this)->getContinueParent();
   }
 #if ENABLE_BSC
-  void setScopeSafeZoneSpecifier(SafeZoneSpecifier SafeZoneSpec) {
-    const_cast<Scope *>(this)->SafeZoneSpec = SafeZoneSpec;
-  }
-  void setScopeSafeZoneSource(SafeZoneSource SafeZoneSrc) {
-    const_cast<Scope *>(this)->SafeZoneSrc = SafeZoneSrc;
-  }
-  void setScopeSafeZoneLoc(SourceLocation SafeZoneLoc) {
-    const_cast<Scope *>(this)->SafeZoneLoc = SafeZoneLoc;
+  void setScopeIsSafe(bool Safe) { const_cast<Scope *>(this)->IsSafe = Safe; }
+  void setStmtSafeZoneLoc(SourceLocation Loc) {
+    const_cast<Scope *>(this)->StmtSafeZoneLoc = Loc;
   }
   void setScopeBraceLoc(SourceLocation Loc) {
     const_cast<Scope *>(this)->BraceLoc = Loc;
   }
 
-  SafeZoneSpecifier getScopeSafeZoneSpecifier() const { return SafeZoneSpec; }
-  SafeZoneSource getScopeSafeZoneSource() const { return SafeZoneSrc; }
-  SourceLocation getScopeSafeZoneLoc() const { return SafeZoneLoc; }
+  bool isScopeSafe() const { return IsSafe; }
+  SourceLocation getStmtSafeZoneLoc() const { return StmtSafeZoneLoc; }
   SourceLocation getScopeBraceLoc() const { return BraceLoc; }
 #endif
   // Set whether we're in the scope of a condition variable, where 'continue'

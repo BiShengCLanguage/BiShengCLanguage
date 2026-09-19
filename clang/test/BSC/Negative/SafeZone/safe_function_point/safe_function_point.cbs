@@ -37,7 +37,7 @@ int main() {
     up = &add;     
     up = &dadd;     
     p = (TP)add;
-    p = (TP)dadd;   // expected-error {{conversion from type '_Safe double (*)(double, double)' to 'TP' (aka 'int (*)(int, int)') is forbidden}}
+    p = (TP)dadd;   // expected-error {{conversion from type '_Safe double (*)(double, double)' to 'TP' (aka '_Safe int (*)(int, int)') is forbidden}}
   }
   p = (TP)add;
   p = (TP)dadd;     // ok: an explicit cast outside the safe zone (SZ_None/unsafe) is not checked

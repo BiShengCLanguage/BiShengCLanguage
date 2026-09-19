@@ -188,14 +188,14 @@ static inline bool IsNullExpr(ASTContext &Context, const Expr *E) {
 static inline bool PeelHostAndFieldPath(const Expr *E, const VarDecl *&HostVD,
                                         std::string &FieldPath) {
   llvm::SmallVector<std::string, 4> chain; // E -> host
-  const Expr *Cur = E ? E->IgnoreParenImpCastsSafe() : nullptr;
+  const Expr *Cur = E ? E->IgnoreParenImpCasts() : nullptr;
   while (Cur) {
     if (const MemberExpr *ME = dyn_cast<MemberExpr>(Cur)) {
       chain.push_back(ME->getMemberNameInfo().getAsString());
-      Cur = ME->getBase()->IgnoreParenImpCastsSafe();
+      Cur = ME->getBase()->IgnoreParenImpCasts();
     } else if (const ArraySubscriptExpr *ASE =
                    dyn_cast<ArraySubscriptExpr>(Cur)) {
-      const Expr *B = ASE->getBase()->IgnoreParenImpCastsSafe();
+      const Expr *B = ASE->getBase()->IgnoreParenImpCasts();
       // MemberExpr base -> array-level field index. A nested ArraySubscriptExpr
       // base may be a field-array index (w.arr[i][j]) or a host pointer index
       // (p2[1][2] where p2 is `int **_Borrow`); only the former belongs in
@@ -203,10 +203,10 @@ static inline bool PeelHostAndFieldPath(const Expr *E, const VarDecl *&HostVD,
       bool IsFieldIndex = dyn_cast<MemberExpr>(B) != nullptr;
       if (const ArraySubscriptExpr *Nested =
               dyn_cast<ArraySubscriptExpr>(B)) {
-        const Expr *BB = Nested->getBase()->IgnoreParenImpCastsSafe();
+        const Expr *BB = Nested->getBase()->IgnoreParenImpCasts();
         while (const ArraySubscriptExpr *BA =
                    dyn_cast<ArraySubscriptExpr>(BB))
-          BB = BA->getBase()->IgnoreParenImpCastsSafe();
+          BB = BA->getBase()->IgnoreParenImpCasts();
         IsFieldIndex = dyn_cast<MemberExpr>(BB) != nullptr;
       }
       if (IsFieldIndex) {

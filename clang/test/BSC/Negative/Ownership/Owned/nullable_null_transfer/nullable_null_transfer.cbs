@@ -143,7 +143,7 @@ _Safe void paren_deref_null_ops_safe(void) {
 }
 
 // ---------------------------------------------------------------------------
-// SafeExpr transparency must not launder ownership the other way: a
+// _Safe(e) transparency must not launder ownership the other way: a
 // genuinely-owned value through _Safe keeps its Owned state
 // ---------------------------------------------------------------------------
 

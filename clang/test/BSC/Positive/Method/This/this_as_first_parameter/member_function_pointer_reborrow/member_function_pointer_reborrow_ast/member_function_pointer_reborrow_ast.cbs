@@ -51,8 +51,8 @@ void test_non_pointer_This_call_reborrow() {
 // CHECK: DeclStmt 0x{{[^ ]*}} <line:{{.*}}:5, col:23>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:22> col:9 c 'int' cinit
 // CHECK-NEXT: CallExpr 0x{{[^ ]*}} <col:13, col:22> 'int'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13, col:17> 'int (*)(struct Foo *_Borrow)' _Safe <FunctionToPointerDecay>
-// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:13, col:17> 'int (struct Foo *_Borrow)' _Safe lvalue .getC
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13, col:17> '_Safe int (*)(struct Foo *_Borrow)' <FunctionToPointerDecay>
+// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:13, col:17> '_Safe int (struct Foo *_Borrow)' lvalue .getC
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:13> 'struct Foo':'struct Foo' lvalue Var 0x{{[^ ]*}} 'foo' 'struct Foo':'struct Foo'
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <<invalid sloc>, col:13> 'struct Foo *_Borrow' prefix '&_Mut' cannot overflow
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:13> 'struct Foo':'struct Foo' lvalue Var 0x{{[^ ]*}} 'foo' 'struct Foo':'struct Foo'
@@ -60,8 +60,8 @@ void test_non_pointer_This_call_reborrow() {
 // CHECK: DeclStmt 0x{{[^ ]*}} <line:{{.*}}:5, col:27>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:26> col:9 c_2 'int' cinit
 // CHECK-NEXT: CallExpr 0x{{[^ ]*}} <col:15, col:26> 'int'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:15, col:19> 'int (*)(const struct Foo *_Borrow)' _Safe <FunctionToPointerDecay>
-// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:15, col:19> 'int (const struct Foo *_Borrow)' _Safe lvalue .getC_2 0x{{[^ ]*}}
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:15, col:19> '_Safe int (*)(const struct Foo *_Borrow)' <FunctionToPointerDecay>
+// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:15, col:19> '_Safe int (const struct Foo *_Borrow)' lvalue .getC_2 0x{{[^ ]*}}
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:15> 'struct Foo':'struct Foo' lvalue Var 0x{{[^ ]*}} 'foo' 'struct Foo':'struct Foo'
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <<invalid sloc>, col:15> 'const struct Foo *_Borrow' prefix '&_Const' cannot overflow
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:15> 'struct Foo':'struct Foo' lvalue Var 0x{{[^ ]*}} 'foo' 'struct Foo':'struct Foo'
@@ -86,8 +86,8 @@ void test_const_raw_pointer_call_reborrow() {
 // CHECK: DeclStmt 0x{{[^ ]*}} <line:{{.*}}:3, col:30>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:3, col:29> col:7 c_2 'int' cinit
 // CHECK-NEXT: CallExpr 0x{{[^ ]*}} <col:13, col:29> 'int'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13, col:22> 'int (*)(const struct Foo *_Borrow)' _Safe <FunctionToPointerDecay>
-// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:13, col:22> 'int (const struct Foo *_Borrow)' _Safe lvalue ->getC_2 0x{{[^ ]*}}
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13, col:22> '_Safe int (*)(const struct Foo *_Borrow)' <FunctionToPointerDecay>
+// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:13, col:22> '_Safe int (const struct Foo *_Borrow)' lvalue ->getC_2 0x{{[^ ]*}}
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13> 'const struct Foo *' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:13> 'const struct Foo *' lvalue Var 0x{{[^ ]*}} 'c_foo_p' 'const struct Foo *'
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <<invalid sloc>, col:13> 'const struct Foo *_Borrow' prefix '&_Const *' cannot overflow
@@ -108,8 +108,8 @@ void test_owned_pointer_call_reborrow() {
 // CHECK: DeclStmt 0x{{[^ ]*}} <line:{{.*}}:5, col:30>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:29> col:9 c 'int' cinit
 // CHECK-NEXT: CallExpr 0x{{[^ ]*}} <col:13, col:29> 'int'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13, col:24> 'int (*)(struct Foo *_Borrow)' _Safe <FunctionToPointerDecay>
-// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:13, col:24> 'int (struct Foo *_Borrow)' _Safe lvalue ->getC 0x{{[^ ]*}}
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13, col:24> '_Safe int (*)(struct Foo *_Borrow)' <FunctionToPointerDecay>
+// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:13, col:24> '_Safe int (struct Foo *_Borrow)' lvalue ->getC 0x{{[^ ]*}}
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:13> 'struct Foo *_Owned' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:13> 'struct Foo *_Owned' lvalue Var 0x{{[^ ]*}} 'foo_owned' 'struct Foo *_Owned'
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <<invalid sloc>, col:13> 'struct Foo *_Borrow' prefix '&_Mut *' cannot overflow
@@ -119,8 +119,8 @@ void test_owned_pointer_call_reborrow() {
 // CHECK: DeclStmt 0x{{[^ ]*}} <line:{{.*}}:5, col:34>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:33> col:9 c_2 'int' cinit
 // CHECK-NEXT: CallExpr 0x{{[^ ]*}} <col:15, col:33> 'int'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:15, col:26> 'int (*)(const struct Foo *_Borrow)' _Safe <FunctionToPointerDecay>
-// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:15, col:26> 'int (const struct Foo *_Borrow)' _Safe lvalue ->getC_2 0x{{[^ ]*}}
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:15, col:26> '_Safe int (*)(const struct Foo *_Borrow)' <FunctionToPointerDecay>
+// CHECK-NEXT: MemberExpr 0x{{[^ ]*}} <col:15, col:26> '_Safe int (const struct Foo *_Borrow)' lvalue ->getC_2 0x{{[^ ]*}}
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:15> 'struct Foo *_Owned' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:15> 'struct Foo *_Owned' lvalue Var 0x{{[^ ]*}} 'foo_owned' 'struct Foo *_Owned'
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <<invalid sloc>, col:15> 'const struct Foo *_Borrow' prefix '&_Const *' cannot overflow

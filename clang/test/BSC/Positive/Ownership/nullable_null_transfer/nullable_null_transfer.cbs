@@ -193,9 +193,9 @@ void assign_via_void(void) {
 void *malloc(unsigned long);
 
 // ---------------------------------------------------------------------------
-// SafeExpr transparency (_Safe / _Unsafe inherit value, type and value
-// category from the sub-expression, so a must-be-null source stays
-// must-be-null through the wrapper).
+// _Safe(e) / _Unsafe(e) parentheses are transparent (value, type and value
+// category come from the sub-expression, so a must-be-null source stays
+// must-be-null through them).
 // ---------------------------------------------------------------------------
 
 // Init through _Safe / _Unsafe wrappers.

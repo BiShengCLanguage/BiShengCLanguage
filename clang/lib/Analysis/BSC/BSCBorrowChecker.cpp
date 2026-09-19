@@ -1171,7 +1171,7 @@ public:
   }
 
   const Place *Build(const Expr *E) {
-    E = E->IgnoreParenImpCastsSafe();
+    E = E->IgnoreParenImpCasts();
 
     switch (E->getStmtClass()) {
     case Stmt::ArraySubscriptExprClass:

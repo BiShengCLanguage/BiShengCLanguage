@@ -22,7 +22,6 @@
 #if ENABLE_BSC
 #include "clang/AST/BSC/DeclBSC.h"
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #endif
 #include "clang/AST/ComparisonCategories.h"
 #include "clang/AST/DeclTemplate.h"
@@ -230,9 +229,6 @@ namespace sema {
   class DelayedDiagnostic;
   class DelayedDiagnosticPool;
   class FunctionScopeInfo;
-#if ENABLE_BSC
-  class InsCompoundSafeZoneInfo;
-#endif
   class LambdaScopeInfo;
   class PossiblyUnreachableDiag;
   class RISCVIntrinsicManager;
@@ -5025,22 +5021,6 @@ public:
   StmtResult ActOnCompoundStmt(SourceLocation L, SourceLocation R,
                                ArrayRef<Stmt *> Elts, bool isStmtExpr);
 
-#if ENABLE_BSC
-public:
-  /// A RAII object to enter safe or unsafe zone of a compound statement.
-  class InsSafeZoneRAII {
-  public:
-    InsSafeZoneRAII(Sema &S, SafeZoneSpecifier SafeZoneSpec) : S(S) {
-      S.PushInsSafeZone(SafeZoneSpec);
-    }
-
-    ~InsSafeZoneRAII() { S.PopInsSafeZone(); }
-
-  private:
-    Sema &S;
-  };
-#endif
-
   /// A RAII object to enter scope of a compound statement.
   class CompoundScopeRAII {
   public:
@@ -5087,8 +5067,8 @@ public:
 #if ENABLE_BSC
   StmtResult ActOnSafeStmt(SourceLocation SafeZoneLoc,
                            SafeZoneSpecifier safeZoneSpec, Stmt *SubStmt);
-  ExprResult ActOnSafeExpr(SourceLocation SafeZoneLoc,
-                           SafeZoneSpecifier safeZoneSpec, Expr *SubExpr);
+  ExprResult ActOnSafeExpr(SafeZoneSpecifier safeZoneSpec, SourceLocation LParen,
+                           SourceLocation RParen, Expr *SubExpr);
 #endif
 
   StmtResult BuildAttributedStmt(SourceLocation AttrsLoc,
@@ -12452,7 +12432,6 @@ public:
   /// param). Used by call-expression diagnostics.
   void noteMixedModeCallCandidates(FunctionDecl *FD,
                                        MultiExprArg ArgExprs);
-  bool IsSafeFunctionPointerType(QualType Type);
   bool IsUnsafeType(QualType Type);
   bool CanBeUninitializedInSafeZone(QualType Type);
 
@@ -12473,11 +12452,6 @@ public:
   void DiagnoseRawPtrIncDec(SourceLocation OpLoc, bool IsInc, Expr *Op);
   void DiagnoseBSCPtrArithmetic(SourceLocation OpLoc, StringRef OpSpelling,
                                 Expr *Op);
-  void PushInsSafeZone(SafeZoneSpecifier SafeZoneSpec);
-  void PopInsSafeZone();
-  sema::InsCompoundSafeZoneInfo &getCurInsCompoundSafeZone() const;
-  SafeZoneSpecifier getInstantiationSafeZoneSpecifier() const;
-  void setInstantiationSafeZoneSpecifier(SafeZoneSpecifier SZ);
   ExprResult CheckBSCConstexprCondition(SourceLocation Loc, Expr *CondExpr, bool IsConstexpr);
   // borrow
   bool IsAddrBorrowDerefOp(ExprResult &Operand);

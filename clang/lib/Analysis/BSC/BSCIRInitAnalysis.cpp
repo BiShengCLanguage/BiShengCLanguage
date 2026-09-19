@@ -1602,7 +1602,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
       // Check operands used in this statement
       if (S.K == Statement::Assign) {
         // Only check uses in _Safe zones
-        if (CheckAllZones || S.SafeZone == SZ_Safe) {
+        if (CheckAllZones || S.IsSafe) {
           // Check the source operands
           const Rvalue &Src = S.getAssign().Src;
           switch (Src.K) {
@@ -1670,7 +1670,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
               I == 0 ? DestBaseTy : Dest.Projections[I - 1].ResultTy;
           Place Prefix(Dest.Base, Dest.Projections.slice(0, I), PrefixTy,
                        Dest.Loc);
-          if (CheckAllZones || S.SafeZone == SZ_Safe)
+          if (CheckAllZones || S.IsSafe)
             checkOperand(Operand::createCopy(Prefix), State, S.Loc, Diags);
           // The prefix before projection 0 is the parameter itself.
           if (I > 0)
@@ -1685,7 +1685,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
 
     // Check terminator operands
     const Terminator &T = BB.Term;
-    if (T.K == Terminator::Call && (CheckAllZones || T.SafeZone == SZ_Safe)) {
+    if (T.K == Terminator::Call && (CheckAllZones || T.IsSafe)) {
       const auto &CD = T.getCall();
       checkOperand(CD.Callee, State, T.Loc, Diags);
       llvm::DenseSet<unsigned> ExemptArgIndices = collectExemptArgIndices(CD);
@@ -1695,7 +1695,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
       }
     }
 
-    if (T.K == Terminator::SwitchInt && (CheckAllZones || T.SafeZone == SZ_Safe))
+    if (T.K == Terminator::SwitchInt && (CheckAllZones || T.IsSafe))
       checkOperand(T.getSwitchInt().Discriminant, State, T.Loc, Diags);
 
     // A terminator operand reads the pointee just as an assignment does.
@@ -1720,7 +1720,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
     }
 
     // Check return slot at Return terminator
-    if (T.K == Terminator::Return && (CheckAllZones || T.SafeZone == SZ_Safe)) {
+    if (T.K == Terminator::Return && (CheckAllZones || T.IsSafe)) {
       if (!B.Locals[0].Ty->isVoidType()) {
         InitState RetState = getInitState(State, LocalId{0});
         // The implicit fall-off return has no source location; anchor the
@@ -1742,7 +1742,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
     }
 
     // Also check ensure_init contract at Return outside _Safe zones
-    if (T.K == Terminator::Return && T.SafeZone != SZ_Safe)
+    if (T.K == Terminator::Return && !T.IsSafe)
       checkEnsureInitAtReturn(T, State, Diags);
   }
 

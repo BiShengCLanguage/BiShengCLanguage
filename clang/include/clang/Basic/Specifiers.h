@@ -404,13 +404,6 @@ namespace clang {
     SZ_Safe = 1,
     SZ_Unsafe = 2,
   };
-
-  enum SafeZoneSource {
-    SZS_Inherit = 0,
-    SZS_Function = 1,
-    SZS_Compound = 2,
-    SZS_SafeStmt = 3,
-  };
 #endif
 } // end namespace clang
 

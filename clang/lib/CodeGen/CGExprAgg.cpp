@@ -125,9 +125,6 @@ public:
   void VisitSubstNonTypeTemplateParmExpr(SubstNonTypeTemplateParmExpr *E) {
     return Visit(E->getReplacement());
   }
-#if ENABLE_BSC
-  void VisitSafeExpr(SafeExpr *E) { Visit(E->getSubExpr()); }
-#endif
 
   void VisitConstantExpr(ConstantExpr *E) {
     EnsureDest(E->getType());

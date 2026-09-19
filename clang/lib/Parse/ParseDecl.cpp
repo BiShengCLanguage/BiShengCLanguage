@@ -4568,10 +4568,10 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
 
 #if ENABLE_BSC
     // Handle the case where the "_Safe" keyword modifies the function pointer
-    if (getCurScope() &&
-        getCurScope()->getScopeSafeZoneSource() == SZS_SafeStmt) {
-      DS.SetSafeZoneSpecifier(getCurScope()->getScopeSafeZoneSpecifier());
-      DS.SetSafeZoneSpecifierLoc(getCurScope()->getScopeSafeZoneLoc());
+    if (getCurScope() && getCurScope()->getStmtSafeZoneLoc().isValid()) {
+      DS.SetSafeZoneSpecifier(getCurScope()->isScopeSafe() ? SZ_Safe
+                                                           : SZ_Unsafe);
+      DS.SetSafeZoneSpecifierLoc(getCurScope()->getStmtSafeZoneLoc());
     }
 #endif
 
@@ -7153,12 +7153,8 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   // Update the current scope to a safe scope, will be used by function
   // parameters.
   SafeZoneSpecifier SafeZoneSpec = D.getDeclSpec().getSafeZoneSpecifier();
-  if (SafeZoneSpec != SZ_None) {
-    getCurScope()->setScopeSafeZoneSpecifier(SafeZoneSpec);
-    getCurScope()->setScopeSafeZoneSource(SZS_Function);
-    getCurScope()->setScopeSafeZoneLoc(
-        D.getDeclSpec().getSafeZoneSpecifierLoc());
-  }
+  if (SafeZoneSpec != SZ_None)
+    getCurScope()->setScopeIsSafe(SafeZoneSpec == SZ_Safe);
 #endif
 
   if (isFunctionDeclaratorIdentifierList()

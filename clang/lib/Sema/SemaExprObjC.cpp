@@ -4549,7 +4549,14 @@ Expr *Sema::stripARCUnbridgedCast(Expr *e) {
 
   if (ParenExpr *pe = dyn_cast<ParenExpr>(e)) {
     Expr *sub = stripARCUnbridgedCast(pe->getSubExpr());
+#if ENABLE_BSC
+    auto *NewPE =
+        new (Context) ParenExpr(pe->getLParen(), pe->getRParen(), sub);
+    NewPE->setSafeZoneSpec(pe->getSafeZoneSpec());
+    return NewPE;
+#else
     return new (Context) ParenExpr(pe->getLParen(), pe->getRParen(), sub);
+#endif
   } else if (UnaryOperator *uo = dyn_cast<UnaryOperator>(e)) {
     assert(uo->getOpcode() == UO_Extension);
     Expr *sub = stripARCUnbridgedCast(uo->getSubExpr());

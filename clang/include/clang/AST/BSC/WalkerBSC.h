@@ -138,7 +138,7 @@ public:
       return true;
     }
     // safe / unsafe func
-    if (FD->getSafeZoneSpecifier() != SZ_None) {
+    if (FD->hasAttr<SafeZoneAttr>()) {
       return true;
     }
     // generic function
@@ -223,6 +223,14 @@ public:
 
   bool VisitTypeAliasTemplateDecl(TypeAliasTemplateDecl *D) { return true; }
 
+  bool VisitAttributedStmt(AttributedStmt *AS) {
+    return SafeZoneAttr::getSafeZoneSpec(AS) != SZ_None || VisitStmt(AS);
+  }
+
+  bool VisitParenExpr(ParenExpr *PE) {
+    return PE->getSafeZoneSpec() != SZ_None || VisitStmt(PE);
+  }
+
   bool VisitStmt(Stmt *S) {
     for (auto *C : S->children()) {
       if (C) {
@@ -245,9 +253,6 @@ public:
   }
 
   bool VisitCompoundStmt(CompoundStmt *CS) {
-    if (CS->getCompSafeZoneSpecifier() != SZ_None) {
-      return true;
-    }
     for (auto *S : CS->body()) {
       if (Visit(S)) {
         return true;
@@ -280,10 +285,6 @@ public:
     }
     return false;
   }
-
-  bool VisitSafeStmt(SafeStmt *SS) { return true; }
-
-  bool VisitSafeExpr(SafeExpr *SE) { return true; }
 
   bool VisitInitListExpr(InitListExpr *ILE) {
     if (VisitQualType(ILE->getType())) {

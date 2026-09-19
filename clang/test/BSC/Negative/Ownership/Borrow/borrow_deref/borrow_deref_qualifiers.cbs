@@ -17,7 +17,7 @@ _Safe void test_array(void **_Owned _ArrayElem _Nullable *_Borrow p1,
   safe_swap_array(p1, p2); // expected-note {{in instantiation of function template specialization 'safe_swap_array<void **_Owned _ArrayElem>' requested here}}
 }
 
-// CHECK-LABEL: FunctionDecl {{.*}} used safe_swap_array 'void (void **_Owned _ArrayElem _Nullable *_Borrow
+// CHECK-LABEL: FunctionDecl {{.*}} used safe_swap_array '_Safe void (void **_Owned _ArrayElem _Nullable *_Borrow
 // CHECK: VarDecl {{.*}} tmp 'void **_Owned _ArrayElem'{{.*}} cinit
 // CHECK: ImplicitCastExpr {{.*}} 'void **_Owned _ArrayElem _Nullable'{{.*}} <LValueToRValue>
 

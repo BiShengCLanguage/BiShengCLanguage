@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -ast-print %s -o %t.cbs
+// RUN: FileCheck --input-file=%t.cbs %s
+// RUN: %clang_cc1 -fsyntax-only %t.cbs
+// RUN: %clang -rewrite-bsc %s -o %t-rw.c
+// RUN: FileCheck --check-prefix=REWRITE --input-file=%t-rw.c %s
+
+_Safe void cb(void);
+typedef _Safe void (*SafeFp)(void);
+typedef _Safe void SafeFn(void);
+SafeFn viaTypedef;
+_Safe void (*gfp)(void) = cb;
+_Safe void (*getter(void))(void);
+_Safe void (*(*nested)(void))(void);
+void takes(SafeFp p, void (*q)(void));
+_Unsafe void u(void);
+
+// CHECK: _Safe void cb(void);
+// CHECK: typedef _Safe void (*SafeFp)(void);
+// CHECK: _Safe void viaTypedef(void);
+// CHECK: _Safe void (*gfp)(void) = cb;
+// One keyword governs every function chunk of a declarator.
+// CHECK: {{^}}_Safe void (*getter(void))(void);
+// CHECK: {{^}}_Safe void (*(*nested)(void))(void);
+// CHECK: void takes(SafeFp p, void (*q)(void));
+// CHECK: _Unsafe void u(void);
+
+// REWRITE-NOT: _Safe
+// REWRITE-NOT: _Unsafe

@@ -1398,12 +1398,8 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   // Update the current scope to a safe scope, will be used in the function
   // body.
   SafeZoneSpecifier SafeZoneSpec = D.getDeclSpec().getSafeZoneSpecifier();
-  if (SafeZoneSpec != SZ_None) {
-    getCurScope()->setScopeSafeZoneSpecifier(SafeZoneSpec);
-    getCurScope()->setScopeSafeZoneSource(SZS_Function);
-    getCurScope()->setScopeSafeZoneLoc(
-        D.getDeclSpec().getSafeZoneSpecifierLoc());
-  }
+  if (SafeZoneSpec != SZ_None)
+    getCurScope()->setScopeIsSafe(SafeZoneSpec == SZ_Safe);
 #endif
 
   // Parse function body eagerly if it is either '= delete;' or '= default;' as

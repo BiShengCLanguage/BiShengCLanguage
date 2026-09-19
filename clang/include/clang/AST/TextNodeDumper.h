@@ -247,6 +247,9 @@ public:
   void VisitGotoStmt(const GotoStmt *Node);
   void VisitCaseStmt(const CaseStmt *Node);
   void VisitCompoundStmt(const CompoundStmt *Node);
+#if ENABLE_BSC
+  void VisitParenExpr(const ParenExpr *Node);
+#endif
   void VisitConstantExpr(const ConstantExpr *Node);
   void VisitCallExpr(const CallExpr *Node);
   void VisitCXXOperatorCallExpr(const CXXOperatorCallExpr *Node);
@@ -339,8 +342,6 @@ public:
   void VisitVarDecl(const VarDecl *D);
   #if ENABLE_BSC
   void VisitImplTraitDecl(const ImplTraitDecl *D);
-  void VisitSafeStmt(const SafeStmt *SS);
-  void VisitSafeExpr(const SafeExpr *SE);
 #endif
   void VisitBindingDecl(const BindingDecl *D);
   void VisitCapturedDecl(const CapturedDecl *D);

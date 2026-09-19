@@ -64,7 +64,6 @@ public:
   Operand VisitOpaqueValueExpr(OpaqueValueExpr *OVE);
   Operand VisitGNUNullExpr(GNUNullExpr *E);
   Operand VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *E);
-  Operand VisitSafeExpr(SafeExpr *SE);
   Operand VisitStmtExpr(StmtExpr *SE);
   Operand VisitAwaitExpr(AwaitExpr *AE);
   Operand VisitStmt(Stmt *S); // fallback
@@ -80,8 +79,8 @@ private:
   // Map from VarDecl to LocalId
   llvm::DenseMap<const VarDecl *, LocalId> VarMap;
 
-  // Safe zone tracking stack
-  SmallVector<SafeZoneSpecifier, 4> SafeZoneStack;
+  // Opened zones, innermost last; true is _Safe.
+  SmallVector<bool, 4> SafeZoneStack;
 
   // --- Breakable scope tracking (for break/continue) ---
   struct BreakableScope {
@@ -123,8 +122,7 @@ private:
   // --- Single return block (created in build()) ---
   BasicBlockId ReturnBlock = {0};
 
-  // Get the current safe zone from the SafeZoneStack
-  SafeZoneSpecifier currentSafeZone() const;
+  bool inSafeZone() const;
 
   // Lower parameters
   void lowerParams();

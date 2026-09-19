@@ -15455,7 +15455,14 @@ Expr *Sema::FixOverloadedFunctionReference(Expr *E, DeclAccessPair Found,
     if (SubExpr == PE->getSubExpr())
       return PE;
 
+#if ENABLE_BSC
+    auto *NewPE =
+        new (Context) ParenExpr(PE->getLParen(), PE->getRParen(), SubExpr);
+    NewPE->setSafeZoneSpec(PE->getSafeZoneSpec());
+    return NewPE;
+#else
     return new (Context) ParenExpr(PE->getLParen(), PE->getRParen(), SubExpr);
+#endif
   }
 
   if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(E)) {

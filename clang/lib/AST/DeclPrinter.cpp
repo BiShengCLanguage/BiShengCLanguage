@@ -268,6 +268,8 @@ void DeclPrinter::prettyPrintAttributes(Decl *D
 #include "clang/Basic/AttrList.inc"
         break;
 #if ENABLE_BSC
+      case attr::SafeZone:
+        continue;
       case attr::Operator:
       case attr::EnsureInit:
       case attr::EnsureInitIfRet:
@@ -745,6 +747,9 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
   CXXConstructorDecl *CDecl = dyn_cast<CXXConstructorDecl>(D);
   CXXConversionDecl *ConversionDecl = dyn_cast<CXXConversionDecl>(D);
   CXXDeductionGuideDecl *GuideDecl = dyn_cast<CXXDeductionGuideDecl>(D);
+#if ENABLE_BSC
+  PrintingPolicy ReturnPolicy(Policy);
+#endif
   if (!Policy.SuppressSpecifiers) {
     switch (D->getStorageClass()) {
     case SC_None: break;
@@ -757,6 +762,14 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
 
     if (D->isInlineSpecified())  Out << "inline ";
 #if ENABLE_BSC
+    if (!Policy.RewriteBSC) {
+      if (D->isSafe()) {
+        Out << "_Safe ";
+        ReturnPolicy.SuppressSafeSpecifier = true;
+      } else if (D->hasAttr<SafeZoneAttr>()) {
+        Out << "_Unsafe ";
+      }
+    }
     if (D->isAsyncSpecified())
       Out << "async ";
 #endif
@@ -930,7 +943,11 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
         Out << Proto << " -> ";
         Proto.clear();
       }
+#if ENABLE_BSC
+      AFT->getReturnType().print(Out, ReturnPolicy, Proto);
+#else
       AFT->getReturnType().print(Out, Policy, Proto);
+#endif
       Proto.clear();
     }
     Out << Proto;

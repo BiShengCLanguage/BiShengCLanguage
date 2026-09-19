@@ -119,9 +119,16 @@ namespace {
 
       if (ParenExpr *parens = dyn_cast<ParenExpr>(e)) {
         e = rebuild(parens->getSubExpr());
+#if ENABLE_BSC
+        auto *NewPE = new (S.Context)
+            ParenExpr(parens->getLParen(), parens->getRParen(), e);
+        NewPE->setSafeZoneSpec(parens->getSafeZoneSpec());
+        return NewPE;
+#else
         return new (S.Context) ParenExpr(parens->getLParen(),
                                          parens->getRParen(),
                                          e);
+#endif
       }
 
       if (UnaryOperator *uop = dyn_cast<UnaryOperator>(e)) {

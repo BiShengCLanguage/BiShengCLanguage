@@ -1852,7 +1852,7 @@ protected:
 
 #if ENABLE_BSC
     // Whether the function is safe. 0 is unsafe, 1 is safe.
-    unsigned SafeZoneSpec : 1;
+    unsigned IsSafe : 1;
 #endif
   };
 
@@ -2281,7 +2281,7 @@ public:
   bool isTraitPointerType() const;
   bool hasTraitType() const;
   bool isBSCCalculatedTypeInCompileTime() const;
-  bool checkFunctionProtoType(SafeZoneSpecifier SZS) const;
+  bool isSafeFunctionOrPointer() const;
   /// Manual 3.5: an `_Owned struct`, plain or a generic instantiation.
   bool isOwnedStruct() const;
   /// Manual 3.1: does a value of this type hold a \p Kind pointer, looking as
@@ -4214,6 +4214,9 @@ protected:
                TypeDependence Dependence, ExtInfo Info)
       : Type(tc, Canonical, Dependence), ResultType(res) {
     FunctionTypeBits.ExtInfo = Info.Bits;
+#if ENABLE_BSC
+    FunctionTypeBits.IsSafe = false;
+#endif
   }
 
   Qualifiers getFastTypeQuals() const {
@@ -4222,6 +4225,9 @@ protected:
 
 public:
   QualType getReturnType() const { return ResultType; }
+#if ENABLE_BSC
+  bool isSafe() const { return FunctionTypeBits.IsSafe; }
+#endif
 
   bool getHasRegParm() const { return getExtInfo().getHasRegParm(); }
   unsigned getRegParmType() const { return getExtInfo().getRegParm(); }
@@ -4385,7 +4391,7 @@ public:
     bool Variadic : 1;
     bool HasTrailingReturn : 1;
 #if ENABLE_BSC
-    SafeZoneSpecifier SafeZoneSpec = SZ_None;
+    bool IsSafe = false;
 #endif
     Qualifiers TypeQuals;
     RefQualifierKind RefQualifier = RQ_None;
@@ -4527,7 +4533,7 @@ public:
     EPI.ExtInfo = getExtInfo();
     EPI.Variadic = isVariadic();
 #if ENABLE_BSC
-    EPI.SafeZoneSpec = getFunSafeZoneSpecifier();
+    EPI.IsSafe = isSafe();
 #endif
     EPI.EllipsisLoc = getEllipsisLoc();
     EPI.HasTrailingReturn = hasTrailingReturn();
@@ -4637,11 +4643,6 @@ public:
 
   /// Whether this function prototype is variadic.
   bool isVariadic() const { return FunctionTypeBits.Variadic; }
-#if ENABLE_BSC
-  SafeZoneSpecifier getFunSafeZoneSpecifier() const {
-    return (SafeZoneSpecifier)FunctionTypeBits.SafeZoneSpec;
-  }
-#endif
 
   SourceLocation getEllipsisLoc() const {
     return isVariadic() ? *getTrailingObjects<SourceLocation>()

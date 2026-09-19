@@ -32,13 +32,22 @@ ExprResult Sema::CheckBSCConstexprCondition(SourceLocation Loc, Expr *CondExpr, 
 
 StmtResult Sema::ActOnSafeStmt(SourceLocation SafeZoneLoc,
                                SafeZoneSpecifier safeZoneSpec, Stmt *SubStmt) {
-  SafeStmt *LS = new (Context) SafeStmt(SafeZoneLoc, safeZoneSpec, SubStmt);
-  return LS;
+  auto *Zone = SafeZoneAttr::Create(Context, SafeZoneLoc,
+                                    AttributeCommonInfo::AS_Keyword,
+                                    safeZoneSpec == SZ_Safe
+                                        ? SafeZoneAttr::Keyword_Safe
+                                        : SafeZoneAttr::Keyword_Unsafe);
+  return AttributedStmt::Create(Context, SafeZoneLoc, Zone, SubStmt);
 }
 
-ExprResult Sema::ActOnSafeExpr(SourceLocation SafeZoneLoc,
-                               SafeZoneSpecifier safeZoneSpec, Expr *SubExpr) {
-  SafeExpr *LS = new (Context) SafeExpr(SafeZoneLoc, safeZoneSpec, SubExpr);
-  return LS;
+ExprResult Sema::ActOnSafeExpr(SafeZoneSpecifier safeZoneSpec,
+                               SourceLocation LParen, SourceLocation RParen,
+                               Expr *SubExpr) {
+  // ActOnParenExpr may have folded the parentheses into __arithmetic_fence.
+  auto *PE = dyn_cast<ParenExpr>(SubExpr);
+  if (!PE)
+    PE = new (Context) ParenExpr(LParen, RParen, SubExpr);
+  PE->setSafeZoneSpec(safeZoneSpec);
+  return PE;
 }
 #endif

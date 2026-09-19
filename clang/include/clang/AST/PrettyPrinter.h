@@ -79,7 +79,8 @@ struct PrintingPolicy {
 #if ENABLE_BSC
         ,
         RewriteBSC(false), MangleWithSafeQualifier(false),
-        FunctionDeclarationOnly(false), NullptrTypeInBSC(LO.BSC)
+        FunctionDeclarationOnly(false), NullptrTypeInBSC(LO.BSC),
+        SuppressSafeSpecifier(false)
 #endif
         {
   }
@@ -331,6 +332,9 @@ struct PrintingPolicy {
 
   /// Whether 'nullptr_t' is in BSC. If true, it's not with namespace 'std'.
   unsigned NullptrTypeInBSC : 1;
+
+  /// The declarator's leading _Safe was already printed by the caller.
+  unsigned SuppressSafeSpecifier : 1;
 #endif
 
   /// Callbacks to use to allow the behavior of printing to be customized.

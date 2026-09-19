@@ -5746,7 +5746,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
                     : RQ_RValue;
 
 #if ENABLE_BSC
-        EPI.SafeZoneSpec = D.getDeclSpec().getSafeZoneSpecifier();
+        EPI.IsSafe = D.getDeclSpec().getSafeZoneSpecifier() == SZ_Safe;
 #endif
         // Otherwise, we have a function with a parameter list that is
         // potentially variadic.

@@ -996,6 +996,18 @@ namespace {
     /// For the purposes of template instantiation, a type has already been
     /// transformed if it is NULL or if it is not dependent.
     bool AlreadyTransformed(QualType T);
+#if ENABLE_BSC
+    StmtResult TransformAttributedStmt(AttributedStmt *S,
+                                       StmtDiscardKind SDK) {
+      InstantiationSafeZoneRAII Zone(getSema(),
+                                           SafeZoneAttr::getSafeZoneSpec(S));
+      return inherited::TransformAttributedStmt(S, SDK);
+    }
+    ExprResult TransformParenExpr(ParenExpr *E) {
+      InstantiationSafeZoneRAII Zone(getSema(), E->getSafeZoneSpec());
+      return inherited::TransformParenExpr(E);
+    }
+#endif
 
     /// Returns the location of the entity being instantiated, if known.
     SourceLocation getBaseLocation() { return Loc; }

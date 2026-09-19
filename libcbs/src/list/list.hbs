@@ -233,8 +233,8 @@ _Safe T LinkedList<T>::front(const LinkedList<T> * _Borrow this){
         if (this->len == 0) {
             bsc_out_of_bound_handler(0, 0);
         }
+        return this->head->element;
     }
-    return this->head->element;
 }
 
 // Returns the value of the last element in the list.
@@ -243,8 +243,8 @@ _Safe T LinkedList<T>::back(const LinkedList<T> * _Borrow this){
         if (this->len == 0) {
             bsc_out_of_bound_handler(0, 0);
         }
+        return this->tail->element;
     }
-    return this->tail->element;
 }
 
 // Returns the number of elements in the list.

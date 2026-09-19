@@ -78,7 +78,8 @@ _Safe void gnu_conditional(void) {
   make() ?: nullptr; // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
 }
 
-// _Safe(...) wrapper (BSC SafeExpr) -- stripped by IgnoreParenCastsSafe.
+// _Safe(...) is a parenthesized expression carrying a zone; the leak is
+// still seen through the parentheses.
 _Safe void safe_wrap(void) {
-  _Safe(make()); // expected-error {{the _Owned value of}} expected-warning {{expression result unused}}
+  _Safe(make()); // expected-error {{the _Owned value of}}
 }

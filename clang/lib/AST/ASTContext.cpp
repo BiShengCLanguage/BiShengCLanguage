@@ -10601,10 +10601,7 @@ QualType ASTContext::mergeFunctionTypes(QualType lhs, QualType rhs,
 
 #if ENABLE_BSC
     // Safe and unsafe functions aren't compatible
-    if (lproto->getFunSafeZoneSpecifier() !=
-            rproto->getFunSafeZoneSpecifier() &&
-        (lproto->getFunSafeZoneSpecifier() == SZ_Safe ||
-         rproto->getFunSafeZoneSpecifier() == SZ_Safe))
+    if (lproto->isSafe() != rproto->isSafe())
       return {};
 #endif
 

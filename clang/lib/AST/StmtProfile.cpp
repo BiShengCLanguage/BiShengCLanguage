@@ -11,6 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/AST/ASTContext.h"
+#if ENABLE_BSC
+#include "clang/AST/Attr.h"
+#endif
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -259,13 +262,12 @@ void StmtProfiler::VisitLabelStmt(const LabelStmt *S) {
   VisitDecl(S->getDecl());
 }
 
-#if ENABLE_BSC
-void StmtProfiler::VisitSafeStmt(const SafeStmt *S) { VisitStmt(S); }
-void StmtProfiler::VisitSafeExpr(const SafeExpr *S) { VisitExpr(S); }
-#endif
-
 void StmtProfiler::VisitAttributedStmt(const AttributedStmt *S) {
   VisitStmt(S);
+#if ENABLE_BSC
+  // `_Safe { }` and `_Unsafe { }` differ only in the attribute.
+  ID.AddInteger(SafeZoneAttr::getSafeZoneSpec(S));
+#endif
   // TODO: maybe visit attributes?
 }
 
@@ -1329,6 +1331,10 @@ void StmtProfiler::VisitStringLiteral(const StringLiteral *S) {
 
 void StmtProfiler::VisitParenExpr(const ParenExpr *S) {
   VisitExpr(S);
+#if ENABLE_BSC
+  // `_Safe(e)` is not the same expression as `(e)`.
+  ID.AddInteger(S->getSafeZoneSpec());
+#endif
 }
 
 void StmtProfiler::VisitParenListExpr(const ParenListExpr *S) {

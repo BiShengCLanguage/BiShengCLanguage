@@ -332,17 +332,15 @@ void StmtPrinter::VisitLabelStmt(LabelStmt *Node) {
   PrintStmt(Node->getSubStmt(), 0);
 }
 
-#if ENABLE_BSC
-void StmtPrinter::VisitSafeStmt(SafeStmt *Node) {
-  PrintStmt(Node->getSubStmt(), 0);
-}
-void StmtPrinter::VisitSafeExpr(SafeExpr *Node) {
-  PrintExpr(Node->getSubExpr());
-}
-#endif
-
 void StmtPrinter::VisitAttributedStmt(AttributedStmt *Node) {
   for (const auto *Attr : Node->getAttrs()) {
+#if ENABLE_BSC
+    if (const auto *Zone = dyn_cast<SafeZoneAttr>(Attr)) {
+      if (!Policy.RewriteBSC)
+        OS << Zone->getSpelling() << ' ';
+      continue;
+    }
+#endif
     Attr->printPretty(OS, Policy);
   }
 
@@ -1588,6 +1586,10 @@ void StmtPrinter::VisitStringLiteral(StringLiteral *Str) {
 }
 
 void StmtPrinter::VisitParenExpr(ParenExpr *Node) {
+#if ENABLE_BSC
+  if (!Policy.RewriteBSC && Node->getSafeZoneSpec() != SZ_None)
+    OS << (Node->getSafeZoneSpec() == SZ_Safe ? "_Safe" : "_Unsafe");
+#endif
   OS << "(";
   PrintExpr(Node->getSubExpr());
   OS << ")";
@@ -1603,7 +1605,7 @@ void StmtPrinter::VisitUnaryOperator(UnaryOperator *Node) {
         // rewritten to the base pointer itself. `&p[0]` would be UB for a
         // null `p` in C11, while the pointer value is exactly `p`.
         if (auto *ASE = dyn_cast<ArraySubscriptExpr>(
-                Node->getSubExpr()->IgnoreParenImpCastsSafe())) {
+                Node->getSubExpr()->IgnoreParenImpCasts())) {
           if (isConstantZeroPointerSubscript(ASE, Context)) {
             PrintExpr(ASE->getBase());
             return;

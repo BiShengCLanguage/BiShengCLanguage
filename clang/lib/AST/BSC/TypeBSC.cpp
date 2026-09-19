@@ -383,18 +383,10 @@ bool Type::isTrivialDataType() const {
   return isTrivialDataTypeImpl(CanonicalType, Visited);
 }
 
-bool Type::checkFunctionProtoType(SafeZoneSpecifier SZS) const {
-  const FunctionProtoType *FPT = nullptr;
-  if (isFunctionType()) {
-    FPT = getAs<FunctionProtoType>();
-  } else if (isFunctionPointerType()) {
-    FPT = getPointeeType()->getAs<FunctionProtoType>();
-  }
-  if (FPT) {
-    FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
-    return EPI.SafeZoneSpec == SZS;
-  }
-  return false;
+bool Type::isSafeFunctionOrPointer() const {
+  QualType T = isFunctionPointerType() ? getPointeeType() : QualType(this, 0);
+  const auto *FT = T->getAs<FunctionType>();
+  return FT && FT->isSafe();
 }
 
 namespace clang {
@@ -561,7 +553,6 @@ BSCFunctionMismatch firstBSCFunctionTypeMismatch(const ASTContext &Ctx,
 /// BiSheng C safety features removed, is compatible with the _Unsafe type.
 bool functionTypeSatisfiesUnsafeSafeRefinement(
     ASTContext &Ctx, QualType Type1, QualType Type2,
-    SafeZoneSpecifier SZS1, SafeZoneSpecifier SZS2,
     UnsafeSafeRefinementMismatchInfo *MismatchOut) {
   using Kind = UnsafeSafeRefinementMismatchInfo::Kind;
   auto Report = [&](Kind K, QualType T1, QualType T2, unsigned Idx = 0) {
@@ -573,19 +564,13 @@ bool functionTypeSatisfiesUnsafeSafeRefinement(
     }
   };
 
-  bool Type1IsSafe = (SZS1 == SZ_Safe);
-  bool Type2IsSafe = (SZS2 == SZ_Safe);
-  if (Type1IsSafe == Type2IsSafe) {
-    Report(Kind::Other, Type1, Type2);
-    return false;
-  }
-
   const FunctionProtoType *FPT1 = Type1->getAs<FunctionProtoType>();
   const FunctionProtoType *FPT2 = Type2->getAs<FunctionProtoType>();
-  if (!FPT1 || !FPT2) {
+  if (!FPT1 || !FPT2 || FPT1->isSafe() == FPT2->isSafe()) {
     Report(Kind::Other, Type1, Type2);
     return false;
   }
+  bool Type1IsSafe = FPT1->isSafe();
 
   if (FPT1->getNumParams() != FPT2->getNumParams()) {
     Report(Kind::ParamCount, Type1, Type2);
@@ -631,15 +616,10 @@ bool functionTypeSatisfiesUnsafeSafeRefinement(
       const FunctionProtoType *SafeFP =
           SafePointee->getAs<FunctionProtoType>();
       if (UnsafeFP && SafeFP) {
-        SafeZoneSpecifier UnsafeFPSZS = UnsafeFP->getFunSafeZoneSpecifier();
-        SafeZoneSpecifier SafeFPSZS = SafeFP->getFunSafeZoneSpecifier();
         // Only a pair with exactly one _Safe side is a refinement pair.
-        bool UnsafeFPIsSafe = (UnsafeFPSZS == SZ_Safe);
-        bool SafeFPIsSafe = (SafeFPSZS == SZ_Safe);
-        if (UnsafeFPIsSafe != SafeFPIsSafe) {
+        if (UnsafeFP->isSafe() != SafeFP->isSafe()) {
           return functionTypeSatisfiesUnsafeSafeRefinement(
-              Ctx, UnsafePointee, SafePointee, UnsafeFPSZS, SafeFPSZS,
-              /*MismatchOut=*/nullptr);
+              Ctx, UnsafePointee, SafePointee, /*MismatchOut=*/nullptr);
         }
       }
     }

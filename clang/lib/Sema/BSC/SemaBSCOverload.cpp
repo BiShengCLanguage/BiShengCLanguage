@@ -207,7 +207,7 @@ bool Sema::CheckIsUnsafeOverloadCall(Expr *Fn) {
   if (!IsInEvaluatedSafeZone()) {
     return false;
   }
-  if (!Fn->getType()->checkFunctionProtoType(SZ_Safe)) {
+  if (!Fn->getType()->isSafeFunctionOrPointer()) {
     Diag(Fn->getBeginLoc(), diag::err_unsafe_action)
         << "overload _Unsafe function";
     return true;

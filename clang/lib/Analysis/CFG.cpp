@@ -2158,14 +2158,6 @@ CFGBlock *CFGBuilder::Visit(Stmt * S, AddStmtChoice asc,
     default:
       return VisitStmt(S, asc);
 
-#if ENABLE_BSC
-    case Stmt::SafeStmtClass:
-      return Visit(cast<SafeStmt>(S)->getSubStmt(), asc, ExternallyDestructed);
-
-    case Stmt::SafeExprClass:
-      return Visit(cast<SafeExpr>(S)->getSubExpr(), asc, ExternallyDestructed);
-#endif
-
     case Stmt::ImplicitValueInitExprClass:
       if (BuildOpts.OmitImplicitValueInitializers)
         return Block;

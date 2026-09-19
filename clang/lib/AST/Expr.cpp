@@ -16,7 +16,6 @@
 #include "clang/AST/Attr.h"
 #if ENABLE_BSC
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #endif
 #include "clang/AST/ComputeDependence.h"
 #include "clang/AST/DeclCXX.h"
@@ -2983,30 +2982,6 @@ Expr *Expr::IgnoreParenCasts() {
   return IgnoreExprNodes(this, IgnoreParensSingleStep, IgnoreCastsSingleStep);
 }
 
-#if ENABLE_BSC
-static inline Expr *IgnoreSafeExprSingleStep(Expr *E) {
-  if (auto *SE = dyn_cast<SafeExpr>(E))
-    return SE->getSubExpr();
-  return E;
-}
-
-Expr *Expr::IgnoreParensSafe() {
-  return IgnoreExprNodes(this, IgnoreParensSingleStep,
-                         IgnoreSafeExprSingleStep);
-}
-
-Expr *Expr::IgnoreParenImpCastsSafe() {
-  return IgnoreExprNodes(this, IgnoreParensSingleStep,
-                         IgnoreImplicitCastsExtraSingleStep,
-                         IgnoreSafeExprSingleStep);
-}
-
-Expr *Expr::IgnoreParenCastsSafe() {
-  return IgnoreExprNodes(this, IgnoreParensSingleStep, IgnoreCastsSingleStep,
-                         IgnoreSafeExprSingleStep);
-}
-#endif
-
 Expr *Expr::IgnoreConversionOperatorSingleStep() {
   if (auto *MCE = dyn_cast<CXXMemberCallExpr>(this)) {
     if (MCE->getMethodDecl() && isa<CXXConversionDecl>(MCE->getMethodDecl()))
@@ -3613,9 +3588,6 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case ShuffleVectorExprClass:
   case ConvertVectorExprClass:
   case AsTypeExprClass:
-#if ENABLE_BSC
-  case SafeExprClass:
-#endif
     // These have a side-effect if any subexpression does.
     break;
 

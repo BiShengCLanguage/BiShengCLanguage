@@ -2152,10 +2152,6 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
         D->isInlineSpecified(), D->hasWrittenPrototype(), D->getConstexprKind(),
         TrailingRequiresClause);
     Function->setRangeEnd(D->getSourceRange().getEnd());
-#if ENABLE_BSC
-    if (SemaRef.getLangOpts().BSC)
-      Function->setSafeZoneSpecifier(D->getSafeZoneSpecifier());
-#endif
   }
 
   if (D->isInlined())
@@ -5028,12 +5024,7 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
         Rec->isLocalClass() && !Function->isFunctionTemplateSpecialization();
 
 #if ENABLE_BSC
-  SafeZoneSpecifier SafeZoneSpec = SZ_None;
-  if (const FunctionProtoType *Proto =
-          Function->getType()->getAs<FunctionProtoType>()) {
-    SafeZoneSpec = Proto->getExtProtoInfo().SafeZoneSpec;
-  }
-  if (SafeZoneSpec == SZ_Safe && IsUnsafeType(Function->getReturnType())) {
+  if (Function->isSafe() && IsUnsafeType(Function->getReturnType())) {
     Diag(PatternDecl->getLocation(), diag::err_safe_function)
         << "unsafe return type";
   }
@@ -5042,7 +5033,7 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
   LocalInstantiationScope Scope(*this, MergeWithParentScope
 #if ENABLE_BSC
                                 ,
-                                SafeZoneSpec
+                                Function->isSafe()
 #endif
   );
   auto RebuildTypeSourceInfoForDefaultSpecialMembers = [&]() {

@@ -40,9 +40,8 @@ void Scope::setFlags(Scope *parent, unsigned flags) {
     MSLastManglingParent = parent->MSLastManglingParent;
     MSCurManglingNumber = getMSLastManglingNumber();
 #if ENABLE_BSC
-    SafeZoneSpec = parent->SafeZoneSpec;
-    SafeZoneSrc = SZS_Inherit;
-    SafeZoneLoc = parent->SafeZoneLoc;
+    IsSafe = parent->IsSafe;
+    StmtSafeZoneLoc = SourceLocation();
     BraceLoc = SourceLocation();
 #endif
     if ((Flags & (FnScope | ClassScope | BlockScope | TemplateParamScope |
@@ -58,9 +57,8 @@ void Scope::setFlags(Scope *parent, unsigned flags) {
     MSLastManglingNumber = 1;
     MSCurManglingNumber = 1;
 #if ENABLE_BSC
-    SafeZoneSpec = SZ_Unsafe;
-    SafeZoneSrc = SZS_Inherit;
-    SafeZoneLoc = SourceLocation();
+    IsSafe = false;
+    StmtSafeZoneLoc = SourceLocation();
     BraceLoc = SourceLocation();
 #endif
   }

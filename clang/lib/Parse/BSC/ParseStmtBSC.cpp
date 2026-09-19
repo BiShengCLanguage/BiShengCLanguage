@@ -30,20 +30,16 @@ void Parser::CheckStmtTokInSafeZone(tok::TokenKind Kind) {
     break;
   }
 }
-struct ScopeSafeZoneInfo Parser::getCurScopeSafeZoneInfo() {
-  if (getCurScope()) {
-    return {getCurScope()->getScopeSafeZoneSpecifier(),
-            getCurScope()->getScopeSafeZoneSource(),
-            getCurScope()->getScopeSafeZoneLoc()};
-  }
-  return {SZ_None, SZS_Inherit, SourceLocation()};
+Parser::ScopeSafeZoneInfo Parser::getCurScopeSafeZoneInfo() {
+  if (getCurScope())
+    return {getCurScope()->isScopeSafe(), getCurScope()->getStmtSafeZoneLoc()};
+  return {false, SourceLocation()};
 }
 
-void Parser::setCurScopeSafeZoneInfo(struct ScopeSafeZoneInfo SZ) {
+void Parser::setCurScopeSafeZoneInfo(ScopeSafeZoneInfo SZ) {
   if (getCurScope()) {
-    getCurScope()->setScopeSafeZoneSpecifier(SZ.SafeZoneSpec);
-    getCurScope()->setScopeSafeZoneSource(SZ.SafeZoneSrc);
-    getCurScope()->setScopeSafeZoneLoc(SZ.SafeZoneLoc);
+    getCurScope()->setScopeIsSafe(SZ.IsSafe);
+    getCurScope()->setStmtSafeZoneLoc(SZ.StmtKeywordLoc);
   }
 }
 
@@ -63,7 +59,7 @@ StmtResult Parser::ParseSafeStatement(ParsedStmtContext StmtCtx) {
     SafeZoneSpec = SZ_Unsafe;
     SafeLoc = ConsumeToken();
   }
-  struct ScopeSafeZoneInfo newInfo = {SafeZoneSpec, SZS_SafeStmt, SafeLoc};
+  struct ScopeSafeZoneInfo newInfo = {SafeZoneSpec == SZ_Safe, SafeLoc};
   struct ScopeSafeZoneInfo oldInfo = getCurScopeSafeZoneInfo();
   setCurScopeSafeZoneInfo(newInfo);
   StmtResult SubStmt = ParseStatement(nullptr, StmtCtx);

@@ -124,9 +124,6 @@ const Place *PlaceBuilder::Build(const Expr *E) {
   if (const auto *PE = dyn_cast<ParenExpr>(E))
     return Build(PE->getSubExpr());
 
-  if (const auto *SE = dyn_cast<SafeExpr>(E))
-    return Build(SE->getSubExpr());
-
   if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
     const Place *Base = Build(ASE->getBase());
     if (!Base)

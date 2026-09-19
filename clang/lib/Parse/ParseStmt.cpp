@@ -1083,17 +1083,16 @@ StmtResult Parser::ParseCompoundStatement(bool isStmtExpr,
 #if ENABLE_BSC
   if (getCurScope()) {
     getCurScope()->setScopeBraceLoc(LBraceLoc);
-    if (SafeZoneSpec != SZ_None) {
-      getCurScope()->setScopeSafeZoneSpecifier(SafeZoneSpec);
-      getCurScope()->setScopeSafeZoneSource(SZS_Compound);
-      getCurScope()->setScopeSafeZoneLoc(SafeZoneLoc);
-    }
+    if (SafeZoneSpec != SZ_None)
+      getCurScope()->setScopeIsSafe(SafeZoneSpec == SZ_Safe);
   }
 #endif
   // Parse the statements in the body.
   StmtResult Stmt(ParseCompoundStatementBody(isStmtExpr));
 #if ENABLE_BSC
   Actions.CollectDestructMap(Stmt, getCurScope(), getCurScope());
+  if (SafeZoneSpec != SZ_None && Stmt.isUsable())
+    Stmt = Actions.ActOnSafeStmt(SafeZoneLoc, SafeZoneSpec, Stmt.get());
 #endif
   return Stmt;
 }

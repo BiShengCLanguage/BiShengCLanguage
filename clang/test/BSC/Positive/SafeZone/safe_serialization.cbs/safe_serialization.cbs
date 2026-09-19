@@ -28,37 +28,43 @@ int main() {
     test_safe_stmt1();
 }
 
-// CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-14]]:1, line:[[@LINE-6]]:1> line:[[@LINE-14]]:12 used test_safe_stmt1 'void (void)' _Safe
+// CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-14]]:1, line:[[@LINE-6]]:1> line:[[@LINE-14]]:12 used test_safe_stmt1 '_Safe void (void)'
 // CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:34, line:[[@LINE-7]]:1>
 // CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <line:[[@LINE-15]]:5, col:14>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:13> col:9 used v 'int' cinit
 // CHECK-NEXT: IntegerLiteral 0x{{[^ ]*}} <col:13> 'int' 1
-// CHECK-NEXT: SafeStmt 0x{{[^ ]*}} <line:[[@LINE-17]]:5, col:20> _Unsafe
+// CHECK-NEXT: AttributedStmt 0x{{[^ ]*}} <line:[[@LINE-17]]:5, col:20>
+// CHECK-NEXT: SafeZoneAttr 0x{{[^ ]*}} <col:5> _Unsafe
 // CHECK-NEXT: BinaryOperator 0x{{[^ ]*}} <col:13, col:20> 'int *' '='
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:13> 'int *' lvalue Var 0x{{[^ ]*}} 'g_a' 'int *'
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <col:19, col:20> 'int *' prefix '&' cannot overflow
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:20> 'int' lvalue Var 0x{{[^ ]*}} 'v' 'int'
-// CHECK-NEXT: SafeStmt 0x{{[^ ]*}} <line:[[@LINE-21]]:5, col:40> _Unsafe
+// CHECK-NEXT: AttributedStmt 0x{{[^ ]*}} <line:[[@LINE-22]]:5, col:40>
+// CHECK-NEXT: SafeZoneAttr 0x{{[^ ]*}} <col:5> _Unsafe
 // CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <col:13, col:40>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:13, col:37> col:26 used a 'int *_Borrow' cinit
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:37> 'int *' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:37> 'int *' lvalue Var 0x{{[^ ]*}} 'g_a' 'int *'
-// CHECK-NEXT: SafeStmt 0x{{[^ ]*}} <line:[[@LINE-25]]:5, col:21> _Safe
+// CHECK-NEXT: AttributedStmt 0x{{[^ ]*}} <line:[[@LINE-27]]:5, col:21>
+// CHECK-NEXT: SafeZoneAttr 0x{{[^ ]*}} <col:5> _Safe
 // CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <col:11, col:21>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:11, col:20> col:15 b 'int' cinit
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:19, col:20> 'int' <LValueToRValue>
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <col:19, col:20> 'int' lvalue prefix '*' cannot overflow
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:20> 'int *_Borrow' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:20> 'int *_Borrow' lvalue Var 0x{{[^ ]*}} 'a' 'int *_Borrow'
-// CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <line:[[@LINE-31]]:11, line:[[@LINE-29]]:5> _Safe
-// CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <line:[[@LINE-31]]:9, col:19>
+// CHECK-NEXT: AttributedStmt 0x{{[^ ]*}} <line:[[@LINE-34]]:5, line:[[@LINE-32]]:5>
+// CHECK-NEXT: SafeZoneAttr 0x{{[^ ]*}} <line:[[@LINE-35]]:5> _Safe
+// CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:11, line:[[@LINE-34]]:5>
+// CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <line:[[@LINE-36]]:9, col:19>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:9, col:18> col:13 c 'int' cinit
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:17, col:18> 'int' <LValueToRValue>
 // CHECK-NEXT: UnaryOperator 0x{{[^ ]*}} <col:17, col:18> 'int' lvalue prefix '*' cannot overflow
 // CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:18> 'int *_Borrow' <LValueToRValue>
 // CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:18> 'int *_Borrow' lvalue Var 0x{{[^ ]*}} 'a' 'int *_Borrow'
-// CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-33]]:1, line:[[@LINE-31]]:1> line:[[@LINE-33]]:5 main 'int (void)'
-// CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:12, line:[[@LINE-32]]:1>
-// CHECK-NEXT: CallExpr 0x{{[^ ]*}} <line:[[@LINE-34]]:5, col:21> 'void'
-// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:5> 'void (*)(void)' _Safe <FunctionToPointerDecay>
-// CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:5> 'void (void)' _Safe Function 0x{{[^ ]*}} 'test_safe_stmt1' 'void (void)' _Safe
+// CHECK-NEXT: SafeZoneAttr 0x{{[^ ]*}} <line:[[@LINE-48]]:1> _Safe
+// CHECK: FunctionDecl 0x{{[^ ]*}} <line:[[@LINE-39]]:1, line:[[@LINE-37]]:1> line:[[@LINE-39]]:5 main 'int (void)'
+// CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:12, line:[[@LINE-38]]:1>
+// CHECK-NEXT: CallExpr 0x{{[^ ]*}} <line:[[@LINE-40]]:5, col:21> 'void'
+// CHECK-NEXT: ImplicitCastExpr 0x{{[^ ]*}} <col:5> '_Safe void (*)(void)' <FunctionToPointerDecay>
+// CHECK-NEXT: DeclRefExpr 0x{{[^ ]*}} <col:5> '_Safe void (void)' Function 0x{{[^ ]*}} 'test_safe_stmt1' '_Safe void (void)'

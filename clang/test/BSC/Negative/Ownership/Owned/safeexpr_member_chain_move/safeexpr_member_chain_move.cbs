@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -verify %s
 
 // Regression: getMemberFullField walked the MemberExpr base chain peeling
-// only MemberExpr and ImplicitCastExpr. A ParenExpr or SafeExpr at the
+// only MemberExpr and ImplicitCastExpr. A ParenExpr, zoned or not, at the
 // chain root broke the walk early, the returned base was not a DeclRefExpr,
 // and the move was silently never recorded -- leaving a subsequent reuse of
 // the same _Owned field as an unflagged use-after-move (runtime double-free).

@@ -65,7 +65,6 @@
 #if ENABLE_BSC
 #include "clang/AST/BSC/DeclBSC.h"
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #endif
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
@@ -897,6 +896,10 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     }
     if (Proto1->isVariadic() != Proto2->isVariadic())
       return false;
+#if ENABLE_BSC
+    if (Proto1->isSafe() != Proto2->isSafe())
+      return false;
+#endif
 
     if (Proto1->getMethodQuals() != Proto2->getMethodQuals())
       return false;

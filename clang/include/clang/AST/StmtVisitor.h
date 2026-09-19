@@ -15,7 +15,6 @@
 
 #if ENABLE_BSC
 #include "clang/AST/BSC/ExprBSC.h"
-#include "clang/AST/BSC/StmtBSC.h"
 #endif
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/ExprCXX.h"

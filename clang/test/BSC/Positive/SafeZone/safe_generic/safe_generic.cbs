@@ -22,11 +22,13 @@ int main() {
   return 0;
 }
 
-// CHECK:      FunctionDecl 0x{{[^ ]*}} <line:13:1, line:18:1> line:13:11 used test 'int (void)' _Safe
+// CHECK:      FunctionDecl 0x{{[^ ]*}} <col:1, line:18:1> line:13:11 used test '_Safe int (void)'
 // CHECK-NEXT: TemplateArgument type 'int'
 // CHECK-NEXT: BuiltinType 0x{{[^ ]*}} 'int'
 // CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:25, line:18:1>
-// CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <line:14:11, line:16:3> _Unsafe
+// CHECK-NEXT: AttributedStmt 0x{{[^ ]*}} <line:14:3, line:16:3>
+// CHECK-NEXT: SafeZoneAttr 0x{{[^ ]*}} <line:14:3> _Unsafe
+// CHECK-NEXT: CompoundStmt 0x{{[^ ]*}} <col:11, line:16:3>
 // CHECK-NEXT: DeclStmt 0x{{[^ ]*}} <line:15:5, col:31>
 // CHECK-NEXT: VarDecl 0x{{[^ ]*}} <col:5, col:30> col:17 used rv '_Owned RawVec<int>':'_Owned struct RawVec<int>' cinit
 // CHECK-NEXT: InitListExpr 0x{{[^ ]*}} <col:22, col:30> '_Owned RawVec<int>':'_Owned struct RawVec<int>'

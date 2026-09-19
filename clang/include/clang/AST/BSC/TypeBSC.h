@@ -125,7 +125,6 @@ struct UnsafeSafeRefinementMismatchInfo {
 /// refinement relation with respect to the _Safe one.
 bool functionTypeSatisfiesUnsafeSafeRefinement(
     ASTContext &Ctx, QualType Type1, QualType Type2,
-    SafeZoneSpecifier SZS1, SafeZoneSpecifier SZS2,
     UnsafeSafeRefinementMismatchInfo *MismatchOut);
 
 } // namespace clang

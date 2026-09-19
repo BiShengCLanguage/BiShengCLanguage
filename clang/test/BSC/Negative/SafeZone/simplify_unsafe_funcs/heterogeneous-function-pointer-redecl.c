@@ -34,7 +34,7 @@ _Unsafe typedef void (*BadFuncPtr7)(int* q, int* r); // expected-error {{typedef
 typedef _Safe  int (*good_cmp_safe)(const void * _Borrow, const void * _Borrow);
 typedef        int (*bad_cmp_unsafe)(int *, float *); // different param types
 
-_Safe  void bad_sort(void * _Borrow base, unsigned int n, good_cmp_safe compar); // expected-note {{previous declaration had parameter of type 'good_cmp_safe' (aka 'int (*)(const void *_Borrow, const void *_Borrow)')}}
+_Safe  void bad_sort(void * _Borrow base, unsigned int n, good_cmp_safe compar); // expected-note {{previous declaration had parameter of type 'good_cmp_safe' (aka '_Safe int (*)(const void *_Borrow, const void *_Borrow)')}}
 void bad_sort(void * base, unsigned int n, bad_cmp_unsafe compar); // expected-error {{redeclaration of 'bad_sort' has incompatible parameter type 'bad_cmp_unsafe' (aka 'int (*)(int *, float *)')}}
 
 // Test 9: Heterogeneous function redeclaration where the function-pointer
@@ -42,7 +42,7 @@ void bad_sort(void * base, unsigned int n, bad_cmp_unsafe compar); // expected-e
 typedef _Safe  int (*cmp3_safe)(const void * _Borrow, const void * _Borrow);
 typedef        int (*cmp3_unsafe)(const void *); // one fewer param
 
-_Safe  void bad_sort2(void * _Borrow base, unsigned int n, cmp3_safe compar); // expected-note {{previous declaration had parameter of type 'cmp3_safe' (aka 'int (*)(const void *_Borrow, const void *_Borrow)')}}
+_Safe  void bad_sort2(void * _Borrow base, unsigned int n, cmp3_safe compar); // expected-note {{previous declaration had parameter of type 'cmp3_safe' (aka '_Safe int (*)(const void *_Borrow, const void *_Borrow)')}}
 void bad_sort2(void * base, unsigned int n, cmp3_unsafe compar); // expected-error {{redeclaration of 'bad_sort2' has incompatible parameter type 'cmp3_unsafe' (aka 'int (*)(const void *)')}}
 
 // Test 10: _Safe typedef must not add _ArrayElem to an unsafe `_Owned` parameter.
