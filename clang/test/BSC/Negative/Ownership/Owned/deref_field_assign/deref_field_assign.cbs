@@ -1,0 +1,34 @@
+// RUN: %clang_cc1 -verify %s
+
+_Safe T *_Owned safe_malloc<T>(T);
+_Safe void safe_free(void *_Owned);
+
+struct S {
+  int *_Owned p;
+};
+
+struct T {
+  struct S s;
+};
+
+// An explicit dereference must preserve direct field assignment checks.
+void test(struct S *_Owned s) {
+  (*s).p = safe_malloc<int>(1); // expected-error {{cannot assign to 's.p' because it still holds an _Owned value; move or free it first}}
+  safe_free((void *_Owned)s->p);
+  safe_free((void *_Owned)s);
+}
+
+// The same root normalization must preserve the complete nested field path.
+void test1(struct T *_Owned t) {
+  (*t).s.p = safe_malloc<int>(1); // expected-error {{cannot assign to 't.s.p' because it still holds an _Owned value; move or free it first}}
+  safe_free((void *_Owned)t->s.p);
+  safe_free((void *_Owned)t);
+}
+
+// Reinitializing a moved field through an explicit dereference remains valid.
+void test2(struct S *_Owned s) {
+  safe_free((void *_Owned)s->p);
+  (*s).p = safe_malloc<int>(1);
+  safe_free((void *_Owned)s->p);
+  safe_free((void *_Owned)s);
+}

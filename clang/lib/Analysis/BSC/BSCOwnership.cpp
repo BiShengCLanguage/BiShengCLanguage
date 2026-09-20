@@ -3815,7 +3815,8 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
 
   // manipulate struct member expr assign
   if (op == Assign) {
-    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(memberField.first)) {
+    if (const DeclRefExpr *DRE =
+            getRootDREFromMemberBase(memberField.first)) {
       HandleDREAssign(DRE, memberField.second);
     }
   }
