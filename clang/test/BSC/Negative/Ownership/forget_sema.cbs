@@ -42,60 +42,56 @@ _Safe void test_typeof_in_safe_zone(void) {
   (void)x;
 }
 
-// Rule 2: argument must be an _Owned pointer. A _Nonnull (non-owned) pointer
-// is rejected.
+// Rule 2: argument must be an _Owned pointer, or a struct containing _Owned
+// fields. A _Nonnull (non-owned) pointer is rejected.
 _Safe int *_Nonnull get_nonnull(void);
 void test_non_owned_arg(void) {
   int *_Nonnull p = get_nonnull();
-  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer argument}}
+  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer or a struct containing ownership}}
 }
 
 // Rule 2 variant: non-pointer argument is rejected.
 void test_non_pointer_arg(void) {
   int x = 0;
-  _Unsafe { __forget(x); } // expected-error {{__forget requires an _Owned pointer argument}}
+  _Unsafe { __forget(x); } // expected-error {{__forget requires an _Owned pointer or a struct containing ownership}}
 }
 
 // Rule 2 variant: a _Borrow pointer is not _Owned.
 void test_borrow_arg(int *_Borrow p) {
-  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer argument}}
+  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer or a struct containing ownership}}
 }
 
 // Rule 2 variant: a raw (unqualified) pointer is not _Owned.
 void test_raw_ptr_arg(int *p) {
-  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer argument}}
+  _Unsafe { __forget(p); } // expected-error {{__forget requires an _Owned pointer or a struct containing ownership}}
 }
 
-// Argument-shape: only a variable or struct field access is accepted. Any
-// compound expression is rejected because __forget is a pure analyzer hint
-// (codegen emits nothing) and the dataflow only tracks per-variable
-// ownership; a compound expression would be silently dropped.
+// Rule 2 variant: a struct without _Owned fields is rejected.
+struct Plain { int x; };
+void test_plain_struct_arg(void) {
+  struct Plain t = {0};
+  _Unsafe { __forget(t); } // expected-error {{__forget requires an _Owned pointer or a struct containing ownership}}
+}
+
+// Argument-shape: only a trackable expression is accepted — a variable, a
+// struct field access, an array element, or a dereference, optionally
+// chained. Any other compound expression is rejected because __forget is a
+// pure analyzer hint (codegen emits nothing) and the dataflow only tracks
+// per-location ownership; a compound expression would be silently dropped.
 
 // Comma expression: must not be mis-lowered to the left operand.
 void test_comma_arg(int *_Owned a, int *_Owned p) {
-  _Unsafe { __forget((a, p)); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}} expected-warning {{left operand of comma operator has no effect}}
+  _Unsafe { __forget((a, p)); } // expected-error {{__forget requires a trackable expression as argument}} expected-warning {{left operand of comma operator has no effect}}
 }
 
 // Ternary expression.
 void test_ternary_arg(int c, int *_Owned p, int *_Owned q) {
-  _Unsafe { __forget(c ? p : q); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
+  _Unsafe { __forget(c ? p : q); } // expected-error {{__forget requires a trackable expression as argument}}
 }
 
-// Array subscript.
-void test_array_subscript_arg(void) {
-  int *_Owned arr[2];
-  arr[0] = safe_malloc(1);
-  arr[1] = safe_malloc(2);
-  _Unsafe { __forget(arr[0]); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
-}
-
-// Dereference chain (*q): rejected. Dropping ownership of an inner pointee
-// through a _Borrow/_Nonnull outer pointer would require alias analysis
-// (borrow-checker scope), which the ownership analysis does not perform —
-// silently accepting it would let the real owner leak. Use __forget(p) or
-// free(p) on the owned variable itself.
-void test_deref_chain_arg(int *_Owned *_Nonnull q) {
-  _Unsafe { __forget(*q); } // expected-error {{unsupported __forget argument}} expected-note {{the argument must be a variable or struct field access}}
+// Explicit cast.
+void test_cast_arg(int *_Owned p) {
+  _Unsafe { __forget((int *_Owned)p); } // expected-error {{__forget requires a trackable expression as argument}}
 }
 
 // Forgetting a struct field through a _Borrow path would drop the ownership
@@ -133,4 +129,16 @@ void test_forget_borrow_through_ptr_field(struct MidF *_Borrow w) {
 struct MidR { struct DeepF *d; };
 void test_forget_borrow_through_raw_ptr_field(struct MidR *_Borrow w) {
   _Unsafe { __forget(w->d->q); }
+}
+
+// An array-element access through a borrow root: the subscript is lowered to
+// an Index place so the borrow chain is still tracked.
+struct WithArr { int *_Owned arr[2]; };
+void test_forget_borrow_array_elem(struct WithArr *_Borrow w) {
+  _Unsafe { __forget(w->arr[0]); } // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// A deref of a borrow root: the Deref place keeps the borrow chain.
+void test_forget_borrow_deref(int *_Owned *_Borrow q) {
+  _Unsafe { __forget(*q); } // expected-error {{cannot take ownership of a borrowed value}}
 }

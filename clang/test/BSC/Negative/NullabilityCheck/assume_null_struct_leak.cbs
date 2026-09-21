@@ -47,3 +47,13 @@ void test_struct_var_array_not_dropped(void) {
   t.p = safe_malloc(1);
   _Unsafe { __assume_null(t); } // expected-warning {{__assume_null has no effect on array field 'arr' containing a _Nullable pointer}}
 } // expected-error {{memory leak because t.arr[] is not freed or moved before 't' goes out of scope}}
+
+// __assume_null(*h->w) on an owned struct-pointer field: drops ownership of
+// the pointee's fields (h->w->p is NOT reported), but the field h->w itself
+// still holds the pointee allocation and leaks, as does the host h.
+struct DerefLeaf { int *_Owned _Nullable p; };
+struct DerefHost { struct DerefLeaf *_Owned w; };
+void test_deref_struct_field_drop(struct DerefHost *_Owned h) {
+  _Unsafe { __assume_null(*h->w); }
+} // expected-error {{memory leak because 'h' is not freed or moved before it goes out of scope}}
+  // expected-error@-1 {{memory leak because h.w is not freed or moved before 'h' goes out of scope}}

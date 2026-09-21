@@ -136,6 +136,34 @@ void assume_on_deref_struct_nested(struct Nested *_Owned s) {
   consume_Nested(s);
 }
 
+// __assume_null(*h->w) on an owned struct-pointer FIELD: the field form of
+// __assume_null(*s) above — every _Nullable field of the pointee is asserted
+// null and its ownership dropped. The field h->w itself still owns the pointee
+// allocation and the host h still owns its own, so both must still be disposed
+// of (here: the field is freed, the host forgotten).
+void safe_free(void *_Owned p);
+
+struct HW {
+  struct W *_Owned w;
+};
+
+void assume_on_deref_struct_field(struct HW *_Owned h) {
+  _Unsafe { __assume_null(*h->w); }
+  // No leak for h->w->p1 / h->w->p2: dropped by the builtin.
+  safe_free((void *_Owned)h->w);
+  _Unsafe { __forget(h); }
+}
+
+// The pointee fields being null (handled), not moved, means the field itself
+// can also be consumed through a call argument — the same move-out the cast
+// path performs — without a partially-moved error. The host is forgotten
+// afterwards (its only field was consumed).
+void assume_on_deref_struct_field_consume(struct HW *_Owned h) {
+  _Unsafe { __assume_null(*h->w); }
+  consume_W(h->w);
+  _Unsafe { __forget(h); }
+}
+
 // __assume_null on a struct VARIABLE `t`: every _Nullable field is asserted
 // null and its ownership dropped — no leak for the fields, no use afterwards.
 struct Vv { int *_Owned _Nullable p; };
@@ -229,3 +257,24 @@ void test_struct_field_chain_val_drop(void) {
 _Safe int f(int *_Nullable p) {
   return (int)sizeof(__assume_null(p));
 }
+
+// __assume_null(*t.w) on a struct-value host: the pointee's owned fields are
+// dropped (no leak for t.w.p); the field itself still owns its allocation,
+// freed here.
+struct HV { struct V *_Owned w; };
+struct V *_Owned make_V(void);
+void test_deref_struct_field_val_drop(void) {
+  struct HV t = { make_V() };
+  _Unsafe { __assume_null(*t.w); }
+  safe_free((void *_Owned)t.w);
+} // no leak error: t.w.p ownership dropped, t.w freed
+
+// The S-host form: after __assume_null(*t.w) the pointee field t.w.p is null
+// (handled), not moved, so the field can be consumed through a call argument;
+// nothing leaks.
+void consume_V(struct V *_Owned);
+void test_deref_struct_field_val_consume(void) {
+  struct HV t = { make_V() };
+  _Unsafe { __assume_null(*t.w); }
+  consume_V(t.w);
+} // no leak error: t.w.p dropped, t.w consumed

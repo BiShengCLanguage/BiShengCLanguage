@@ -3104,9 +3104,7 @@ int main() {
 
 #### 3.1.5. `__forget`
 
-`__forget(p)` 是一个内建函数，用于显式遗忘一个 `_Owned` 指针 `p` 的所有权。它是一个纯分析器提示——编译器不做契约验证，也不生成任何代码，由用户保证调用后该指针既不会被释放、也不会被再次转移所有权。
-
-与 [3.1.4 节](#314-所有权状态转移规则)描述的常规状态转移不同，`__forget` 不对应任何运行时行为：它的作用是在数据流分析中把 `p` 的所有权状态整体翻转为"已移出（Moved）"。
+`__forget(p)` 是一个内建函数，用于显式遗忘一个 `_Owned` 指针的所有权。它是一个纯分析器提示——编译器不做契约验证，也不生成任何代码，由用户保证断言成立。
 
 `__forget` 只能在 `_Unsafe` 区域中使用，因为它绕过了编译器的非空指针检查。
 
@@ -3118,71 +3116,82 @@ _Safe void foo(int *_Owned p) {
 
 语义规则：
 
-1. 参数必须是一个 `_Owned` 指针。非 `_Owned` 的指针（`_Borrow`、原始指针、`_Nonnull` 指针）或非指针类型会被拒绝。
+1. `__forget` 的参数必须是一个可跟踪表达式：变量、结构体字段访问、数组元素、解引用，并可以链式组合，可外加括号/隐式转换。
 
 ```c
-void bar(int *_Borrow p, int *q, int x) {
-  _Unsafe { __forget(p); } // error: __forget requires an _Owned pointer argument
-  _Unsafe { __forget(q); } // error: __forget requires an _Owned pointer argument
-  _Unsafe { __forget(x); } // error: __forget requires an _Owned pointer argument
+void foo(int c, int *_Owned p, int *_Owned q) {
+  // 逗号、三元、显式类型转换都不是可跟踪表达式：
+  _Unsafe { __forget((p, q)); }            // error
+  _Unsafe { __forget(c ? p : q); }         // error
+  _Unsafe { __forget((int *_Owned)p); }    // error
 }
 ```
 
-2. 遗忘所有权后，`p` 视为已移出，无需释放或转移即可离开作用域，不报泄漏。
+2. `__forget` 的参数类型必须是 `_Owned` 指针或（递归）包含 `_Owned` 指针字段的结构体。其他类型不能作为 `__forget` 的参数类型。
+
+```c
+struct Plain { int x; };
+void foo(int *_Borrow p, int *q, int x, struct Plain t) {
+  _Unsafe { __forget(p); } // error: __forget requires an _Owned pointer or a struct containing ownership
+  _Unsafe { __forget(q); } // error: __forget requires an _Owned pointer or a struct containing ownership
+  _Unsafe { __forget(x); } // error: __forget requires an _Owned pointer or a struct containing ownership
+  _Unsafe { __forget(t); } // error: __forget requires an _Owned pointer or a struct containing ownership
+}
+```
+
+3. 对于一个 `_Owned` 指针类型的可跟踪表达式 `e`，`__forget` 遗忘其所有权后，`e` 视为不再拥有所有权。
 
 ```c
 T *_Owned safe_malloc<T>(T value);
 void safe_free<T>(T *_Owned p);
 
+struct S { int *_Owned p; };
+
 void forget_local(void) {
   int *_Owned p = safe_malloc(42);
   _Unsafe { __forget(p); }
-  // 无需 safe_free(p)，也无需转移：所有权已被遗忘，不报泄漏
-}
-```
-
-3. 遗忘所有权后再次使用 `p` 会报告 `use of moved value`。
-
-```c
-void sink(int *_Owned p);
-
-void use_after_forget(void) {
-  int *_Owned p = safe_malloc(1);
-  _Unsafe { __forget(p); }
-  sink(p); // error: use of moved value: 'p'
-}
-```
-
-4. 遗忘所有权后，重新给 `p` 赋一个新的 `_Owned` 值是允许的，新值恢复正常的所有权追踪。
-
-```c
-void reassign_after_forget(void) {
-  int *_Owned p = safe_malloc(1);
-  _Unsafe { __forget(p); }
-  p = safe_malloc(2); // ok：Moved 状态可被重新赋值
-  safe_free(p);
-}
-```
-
-5. `__forget` 同样适用于结构体的 `_Owned` 字段（如 `s.p`、`s->p`、`(*s).p`），会遗忘该字段的所有权，使该字段在结构体作用域结束时不报泄漏，且再次使用该字段会报告 `use of moved value`。
-
-```c
-struct S { int *_Owned p; };
-
-void forget_field(void) {
-  struct S s = {};
-  s.p = safe_malloc(10);
+  struct S s = { safe_malloc(10) };
   _Unsafe { __forget(s.p); }
-  // s.p 的所有权已遗忘，结构体作用域结束时不为 s.p 报泄漏
+  // 所有权已被遗忘，不报泄漏
 }
 ```
 
-**使用限制**：`__forget` 只接受变量（如 `p`）或结构体字段访问（如 `s.p`、`s->p`），可外加括号/隐式转换。其他形态的表达式目前暂不支持，需要时请先用临时变量承接。
+4. 对于一个结构体类型的可跟踪表达式 `e`，`__forget` 遗忘该结构体（递归，含嵌套字段）所有 `_Owned` 指针字段的所有权。
 
 ```c
-void test_array_subscript(void) {
+struct Inner { int *_Owned p; };
+struct Outer { struct Inner in; int *_Owned q; };
+
+void forget_struct_var(void) {
+  struct Outer t = { { safe_malloc(1) }, safe_malloc(2) };
+  _Unsafe { __forget(t); } // t.in.p 与 t.q 的所有权一起被遗忘，不报泄漏
+}
+```
+
+5. 对于包含数组访问的可跟踪表达式，只能在合格for循环中遗忘其所有权（见[3.3.3节](#333-_owned-类型作为数组成员)）。
+
+```c
+void forget_array_elem(void) {
   int *_Owned arr[2];
-  _Unsafe { __forget(arr[0]); } // error: unsupported __forget argument; the argument must be a variable or struct field access
+  for (int i = 0; i < 2; i++)
+    arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    _Unsafe { __forget(arr[i]); }
+  // 所有数组元素视为已被转移所有权，无需释放，不报泄漏
+}
+
+void forget_array_elem_outside_loop(void) {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  _Unsafe { __forget(arr[0]); } // error: cannot transfer ownership of array element `arr` outside a qualifying for-loop; use a full-range for-loop or safe_swap
+}
+```
+
+6. 对于包含 `_Borrow` 指针解引用的可跟踪表达式，不能通过 `__forget` 遗忘其所有权。
+
+```c
+void forget_borrowed_owned(int *_Owned p) {
+  int *_Owned *_Borrow q = &_Mut p;
+  _Unsafe { __forget(*q); } // error: cannot take ownership of a borrowed value
 }
 ```
 

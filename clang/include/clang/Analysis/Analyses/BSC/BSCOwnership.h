@@ -415,6 +415,13 @@ public:
     // on whichever host (OPS owned struct pointer or S struct value) tracks VD.
     void assumeOwnedFieldsUnderNull(const VarDecl *VD,
                                    const std::string &fieldPath);
+    // __forget(*s) / __forget(t) / __forget(s->in): the Moved-semantics
+    // counterparts of assumeAllOwnedFieldsNull / assumeAllSFieldsNull /
+    // assumeOwnedFieldsUnderNull (fields abandoned, not asserted null).
+    void forgetAllOwnedFields(const VarDecl *VD);
+    void forgetAllSFields(const VarDecl *VD);
+    void forgetOwnedFieldsUnderPath(const VarDecl *VD,
+                                    const std::string &fieldPath);
     void setToMoved(const VarDecl *VD);
     void setToMoved(const Expr *E);
 

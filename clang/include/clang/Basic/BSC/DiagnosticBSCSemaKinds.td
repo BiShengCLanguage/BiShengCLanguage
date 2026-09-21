@@ -464,7 +464,7 @@ def err_assume_null_not_trackable : Error<
 def err_assume_null_unsupported_type : Error<
   "__assume_null requires an argument of pointer or struct type">,
   BSCDiag<"NULLABLE", 8,
-          "The argument is trackable but its type is neither a pointer nor a record — e.g. an `int` variable `x`, or `*p` dereferenced to a non-pointer non-record type. Pointer arguments must additionally be `_Nullable` (NULLABLE-006); record arguments are scanned for nullable fields (NULLABLE-009 / W001 / W002)">;
+          "The argument is trackable but its type is neither a pointer nor a struct — e.g. an `int` variable `x`, or a non-pointer non-struct variable `y`. Pointer arguments must additionally be `_Nullable` (NULLABLE-006); struct arguments are scanned for nullable fields (NULLABLE-009 / W001 / W002)">;
 def err_assume_null_nonnull_field : Error<
   "__assume_null is invalid because the struct contains a _Nonnull field">,
   BSCDiag<"NULLABLE", 9,
@@ -484,16 +484,14 @@ def warn_assume_null_no_nullable_field : Warning<
   InGroup<BSCAssumeNull>;
 
 // __forget
-def err_forget_not_owned : Error<
-  "__forget requires an _Owned pointer argument">,
+def err_forget_unsupported_type : Error<
+  "__forget requires an _Owned pointer or a struct containing ownership">,
   BSCDiag<"OWN", 50,
-          "`__forget(p)` explicitly drops ownership tracking of `p`; the operand must be an `_Owned` pointer (a non-_Owned / non-pointer operand is rejected)">;
-def err_forget_complex_arg : Error<
-  "unsupported __forget argument">,
+          "`__forget(p)` explicitly drops ownership tracking of `p`; the operand must be an `_Owned` pointer, or a struct that (recursively, through embedded fields) contains an `_Owned` pointer field. A `_Borrow` / raw / `_Nonnull` pointer, a struct without owned fields, or any other type is rejected">;
+def err_forget_not_trackable : Error<
+  "__forget requires a trackable expression as argument">,
   BSCDiag<"OWN", 51,
-          "`note_forget_complex_arg_hint` — the argument must be a variable or struct field access. `__forget` is a pure analyzer hint (codegen emits nothing), so a compound expression (comma, ternary, call, cast, array subscript, dereference chain `*q`, ...) would be silently dropped and is rejected">;
-def note_forget_complex_arg_hint : Note<
-  "the argument must be a variable or struct field access">;
+          "The argument is not a trackable expression — a variable (identifier), a struct field access (`.` / `->`), an array element (`a[i]`), a pointer dereference (`*`), or parens/implicit casts wrapping those. Any other shape (comma, ternary, call, explicit cast, `++`/`--`, ...) is rejected: `__forget` is a pure analyzer hint (codegen emits nothing) and the dataflow can only lower a trackable path to a tracked location, so anything else would be silently dropped">;
 
 // assign
 def err_ownership_assign_owned : Error<

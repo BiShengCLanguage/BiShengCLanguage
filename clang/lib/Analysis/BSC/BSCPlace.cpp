@@ -127,6 +127,15 @@ const Place *PlaceBuilder::Build(const Expr *E) {
   if (const auto *SE = dyn_cast<SafeExpr>(E))
     return Build(SE->getSubExpr());
 
+  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    const Place *Base = Build(ASE->getBase());
+    if (!Base)
+      return nullptr;
+    // The discriminant is not part of borrow identity: any index of a borrow
+    // root addresses the same pointee.
+    return BuildIndex(Base, ASE->getType(), "", ASE->getRBracketLoc());
+  }
+
   return nullptr;
 }
 

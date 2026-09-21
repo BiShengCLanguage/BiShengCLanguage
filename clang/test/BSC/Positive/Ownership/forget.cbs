@@ -63,3 +63,152 @@ void forget_unsafe_func(void) {
   int *_Owned p = safe_malloc(7);
   __forget(p);
 }
+
+// __forget on an owned-element array element: like any element transfer
+// (safe_free / move-out / assignment), forgetting an element is only allowed
+// inside a qualifying for-loop (see forget_use.cbs for the out-of-loop
+// rejection). The analyzer has no per-element state — the array is one
+// aggregate — so the whole aggregate is treated as moved: no leak at scope
+// end, and any later element transfer is a use-of-moved.
+void forget_array_elem(void) {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  for (int i = 0; i < 2; i++)
+    __forget(arr[i]);
+}
+
+// __forget on an array field of a struct value (w.arr[i]): same aggregate
+// semantics and the same qualifying-loop rule for the field.
+struct WithArr {
+  int *_Owned arr[2];
+};
+
+void forget_struct_array_field(void) {
+  struct WithArr w = {};
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    __forget(w.arr[i]);
+}
+
+// __forget on a member of a struct-array element (a[i].p): same aggregate
+// semantics and the same qualifying-loop rule for the element's field.
+struct Elem {
+  int *_Owned p;
+};
+
+void forget_array_elem_field(void) {
+  struct Elem a[2] = {};
+  for (int i = 0; i < 2; i++)
+    a[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    __forget(a[i].p);
+}
+
+// __forget on a struct-value variable: forgets every owned field of the
+// struct value, so no field leak is reported at scope end.
+void forget_struct_var(void) {
+  struct S s = {};
+  s.p1 = safe_malloc(1);
+  s.p2 = safe_malloc(2);
+  _Unsafe { __forget(s); }
+}
+
+// __forget(*s) on an owned struct pointer: forgets every owned field of the
+// pointee. The struct pointer itself still owns the struct allocation, so it
+// must still be freed (or forgotten) — here it is freed.
+struct Inner {
+  int *_Owned p;
+};
+
+struct Inner *_Owned make_inner(void);
+
+void forget_deref_struct_ptr(void) {
+  struct Inner *_Owned s = make_inner();
+  _Unsafe { __forget(*s); }
+  safe_free((void *_Owned)s);
+}
+
+// __forget(*s) where the struct pointer has an array field: the array field
+// is forgotten together with the scalar fields.
+struct InnerArr {
+  int *_Owned arr[2];
+};
+
+struct InnerArr *_Owned make_inner_arr(void);
+
+void forget_deref_struct_ptr_array(void) {
+  struct InnerArr *_Owned s = make_inner_arr();
+  _Unsafe { __forget(*s); }
+  safe_free((void *_Owned)s);
+}
+
+// __forget(s->in) on a struct-typed field: forgets every owned field nested
+// under it.
+struct In2 {
+  int *_Owned p;
+};
+
+struct Outer2 {
+  struct In2 in;
+  int *_Owned q;
+};
+
+void forget_substruct_field(void) {
+  struct Outer2 t = {};
+  t.in.p = safe_malloc(3);
+  t.q = safe_malloc(4);
+  _Unsafe { __forget(t.in); }
+  safe_free(t.q);
+}
+
+// The equivalent through an owned struct pointer: __forget(s->in).
+struct Outer2 *_Owned make_outer(void);
+
+void forget_substruct_field_ptr(void) {
+  struct Outer2 *_Owned t = make_outer();
+  _Unsafe { __forget(t->in); }
+  _Unsafe { __forget(t); }
+}
+
+// __forget(*h->sp) on an owned struct-pointer FIELD: the field form of
+// __forget(*s) above — forgets every owned field of the pointee. The field
+// h->sp itself still owns the pointee allocation (freed here), and the host
+// h still owns its own (forgotten here).
+struct Holder {
+  struct Inner *_Owned sp;
+};
+
+struct Holder *_Owned make_holder(void);
+
+void forget_deref_struct_ptr_field(void) {
+  struct Holder *_Owned h = make_holder();
+  _Unsafe { __forget(*h->sp); }
+  safe_free((void *_Owned)h->sp);
+  _Unsafe { __forget(h); }
+}
+
+// The equivalent spellings resolve the same: *(h->sp), *(*h).sp, and the
+// parenthesized local form *(s).
+void forget_deref_struct_ptr_field_paren(void) {
+  struct Holder *_Owned h = make_holder();
+  _Unsafe { __forget(*(h->sp)); }
+  safe_free((void *_Owned)h->sp);
+  _Unsafe { __forget(h); }
+  struct Holder *_Owned h2 = make_holder();
+  _Unsafe { __forget(*(*h2).sp); }
+  safe_free((void *_Owned)h2->sp);
+  _Unsafe { __forget(h2); }
+  struct Inner *_Owned s = make_inner();
+  _Unsafe { __forget(*(s)); }
+  safe_free((void *_Owned)s);
+}
+
+// __forget(*t.sp) where the host is a struct VALUE: same semantics on the
+// S host — the pointee's owned fields are forgotten, the field itself keeps
+// owning the pointee allocation (freed here).
+void forget_deref_struct_field_value(void) {
+  struct Holder t = {};
+  t.sp = make_inner();
+  _Unsafe { __forget(*t.sp); }
+  safe_free((void *_Owned)t.sp);
+}

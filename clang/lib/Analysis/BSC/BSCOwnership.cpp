@@ -1351,6 +1351,62 @@ void Ownership::OwnershipStatus::assumeOwnedFieldsUnderNull(
   }
 }
 
+// __forget(*s) on an owned struct pointer: forget every registered owned
+// field of the pointee (Moved semantics — the fields are not asserted null,
+// they are abandoned). Unlike assumeAllOwnedFieldsNull, array fields
+// ("arr[]") are forgotten too: __forget is a promise to abandon the whole
+// pointee contents, and there is no Sema warning that could exclude them.
+// The pointer itself keeps owning the struct allocation (still must be freed
+// or forgotten), so no aggregate bit changes.
+void Ownership::OwnershipStatus::forgetAllOwnedFields(
+    const VarDecl *VD) {
+  if (!OPSStatus.count(VD))
+    return;
+  OPSOwnedOwnedFields[VD].clear();
+  OPSNullOwnedFields[VD].clear();
+}
+
+// __forget(t) on a struct-value variable (VD in SStatus): forget every
+// registered owned field of the struct value, mirroring
+// forgetAllOwnedFields for the owned-struct-pointer (OPS) host. The
+// fields count as explicitly moved (SMovedOwnedFields), so a later field use
+// reports use-of-moved like a per-field move-out would.
+void Ownership::OwnershipStatus::forgetAllSFields(const VarDecl *VD) {
+  if (!SStatus.count(VD))
+    return;
+  for (const string &path : SAllOwnedFields[VD]) {
+    SOwnedOwnedFields[VD].erase(path);
+    SNullOwnedFields[VD].erase(path);
+    SUninitOwnedFields[VD].erase(path);
+  }
+  SMovedOwnedFields[VD] = SAllOwnedFields[VD];
+}
+
+// __forget(s->in) / __forget(t.in) on a struct-typed field: forget every
+// owned field nested under `fieldPath` (prefix match) on whichever host
+// tracks VD — an owned struct pointer (OPS) or a struct value (S). Mirror of
+// assumeOwnedFieldsUnderNull with Moved semantics (no Null insertion; S-host
+// fields are marked moved so later uses report use-of-moved).
+void Ownership::OwnershipStatus::forgetOwnedFieldsUnderPath(
+    const VarDecl *VD, const string &fieldPath) {
+  string prefix = fieldPath + ".";
+  if (OPSStatus.count(VD)) {
+    for (const string &str : findPrefixStrings(OPSAllOwnedFields[VD], prefix)) {
+      OPSOwnedOwnedFields[VD].erase(str);
+      OPSNullOwnedFields[VD].erase(str);
+    }
+  }
+  if (SStatus.count(VD)) {
+    for (const string &str : findPrefixStrings(SAllOwnedFields[VD], prefix)) {
+      SOwnedOwnedFields[VD].erase(str);
+      SNullOwnedFields[VD].erase(str);
+      SUninitOwnedFields[VD].erase(str);
+      markFieldAndDescendantsMoved(SAllOwnedFields[VD], SMovedOwnedFields[VD],
+                                   str);
+    }
+  }
+}
+
 void Ownership::OwnershipStatus::setToNull(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
@@ -1445,6 +1501,8 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
     while (UO->getOpcode() == UO_Deref) {
       if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(e)) {
         e = ICE->getSubExpr();
+      } else if (const ParenExpr *PE = dyn_cast<ParenExpr>(e)) {
+        e = PE->getSubExpr();
       } else if (const UnaryOperator *uo = dyn_cast<UnaryOperator>(e)) {
         UO = uo;
         suffix += "*";
@@ -1487,6 +1545,24 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
         }
       }
     }
+    // __assume_null(*h->sp) / __assume_null(*t.sp): the field form of
+    // __assume_null(*s) above — deref of an owned struct-pointer field. Drop
+    // ownership of the pointee's owned fields (they are the fieldPath-prefixed
+    // paths on the host variable) by assuming them null; the field itself
+    // keeps owning the pointee allocation.
+    if (suffix == "*") {
+      if (const MemberExpr *ME = dyn_cast<MemberExpr>(e)) {
+        QualType PointeeTy = ME->getType()->getPointeeType();
+        if (PointeeTy->isRecordType()) {
+          pair<const Expr *, string> memberField = getMemberFullField(ME);
+          if (const DeclRefExpr *DRE =
+                  getRootDREFromMemberBase(memberField.first)) {
+            if (const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+              assumeOwnedFieldsUnderNull(VD, memberField.second);
+          }
+        }
+      }
+    }
   }
 }
 
@@ -1507,11 +1583,42 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   // A plain owned-pointer variable (e.g. int *_Owned p): drop ownership by
   // moving it out wholesale — no leak, no double-free, later use reports
-  // use-of-moved.
+  // use-of-moved. A struct-value variable (struct S t with _Owned fields, or
+  // an owned struct) owns nothing itself: forget every owned field instead.
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    if (E->getType()->isRecordType() && SStatus.count(VD)) {
+      forgetAllSFields(VD);
+      return;
+    }
     setToMoved(VD);
     return;
+  }
+  // An owned-element array element (a[i], w.arr[i]): the array is one
+  // aggregate and the user explicitly promises to abandon the element, so
+  // apply the aggregate Moved transition (the qualifying-loop gate lives in
+  // the caller, TransferFunctions::isArrayElemForgetAllowed).
+  if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+    while (const ArraySubscriptExpr *Inner = dyn_cast<ArraySubscriptExpr>(Base))
+      Base = Inner->getBase()->IgnoreParenImpCasts();
+    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base)) {
+      if (const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        if (IsOwnedElementArrayType(VD->getType()))
+          setArrayElemMoved(VD);
+        return;
+      }
+    }
+    // Struct-field array element: w.arr[i] (base is a member access). Peel
+    // the host and the "arr[]" path and move the field aggregate out.
+    if (dyn_cast<MemberExpr>(Base)) {
+      const VarDecl *HostVD = nullptr;
+      std::string FieldPath;
+      if (PeelHostAndFieldPath(E, HostVD, FieldPath) &&
+          IsOwnedArrayFieldPath(HostVD, FieldPath))
+        setArrayFieldMoved(HostVD, FieldPath);
+      return;
+    }
   }
   // A struct owned field (e.g. s.p, s->p, (*s).p): drop the field's ownership
   // by moving it out, mirroring the field move-out performed when the field is
@@ -1522,9 +1629,39 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E) {
   // leading deref from the member base so `(*s).p` resolves like `s->p`.
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
     pair<const Expr *, string> memberField = getMemberFullField(ME);
+    // Struct-array member: __forget(s[i].f) (base is an ArraySubscriptExpr on
+    // a local struct array): move the field aggregate of every element out.
+    const Expr *Base = memberField.first->IgnoreParenImpCasts();
+    while (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(Base))
+      Base = ASE->getBase()->IgnoreParenImpCasts();
+    if (const DeclRefExpr *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
+      if (const VarDecl *VD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
+        if (IsOwnedElementArrayType(VD->getType())) {
+          setArrayFieldMoved(VD, memberField.second);
+          return;
+        }
+      }
+    }
+    // Struct-field array member: __forget(w.arr[i].f) — an array-field path
+    // of a host aggregate; move the field aggregate out (mirror of the
+    // VisitMemberExpr move-out path).
+    const VarDecl *HostVD = nullptr;
+    std::string FieldPath;
+    if (PeelHostAndFieldPath(ME, HostVD, FieldPath) &&
+        IsOwnedArrayFieldPath(HostVD, FieldPath)) {
+      setArrayFieldMoved(HostVD, FieldPath);
+      return;
+    }
     if (const DeclRefExpr *DRE =
             getRootDREFromMemberBase(memberField.first)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      // __forget(s->in) / __forget(t.in) where the member is a (sub-)struct:
+      // forget every owned field nested under it on whichever host tracks VD.
+      // Pointer-typed members fall through to the single-field drop below.
+      if (E->getType()->isRecordType()) {
+        forgetOwnedFieldsUnderPath(VD, memberField.second);
+        return;
+      }
       if (OPSStatus.count(VD)) {
         if (OPSAllOwnedFields[VD].count(memberField.second)) {
           OPSOwnedOwnedFields[VD].erase(memberField.second);
@@ -1550,6 +1687,76 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E) {
             SOwnedOwnedFields[VD].erase(str);
             SNullOwnedFields[VD].erase(str);
             SUninitOwnedFields[VD].erase(str);
+          }
+        }
+      }
+    }
+  }
+  // A deref chain: __forget(*s) on an owned struct pointer forgets every
+  // owned field of the pointee (the pointer itself keeps owning the struct
+  // allocation — it must still be freed or forgotten, so no aggregate bit
+  // changes); __forget(*q) on a pointer-to-owned-pointer (int *_Owned *q)
+  // forgets the inner owned pointer tracked as the "*" field of the BOP host.
+  if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
+    string suffix;
+    const Expr *e = UO;
+    while (UO->getOpcode() == UO_Deref) {
+      if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(e)) {
+        e = ICE->getSubExpr();
+      } else if (const ParenExpr *PE = dyn_cast<ParenExpr>(e)) {
+        e = PE->getSubExpr();
+      } else if (const UnaryOperator *uo = dyn_cast<UnaryOperator>(e)) {
+        UO = uo;
+        suffix += "*";
+        e = UO->getSubExpr();
+      } else {
+        break;
+      }
+    }
+    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(e)) {
+      const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      if (suffix == "*" && OPSStatus.count(VD)) {
+        QualType PointeeTy = VD->getType()->getPointeeType();
+        if (PointeeTy->isRecordType())
+          forgetAllOwnedFields(VD);
+      }
+      if (BOPStatus.count(VD)) {
+        if (BOPAllOwnedFields[VD].count(suffix)) {
+          BOPOwnedOwnedFields[VD].erase(suffix);
+          auto allPrefixStrs =
+              findPrefixStrings(BOPAllOwnedFields[VD], suffix + "*");
+          for (const string &str : allPrefixStrs) {
+            BOPOwnedOwnedFields[VD].erase(str);
+          }
+          if (BOPAllOwnedFields[VD].size() != BOPOwnedOwnedFields[VD].size()) {
+            if (!is(VD, Moved)) {
+              resetAll(VD);
+              set(VD, PartialMoved);
+            }
+          }
+          if (BOPOwnedOwnedFields[VD].empty()) {
+            if (!is(VD, Moved)) {
+              resetAll(VD);
+              set(VD, AllMoved);
+            }
+          }
+        }
+      }
+    }
+    // __forget(*h->sp) / __forget(*t.sp): the field form of __forget(*s)
+    // above — deref of an owned struct-pointer field. The pointee's owned
+    // fields are the fieldPath-prefixed paths on the host variable; forget
+    // them while the field itself keeps owning the pointee allocation (it
+    // must still be freed or moved, so no aggregate bit changes).
+    if (suffix == "*") {
+      if (const MemberExpr *ME = dyn_cast<MemberExpr>(e)) {
+        QualType PointeeTy = ME->getType()->getPointeeType();
+        if (PointeeTy->isRecordType()) {
+          pair<const Expr *, string> memberField = getMemberFullField(ME);
+          if (const DeclRefExpr *DRE =
+                  getRootDREFromMemberBase(memberField.first)) {
+            if (const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+              forgetOwnedFieldsUnderPath(VD, memberField.second);
           }
         }
       }
@@ -2026,7 +2233,27 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
   for (const auto& elem : ownedPrefixStrsStar) {
     ownedPrefixStrs.insert(elem);
   }
-  if (allPrefixStrs.size() != ownedPrefixStrs.size() && diags.empty()) {
+  // A sub-field dropped via __assume_null (moved out of OwnedOwned into
+  // NullOwned) is null/handled, not moved — it must not count as a
+  // partially-moved child of the accessed field (mirrors the AllMoved
+  // exemption in checkOPSUse).
+  llvm::SmallSet<string, 10> nullPrefixStrs;
+  if (fullFieldName[fullFieldName.size() - 1] == '.') {
+    nullPrefixStrs = findPrefixStrings(OPSNullOwnedFields[VD], fullFieldName);
+  } else {
+    nullPrefixStrs = findPrefixStrings(OPSNullOwnedFields[VD],
+                                       fullFieldName + ".");
+  }
+  auto nullPrefixStrsStar =
+      findPrefixStrings(OPSNullOwnedFields[VD], fullFieldName + "*");
+  for (const auto &elem : nullPrefixStrsStar) {
+    nullPrefixStrs.insert(elem);
+  }
+  llvm::SmallSet<string, 10> ownedOrNullPrefixStrs = ownedPrefixStrs;
+  for (const auto &elem : nullPrefixStrs) {
+    ownedOrNullPrefixStrs.insert(elem);
+  }
+  if (allPrefixStrs.size() != ownedOrNullPrefixStrs.size() && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfPartiallyMoved,
                           VD->getNameAsString(), collectMovedFields(VD)));
@@ -2345,6 +2572,25 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
   for (const auto &elem : ownedPrefixStrsStar) {
     ownedPrefixStrs.insert(elem);
   }
+  // A sub-field dropped via __assume_null (moved out of OwnedOwned into
+  // NullOwned) is null/handled, not moved — it must not count as a
+  // partially-moved child of the accessed field.
+  llvm::SmallSet<string, 10> nullPrefixStrs;
+  if (fullFieldName[fullFieldName.size() - 1] == '.') {
+    nullPrefixStrs = findPrefixStrings(SNullOwnedFields[VD], fullFieldName);
+  } else {
+    nullPrefixStrs = findPrefixStrings(SNullOwnedFields[VD],
+                                       fullFieldName + ".");
+  }
+  auto nullPrefixStrsStar =
+      findPrefixStrings(SNullOwnedFields[VD], fullFieldName + "*");
+  for (const auto &elem : nullPrefixStrsStar) {
+    nullPrefixStrs.insert(elem);
+  }
+  llvm::SmallSet<string, 10> ownedOrNullPrefixStrs = ownedPrefixStrs;
+  for (const auto &elem : nullPrefixStrs) {
+    ownedOrNullPrefixStrs.insert(elem);
+  }
   bool hasExplicitMovedChild = false;
   for (const string &field : SMovedOwnedFields[VD]) {
     if (field != fullFieldName && isFieldPathPrefix(fullFieldName, field)) {
@@ -2354,7 +2600,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
   }
   // A CFG merge may restore a child to may-own while it remains moved on
   // another path.
-  if ((allPrefixStrs.size() != ownedPrefixStrs.size() ||
+  if ((allPrefixStrs.size() != ownedOrNullPrefixStrs.size() ||
        hasExplicitMovedChild) &&
       diags.empty()) {
     diags.push_back(OwnershipDiagInfo(
@@ -3229,6 +3475,12 @@ public:
   bool isArrayElemTransferAllowed(const Expr *Site,
                                   const VarDecl *ArrVD,
                                   bool IsArrElemPtr);
+  // Check that a __forget argument may be forgotten here. An argument that
+  // addresses an element of an owned-element array (arr[i], w.arr[i],
+  // a[i].p) follows the same qualifying-loop rule as any other element
+  // transfer; other shapes are always allowed. Emits
+  // ArrayElemTransferForbidden and returns false when forbidden.
+  bool isArrayElemForgetAllowed(const Expr *Arg);
   // Apply the dataflow transition for a[i] / s[i].f transfers. Move-out of an
   // already-moved aggregate / field reports use-after-move.
   void applyArrayElemTransition(SourceLocation Loc, const VarDecl *ArrVD,
@@ -3493,6 +3745,22 @@ bool TransferFunctions::isArrayElemTransferAllowed(const Expr *Site,
   if (!Allowed)
     emitArrayElemForbidden(Site->getExprLoc(), ArrVD);
   return Allowed;
+}
+
+bool TransferFunctions::isArrayElemForgetAllowed(const Expr *Arg) {
+  Arg = Arg->IgnoreParenImpCasts();
+  // Local owned-element array (arr[i], a[i] / its fields a[i].p) or a
+  // T *_Owned _ArrayElem base (p[i] — element transfer is always forbidden).
+  bool IsArrElemPtr = false;
+  if (const VarDecl *ArrVD = peelArrayBase(Arg, IsArrElemPtr))
+    return isArrayElemTransferAllowed(Arg, ArrVD, IsArrElemPtr);
+  // Owned array field of a host aggregate (w.arr[i], s->arr[i].f).
+  const VarDecl *HostVD = nullptr;
+  std::string FieldPath;
+  if (GetOwnedArrayField(Arg, HostVD, FieldPath))
+    return isArrayElemTransferAllowed(Arg, HostVD, /*IsArrElemPtr=*/false);
+  // Not element-shaped (p, s.p, *s, t.in): no qualifying-loop requirement.
+  return true;
 }
 
 // True when the owned field `fieldName` of the struct-array `ArrVD` is itself
@@ -4081,8 +4349,15 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
   // which would otherwise move the owned pointer out.
   if (FunctionDecl *Callee = CE->getDirectCallee()) {
     if (Callee->getBuiltinID() == Builtin::BI__forget) {
-      if (CE->getNumArgs() == 1)
+      if (CE->getNumArgs() == 1) {
+        // Forgetting an element of an owned-element array (arr[i], w.arr[i],
+        // a[i].p) follows the same qualifying-loop rule as any other element
+        // transfer (safe_free / move-out / assignment). When forbidden, the
+        // diagnostic has been emitted and the aggregate must not move.
+        if (!isArrayElemForgetAllowed(CE->getArg(0)))
+          return;
         stat.setToMoved(CE->getArg(0));
+      }
       return;
     }
   }

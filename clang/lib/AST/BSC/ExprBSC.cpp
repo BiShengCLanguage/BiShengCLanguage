@@ -79,4 +79,32 @@ bool Expr::isNullabilityTrackableExpr() const {
   }
   return false;
 }
+
+/// Whether this expression matches the __forget trackable grammar: the
+/// nullability trackable grammar plus array subscripts:
+///   trackable_expr ::= identifier
+///                    | (trackable_expr)
+///                    | trackable_expr . identifier
+///                    | trackable_expr -> identifier
+///                    | * trackable_expr
+///                    | trackable_expr [ expr ]
+bool Expr::isForgetTrackableExpr() const {
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(this)) {
+    return isa<VarDecl>(DRE->getDecl());
+  } else if (const ParenExpr *PE = dyn_cast<ParenExpr>(this)) {
+    return PE->getSubExpr()->isForgetTrackableExpr();
+  } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(this)) {
+    if (!isa<FieldDecl>(ME->getMemberDecl()))
+      return false;
+    return ME->getBase()->isForgetTrackableExpr();
+  } else if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(this)) {
+    return ICE->getSubExpr()->isForgetTrackableExpr();
+  } else if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(this)) {
+    if (UO->getOpcode() == UO_Deref)
+      return UO->getSubExpr()->isForgetTrackableExpr();
+  } else if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(this)) {
+    return ASE->getBase()->isForgetTrackableExpr();
+  }
+  return false;
+}
 #endif // ENABLE_BSC

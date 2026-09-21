@@ -2454,21 +2454,28 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     if (checkArgCount(*this, TheCall, 1))
       return ExprError();
     QualType ArgTy = TheCall->getArg(0)->getType();
-    if (!ArgTy.isOwnedPointer()) {
-      Diag(TheCall->getArg(0)->getBeginLoc(), diag::err_forget_not_owned);
+    const Expr *ArgE = TheCall->getArg(0)->IgnoreParenImpCasts();
+    // __forget only accepts a trackable expression (the nullability trackable
+    // grammar plus array subscripts)
+    if (!ArgE->isForgetTrackableExpr()) {
+      Diag(ArgE->getBeginLoc(), diag::err_forget_not_trackable);
       return ExprError();
     }
-    // The argument must be a static addressing path the dataflow can lower to
-    // a tracked location: a variable (DeclRefExpr) or a struct field access
-    // (MemberExpr), optionally wrapped in parens/implicit casts. Any other
-    // shape (comma, ternary, call, explicit cast, array subscript, ++/--,
-    // dereference chain `*q`, ...) is rejected — __forget is a pure analyzer
-    // hint (codegen emits nothing), so a compound expression would be silently
-    // dropped and the ownership never forgotten.
-    const Expr *ArgE = TheCall->getArg(0)->IgnoreParenImpCasts();
-    if (!isa<DeclRefExpr>(ArgE) && !isa<MemberExpr>(ArgE)) {
-      Diag(ArgE->getBeginLoc(), diag::err_forget_complex_arg);
-      Diag(ArgE->getBeginLoc(), diag::note_forget_complex_arg_hint);
+    // The argument must be an _Owned pointer, or a struct that (recursively,
+    // through embedded fields) contains an _Owned field — those fields are
+    // all forgotten together.
+    if (ArgTy->isPointerType()) {
+      if (!ArgTy.isOwnedPointer()) {
+        Diag(ArgE->getBeginLoc(), diag::err_forget_unsupported_type);
+        return ExprError();
+      }
+    } else if (ArgTy->isStructureType()) {
+      if (!ArgTy.isOrContainsOwned(BSCLookThrough::NoPointer)) {
+        Diag(ArgE->getBeginLoc(), diag::err_forget_unsupported_type);
+        return ExprError();
+      }
+    } else {
+      Diag(ArgE->getBeginLoc(), diag::err_forget_unsupported_type);
       return ExprError();
     }
     if (checkOwnedExprThroughBorrow(*this, ArgE))

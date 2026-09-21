@@ -79,3 +79,165 @@ void test_free_after_forget(void) {
   _Unsafe { __forget(p); }
   safe_free(p); // expected-error {{use of moved value: 'p'}}
 }
+
+// __forget on a struct-value variable forgets every owned field: using any
+// field afterwards is a use-of-moved error.
+struct Two {
+  int *_Owned p;
+  int *_Owned q;
+};
+
+void test_use_field_after_forget_struct_var(void) {
+  struct Two t = {};
+  t.p = safe_malloc(1);
+  t.q = safe_malloc(2);
+  _Unsafe { __forget(t); }
+  sink_field(t.p); // expected-error {{use of moved value: 't.p'}}
+}
+
+// __forget(*s) on an owned struct pointer forgets every owned field of the
+// pointee: using a field afterwards is a use-of-moved error. The struct
+// pointer itself still owns the struct allocation, so no leak is reported for
+// s after it is freed at the end.
+struct Inner2 {
+  int *_Owned p;
+};
+
+struct Inner2 *_Owned make_inner2(void);
+
+void test_use_field_after_forget_deref(void) {
+  struct Inner2 *_Owned s = make_inner2();
+  _Unsafe { __forget(*s); }
+  sink_field(s->p); // expected-error {{use of moved value: 's.p'}}
+  safe_free((void *_Owned)s);
+}
+
+// __forget(t.in) on a struct-typed field forgets every owned field nested
+// under it; a sibling field is unaffected.
+struct In3 {
+  int *_Owned p;
+};
+
+struct Outer3 {
+  struct In3 in;
+  int *_Owned q;
+};
+
+void test_use_field_after_forget_substruct(void) {
+  struct Outer3 t = {};
+  t.in.p = safe_malloc(1);
+  t.q = safe_malloc(2);
+  _Unsafe { __forget(t.in); }
+  sink_field(t.in.p); // expected-error {{use of moved value: 't.in.p'}}
+  safe_free(t.q);
+}
+
+// __forget(arr[i]) on an owned-pointer array, inside a qualifying for-loop
+// (the only place an element may be forgotten, like any other element
+// transfer): the array is one aggregate with no per-element state, so the
+// whole aggregate is treated as moved — a later element transfer is a
+// use-of-moved.
+void test_use_after_forget_array_elem(void) {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  _Unsafe {
+    for (int i = 0; i < 2; i++)
+      __forget(arr[i]);
+  }
+  *arr[0] = 1; // expected-error {{use of moved value: 'arr'}}
+}
+
+// __forget(w.arr[i]) on an array field of a struct value, inside a
+// qualifying for-loop: same aggregate semantics for the field.
+struct WithArr2 {
+  int *_Owned arr[2];
+};
+
+void test_use_after_forget_struct_array_field(void) {
+  struct WithArr2 w = {};
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = safe_malloc(i);
+  _Unsafe {
+    for (int i = 0; i < 2; i++)
+      __forget(w.arr[i]);
+  }
+  *w.arr[0] = 1; // expected-error {{use of moved value: 'w'}}
+}
+
+// __forget(a[i].p) on a member of a struct-array element, inside a
+// qualifying for-loop: same aggregate semantics for the element's field.
+struct Elem2 {
+  int *_Owned p;
+};
+
+void test_use_after_forget_array_elem_field(void) {
+  struct Elem2 a[2] = {};
+  for (int i = 0; i < 2; i++)
+    a[i].p = safe_malloc(i);
+  _Unsafe {
+    for (int i = 0; i < 2; i++)
+      __forget(a[i].p);
+  }
+  int v = *a[0].p; // expected-error {{use of moved value: 'a'}}
+  (void)v;
+}
+
+// Forgetting an element OUTSIDE a qualifying for-loop is forbidden, exactly
+// like safe_free on an element: the site is not a qualifying element
+// transfer, and the aggregate must not silently move — it still owns, so a
+// leak is also reported at scope end.
+void test_forget_array_elem_outside_loop(void) {
+  int *_Owned arr[2] = {safe_malloc(1), safe_malloc(2)};
+  _Unsafe { __forget(arr[0]); } // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
+
+// The same for an array field of a struct value (w.arr[0]).
+void test_forget_struct_array_field_outside_loop(void) {
+  struct WithArr2 w = {};
+  for (int i = 0; i < 2; i++)
+    w.arr[i] = safe_malloc(i);
+  _Unsafe { __forget(w.arr[0]); } // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because w.arr[] is not freed or moved before 'w' goes out of scope}}
+
+// And for a member of a struct-array element (a[0].p).
+void test_forget_array_elem_field_outside_loop(void) {
+  struct Elem2 a[2] = {};
+  for (int i = 0; i < 2; i++)
+    a[i].p = safe_malloc(i);
+  _Unsafe { __forget(a[0].p); } // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because a.p is not freed or moved before 'a' goes out of scope}}
+
+// __forget(*h->sp) on an owned struct-pointer field forgets the pointee's
+// owned fields: using one afterwards is a use-of-moved error. The field and
+// the host still own their allocations, so the host is forgotten afterwards
+// (its fields are gone either way) and no leak is reported.
+struct Holder2 {
+  struct Inner2 *_Owned sp;
+};
+
+struct Holder2 *_Owned make_holder2(void);
+
+void test_use_field_after_forget_deref_field(void) {
+  struct Holder2 *_Owned h = make_holder2();
+  _Unsafe { __forget(*h->sp); }
+  sink_field(h->sp->p); // expected-error {{use of moved value: 'h.sp.p'}}
+  _Unsafe { __forget(h); }
+}
+
+// The same through a struct-value host: __forget(*t.sp) then using the
+// pointee's field is a use-of-moved error; the field itself still owns the
+// pointee allocation, so it is freed afterwards.
+void test_use_field_after_forget_deref_field_value(void) {
+  struct Holder2 t = { make_inner2() };
+  _Unsafe { __forget(*t.sp); }
+  sink_field(t.sp->p); // expected-error {{use of moved value: 't.sp.p'}}
+  safe_free((void *_Owned)t.sp);
+}
+
+// The parenthesized spelling __forget(*(s)) resolves like __forget(*s):
+// using a pointee field afterwards is a use-of-moved error.
+void test_use_after_forget_deref_paren(void) {
+  struct Inner2 *_Owned s = make_inner2();
+  _Unsafe { __forget(*(s)); }
+  sink_field(s->p); // expected-error {{use of moved value: 's.p'}}
+  safe_free((void *_Owned)s);
+}
