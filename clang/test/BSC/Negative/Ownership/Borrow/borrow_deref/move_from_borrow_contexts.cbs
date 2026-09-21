@@ -104,3 +104,45 @@ void test_safe_swap_outside_loop() {
   for (int i = 0; i < 2; i++)
     safe_free((void *_Owned)arr[i]);
 }
+
+// An intermediate owned pointer hop keeps tracking back to the borrow root:
+// the DeepHop object is owned storage inside the borrowed MidHop, so moving
+// its field q out is a move through the borrow, in every consuming context.
+struct DeepHop { int *_Owned q; };
+struct MidHop { struct DeepHop *_Owned _Nullable dp; };
+
+void owned_hop_initializer(struct MidHop *_Borrow source) {
+  int *_Owned value = source->dp->q; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)value;
+}
+
+void owned_hop_assignment(struct MidHop *_Borrow source) {
+  int *_Owned tmp = nullptr;
+  tmp = source->dp->q; // expected-error {{cannot take ownership of a borrowed value}}
+  (void)tmp;
+}
+
+int *_Owned owned_hop_return(struct MidHop *_Borrow source) {
+  return source->dp->q; // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void owned_hop_argument(struct MidHop *_Borrow source) {
+  consume_owned(source->dp->q); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+void owned_hop_deref_paren(struct MidHop *_Borrow source) {
+  consume_owned((*source->dp).q); // expected-error {{cannot take ownership of a borrowed value}}
+}
+
+// Control: the same shape rooted at a local owned variable (not a borrow)
+// stays silent — o's pointee is the caller's own owned storage.
+void owned_hop_local_owned(struct DeepHop *_Owned _Nullable o) {
+  consume_owned(o->q);
+}
+
+// Control: an intermediate raw pointer hop is not tracked (the pointee is
+// untracked), matching the `*(&a[1])` family above.
+struct MidRawHop { struct DeepHop *d; };
+void owned_hop_raw_intermediate(struct MidRawHop *_Borrow source) {
+  consume_owned(source->d->q);
+}

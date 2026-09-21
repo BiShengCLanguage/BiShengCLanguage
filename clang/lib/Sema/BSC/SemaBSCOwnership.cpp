@@ -370,12 +370,14 @@ bool Sema::CheckTemporaryVarMemoryLeak(Expr* E) {
 // `(*(a + 1)).p` and `((c ? a : b)[0]).p`. Only the three expression kinds
 // that produce an object/array from a pointer are peeled (MemberExpr,
 // ArraySubscriptExpr and UnaryOperator(Deref)); composite pointer operands
-// are decided by their type alone. A non-borrow (raw) pointer base/operand
-// stops the walk: an object reached through `**a` or `(*a)->p` (where `a` is
-// `struct S ** _Borrow _ArrayElem`) is behind an untracked pointer and is not
-// an element of the borrowed array. When RootDecl is provided and the
-// expression has a single DeclRefExpr root, it receives that declaration (for
-// diagnostics); composite roots leave it null.
+// are decided by their type alone. An owned pointer base/operand is followed
+// to its own provenance (`w->dp->q` still roots at the borrow w). A raw
+// pointer base/operand stops the walk: an object reached through `**a` or
+// `(*a)->p` (where `a` is `struct S ** _Borrow _ArrayElem`) is behind an
+// untracked pointer and is not an element of the borrowed array. When
+// RootDecl is provided and the expression has a single DeclRefExpr root, it
+// receives that declaration (for diagnostics); composite roots leave it
+// null.
 static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
   if (!E)
     return false;
@@ -394,9 +396,13 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
     QualType BaseTy = Base->getType();
     if (BaseTy->isPointerType()) {
       // `->`: the pointer base itself decides. Raw pointer bases (including
-      // `(&a[0])->p` and `(*a)->p`) are intentionally not tracked.
-      if (!BaseTy.isBorrowPointer())
+      // `(&a[0])->p` and `(*a)->p`) are intentionally not tracked; an owned
+      // pointer base is followed to its own provenance (the borrowed storage
+      // it was loaded from).
+      if (BaseTy.isRawPointer())
         return false;
+      if (BaseTy.isOwnedPointer())
+        return IsBorrowRoot(Base, RootDecl);
       NoteRootIfSimple(Base);
       return true;
     }
@@ -423,9 +429,12 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
     QualType BaseTy = Base->getType();
     if (BaseTy->isPointerType()) {
       // `p[i]`: the pointer base decides (composite pointer expressions are
-      // covered by the type check).
-      if (!BaseTy.isBorrowPointer())
+      // covered by the type check). Raw pointer bases are intentionally not
+      // tracked; an owned pointer base is followed to its own provenance.
+      if (BaseTy.isRawPointer())
         return false;
+      if (BaseTy.isOwnedPointer())
+        return IsBorrowRoot(Base, RootDecl);
       NoteRootIfSimple(Base);
       return true;
     }
@@ -437,8 +446,13 @@ static bool IsBorrowRoot(const Expr *E, const VarDecl **RootDecl = nullptr) {
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref) {
       const Expr *Operand = UO->getSubExpr()->IgnoreParenImpCastsSafe();
-      if (!Operand->getType().isBorrowPointer())
+      QualType OperandTy = Operand->getType();
+      // A raw pointer operand is untracked; an owned pointer operand is
+      // followed to its own provenance.
+      if (OperandTy.isRawPointer())
         return false;
+      if (OperandTy.isOwnedPointer())
+        return IsBorrowRoot(Operand, RootDecl);
       NoteRootIfSimple(Operand);
       return true;
     }
@@ -507,27 +521,21 @@ void Sema::CheckMoveFromBorrow(Expr* E, SourceLocation SL) {
     }
   };
   // Ownership must not leave through any `_Borrow` pointer, whether plain
-  // `_Borrow` or `_Borrow _ArrayElem`. The direct borrow-qualified checks
-  // cover `*p`, `p->f` and `a[i]`; `IsBorrowRoot` additionally covers
-  // deref-then-member forms (`(*a).p`, `(*(a + 1)).p`,
-  // `(c ? *a : *b).p`, `a[0].arr[0].p`). Forms that first go through a raw
-  // pointer (e.g. `*(&a[1])`, `(&a[0])->p`, `**a`) are intentionally not
-  // tracked.
+  // `_Borrow` or `_Borrow _ArrayElem`. `IsBorrowRoot` covers the direct
+  // forms (`*p`, `p->f`, `a[i]`), deref-then-member forms (`(*a).p`,
+  // `(*(a + 1)).p`, `(c ? *a : *b).p`, `a[0].arr[0].p`) and intermediate
+  // owned pointer hops (`w->dp->q`, `*ow`). Forms that first go through a
+  // raw pointer (e.g. `*(&a[1])`, `(&a[0])->p`, `**a`) are intentionally
+  // not tracked.
   if (auto *UO = dyn_cast_or_null<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref &&
-        IsOwnedConsuming(UO->getType()) &&
-        UO->getSubExpr()->getType().isBorrowQualified())
+        IsOwnedConsuming(UO->getType()) && IsBorrowRoot(UO))
       DiagMoveBorrow(UO);
   } else if (auto *ME = dyn_cast_or_null<MemberExpr>(E)) {
-    if (IsOwnedConsuming(ME->getType()) &&
-        (ME->getBase()->getType().isBorrowQualified() ||
-         IsBorrowRoot(ME)))
+    if (IsOwnedConsuming(ME->getType()) && IsBorrowRoot(ME))
       DiagMoveBorrow(ME);
-  } else if (auto *ASE =
-                 dyn_cast_or_null<ArraySubscriptExpr>(E)) {
-    if (IsOwnedConsuming(ASE->getType()) &&
-        (ASE->getBase()->getType().isBorrowQualified() ||
-         IsBorrowRoot(ASE)))
+  } else if (auto *ASE = dyn_cast_or_null<ArraySubscriptExpr>(E)) {
+    if (IsOwnedConsuming(ASE->getType()) && IsBorrowRoot(ASE))
       DiagMoveBorrow(ASE);
   }
 }
