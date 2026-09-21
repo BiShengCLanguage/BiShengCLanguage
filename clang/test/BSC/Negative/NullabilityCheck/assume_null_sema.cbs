@@ -395,10 +395,12 @@ void test_borrow_through_owned_ptr_field_embedded(struct OuterH *_Borrow w) {
   _Unsafe { __assume_null(w->dp->in); } // expected-error {{cannot take ownership of a borrowed value}}
 }
 
-// A raw pointer field hop is tracked too — the root is still the borrow.
+// A raw pointer field hop is not tracked: the dereferenced raw pointer gives
+// untracked access to the pointee, so the analyzer stops there (matching
+// IsBorrowRoot's raw-pointer policy) and the call is accepted.
 struct InnerE { struct Inner in; };
 struct OuterRaw { struct InnerE *d; };
 void test_borrow_through_raw_ptr_field(struct OuterRaw *_Borrow w) {
-  _Unsafe { __assume_null(w->d->in); } // expected-error {{cannot take ownership of a borrowed value}}
+  _Unsafe { __assume_null(w->d->in); }
 }
 

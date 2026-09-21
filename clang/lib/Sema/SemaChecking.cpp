@@ -171,21 +171,28 @@ static bool checkBSCRawTransferBuiltinCommon(Sema &S, CallExpr *TheCall,
 /// through a _Borrow pointer. The argument is lowered to a `bsc::Place` (root
 /// variable + Field/Deref projections, `w->p` normalized to `(*w).p`); the
 /// access goes through a borrow when the chain dereferences a borrow-qualified
-/// pointer.
-static bool checkOwnedArgThroughBorrow(Sema &S, CallExpr *TheCall) {
-  const Expr *ArgE = TheCall->getArg(0);
+/// pointer. Dereferencing a raw pointer cuts the chain: the inner access is
+/// untracked, matching IsBorrowRoot's raw-pointer policy.
+static bool checkOwnedExprThroughBorrow(Sema &S, const Expr *ArgE) {
   bsc::PlaceBuilder PB(S.getASTContext());
   const bsc::Place *P = PB.Build(ArgE);
   if (!P)
     return false;
   // A Deref node whose base cell is a borrow pointer marks a borrow-rooted
-  // access (any depth: raw or owned pointer hops in between are followed).
+  // access (any owned pointer hops in between are followed). A raw pointer
+  // dereference is untracked: the pointee is a separately reachable object
+  // whose provenance the analyzer cannot know, so tracking stops there and
+  // any borrow found below it does not reach this access.
   bool ThroughBorrow = false;
   for (const bsc::Place *Cur = P; Cur; Cur = Cur->getBase()) {
     if (Cur->getKind() != bsc::Place::Kind::Deref || !Cur->getBase())
       continue;
     QualType PtrTy = Cur->getBase()->getType()->getQualType();
-    if (PtrTy->isPointerType() && PtrTy.isBorrowQualified())
+    if (PtrTy.isRawPointer()) {
+      ThroughBorrow = false;
+      break;
+    }
+    if (PtrTy.isBorrowPointer())
       ThroughBorrow = true;
   }
   if (!ThroughBorrow)
@@ -2431,7 +2438,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
       Diag(ArgE->getBeginLoc(), diag::err_assume_null_unsupported_type);
       return ExprError();
     }
-    if (checkOwnedArgThroughBorrow(*this, TheCall))
+    if (checkOwnedExprThroughBorrow(*this, ArgE))
       return ExprError();
     break;
   }
@@ -2464,7 +2471,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
       Diag(ArgE->getBeginLoc(), diag::note_forget_complex_arg_hint);
       return ExprError();
     }
-    if (checkOwnedArgThroughBorrow(*this, TheCall))
+    if (checkOwnedExprThroughBorrow(*this, ArgE))
       return ExprError();
     break;
   }
