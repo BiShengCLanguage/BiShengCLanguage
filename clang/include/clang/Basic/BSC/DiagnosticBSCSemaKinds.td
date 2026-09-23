@@ -595,6 +595,12 @@ def note_immutable_borrow_occurs_here : Note<"immutable borrow occurs here">;
 def err_lifetime_may_not_live_long : Error<
   "lifetime may not live long enough">,
   BSCDiag<"BOR", 21>;
+def err_borrow_access_behind_immutable_borrow : Error<
+  "%select{expression is not assignable|"
+  "expression cannot be mutably borrowed|"
+  "expression cannot be mutably reborrowed}0 because it is behind an immutable "
+  "borrow">,
+  BSCDiag<"BOR", 22>;
 
 // BSC operator overload errors.
 def err_unsupport_overload_fun : Error<"function unsupport overload">,

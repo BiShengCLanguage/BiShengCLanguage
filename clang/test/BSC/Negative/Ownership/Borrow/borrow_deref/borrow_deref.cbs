@@ -95,14 +95,14 @@ void test() {
 
     // T 是 copy 语义，p 是 immut 借用
 	int a1 = *b4; // legal
-    *b4 = a1; // expected-error {{read-only variable is not assignable}}
+    *b4 = a1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
     // T 是 copy 语义，p 是 mut 借用
     int a2 = *b1; // legal
     *b1 = a2; // legal
     // T 是 move 语义，p 是 immut 借用
     int * _Owned a3 = *b8; // expected-error {{cannot take ownership of a borrowed value}}
     int * _Owned a4 = ((int * _Owned)*b8); // expected-error {{cannot take ownership of a borrowed value}}
-    *b8 = p3; // expected-error {{read-only variable is not assignable}}
+    *b8 = p3; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
     // T 是 move 语义，p 是 mut 借用
     a3 = *b7; // expected-error {{cannot take ownership of a borrowed value}}
     a3 = ((int * _Owned)*b7); // expected-error {{cannot take ownership of a borrowed value}}

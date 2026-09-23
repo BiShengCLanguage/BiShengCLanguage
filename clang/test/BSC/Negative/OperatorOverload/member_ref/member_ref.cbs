@@ -72,7 +72,7 @@ struct DP {
 
 __attribute__((operator ->))
  struct A *_Borrow memberDerefD(const struct DP * _Borrow s) {
-    return s->a;
+    return s->a; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
 }
 
 int test4() {

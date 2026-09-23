@@ -41,12 +41,12 @@ void struct S::f2(This * _Borrow this) {}
 void test() {
   struct S s;
   struct S * _Borrow p1 = &_Mut s;
-  const struct S * _Borrow p2 = &_Const s;// expected-note {{variable 'p2' declared const here}} // expected-note {{variable 'p2' declared const here}}
-  p2->num = 1; // expected-error {{cannot assign to variable 'p2' with const-qualified type 'const struct S *_Borrow'}}
+  const struct S * _Borrow p2 = &_Const s;
+  p2->num = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
   int a = p2->num; // legal
   a = p2->num; // legal
 
-  p2->p = __take_from_raw(&a); // expected-error {{cannot assign to variable 'p2' with const-qualified type 'const struct S *_Borrow'}}
+  p2->p = __take_from_raw(&a); // expected-error {{expression is not assignable because it is behind an immutable borrow}}
   int * _Owned b = p2->p; // expected-error {{cannot take ownership of a borrowed value}}
   b = p2->p; // expected-error {{cannot take ownership of a borrowed value}}
 

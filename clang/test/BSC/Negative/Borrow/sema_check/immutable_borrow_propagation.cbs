@@ -1,0 +1,160 @@
+// RUN: %clang_cc1 -verify %s
+
+typedef int *_Borrow MutIntBorrow;
+typedef MutIntBorrow *_Borrow MutMutIntBorrow;
+typedef MutIntBorrow const *_Borrow SharedMutIntBorrow;
+typedef MutMutIntBorrow const *_Borrow SharedMutMutIntBorrow;
+
+struct BorrowFields {
+  MutIntBorrow field;
+  MutIntBorrow elements[2];
+  int values[2];
+};
+
+void take_mut(MutIntBorrow p);
+
+void reject_writes(SharedMutIntBorrow q) {
+  **q = 1;   // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  **q += 1;  // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  ++**q;     // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  (**q)++;   // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  --**q;     // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  (**q)--;   // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_direct_write(SharedMutIntBorrow q, MutIntBorrow replacement) {
+  *q = replacement; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_explicit_mutable_reborrow(SharedMutIntBorrow q) {
+  (void)&_Mut **q; // expected-error {{expression cannot be mutably borrowed because it is behind an immutable borrow}}
+  (void)&_Mut (**q); // expected-error {{expression cannot be mutably borrowed because it is behind an immutable borrow}}
+}
+
+void reject_implicit_mutable_reborrow(SharedMutIntBorrow q,
+                                      MutIntBorrow destination) {
+  int *_Borrow initialized = *q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  destination = *q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  take_mut(*q); // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)initialized;
+}
+
+void reject_cast_mutable_reborrow(SharedMutIntBorrow q) {
+  MutIntBorrow p = (MutIntBorrow)*q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)p;
+}
+
+MutIntBorrow reject_returned_mutable_reborrow(SharedMutIntBorrow q) {
+  return *q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+}
+
+void reject_three_level_write(SharedMutMutIntBorrow q) {
+  ***q = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  MutIntBorrow p = **q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)p;
+}
+
+void reject_field_writes(const struct BorrowFields *_Borrow fields,
+                         MutIntBorrow replacement) {
+  *fields->field = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *fields->elements[0] = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  fields->field = replacement; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  fields->elements[1] = replacement; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  fields->values[0] = 3; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  (*fields).field = replacement; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  MutIntBorrow p = fields->field; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  MutIntBorrow q = fields->elements[1]; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)p;
+  (void)q;
+}
+
+void reject_array_element_write(
+    int *_Borrow _ArrayElem const *_Borrow q) {
+  (*q)[1] = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *(*q + 1) = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  int *_Borrow _ArrayElem p = *q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)p;
+}
+
+void reject_composite_pointer_writes(_Bool select, SharedMutIntBorrow left,
+                                     SharedMutIntBorrow right) {
+  *(select ? *left : *right) = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *((void)0, *left) = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *((MutIntBorrow)*left) = 3; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_composite_mutable_reborrow(_Bool select,
+                                       SharedMutIntBorrow left,
+                                       SharedMutIntBorrow right) {
+  MutIntBorrow conditional = select ? *left : *right; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  MutIntBorrow comma = ((void)0, *left); // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)conditional;
+  (void)comma;
+}
+
+void reject_wrapped_writes(SharedMutIntBorrow q) {
+  *(_Safe(*q)) = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *(_Unsafe(*q)) = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_gnu_conditional_write(SharedMutIntBorrow q,
+                                  MutIntBorrow fallback) {
+  *(*q ?: fallback) = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_gnu_conditional_mutable_reborrow(SharedMutIntBorrow q,
+                                             MutIntBorrow fallback) {
+  MutIntBorrow p = *q ?: fallback; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)p;
+}
+
+void reject_extension_write(SharedMutIntBorrow q) {
+  __extension__(**q) = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_statement_expr_mutable_reborrow(SharedMutIntBorrow q) {
+  int *_Borrow p = ({ *q; }); // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}} expected-error {{incompatible _Borrow types, cannot cast 'void' to 'int *_Borrow'}}
+  (void)p;
+}
+
+void f1() {
+  int a = 1, b = 2;
+  int *_Borrow arr[2] = { &_Mut a, &_Mut b };
+  int *_Borrow const *_Borrow _ArrayElem q = &_Const arr[0];
+  *(q[1]) = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  int tmp = *(q[0]);
+  *(q[0]) = 3; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void f2() {
+  int a = 1, b = 2;
+  int *_Borrow arr[2] = { &_Mut a, &_Mut b };
+  int *_Borrow pt = arr[0];
+  int *_Borrow const *_Borrow q = &_Const pt;
+  **q = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  int tmp = **q;
+}
+
+void f3() {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow const *_Borrow q = &_Const p;
+  **q = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void f4() {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow const *_Borrow q = &_Const p;
+  int *_Borrow r = *q; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  const int *_Borrow m = *q;
+}
+
+void f5() {
+  int a = 1;
+  int *_Borrow p = &_Mut a;
+  int *_Borrow const *_Borrow q1 = &_Const p;
+  int *_Borrow const *_Borrow q2 = &_Const p;
+  int *_Borrow r1 = *q1; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  int *_Borrow r2 = *q2; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+}

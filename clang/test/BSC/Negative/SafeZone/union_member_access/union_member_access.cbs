@@ -92,10 +92,10 @@ _Safe void test_unsafe_block(union U u) {
 // Test: _Borrow pointer created in _Unsafe, but member access in safe zone is still forbidden
 _Safe void test_borrow_in_unsafe_block(union U u) {
   union U *_Borrow bu = _Unsafe(&_Mut u);
-  _Unsafe const union U *_Borrow bu2 = &_Const u; // expected-note{{variable 'bu2' declared const here}}
+  _Unsafe const union U *_Borrow bu2 = &_Const u;
   // error: even though bu was created in _Unsafe expression, accessing union member is forbidden in safe zone
   bu->x = 1; // expected-error{{access to a union field is _Unsafe and requires an _Unsafe block}}
-  bu2->x = 1; // expected-error{{access to a union field is _Unsafe and requires an _Unsafe block}}  // expected-error{{cannot assign to variable 'bu2' with const-qualified type 'const union U *_Borrow'}}  
+  bu2->x = 1; // expected-error{{access to a union field is _Unsafe and requires an _Unsafe block}}  // expected-error{{expression is not assignable because it is behind an immutable borrow}}
 
 }
 

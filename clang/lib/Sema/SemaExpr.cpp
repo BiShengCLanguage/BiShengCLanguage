@@ -14765,12 +14765,109 @@ static void DiagnoseRecursiveConstFields(Sema &S, const Expr *E,
     DiagnoseConstAssignment(S, E, Loc);
 }
 
+#if ENABLE_BSC
+/// Return true if the access path of E passes through a const borrow. Follow
+/// transparent projections recursively, but stop at a raw-pointer boundary
+/// because raw pointers do not preserve BSC borrow mutability.
+static bool IsBehindConstBorrow(const Expr *E) {
+  E = E->IgnoreParenImpCastsSafe();
+
+  auto CheckPointerProjection = [](const Expr *Pointer) {
+    QualType PointerTy = Pointer->getType();
+    if (PointerTy.isConstBorrow())
+      return true;
+
+    // Array-to-pointer decay does not introduce a source-level raw-pointer
+    // boundary. Continue from the array lvalue that was decayed.
+    const Expr *Core = Pointer->IgnoreParensSafe();
+    if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Core)) {
+      if (ICE->getCastKind() == CK_ArrayToPointerDecay)
+        return IsBehindConstBorrow(ICE->getSubExpr());
+    }
+
+    if (PointerTy.isRawPointer())
+      return false;
+    return IsBehindConstBorrow(Pointer);
+  };
+
+  if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Extension)
+      return IsBehindConstBorrow(UO->getSubExpr());
+    return UO->getOpcode() == UO_Deref &&
+           CheckPointerProjection(UO->getSubExpr());
+  }
+
+  if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+    if (ME->isArrow())
+      return CheckPointerProjection(ME->getBase());
+    return IsBehindConstBorrow(ME->getBase());
+  }
+
+  if (const ArraySubscriptExpr *ASE = dyn_cast<ArraySubscriptExpr>(E))
+    return CheckPointerProjection(ASE->getBase());
+
+  if (const CastExpr *CE = dyn_cast<CastExpr>(E)) {
+    if (CE->getType().isBorrowPointer())
+      return IsBehindConstBorrow(CE->getSubExpr());
+  }
+
+  if (const StmtExpr *SE = dyn_cast<StmtExpr>(E)) {
+    const CompoundStmt *CS = SE->getSubStmt();
+    if (CS->body_empty())
+      return false;
+    const ValueStmt *Result =
+        dyn_cast_or_null<ValueStmt>(CS->getStmtExprResult());
+    const Expr *ResultExpr = Result ? Result->getExprStmt() : nullptr;
+    return ResultExpr && IsBehindConstBorrow(ResultExpr);
+  }
+
+  if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma)
+      return IsBehindConstBorrow(BO->getRHS());
+    if (BO->isAdditiveOp() && BO->getType().isBorrowPointer()) {
+      return IsBehindConstBorrow(BO->getLHS()) ||
+             IsBehindConstBorrow(BO->getRHS());
+    }
+  } else if (const BinaryConditionalOperator *BCO =
+                 dyn_cast<BinaryConditionalOperator>(E)) {
+    return IsBehindConstBorrow(BCO->getCommon()) ||
+           IsBehindConstBorrow(BCO->getFalseExpr());
+  } else if (const ConditionalOperator *CO = dyn_cast<ConditionalOperator>(E)) {
+    return IsBehindConstBorrow(CO->getTrueExpr()) ||
+           IsBehindConstBorrow(CO->getFalseExpr());
+  }
+
+  return false;
+}
+
+static bool CheckAccessBehindConstBorrow(const Expr *E, SourceLocation Loc,
+                                         Sema &S, bool IsBorrowed,
+                                         bool IsReborrow) {
+  assert((IsBorrowed || !IsReborrow) && "reborrow must be a borrow");
+  if (!S.getLangOpts().BSC)
+    return false;
+  if (!IsBehindConstBorrow(E))
+    return false;
+
+  unsigned DiagSelect = IsBorrowed ? (IsReborrow ? 2 : 1) : 0;
+  S.Diag(Loc, diag::err_borrow_access_behind_immutable_borrow)
+      << DiagSelect << E->getSourceRange();
+  return true;
+}
+#endif
+
 /// CheckForModifiableLvalue - Verify that E is a modifiable lvalue.  If not,
 /// emit an error and return true.  If so, return false.
 static bool CheckForModifiableLvalue(Expr *E, SourceLocation Loc, Sema &S) {
   assert(!E->hasPlaceholderType(BuiltinType::PseudoObject));
 
   S.CheckShadowingDeclModification(E, Loc);
+
+#if ENABLE_BSC
+  if (CheckAccessBehindConstBorrow(E, Loc, S, /*IsBorrowed=*/false,
+                                   /*IsReborrow=*/false))
+    return true;
+#endif
 
   SourceLocation OrigLoc = Loc;
   Expr::isModifiableLvalueResult IsLV = E->isModifiableLvalue(S.Context,
@@ -15435,6 +15532,12 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
   const auto *Subscript =
       dyn_cast<ArraySubscriptExpr>(InputExpr->IgnoreParenImpCastsSafe());
   if (Opc == UO_AddrMut || Opc == UO_AddrMutDeref) {
+    if (CheckAccessBehindConstBorrow(
+            InputExpr, OpLoc, *this, /*IsBorrowed=*/true,
+            /*IsReborrow=*/Opc == UO_AddrMutDeref)) {
+      Input = ExprError();
+      return QualType();
+    }
     if (Opc == UO_AddrMut && IsAddrBorrowDerefOp(Input)) {
       Opc = UO_AddrMutDeref;
       // For &mut * expr, check if expr points to const data

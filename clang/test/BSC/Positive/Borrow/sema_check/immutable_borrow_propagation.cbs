@@ -1,0 +1,98 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+typedef int *_Borrow MutIntBorrow;
+typedef MutIntBorrow *_Borrow MutMutIntBorrow;
+typedef MutIntBorrow const *_Borrow SharedMutIntBorrow;
+typedef MutMutIntBorrow const *_Borrow SharedMutMutIntBorrow;
+
+struct BorrowFields {
+  MutIntBorrow field;
+  MutIntBorrow elements[2];
+  int values[2];
+};
+
+void take_const(const int *_Borrow p);
+
+void read_value_through_shared_borrow(SharedMutIntBorrow q) {
+  int value = **q;
+  (void)value;
+}
+
+void immutable_reborrow_of_inner_value(SharedMutIntBorrow q) {
+  const int *_Borrow p = *q;
+  const int *_Borrow r = &_Const **q;
+  take_const(*q);
+  (void)p;
+  (void)r;
+}
+
+void read_through_three_levels(SharedMutMutIntBorrow q) {
+  int value = ***q;
+  (void)value;
+}
+
+void read_through_fields(const struct BorrowFields *_Borrow fields) {
+  int field = *fields->field;
+  int element = *fields->elements[1];
+  int value = fields->values[0];
+  const int *_Borrow p = fields->field;
+  const int *_Borrow q = fields->elements[0];
+  (void)field;
+  (void)element;
+  (void)value;
+  (void)p;
+  (void)q;
+}
+
+void mutable_borrow_keeps_write_permission(MutMutIntBorrow q) {
+  **q = 1;
+  **q += 2;
+  ++**q;
+}
+
+void raw_pointer_stops_propagation(int *const *_Borrow q) {
+  **q = 1;
+  int *raw = *q;
+  *raw = 2;
+}
+
+void raw_pointer_between_borrows_stops_propagation(
+    int *_Borrow *const *_Borrow q) {
+  ***q = 1;
+  ***q += 2;
+  ++***q;
+  (***q)++;
+  --***q;
+  (***q)--;
+  int *_Borrow p = **q;
+  *p = 2;
+}
+
+void raw_pointer_allows_explicit_mutable_reborrow(
+    int *_Borrow *const *_Borrow q) {
+  int *_Borrow p = &_Mut ***q;
+  *p = 1;
+}
+
+void raw_pointer_allows_statement_expr(
+    int *_Borrow *const *_Borrow q) {
+  *({ **q; }) = 1;
+}
+
+void top_level_const_mutable_borrow_is_still_mutable(
+    MutIntBorrow const p) {
+  *p = 1;
+  MutIntBorrow q = p;
+  *q = 2;
+}
+
+void read_array_element_borrow(
+    int *_Borrow _ArrayElem const *_Borrow q) {
+  int value = (*q)[1];
+  int next = *(*q + 1);
+  const int *_Borrow _ArrayElem p = *q;
+  (void)value;
+  (void)next;
+  (void)p;
+}
