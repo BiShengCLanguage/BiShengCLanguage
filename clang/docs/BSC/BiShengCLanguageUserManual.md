@@ -5099,7 +5099,7 @@ int main() {
 
 #### 3.4.8. `__assume_null`
 
-`__assume_null(p)` 是一个内建函数，用于在某个程序点断言一个 `_Nullable` 指针已经为 `null`。它是一个纯分析器提示——编译器不做契约验证，也不生成任何代码，由用户保证断言成立。
+`__assume_null(p)` 是一个内建函数，用于在某个程序点假定一个 `_Nullable` 指针必定为空。它是一个纯分析器提示——编译器不做契约验证，也不生成任何代码，由用户保证断言成立。
 
 `__assume_null` 只能在 `_Unsafe` 区域中使用，因为它绕过了编译器的非空指针检查。
 
@@ -5109,7 +5109,9 @@ _Safe void foo(int *_Owned _Nullable p) {
 }
 ```
 
-`__assume_null` 的参数必须是一个可跟踪表达式（trackable expression）。
+语义规则：
+
+1. `__assume_null` 的参数必须是一个可跟踪表达式：变量、结构体字段访问、解引用，并可以链式组合，可外加括号/隐式转换。
 
 ```c
 _Safe void foo(int c, int *_Nullable p, int *_Nullable q) {
@@ -5122,7 +5124,7 @@ _Safe void foo(int c, int *_Nullable p, int *_Nullable q) {
 }
 ```
 
-`__assume_null` 的参数类型必须是 `_Nullable` 指针或结构体。其他类型不能作为`__assume_null`的参数类型。
+2. `__assume_null` 的参数类型必须是 `_Nullable` 指针或结构体。其他类型不能作为 `__assume_null` 的参数类型。
 
 ```c
 _Safe void foo(void) {
@@ -5131,26 +5133,7 @@ _Safe void foo(void) {
 }
 ```
 
-##### 3.4.8.1. 用于 `_Nullable` 指针
-
-语义规则：
-
-1. 对于`_Owned _Nullable`指针`p`，使用`__assume_null(p)`后，认为该指针必定为空，不持有所有权。
-
-```c
-_Safe void MemAlloc(void *_Owned _Nullable *_Borrow ptr, unsigned long size);
-_Safe void MemFree(void *_Owned _Nullable *_Borrow ptr);
-
-_Safe void foo(void *_Owned _Nullable p) {
-  MemFree(&_Mut p);
-  _Unsafe { __assume_null(p); }
-  // 无需 forget(p)，也无需 p = nullptr
-  // 无泄漏
-}
-```
-
-2. 对于其他`_Nullable`指针`p`，使用`__assume_null(p)`后，认为该指针必定为空。
-   后续未作判空就直接解引用会报错空指针解引用；此前的判空窄化（如 `if (p)` 把 `p` 窄化为非空）也被作废。
+3. 对于一个 `_Nullable` 指针类型的可跟踪表达式 `e`，`__assume_null` 假定其必定为空后，后续使用 `e` 前都必须先进行判空操作。
 
 ```c
 void foo(int *_Nullable *_Borrow ptr) {
@@ -5164,38 +5147,40 @@ void bar(int x) {
 }
 ```
 
-3. `_Nonnull`指针`p`不能作为`__assume_null`的参数。
+4. 对于一个 `_Owned _Nullable` 指针类型的可跟踪表达式 `e`，`__assume_null` 假定其必定为空后，`e` 不再拥有所有权。
 
 ```c
-int *_Nonnull get_nonnull();
-_Safe void foo(void) {
-  int *_Nonnull p = get_nonnull();
-  _Unsafe { __assume_null(p); } // error
+_Safe void MemFree(void *_Owned _Nullable *_Borrow ptr);
+_Safe void foo(void *_Owned _Nullable p) {
+  MemFree(&_Mut p);
+  _Unsafe { __assume_null(p); }
+  // p 不拥有所有权，不报泄漏
 }
 ```
 
-##### 3.4.8.2. 用于结构体
-
-当参数是结构体类型的可跟踪表达式时，`__assume_null` 对该结构体的所有 `_Nullable` 字段（递归，含嵌套字段）断言：每个 `_Nullable` 指针字段必定为空，每个 `_Owned _Nullable` 指针字段不持有所有权。
+5. 对于一个结构体类型的可跟踪表达式 `e`，`__assume_null` 假定该结构体（直接或递归地）包含的所有 `_Nullable` 字段必定为空。
 
 ```c
 struct S {
-  int *_Owned _Nullable p1;
+  int *_Nullable p1;
   int *_Owned _Nullable p2;
 };
-
-_Safe void consumeS(struct S *_Owned s);
-
-_Safe void foo(struct S *_Owned s) {
-  _Unsafe { __assume_null(*s); } // s->p1/s->p2 被断言为空
-  *(s->p1) = 1; // error: 空指针解引用
-  consumeS(s); // 移出 s 所有权 → 无泄漏
+_Safe void foo(struct S s) {
+  _Unsafe { __assume_null(s); }
+  // s.p1/s.p2 被假定为空，s.p2 无泄漏
 }
 ```
 
-对于结构体类型的参数，适用以下检查规则：
+6. 对于类型为 `_Owned _Nullable` 指针或（直接或递归地）包含 `_Owned _Nullable` 字段的结构体的可跟踪表达式 `e`，如果 `e` 中包含 `_Borrow` 指针解引用，则不能通过 `__assume_null` 假定其必定为空，不拥有所有权。
 
-1. 结构体类型不能直接或递归地包含任何 `_Nonnull` 字段。因为断言一个 `_Nonnull` 字段为 `null` 与其类型矛盾。若结构体中既有 `_Nullable` 字段又有 `_Nonnull` 字段，需对 `_Nullable` 字段逐个调用 `__assume_null(s->field)`。
+```c
+void foo(int *_Owned _Nullable p) {
+  int *_Owned _Nullable *_Borrow q = &_Mut p;
+  _Unsafe { __assume_null(*q); } // error: cannot take ownership of a borrowed value
+}
+```
+
+7. 结构体类型不能（直接或递归地）包含任何 `_Nonnull` 字段。因为断言一个 `_Nonnull` 字段为 `null` 与其类型矛盾。若结构体中既有 `_Nullable` 字段又有 `_Nonnull` 字段，需对 `_Nullable` 字段逐个调用 `__assume_null`。
 
 ```c
 struct HasNonnull {
@@ -5210,7 +5195,7 @@ _Safe void baz(struct HasNonnull *_Owned s) {
 }
 ```
 
-2. 若结构体的数组字段的成员类型是 `_Nullable` 指针（或数组成员是含 `_Nullable` 指针的结构体/数组），`__assume_null` 对该数组字段无效。
+8. 若结构体的数组字段（直接或递归地）包含 `_Nullable` 指针，`__assume_null` 对该数组字段无效。
 
 ```c
 struct HasArr {
