@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A field path that reaches an owned-element array *through a pointer member*
+// is not an owned-array-field path: the scan stops at the pointer field, which
+// is neither an owned-element array itself nor a record it can descend into.
+// This locks the historical rule (the string-path lookup behaved the same
+// way); relaxing it would make w.p->arr[i] an aggregate array-field transfer.
+// The array field therefore stays tracked as an owned field of the host, so
+// freeing the pointer without moving the elements out is reported.
+
+struct P {
+  int *_Owned arr[2];
+};
+
+struct W {
+  struct P *_Owned p;
+};
+
+void test_ptr_field_array() {
+  struct W w;
+  w.p = safe_malloc((struct P){0});
+  w.p->arr[0] = safe_malloc(1);
+  // expected-error@+1 {{w.p.arr[] is still _Owned; move it out first}}
+  safe_free((void *_Owned)w.p);
+}

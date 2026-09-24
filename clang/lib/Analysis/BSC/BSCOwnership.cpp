@@ -506,78 +506,6 @@ static FieldKey getMemberFieldPlace(const MemberExpr *ME, ASTContext &Ctx) {
   return Place;
 }
 
-// Build the place for a host-relative field path produced by
-// PeelHostAndFieldPath ("w.arr", "arr[]", "arr[].a"): names resolve against
-// the host's record type (host array levels and a leading pointer are
-// stripped, matching IsOwnedArrayField), and each `[]` token in the path
-// becomes one index-free Index projection. A path without `[]` for an array
-// field yields the bare Field place, which does not match the registered
-// "arr[]" key — same as the historical string comparison. Returns nullptr
-// when a segment does not resolve.
-static FieldKey FieldPathPlace(bsc::PlaceBuilder &PB, const VarDecl *HostVD,
-                               const std::string &FieldPath) {
-  QualType HostTy = HostVD->getType();
-  while (const auto *AT = HostTy->getAsArrayTypeUnsafe())
-    HostTy = AT->getElementType();
-  FieldKey Place = PB.Build(HostVD, HostVD->getLocation());
-  size_t Pos = 0;
-  while (Pos < FieldPath.size()) {
-    while (Pos < FieldPath.size() &&
-           (FieldPath.compare(Pos, 2, "[]") == 0 || FieldPath[Pos] == '.'))
-      Pos += FieldPath.compare(Pos, 2, "[]") == 0 ? 2 : 1;
-    if (Pos >= FieldPath.size())
-      break;
-    size_t Dot = FieldPath.find('.', Pos);
-    size_t Bracket = FieldPath.find("[]", Pos);
-    size_t End;
-    if (Dot == std::string::npos)
-      End = Bracket;
-    else if (Bracket == std::string::npos)
-      End = Dot;
-    else
-      End = std::min(Dot, Bracket);
-    std::string Member = FieldPath.substr(
-        Pos, End == std::string::npos ? std::string::npos : End - Pos);
-    // Intermediate pointer fields are entered through their pointee: the
-    // path names record members, while a field like `inner` may itself be a
-    // pointer (`h->inner->data` walks "inner" then "data" inside its
-    // pointee).
-    while (HostTy->isPointerType())
-      HostTy = HostTy->getPointeeType();
-    const RecordType *RT = HostTy.getCanonicalType()->getAs<RecordType>();
-    if (!RT)
-      return nullptr;
-    const FieldDecl *FD = nullptr;
-    for (const FieldDecl *F : RT->getDecl()->fields())
-      if (F->getNameAsString() == Member) {
-        FD = F;
-        break;
-      }
-    if (!FD)
-      return nullptr;
-    Place = PB.BuildField(Place, FD, FD->getLocation());
-    QualType FT = FD->getType();
-    // Consume the `[]` tokens that follow this member in the path, one Index
-    // projection per array level the path names.
-    while (End != std::string::npos && FieldPath.compare(End, 2, "[]") == 0) {
-      const auto *AT = FT->getAsArrayTypeUnsafe();
-      if (!AT)
-        return nullptr;
-      Place = PB.BuildIndex(Place, AT->getElementType(), "[]",
-                            FD->getLocation());
-      FT = AT->getElementType();
-      End += 2;
-      if (End < FieldPath.size() && FieldPath[End] == '.')
-        break;
-    }
-    if (End == std::string::npos)
-      break;
-    HostTy = FT;
-    Pos = End;
-  }
-  return Place;
-}
-
 // Peel an array-element expression a[i] / a[i][j] / s[i].f / s[i].a[j] down
 // to the base VarDecl (of an array or of a _ArrayElem pointer); nullptr if the
 // expression is not such an element access. Shared by the dataflow transfer
@@ -614,11 +542,10 @@ static bool IsArrayTransferBase(const VarDecl *VD, bool IsArrElemPtr) {
 // host and the "arr[]" / "w.arr[]" path. Returns false for plain nested
 // fields (no `[]`) or non-array fields. Used by the subscript / cast
 // transfer branches.
-static bool GetOwnedArrayField(const Expr *E, const VarDecl *&HostVD,
-                               std::string &FieldPath) {
-  if (!PeelHostAndFieldPath(E, HostVD, FieldPath))
-    return false;
-  return IsOwnedArrayFieldPath(HostVD, FieldPath);
+static bool GetOwnedArrayField(const Expr *E, ASTContext &Ctx,
+                               const bsc::Place *&Path) {
+  bsc::PlaceBuilder PB(Ctx);
+  return PeelHostAndFieldPlace(PB, E, Path) && IsOwnedArrayFieldPath(Path);
 }
 
 // Whether the owned-field place `FieldPath` of aggregate `VD` has lost
@@ -1733,13 +1660,11 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
     // Struct-field array element: w.arr[i] (base is a member access). Peel
     // the host and the "arr[]" path and null the field aggregate.
     if (dyn_cast<MemberExpr>(Base)) {
-      const VarDecl *HostVD = nullptr;
-      std::string FieldPath;
-      if (PeelHostAndFieldPath(E, HostVD, FieldPath) &&
-          IsOwnedArrayFieldPath(HostVD, FieldPath)) {
-        bsc::PlaceBuilder PB(Ctx);
-        setArrayFieldNull(HostVD, FieldPathPlace(PB, HostVD, FieldPath));
-      }
+      bsc::PlaceBuilder PB(Ctx);
+      const bsc::Place *FieldPath = nullptr;
+      if (PeelHostAndFieldPlace(PB, E, FieldPath) &&
+          IsOwnedArrayFieldPath(FieldPath))
+        setArrayFieldNull(FieldPath->getRoot(), FieldPath);
       return;
     }
   }
@@ -1755,23 +1680,21 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
           // The historical key was the bare member-name chain (getMemberFullField,
           // e.g. "f" for s[i].f): build it from the host-relative path, since
           // getMemberFieldPlace cannot resolve the array-subscript base.
-          const VarDecl *SArrVD = nullptr;
-          std::string SArrFieldPath;
-          if (PeelHostAndFieldPath(ME, SArrVD, SArrFieldPath) && SArrVD == VD) {
-            bsc::PlaceBuilder PB(Ctx);
-            setArrayFieldNull(VD, FieldPathPlace(PB, VD, SArrFieldPath));
-          }
+          bsc::PlaceBuilder PB(Ctx);
+          const bsc::Place *SArrFieldPath = nullptr;
+          if (PeelHostAndFieldPlace(PB, ME, SArrFieldPath) &&
+              SArrFieldPath->getRoot() == VD)
+            setArrayFieldNull(VD, SArrFieldPath);
           return;
         }
       }
     }
     {
-      const VarDecl *HostVD = nullptr;
-      std::string FieldPath;
-      if (PeelHostAndFieldPath(E, HostVD, FieldPath) &&
-          IsOwnedArrayFieldPath(HostVD, FieldPath)) {
-        bsc::PlaceBuilder PB(Ctx);
-        setArrayFieldNull(HostVD, FieldPathPlace(PB, HostVD, FieldPath));
+      bsc::PlaceBuilder PB(Ctx);
+      const bsc::Place *FieldPath = nullptr;
+      if (PeelHostAndFieldPlace(PB, E, FieldPath) &&
+          IsOwnedArrayFieldPath(FieldPath)) {
+        setArrayFieldNull(FieldPath->getRoot(), FieldPath);
         return;
       }
     }
@@ -1936,13 +1859,11 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
     // Struct-field array element: w.arr[i] (base is a member access). Peel
     // the host and the "arr[]" path and move the field aggregate out.
     if (dyn_cast<MemberExpr>(Base)) {
-      const VarDecl *HostVD = nullptr;
-      std::string FieldPath;
-      if (PeelHostAndFieldPath(E, HostVD, FieldPath) &&
-          IsOwnedArrayFieldPath(HostVD, FieldPath)) {
-        bsc::PlaceBuilder PB(Ctx);
-        setArrayFieldMoved(HostVD, FieldPathPlace(PB, HostVD, FieldPath));
-      }
+      bsc::PlaceBuilder PB(Ctx);
+      const bsc::Place *FieldPath = nullptr;
+      if (PeelHostAndFieldPlace(PB, E, FieldPath) &&
+          IsOwnedArrayFieldPath(FieldPath))
+        setArrayFieldMoved(FieldPath->getRoot(), FieldPath);
       return;
     }
   }
@@ -1964,12 +1885,11 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
     if (const DeclRefExpr *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const VarDecl *VD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
         if (IsOwnedElementArrayType(VD->getType())) {
-          const VarDecl *SArrVD = nullptr;
-          std::string SArrFieldPath;
-          if (PeelHostAndFieldPath(ME, SArrVD, SArrFieldPath) && SArrVD == VD) {
-            bsc::PlaceBuilder PB(Ctx);
-            setArrayFieldMoved(VD, FieldPathPlace(PB, VD, SArrFieldPath));
-          }
+          bsc::PlaceBuilder PB(Ctx);
+          const bsc::Place *SArrFieldPath = nullptr;
+          if (PeelHostAndFieldPlace(PB, ME, SArrFieldPath) &&
+              SArrFieldPath->getRoot() == VD)
+            setArrayFieldMoved(VD, SArrFieldPath);
           return;
         }
       }
@@ -1978,12 +1898,11 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
     // of a host aggregate; move the field aggregate out (mirror of the
     // VisitMemberExpr move-out path).
     {
-      const VarDecl *HostVD = nullptr;
-      std::string FieldPath;
-      if (PeelHostAndFieldPath(ME, HostVD, FieldPath) &&
-          IsOwnedArrayFieldPath(HostVD, FieldPath)) {
-        bsc::PlaceBuilder PB(Ctx);
-        setArrayFieldMoved(HostVD, FieldPathPlace(PB, HostVD, FieldPath));
+      bsc::PlaceBuilder PB(Ctx);
+      const bsc::Place *FieldPath = nullptr;
+      if (PeelHostAndFieldPlace(PB, ME, FieldPath) &&
+          IsOwnedArrayFieldPath(FieldPath)) {
+        setArrayFieldMoved(FieldPath->getRoot(), FieldPath);
         return;
       }
     }
@@ -4208,15 +4127,14 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
   }
 
   // Struct-field owned-element array: `w.arr[i]` (base is a member access,
-  // so peelArrayBase above cannot see it). PeelHostAndFieldPath yields the
+  // so peelArrayBase above cannot see it). PeelHostAndFieldPlace yields the
   // host and the array-field path "arr[]"; the field is tracked as an owned
   // array aggregate of the host, same rules as a local owned-element array.
   {
-    const VarDecl *HostVD = nullptr;
-    std::string FieldPath;
-    if (GetOwnedArrayField(ASE, HostVD, FieldPath)) {
-      bsc::PlaceBuilder PB(OS.ctx);
-      FieldKey FieldPlace = FieldPathPlace(PB, HostVD, FieldPath);
+    const bsc::Place *FieldPath = nullptr;
+    if (GetOwnedArrayField(ASE, OS.ctx, FieldPath)) {
+      FieldKey FieldPlace = FieldPath;
+      const VarDecl *HostVD = FieldPath->getRoot();
       if (op == Move || op == Assign) {
         if (!tryTransferArrayField(ASE, HostVD, FieldPlace, op == Assign)) {
           Visit(ASE->getIdx());
@@ -4367,10 +4285,10 @@ bool TransferFunctions::isArrayElemForgetAllowed(const Expr *Arg) {
   if (const VarDecl *ArrVD = peelArrayBase(Arg, IsArrElemPtr))
     return isArrayElemTransferAllowed(Arg, ArrVD, IsArrElemPtr);
   // Owned array field of a host aggregate (w.arr[i], s->arr[i].f).
-  const VarDecl *HostVD = nullptr;
-  std::string FieldPath;
-  if (GetOwnedArrayField(Arg, HostVD, FieldPath))
-    return isArrayElemTransferAllowed(Arg, HostVD, /*IsArrElemPtr=*/false);
+  const bsc::Place *FieldPath = nullptr;
+  if (GetOwnedArrayField(Arg, OS.ctx, FieldPath))
+    return isArrayElemTransferAllowed(Arg, FieldPath->getRoot(),
+                                      /*IsArrElemPtr=*/false);
   // Not element-shaped (p, s.p, *s, t.in): no qualifying-loop requirement.
   return true;
 }
@@ -4676,13 +4594,9 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
   const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
   if (ArrVD &&
       IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
-    const VarDecl *ArrFieldHostVD = nullptr;
-    std::string ArrFieldPath;
+    bsc::PlaceBuilder PB(OS.ctx);
     FieldKey ArrFieldPlace = nullptr;
-    if (PeelHostAndFieldPath(ME, ArrFieldHostVD, ArrFieldPath)) {
-      bsc::PlaceBuilder PB(OS.ctx);
-      ArrFieldPlace = FieldPathPlace(PB, ArrFieldHostVD, ArrFieldPath);
-    }
+    PeelHostAndFieldPlace(PB, ME, ArrFieldPlace);
     if (op == Move || op == Assign) {
       // Assigning/moving a plain non-owned field (e.g. `a[i].x = 5` for an
       // `int x`) does not change array-element ownership and must not be
@@ -4736,12 +4650,12 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
 
   // Nested struct-array field (w.arr[i].a): array-field paths follow the
   // qualifying-loop rules like ordinary arrays.
-  const VarDecl *HostVD = nullptr;
-  std::string FieldPath;
-  if (PeelHostAndFieldPath(ME, HostVD, FieldPath) &&
-      IsOwnedArrayFieldPath(HostVD, FieldPath)) {
-    bsc::PlaceBuilder PB(OS.ctx);
-    FieldKey FieldPlace = FieldPathPlace(PB, HostVD, FieldPath);
+  bsc::PlaceBuilder PB(OS.ctx);
+  const bsc::Place *FieldPath = nullptr;
+  if (PeelHostAndFieldPlace(PB, ME, FieldPath) &&
+      IsOwnedArrayFieldPath(FieldPath)) {
+    FieldKey FieldPlace = FieldPath;
+    const VarDecl *HostVD = FieldPath->getRoot();
     if (op == Move || op == Assign) {
       // A plain non-owned member of an array element (e.g. `w.arr[i].x = 5`
       // for an `int x`) does not change ownership; only paths that touch a
@@ -5057,11 +4971,11 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
       if (const DeclRefExpr *ArgDRE = dyn_cast<DeclRefExpr>(ArgCore))
         ArrVD = dyn_cast<VarDecl>(ArgDRE->getDecl());
       else {
-        const VarDecl *HostVD = nullptr;
-        std::string FieldPath;
-        if (PeelHostAndFieldPath(ArgCore, HostVD, FieldPath) &&
-            !FieldPath.empty())
-          ArrVD = HostVD;
+        bsc::PlaceBuilder PB(OS.ctx);
+        const bsc::Place *FieldPath = nullptr;
+        if (PeelHostAndFieldPlace(PB, ArgCore, FieldPath) &&
+            FieldPath->getKind() != bsc::Place::Kind::Var)
+          ArrVD = FieldPath->getRoot();
       }
       if (ArrVD) {
         OwnershipDiagInfo DI(Arg->getExprLoc(),
@@ -5135,13 +5049,9 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
       const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
       if (ArrVD &&
           IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
-        const VarDecl *MemberHostVD = nullptr;
-        std::string MemberFieldPath;
+        bsc::PlaceBuilder PB(OS.ctx);
         FieldKey MemberFieldPlace = nullptr;
-        if (PeelHostAndFieldPath(ME, MemberHostVD, MemberFieldPath)) {
-          bsc::PlaceBuilder PB(OS.ctx);
-          MemberFieldPlace = FieldPathPlace(PB, MemberHostVD, MemberFieldPath);
-        }
+        PeelHostAndFieldPlace(PB, ME, MemberFieldPlace);
         // Null member releases nothing (free(null) is a no-op); a
         // possibly-null member that was also moved is not a no-op.
         if (!stat.arrayElemNullNoop(ArrVD, MemberFieldPlace)) {
@@ -5156,12 +5066,12 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
       // host variable and the "arr[].a" path. Array-field paths (containing
       // `[]`) follow the qualifying-loop rules like ordinary arrays; plain
       // nested fields use the regular field move-out.
-      const VarDecl *HostVD = nullptr;
-      std::string FieldPath;
-      if (PeelHostAndFieldPath(ME, HostVD, FieldPath)) {
-        bsc::PlaceBuilder PB(OS.ctx);
-        FieldKey HostFieldPlace = FieldPathPlace(PB, HostVD, FieldPath);
-        if (IsOwnedArrayFieldPath(HostVD, FieldPath)) {
+      bsc::PlaceBuilder PB(OS.ctx);
+      const bsc::Place *HostFieldPath = nullptr;
+      if (PeelHostAndFieldPlace(PB, ME, HostFieldPath)) {
+        FieldKey HostFieldPlace = HostFieldPath;
+        const VarDecl *HostVD = HostFieldPath->getRoot();
+        if (IsOwnedArrayFieldPath(HostFieldPath)) {
           tryTransferArrayField(ME, HostVD, HostFieldPlace,
                                 /*IsAssign=*/false);
         } else if (HostFieldPlace) {
@@ -5200,11 +5110,10 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
       }
       // Struct-field owned-element array: (void *_Owned)w.arr[i].
       {
-        const VarDecl *HostVD = nullptr;
-        std::string FieldPath;
-        if (GetOwnedArrayField(ASE, HostVD, FieldPath)) {
-          bsc::PlaceBuilder PB(OS.ctx);
-          FieldKey FieldPlace = FieldPathPlace(PB, HostVD, FieldPath);
+        const bsc::Place *FieldPath = nullptr;
+        if (GetOwnedArrayField(ASE, OS.ctx, FieldPath)) {
+          FieldKey FieldPlace = FieldPath;
+          const VarDecl *HostVD = FieldPath->getRoot();
           if (!stat.arrayElemNullNoop(HostVD, FieldPlace)) {
             bool Allowed = isArrayElemTransferAllowed(ASE, HostVD,
                                                       /*IsArrElemPtr=*/false);
@@ -5699,12 +5608,12 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
     // member access, which PeelArrayElemBase cannot unwrap; recognise it via
     // the host + "arr[]" path so the null-check branch nulls the field
     // aggregate (same as the local-array null-check).
-    const VarDecl *HostVD = nullptr;
-    std::string FieldPath;
-    if (PeelHostAndFieldPath(ArrElem, HostVD, FieldPath) &&
-        IsOwnedArrayFieldPath(HostVD, FieldPath)) {
+    bsc::PlaceBuilder PB(ctx);
+    const bsc::Place *FieldPath = nullptr;
+    if (PeelHostAndFieldPlace(PB, ArrElem, FieldPath) &&
+        IsOwnedArrayFieldPath(FieldPath)) {
       ArrElemIsArray = true;
-      ArrElemVD = HostVD;
+      ArrElemVD = FieldPath->getRoot();
     }
   }
   // Narrowing the whole aggregate is only sound when the check applies to every

@@ -470,6 +470,7 @@ static bool PeelFieldIndexLevels(
   return true;
 }
 
+
 // Collect every VLA bound variable used in any for-loop condition (3.2.1
 // cond 2): they must not be modified / address-taken / mutably borrowed.
 static void CollectBoundVarInStmt(
@@ -1219,53 +1220,16 @@ class OwnedArrayLoopClassifier {
         // tracked host struct; it is covered like a local array when the
         // bound matches the field's length and the (outermost) index is the
         // loop variable.
-        const Expr *Cur = FieldME;
-        std::string FieldPath;
-        {
-          // Peel the member chain to the root host, skipping host-array
-          // subscripts (arr[i].a[j]: i belongs to the host) and recording
-          // field-array levels as `[]` (o.w[i].arr[j]: i is the w field
-          // level, j is the arr field level).
-          llvm::SmallVector<std::string, 4> chain;
-          while (Cur) {
-            if (const MemberExpr *M = dyn_cast<MemberExpr>(Cur)) {
-              chain.push_back(M->getMemberNameInfo().getAsString());
-              Cur = M->getBase()->IgnoreParenImpCasts();
-            } else if (const ArraySubscriptExpr *A =
-                           dyn_cast<ArraySubscriptExpr>(Cur)) {
-              const Expr *B = A->getBase()->IgnoreParenImpCasts();
-              bool IsFieldIndex = dyn_cast<MemberExpr>(B) != nullptr;
-              if (const ArraySubscriptExpr *Nested =
-                      dyn_cast<ArraySubscriptExpr>(B)) {
-                const Expr *BB =
-                    Nested->getBase()->IgnoreParenImpCasts();
-                while (const ArraySubscriptExpr *BA =
-                           dyn_cast<ArraySubscriptExpr>(BB))
-                  BB = BA->getBase()->IgnoreParenImpCasts();
-                IsFieldIndex = dyn_cast<MemberExpr>(BB) != nullptr;
-              }
-              if (IsFieldIndex)
-                chain.push_back("[]");
-              Cur = B;
-            } else {
-              break;
-            }
-          }
-          for (auto It = chain.rbegin(); It != chain.rend(); ++It) {
-            if (*It == "[]")
-              FieldPath += "[]";
-            else if (FieldPath.empty())
-              FieldPath = *It;
-            else
-              FieldPath += "." + *It;
-          }
-        }
-        if (const DeclRefExpr *HostDRE = dyn_cast<DeclRefExpr>(Cur)) {
-          if (const VarDecl *HostVD =
-                  dyn_cast<VarDecl>(HostDRE->getDecl())) {
-            std::string FieldName = FieldPath;
+        // Peel the member chain to the root host, skipping host-array
+        // subscripts (arr[i].a[j]: i belongs to the host) and recording
+        // field-array levels as `[]` (o.w[i].arr[j]: i is the w field
+        // level, j is the arr field level). Shared with the CFG dataflow.
+        bsc::PlaceBuilder PB(Context);
+        const bsc::Place *FieldPath = nullptr;
+        if (PeelHostAndFieldPlace(PB, FieldME, FieldPath)) {
+          if (const VarDecl *HostVD = FieldPath->getRoot()) {
             if (IsTrackedType(HostVD->getType()) &&
-                IsOwnedArrayField(HostVD, FieldName)) {
+                IsOwnedArrayField(FieldPath)) {
               // Build the level chain of this access, outermost level first:
               // the host subscript levels (e.g. the k of s[k].arr[j]) followed
               // by the field's own array levels, each with that level's array
@@ -1397,6 +1361,7 @@ class OwnedArrayLoopClassifier {
   void collectSites(const Stmt *S) {
     if (!S)
       return;
+
     // MemberExpr root (w.arr[i].a / arr[i].in[j].a / s[i].a[j]): the
     // dataflow transfers on the MemberExpr itself, so record it (not just
     // its subscripted sub-expressions).

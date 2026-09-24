@@ -85,92 +85,6 @@ static inline bool IsTrackedType(QualType type) {
   return false;
 }
 
-// Is `HostVD.FieldPath` an owned-element array field (its element type is an
-// _Owned pointer or move-semantic record)? Used to track `w.arr[i]` where arr
-// is `int *_Owned arr[2]` inside `struct W`, and nested forms like
-// `o.w.arr[i]` (path "w.arr") where the intermediate members are records. The
-// array aggregate is tracked as a field of the root host variable.
-static inline bool IsOwnedArrayField(const VarDecl *HostVD,
-                                     const std::string &FieldPath) {
-  // Strip the host array level(s): the host-array index is not part of the
-  // path (e.g. `struct S arr[3]` -> element `struct S`). Also strip a
-  // leading pointer so a `struct S *_Owned` host works: `p->arr[i]` tracks
-  // the array field of the pointee like a local struct-array host.
-  QualType HostTy = HostVD->getType();
-  while (const auto *AT = HostTy->getAsArrayTypeUnsafe())
-    HostTy = AT->getElementType();
-  if (HostTy->isPointerType())
-    HostTy = HostTy->getPointeeType();
-  const RecordDecl *RD =
-      HostTy.getCanonicalType()->getAs<RecordType>()
-          ? HostTy.getCanonicalType()->getAs<RecordType>()->getDecl()
-          : nullptr;
-  if (!RD)
-    return false;
-  size_t Pos = 0;
-  while (Pos < FieldPath.size()) {
-    // Skip array-field levels (`[]`) and member separators (`.`): they do
-    // not name a member.
-    while (Pos < FieldPath.size() &&
-           (FieldPath.compare(Pos, 2, "[]") == 0 || FieldPath[Pos] == '.'))
-      Pos += FieldPath.compare(Pos, 2, "[]") == 0 ? 2 : 1;
-    if (Pos >= FieldPath.size())
-      break;
-    // A segment ends at `.` (record member separator) or `[]` (array level).
-    size_t Dot = FieldPath.find('.', Pos);
-    size_t Bracket = FieldPath.find("[]", Pos);
-    size_t End;
-    if (Dot == std::string::npos)
-      End = Bracket;
-    else if (Bracket == std::string::npos)
-      End = Dot;
-    else
-      End = std::min(Dot, Bracket);
-    std::string Member = FieldPath.substr(
-        Pos, End == std::string::npos ? std::string::npos : End - Pos);
-    const FieldDecl *FD = nullptr;
-    for (const FieldDecl *F : RD->fields())
-      if (F->getNameAsString() == Member) {
-        FD = F;
-        break;
-      }
-    if (!FD)
-      return false;
-    // If the segment is the last one (nothing but `[]` array levels and `.`
-    // separators after it), the field itself must be an owned-element array.
-    if (End == std::string::npos)
-      return IsOwnedElementArrayType(FD->getType());
-    if (FieldPath.compare(End, 2, "[]") == 0) {
-      bool MoreAfter = false;
-      for (size_t I = End + 2; I < FieldPath.size(); ++I)
-        if (FieldPath[I] == '.') {
-          MoreAfter = true;
-          break;
-        }
-      if (!MoreAfter)
-        return IsOwnedElementArrayType(FD->getType());
-    }
-    // Intermediate segment: a member that is itself an owned-element array
-    // field (e.g. arr in `m[a].arr[0].p` where arr is `struct Inner arr[2]`
-    // with owned members) makes the path a field-array element transfer even
-    // though the final member (p) is not an array -- recognise it so the
-    // transfer stays gated by the qualifying-loop rules.
-    if (IsOwnedElementArrayType(FD->getType()))
-      return true;
-    // Otherwise descend into the record (stripping field-array levels of
-    // the member itself).
-    QualType FT = FD->getType();
-    while (const auto *AT = FT->getAsArrayTypeUnsafe())
-      FT = AT->getElementType();
-    const RecordType *RT = FT.getCanonicalType()->getAs<RecordType>();
-    if (!RT)
-      return false;
-    RD = RT->getDecl();
-    Pos = End;  // the next iteration skips `[]` / `.`
-  }
-  return false;
-}
-
 // Whether E is a null pointer constant (after peeling casts), e.g. nullptr
 // / (void*)0. Shared by the CFG dataflow and the loop classifier's
 // null-check recognition.
@@ -180,19 +94,29 @@ static inline bool IsNullExpr(ASTContext &Context, const Expr *E) {
          Expr::NPCK_NotNull;
 }
 
-// Peel `w.arr[0].a` / `s[i].a` / `s[i].a[j]` to the host variable and the
-// nested field path ("arr[].a" / "a" / "a[]"). The host is the root
-// DeclRefExpr; array levels of *fields* are rendered as `[]` (indexes of the
-// host array itself, e.g. s[i], are not part of the path). Shared by the CFG
-// dataflow (BSCOwnership.cpp) and the qualifying-loop classifier
+//===----------------------------------------------------------------------===//
+// Host-relative field paths, carried as a bsc::Place chain (one Field
+// projection per member, one Index ("[]") projection per field-array level).
+// The host variable is Path->getRoot(). Shared by the CFG dataflow
+// (BSCOwnership.cpp) and the qualifying-loop classifier
 // (BSCOwnershipArrayLoopClassification.cpp).
-static inline bool PeelHostAndFieldPath(const Expr *E, const VarDecl *&HostVD,
-                                        std::string &FieldPath) {
-  llvm::SmallVector<std::string, 4> chain; // E -> host
+//===----------------------------------------------------------------------===//
+
+// Peel `w.arr[0].a` / `s[i].a` / `s[i].a[j]` to the host-relative projection
+// chain. Host-array indexes (the `i` of `s[i]`) are not part of the chain.
+// Returns false when the base is not a variable, when a member is not a plain
+// field, or when an array level does not sit on an array-typed field — the
+// shapes the historical string-to-Place conversion rejected. Path is set to
+// null on failure.
+static inline bool PeelHostAndFieldPlace(bsc::PlaceBuilder &PB, const Expr *E,
+                                         const bsc::Place *&Path) {
+  Path = nullptr;
+  // Steps from E down to the host, applied in reverse to build host -> leaf.
+  llvm::SmallVector<const Expr *, 4> Steps;
   const Expr *Cur = E ? E->IgnoreParenImpCasts() : nullptr;
   while (Cur) {
     if (const MemberExpr *ME = dyn_cast<MemberExpr>(Cur)) {
-      chain.push_back(ME->getMemberNameInfo().getAsString());
+      Steps.push_back(ME);
       Cur = ME->getBase()->IgnoreParenImpCasts();
     } else if (const ArraySubscriptExpr *ASE =
                    dyn_cast<ArraySubscriptExpr>(Cur)) {
@@ -200,7 +124,7 @@ static inline bool PeelHostAndFieldPath(const Expr *E, const VarDecl *&HostVD,
       // MemberExpr base -> array-level field index. A nested ArraySubscriptExpr
       // base may be a field-array index (w.arr[i][j]) or a host pointer index
       // (p2[1][2] where p2 is `int **_Borrow`); only the former belongs in
-      // the path. Decide by looking at the ultimate base of the nested chain.
+      // the chain. Decide by looking at the ultimate base of the nested chain.
       bool IsFieldIndex = dyn_cast<MemberExpr>(B) != nullptr;
       if (const ArraySubscriptExpr *Nested =
               dyn_cast<ArraySubscriptExpr>(B)) {
@@ -210,43 +134,114 @@ static inline bool PeelHostAndFieldPath(const Expr *E, const VarDecl *&HostVD,
           BB = BA->getBase()->IgnoreParenImpCasts();
         IsFieldIndex = dyn_cast<MemberExpr>(BB) != nullptr;
       }
-      if (IsFieldIndex) {
-        chain.push_back("[]"); // array-level field index
-      }
+      if (IsFieldIndex)
+        Steps.push_back(ASE);
       Cur = B;
     } else {
       break;
     }
   }
-  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Cur))
-    HostVD = dyn_cast<VarDecl>(DRE->getDecl());
-  else
-    return false;
+  const auto *DRE = dyn_cast<DeclRefExpr>(Cur);
+  const VarDecl *HostVD =
+      DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
   if (!HostVD)
     return false;
-  std::string path;
-  for (auto It = chain.rbegin(); It != chain.rend(); ++It) {
-    if (*It == "[]")
-      path += "[]";
-    else if (path.empty())
-      path = *It;
-    else
-      path += "." + *It;
+  Path = PB.Build(HostVD, HostVD->getLocation());
+  for (auto It = Steps.rbegin(), EIt = Steps.rend(); It != EIt; ++It) {
+    if (const auto *ME = dyn_cast<MemberExpr>(*It)) {
+      const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
+      if (!FD)
+        return false;
+      Path = PB.BuildField(Path, FD, FD->getLocation());
+      continue;
+    }
+    const auto *ASE = cast<ArraySubscriptExpr>(*It);
+    QualType BaseTy = ASE->getBase()->IgnoreParenImpCasts()->getType();
+    const auto *AT = BaseTy->getAsArrayTypeUnsafe();
+    if (!AT)
+      return false; // an array level on a non-array field
+    Path = PB.BuildIndex(Path, AT->getElementType(), "[]", ASE->getExprLoc());
   }
-  FieldPath = path;
   return true;
 }
 
-// Whether FieldPath (from PeelHostAndFieldPath) denotes an owned-element
-// array field of HostVD: it must contain an array level (`[]`) and the
-// resolved field must be an owned-element array. Single predicate shared by
-// the dataflow transfer sites (subscript / member / cast / null-check), so
-// the "path has `[]`" and "field is owned array" checks are not duplicated.
-static inline bool IsOwnedArrayFieldPath(const VarDecl *HostVD,
-                                         const std::string &FieldPath) {
-  return !FieldPath.empty() &&
-         FieldPath.find("[]") != std::string::npos &&
-         IsOwnedArrayField(HostVD, FieldPath);
+// Whether Path contains an array level (an Index projection).
+static inline bool HasIndexProjection(const bsc::Place *Path) {
+  for (const bsc::Place *Cur = Path; Cur; Cur = Cur->getBase())
+    if (Cur->getKind() == bsc::Place::Kind::Index)
+      return true;
+  return false;
+}
+
+// Is Path an owned-element array field path (its element type is an _Owned
+// pointer or move-semantic record)? Replays the historical name resolution
+// over the place chain: every Field projection is looked up by name in its
+// parent's record, so the *sugared* field type drives the check —
+// canonicalizing an array type drops the _Owned qualifier of its element
+// (int *_Owned arr[2]), so Place::getType() cannot be used here.
+static inline bool IsOwnedArrayField(const bsc::Place *Path) {
+  // The record holding the member a Field projection names: the parent
+  // place's type with host array levels and a leading pointer stripped (the
+  // historical host handling), and array levels stripped for field parents.
+  auto ParentRecord = [](const bsc::Place *F) -> const RecordDecl * {
+    const bsc::Place *Base = F->getBase();
+    const bsc::Ty *T = Base ? Base->getType() : nullptr;
+    if (!T)
+      return nullptr;
+    QualType QT = T->getQualType();
+    while (const auto *AT = QT->getAsArrayTypeUnsafe())
+      QT = AT->getElementType();
+    if (Base->getKind() == bsc::Place::Kind::Var && QT->isPointerType())
+      QT = QT->getPointeeType();
+    const RecordType *RT = QT.getCanonicalType()->getAs<RecordType>();
+    return RT ? RT->getDecl() : nullptr;
+  };
+
+  // Field projections, host -> leaf.
+  llvm::SmallVector<const bsc::Place *, 4> Fields;
+  for (const bsc::Place *Cur = Path; Cur; Cur = Cur->getBase())
+    if (Cur->getKind() == bsc::Place::Kind::Field)
+      Fields.push_back(Cur);
+  for (auto It = Fields.rbegin(); It != Fields.rend(); ++It) {
+    const bsc::Place *F = *It;
+    const RecordDecl *RD = ParentRecord(F);
+    if (!RD)
+      return false;
+    const FieldDecl *FD = nullptr;
+    for (const FieldDecl *Cand : RD->fields())
+      if (Cand->getNameAsString() == F->getName()) {
+        FD = Cand;
+        break;
+      }
+    // A name that does not resolve (e.g. a promoted field of an anonymous
+    // struct/union, which RecordDecl::fields() does not list in C) ends the
+    // scan, like the historical string lookup.
+    if (!FD)
+      return false;
+    // The last member segment (Fields holds leaf -> host, so the leaf-most
+    // projection is front()): the field itself must be an owned-element
+    // array. Trailing `[]` levels produce no further Field projection.
+    if (F == Fields.front())
+      return IsOwnedElementArrayType(FD->getType());
+    if (IsOwnedElementArrayType(FD->getType()))
+      return true;
+    // An intermediate member that cannot be descended into (not a record
+    // after stripping its array levels) ends the scan too.
+    QualType FT = FD->getType();
+    while (const auto *AT = FT->getAsArrayTypeUnsafe())
+      FT = AT->getElementType();
+    if (!FT.getCanonicalType()->getAs<RecordType>())
+      return false;
+  }
+  return false;
+}
+
+// Whether Path (from PeelHostAndFieldPlace) denotes an owned-element array
+// field: it must contain an array level (`[]`) and resolve to an
+// owned-element array. Single predicate shared by the dataflow transfer sites
+// (subscript / member / cast / null-check).
+static inline bool IsOwnedArrayFieldPath(const bsc::Place *Path) {
+  return HasIndexProjection(Path) && IsOwnedArrayField(Path);
 }
 
 // An enum of reasons why a for-loop does not qualify for owned-array element
