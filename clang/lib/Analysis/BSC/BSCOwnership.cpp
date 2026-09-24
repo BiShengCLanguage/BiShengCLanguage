@@ -1109,137 +1109,90 @@ void Ownership::OwnershipStatus::setOwnedFieldNull(const VarDecl *VD,
   }
 }
 
-// __assume_null(*s) on an owned struct pointer: drop ownership of every
-// registered owned field of the struct.
-void Ownership::OwnershipStatus::assumeAllOwnedFieldsNull(
-    const VarDecl *VD) {
-  if (!isHost(VD, HostKind::OPS))
+// __assume_null on a struct-typed target: drop ownership of every owned field
+// in `Keys` (and its field descendants) by asserting it null, on whichever host
+// tracks VD — an owned struct pointer (OPS) or a struct value (S). All is the
+// static schema and is never mutated by a transition, so `Keys` may alias it.
+void Ownership::OwnershipStatus::assumeFieldsNull(const VarDecl *VD,
+                                                  const FieldSet &Keys) {
+  const bool IsS = isHost(VD, HostKind::S);
+  if (!IsS && !isHost(VD, HostKind::OPS))
     return;
-  llvm::SmallVector<FieldKey, 16> paths(allFields(VD).begin(),
-                                        allFields(VD).end());
-  for (FieldKey path : paths) {
+  for (FieldKey Key : Keys) {
     // Array fields ("arr[]", "arr[].a") carry their own element-wise
     // ownership; an aggregate __assume_null cannot drop them (the W001
     // warning already reports this in Sema). Skip them so a qualifying-loop
     // element transfer is not laundered as null.
-    if (placeToKeyString(path).find("[]") != string::npos)
+    if (placeToKeyString(Key).find("[]") != string::npos)
       continue;
-    setOwnedFieldNull(VD, path);
+    if (!IsS) {
+      setOwnedFieldNull(VD, Key);
+      continue;
+    }
+    if (!allFields(VD).count(Key))
+      continue;
+    ownedFields(VD).erase(Key);
+    nullFields(VD).insert(Key);
+    uninitFields(VD).erase(Key);
+    for (FieldKey Str : fieldDescendants(allFields(VD), Key)) {
+      ownedFields(VD).erase(Str);
+      nullFields(VD).insert(Str);
+      uninitFields(VD).erase(Str);
+    }
   }
 }
 
-// __assume_null(t) on a struct-value variable (an S host): drop ownership
-// of every registered owned field of the struct value, mirroring
-// assumeAllOwnedFieldsNull for the owned-struct-pointer (OPS) host.
-void Ownership::OwnershipStatus::assumeAllSFieldsNull(const VarDecl *VD) {
-  if (!isHost(VD, HostKind::S))
-    return;
-  llvm::SmallVector<FieldKey, 16> paths(allFields(VD).begin(),
-                                        allFields(VD).end());
-  for (FieldKey path : paths) {
-    // Array fields carry element-wise ownership; an aggregate __assume_null
-    // cannot drop them (W001 already reports this). Skip so a qualifying-loop
-    // element transfer is not laundered as null.
-    if (placeToKeyString(path).find("[]") != string::npos)
-      continue;
-    if (allFields(VD).count(path)) {
-      ownedFields(VD).erase(path);
-      nullFields(VD).insert(path);
-      uninitFields(VD).erase(path);
-      auto allPrefixStrs = fieldDescendants(allFields(VD), path);
-      for (FieldKey str : allPrefixStrs) {
-        ownedFields(VD).erase(str);
-        nullFields(VD).insert(str);
-        uninitFields(VD).erase(str);
-      }
-    }
-  }
+// __assume_null(t) on a struct-value variable (an S host) / __assume_null(*s)
+// on an owned struct pointer (an OPS host): drop ownership of every registered
+// owned field of the whole object.
+void Ownership::OwnershipStatus::assumeAllFieldsNull(const VarDecl *VD) {
+  assumeFieldsNull(VD, allFields(VD));
 }
 
 // __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
-// ownership of every owned field nested under `fieldPath` (field descendants)
-// on whichever host tracks VD — an owned struct pointer (OPS) or a struct
-// value (S). `fieldPath` is e.g. Field(Var, "in"); fields under it are
-// "in.ip", "in.x.y".
+// ownership of every owned field nested under `FieldPath` (field descendants)
+// on whichever host tracks VD. `FieldPath` is e.g. Field(Var, "in"); fields
+// under it are "in.ip", "in.x.y".
 void Ownership::OwnershipStatus::assumeOwnedFieldsUnderNull(
     const VarDecl *VD, FieldKey FieldPath) {
-  if (isHost(VD, HostKind::OPS)) {
-    auto allPrefixStrs = fieldDescendants(allFields(VD), FieldPath);
-    for (FieldKey str : allPrefixStrs) {
-      if (placeToKeyString(str).find("[]") != string::npos)
-        continue;
-      setOwnedFieldNull(VD, str);
-    }
-  }
-  if (isHost(VD, HostKind::S)) {
-    auto allPrefixStrs = fieldDescendants(allFields(VD), FieldPath);
-    for (FieldKey str : allPrefixStrs) {
-      if (placeToKeyString(str).find("[]") != string::npos)
-        continue;
-      if (allFields(VD).count(str)) {
-        ownedFields(VD).erase(str);
-        nullFields(VD).insert(str);
-        uninitFields(VD).erase(str);
-      }
-    }
-  }
+  assumeFieldsNull(VD, fieldDescendants(allFields(VD), FieldPath));
 }
 
-// __forget(*s) on an owned struct pointer: forget every registered owned
-// field of the pointee (Moved semantics — the fields are not asserted null,
-// they are abandoned). Unlike assumeAllOwnedFieldsNull, array fields
-// ("arr[]") are forgotten too: __forget is a promise to abandon the whole
-// pointee contents, and there is no Sema warning that could exclude them.
-// The pointer itself keeps owning the struct allocation (still must be freed
-// or forgotten), so no aggregate bit changes.
-void Ownership::OwnershipStatus::forgetAllOwnedFields(
-    const VarDecl *VD) {
-  if (!isHost(VD, HostKind::OPS))
+// __forget on a struct-typed target: abandon every owned field in `Keys` (and
+// its field descendants) — Moved semantics, the counterpart of
+// assumeFieldsNull (the fields are not asserted null, they are abandoned). On
+// an S host the fields count as explicitly moved, so a later field use reports
+// use-of-moved like a per-field move-out would.
+void Ownership::OwnershipStatus::forgetFields(const VarDecl *VD,
+                                              const FieldSet &Keys) {
+  const bool IsS = isHost(VD, HostKind::S);
+  if (!IsS && !isHost(VD, HostKind::OPS))
     return;
-  ownedFields(VD).clear();
-  nullFields(VD).clear();
-}
-
-// __forget(t) on a struct-value variable (an S host): forget every
-// registered owned field of the struct value, mirroring
-// forgetAllOwnedFields for the owned-struct-pointer (OPS) host. The
-// fields count as explicitly moved (the Moved set), so a later field use
-// reports use-of-moved like a per-field move-out would.
-void Ownership::OwnershipStatus::forgetAllSFields(const VarDecl *VD) {
-  if (!isHost(VD, HostKind::S))
-    return;
-  for (FieldKey path : allFields(VD)) {
-    ownedFields(VD).erase(path);
-    nullFields(VD).erase(path);
-    uninitFields(VD).erase(path);
+  for (FieldKey Key : Keys) {
+    ownedFields(VD).erase(Key);
+    nullFields(VD).erase(Key);
+    if (!IsS)
+      continue;
+    uninitFields(VD).erase(Key);
+    markFieldAndDescendantsMoved(allFields(VD), movedFields(VD), Key);
   }
-  movedFields(VD) = allFields(VD);
 }
 
-// __forget(s->in) / __forget(t.in) on a struct-typed field: forget every
-// owned field nested under `fieldPath` (field descendants) on whichever host
-// tracks VD — an owned struct pointer (OPS) or a struct value (S). Mirror of
-// assumeOwnedFieldsUnderNull with Moved semantics (no Null insertion; S-host
-// fields are marked moved so later uses report use-of-moved).
+// __forget(*s) / __forget(t): forget every registered owned field of the whole
+// object. Unlike assumeAllFieldsNull, array fields ("arr[]") are forgotten too:
+// __forget is a promise to abandon the whole contents, and there is no Sema
+// warning that could exclude them. The pointer itself keeps owning the struct
+// allocation (still must be freed or forgotten), so no aggregate bit changes.
+void Ownership::OwnershipStatus::forgetAllFields(const VarDecl *VD) {
+  forgetFields(VD, allFields(VD));
+}
+
+// __forget(s->in) / __forget(t.in) on a struct-typed field: forget every owned
+// field nested under `FieldPath` (field descendants) on whichever host tracks
+// VD. Mirror of assumeOwnedFieldsUnderNull with Moved semantics.
 void Ownership::OwnershipStatus::forgetOwnedFieldsUnderPath(
     const VarDecl *VD, FieldKey FieldPath) {
-  if (isHost(VD, HostKind::OPS)) {
-    auto allPrefixStrs = fieldDescendants(allFields(VD), FieldPath);
-    for (FieldKey str : allPrefixStrs) {
-      ownedFields(VD).erase(str);
-      nullFields(VD).erase(str);
-    }
-  }
-  if (isHost(VD, HostKind::S)) {
-    auto allPrefixStrs = fieldDescendants(allFields(VD), FieldPath);
-    for (FieldKey str : allPrefixStrs) {
-      ownedFields(VD).erase(str);
-      nullFields(VD).erase(str);
-      uninitFields(VD).erase(str);
-      markFieldAndDescendantsMoved(allFields(VD), movedFields(VD),
-                                   str);
-    }
-  }
+  forgetFields(VD, fieldDescendants(allFields(VD), FieldPath));
 }
 
 void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
@@ -1251,7 +1204,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
     // struct value, so this path is only reached via __assume_null.) Pointer
     // variables fall through to setToNull(VD) below.
     if (E->getType()->isRecordType() && isHost(VD, HostKind::S)) {
-      assumeAllSFieldsNull(VD);
+      assumeAllFieldsNull(VD);
       return;
     }
     setToNull(VD);
@@ -1267,7 +1220,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
     if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         if (IsOwnedElementArrayType(VD->getType()))
-          setArrayElemNull(VD);
+          setArrayAggregate(VD, nullptr, Ownership::Status::Null);
         return;
       }
     }
@@ -1278,7 +1231,8 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
       const bsc::Place *FieldPath = nullptr;
       if (PeelHostAndFieldPlace(PB, E, FieldPath) &&
           IsOwnedArrayFieldPath(FieldPath))
-        setArrayFieldNull(FieldPath->getRoot(), FieldPath);
+        setArrayAggregate(FieldPath->getRoot(), FieldPath,
+                          Ownership::Status::Null);
       return;
     }
   }
@@ -1298,7 +1252,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
           const bsc::Place *SArrFieldPath = nullptr;
           if (PeelHostAndFieldPlace(PB, ME, SArrFieldPath) &&
               SArrFieldPath->getRoot() == VD)
-            setArrayFieldNull(VD, SArrFieldPath);
+            setArrayAggregate(VD, SArrFieldPath, Ownership::Status::Null);
           return;
         }
       }
@@ -1308,7 +1262,8 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
       const bsc::Place *FieldPath = nullptr;
       if (PeelHostAndFieldPlace(PB, E, FieldPath) &&
           IsOwnedArrayFieldPath(FieldPath)) {
-        setArrayFieldNull(FieldPath->getRoot(), FieldPath);
+        setArrayAggregate(FieldPath->getRoot(), FieldPath,
+                          Ownership::Status::Null);
         return;
       }
     }
@@ -1384,7 +1339,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
           isHost(RootVD, HostKind::OPS)) {
         QualType PointeeTy = RootVD->getType()->getPointeeType();
         if (PointeeTy->isRecordType())
-          assumeAllOwnedFieldsNull(RootVD);
+          assumeAllFieldsNull(RootVD);
       }
       if (isHost(RootVD, HostKind::BOP)) {
         if (allFields(RootVD).count(DerefPlace)) {
@@ -1444,7 +1399,7 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
     if (E->getType()->isRecordType() && isHost(VD, HostKind::S)) {
-      forgetAllSFields(VD);
+      forgetAllFields(VD);
       return;
     }
     setToMoved(VD);
@@ -1461,7 +1416,7 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
     if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         if (IsOwnedElementArrayType(VD->getType()))
-          setArrayElemMoved(VD);
+          setArrayAggregate(VD, nullptr, Ownership::Status::Moved);
         return;
       }
     }
@@ -1472,7 +1427,8 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
       const bsc::Place *FieldPath = nullptr;
       if (PeelHostAndFieldPlace(PB, E, FieldPath) &&
           IsOwnedArrayFieldPath(FieldPath))
-        setArrayFieldMoved(FieldPath->getRoot(), FieldPath);
+        setArrayAggregate(FieldPath->getRoot(), FieldPath,
+                          Ownership::Status::Moved);
       return;
     }
   }
@@ -1498,7 +1454,7 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
           const bsc::Place *SArrFieldPath = nullptr;
           if (PeelHostAndFieldPlace(PB, ME, SArrFieldPath) &&
               SArrFieldPath->getRoot() == VD)
-            setArrayFieldMoved(VD, SArrFieldPath);
+            setArrayAggregate(VD, SArrFieldPath, Ownership::Status::Moved);
           return;
         }
       }
@@ -1511,7 +1467,8 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
       const bsc::Place *FieldPath = nullptr;
       if (PeelHostAndFieldPlace(PB, ME, FieldPath) &&
           IsOwnedArrayFieldPath(FieldPath)) {
-        setArrayFieldMoved(FieldPath->getRoot(), FieldPath);
+        setArrayAggregate(FieldPath->getRoot(), FieldPath,
+                          Ownership::Status::Moved);
         return;
       }
     }
@@ -1593,7 +1550,7 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
           isHost(RootVD, HostKind::OPS)) {
         QualType PointeeTy = RootVD->getType()->getPointeeType();
         if (PointeeTy->isRecordType())
-          forgetAllOwnedFields(RootVD);
+          forgetAllFields(RootVD);
       }
       if (isHost(RootVD, HostKind::BOP)) {
         if (allFields(RootVD).count(DerefPlace)) {
@@ -1642,142 +1599,100 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
 // Whole-array / struct-field transitions for owned-element arrays.
 //===----------------------------------------------------------------------===//
 
-void Ownership::OwnershipStatus::setArrayElemMoved(const VarDecl *VD) {
-  if (isHost(VD, HostKind::BOP)) {
-    // Basic owned-pointer arrays, e.g. int *_Owned a[N]: every element was
-    // moved out (freed / passed / returned), the aggregate no longer owns.
-    resetAll(VD);
-    set(VD, Ownership::Status::Moved);
-  }
-  if (isHost(VD, HostKind::S)) {
+// Apply one aggregate state transition. The whole array is one aggregate and an
+// element transfer applies to all elements uniformly, so the aggregate state
+// moves as a unit. `Field` selects the target:
+//   - nullptr: the whole aggregate — a local owned-element array (a BOP or S
+//     host), or the whole array of a struct-field array;
+//   - otherwise: the host-relative array-field path ("arr[]", "arr[].p") of a
+//     host aggregate (an S struct value or an OPS owned struct pointer).
+// S is the target state: Owned, Null or Moved.
+void Ownership::OwnershipStatus::setArrayAggregate(const VarDecl *VD,
+                                                   const bsc::Place *Field,
+                                                   Status S) {
+  if (!Field) {
+    // Basic owned-pointer arrays, e.g. int *_Owned a[N]: only the aggregate
+    // root state is tracked.
+    if (isHost(VD, HostKind::BOP)) {
+      if (S == Owned) {
+        setToOwned(VD);
+      } else if (S == Null) {
+        ownedFields(VD).clear();
+        resetAll(VD);
+        set(VD, Ownership::Status::Null);
+      } else { // Moved: every element was moved out, the aggregate no longer owns
+        resetAll(VD);
+        set(VD, Ownership::Status::Moved);
+      }
+      return;
+    }
     // Struct arrays, e.g. struct S a[N] with _Owned members: treat every
     // tracked field of every element as moved out.
-    for (FieldKey field : allFields(VD))
-      ownedFields(VD).erase(field);
-    movedFields(VD) = allFields(VD);
-    resetAll(VD);
-    set(VD, Ownership::Status::AllMoved);
-  }
-}
-
-void Ownership::OwnershipStatus::setArrayElemOwned(const VarDecl *VD) {
-  if (isHost(VD, HostKind::BOP)) {
-    resetAll(VD);
-    set(VD, Ownership::Status::Owned);
-    ownedFields(VD) = allFields(VD);
-  }
-  if (isHost(VD, HostKind::S)) {
-    setToOwned(VD);
-  }
-}
-
-void Ownership::OwnershipStatus::setArrayElemNull(const VarDecl *VD) {
-  if (isHost(VD, HostKind::BOP)) {
-    ownedFields(VD).clear();
-    resetAll(VD);
-    set(VD, Ownership::Status::Null);
-  }
-  if (isHost(VD, HostKind::S)) {
-    ownedFields(VD).clear();
-    movedFields(VD).clear();
-    nullFields(VD) = allFields(VD);
-    resetAll(VD);
-    set(VD, Ownership::Status::AllMoved);
-  }
-}
-
-void Ownership::OwnershipStatus::setArrayFieldMoved(const VarDecl *VD,
-                                                    FieldKey fieldName) {
-  if (isHost(VD, HostKind::S)) {
-    if (!allFields(VD).count(fieldName))
+    if (isHost(VD, HostKind::S)) {
+      if (S == Owned) {
+        setToOwned(VD);
+      } else if (S == Null) {
+        ownedFields(VD).clear();
+        movedFields(VD).clear();
+        nullFields(VD) = allFields(VD);
+        resetAll(VD);
+        set(VD, Ownership::Status::AllMoved);
+      } else { // Moved
+        for (FieldKey F : allFields(VD))
+          ownedFields(VD).erase(F);
+        movedFields(VD) = allFields(VD);
+        resetAll(VD);
+        set(VD, Ownership::Status::AllMoved);
+      }
       return;
-    ownedFields(VD).erase(fieldName);
-    nullFields(VD).erase(fieldName);
-    markFieldAndDescendantsMoved(allFields(VD), movedFields(VD),
-                                 fieldName);
-    for (FieldKey str : fieldDescendants(allFields(VD), fieldName)) {
-      ownedFields(VD).erase(str);
-      nullFields(VD).erase(str);
     }
-    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
+    return;
   }
-  // Owned struct-pointer host (`struct S *_Owned p`): the array field of the
-  // pointee is tracked with the OPS field sets.
-  if (isHost(VD, HostKind::OPS)) {
-    if (!allFields(VD).count(fieldName))
-      return;
-    ownedFields(VD).erase(fieldName);
-    nullFields(VD).erase(fieldName);
-    markFieldAndDescendantsMoved(allFields(VD), movedFields(VD), fieldName);
-    for (FieldKey str : fieldDescendants(allFields(VD), fieldName)) {
-      ownedFields(VD).erase(str);
-      nullFields(VD).erase(str);
-    }
-    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
-  }
-}
 
-void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
-                                                    FieldKey fieldName) {
-  if (isHost(VD, HostKind::S)) {
+  // A field path of a host aggregate: the S (struct value) and OPS (owned
+  // struct pointer) hosts track it with their field sets.
+  const bool IsS = isHost(VD, HostKind::S);
+  if (!IsS && !isHost(VD, HostKind::OPS))
+    return;
+  if (S == Owned) {
     bool Found = false;
-    if (allFields(VD).count(fieldName)) {
-      ownedFields(VD).insert(fieldName);
-      nullFields(VD).erase(fieldName);
-      movedFields(VD).erase(fieldName);
+    if (allFields(VD).count(Field)) {
+      ownedFields(VD).insert(Field);
+      nullFields(VD).erase(Field);
+      if (IsS)
+        movedFields(VD).erase(Field);
       Found = true;
     }
     // A mutable borrow of an aggregate field path (e.g. "arr[]" or "inner")
     // may write to any tracked descendant field through the borrow, so promote
     // all of them to owned (conservative: it may now own values).
-    for (FieldKey F : fieldDescendants(allFields(VD), fieldName)) {
+    for (FieldKey F : fieldDescendants(allFields(VD), Field)) {
       ownedFields(VD).insert(F);
       nullFields(VD).erase(F);
-      movedFields(VD).erase(F);
+      if (IsS)
+        movedFields(VD).erase(F);
       Found = true;
     }
     if (!Found)
       return;
-    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
-  }
-  if (isHost(VD, HostKind::OPS)) {
-    bool Found = false;
-    if (allFields(VD).count(fieldName)) {
-      ownedFields(VD).insert(fieldName);
-      nullFields(VD).erase(fieldName);
-      movedFields(VD).erase(fieldName);
-      Found = true;
-    }
-    for (FieldKey F : fieldDescendants(allFields(VD), fieldName)) {
-      ownedFields(VD).insert(F);
+  } else if (S == Null) {
+    if (!allFields(VD).count(Field))
+      return;
+    ownedFields(VD).erase(Field);
+    nullFields(VD).insert(Field);
+    eraseFieldAndDescendants(movedFields(VD), Field);
+  } else { // Moved
+    if (!allFields(VD).count(Field))
+      return;
+    ownedFields(VD).erase(Field);
+    nullFields(VD).erase(Field);
+    markFieldAndDescendantsMoved(allFields(VD), movedFields(VD), Field);
+    for (FieldKey F : fieldDescendants(allFields(VD), Field)) {
+      ownedFields(VD).erase(F);
       nullFields(VD).erase(F);
-      movedFields(VD).erase(F);
-      Found = true;
     }
-    if (!Found)
-      return;
-    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
-}
-
-void Ownership::OwnershipStatus::setArrayFieldNull(const VarDecl *VD,
-                                                   FieldKey fieldName) {
-  if (isHost(VD, HostKind::S)) {
-    if (!allFields(VD).count(fieldName))
-      return;
-    ownedFields(VD).erase(fieldName);
-    nullFields(VD).insert(fieldName);
-    eraseFieldAndDescendants(movedFields(VD), fieldName);
-    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
-  }
-  if (isHost(VD, HostKind::OPS)) {
-    if (!allFields(VD).count(fieldName))
-      return;
-    ownedFields(VD).erase(fieldName);
-    nullFields(VD).insert(fieldName);
-    eraseFieldAndDescendants(movedFields(VD), fieldName);
-    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
-  }
+  refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
 }
 
 
@@ -3622,7 +3537,7 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
       // it may now own values. Promote the aggregate to owned (conservative),
       // so a scope exit without freeing reports a leak.
       if (isAddrMut)
-        stat.setArrayElemOwned(ArrVD);
+        stat.setArrayAggregate(ArrVD, nullptr, Ownership::Status::Owned);
     }
     // Read-only accesses (comparisons, deref, borrows) do not change the
     // aggregate state; just visit the index and return.
@@ -3663,7 +3578,8 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
           } else if (isAddrMut) {
             // A mutable borrow (&_Mut w.arr[i]) exposes the field to writes
             // through the borrow, so promote the aggregate to owned.
-            stat.setArrayFieldOwned(HostVD, FieldPlace);
+            stat.setArrayAggregate(HostVD, FieldPlace,
+                                   Ownership::Status::Owned);
           }
         }
         Visit(ASE->getIdx());
@@ -3881,17 +3797,9 @@ void TransferFunctions::applyArrayElemAssign(SourceLocation Loc,
                            Display);
       reporter.addDiagInfo(DI);
     }
-  if (IsNullAssign) {
-    if (IsWholeAggregate)
-      stat.setArrayElemNull(ArrVD);
-    else
-      stat.setArrayFieldNull(ArrVD, fieldName);
-  } else {
-    if (IsWholeAggregate)
-      stat.setArrayElemOwned(ArrVD);
-    else
-      stat.setArrayFieldOwned(ArrVD, fieldName);
-  }
+  stat.setArrayAggregate(ArrVD, IsWholeAggregate ? nullptr : fieldName,
+                         IsNullAssign ? Ownership::Status::Null
+                                      : Ownership::Status::Owned);
 }
 
 void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
@@ -3952,10 +3860,12 @@ void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
     // move-out checks, which report and then set Moved): without this, the
     // already-reported double free would be re-reported as a loop-end
     // inconsistency / scope-exit leak of the same element.
-    if (!fieldName || fieldName->getKind() == bsc::Place::Kind::Var)
-      stat.setArrayElemMoved(ArrVD);
-    else
-      stat.setArrayFieldMoved(ArrVD, fieldName);
+    stat.setArrayAggregate(ArrVD,
+                           (!fieldName ||
+                            fieldName->getKind() == bsc::Place::Kind::Var)
+                               ? nullptr
+                               : fieldName,
+                           Ownership::Status::Moved);
     return;
   }
   // A must-be-null aggregate (all elements initialized to null) owns nothing:
@@ -3964,12 +3874,9 @@ void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
   // becoming Moved. This allows e.g. consume(a[i]) on an all-null array to be
   // repeated, and a later borrow sees Null (may own) rather than Moved.
   bool NullTransfer = stat.arrayAggregateNull(ArrVD, fieldName);
-  if (!NullTransfer) {
-    if (IsWholeAggregate)
-      stat.setArrayElemMoved(ArrVD);
-    else
-      stat.setArrayFieldMoved(ArrVD, fieldName);
-  }
+  if (!NullTransfer)
+    stat.setArrayAggregate(ArrVD, IsWholeAggregate ? nullptr : fieldName,
+                           Ownership::Status::Moved);
 }
 
 // A one-line description of why a for-loop failed the qualifying-loop rules,
@@ -4137,7 +4044,8 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
         return;
       }
       if (isAddrMut)
-        stat.setArrayFieldOwned(ArrVD, ArrFieldPlace);
+        stat.setArrayAggregate(ArrVD, ArrFieldPlace,
+                               Ownership::Status::Owned);
     }
     return;
   }
@@ -4172,7 +4080,7 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
                              HostVD->getNameAsString());
         reporter.addDiagInfo(DI);
       } else if (isAddrMut) {
-        stat.setArrayFieldOwned(HostVD, FieldPlace);
+        stat.setArrayAggregate(HostVD, FieldPlace, Ownership::Status::Owned);
       }
     }
     return;
@@ -4740,21 +4648,21 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
             NullInitTest IsNullState = stateNullInitTest();
             if (ILE->getNumInits() == 0 ||
                 isAllNullInits(OS.ctx, ILE, ElemTy, IsNullState)) {
-              stat.setArrayElemNull(VD);
+              stat.setArrayAggregate(VD, nullptr, Ownership::Status::Null);
             } else if (const RecordType *RT =
                            dyn_cast<RecordType>(ElemTy.getCanonicalType())) {
               // Mixed / non-null struct-element array initializer: each owned
               // field is tracked independently, so a field that is null in
               // every element is recorded as null even when another field
               // owns values.
-              stat.setArrayElemOwned(VD);
+              stat.setArrayAggregate(VD, nullptr, Ownership::Status::Owned);
               NullAllNullStructArrayFields(stat, OS.ctx, VD, RT->getDecl(),
                                            ILE, IsNullState);
             } else {
-              stat.setArrayElemOwned(VD);
+              stat.setArrayAggregate(VD, nullptr, Ownership::Status::Owned);
             }
           } else {
-            stat.setArrayElemOwned(VD);
+            stat.setArrayAggregate(VD, nullptr, Ownership::Status::Owned);
           }
         } else if (VQT->isRecordType() &&
                    VQT->containsOwned(BSCLookThrough::AnyPointer) &&

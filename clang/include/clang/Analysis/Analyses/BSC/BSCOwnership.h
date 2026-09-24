@@ -621,37 +621,34 @@ public:
     void setToNull(const VarDecl *VD);
     void setToNull(const Expr *E, ASTContext &Ctx);
     void setOwnedFieldNull(const VarDecl *VD, const bsc::Place *fieldPath);
-    void assumeAllOwnedFieldsNull(const VarDecl *VD);
-    // __assume_null(t) on a struct-value variable (an S host): drop ownership
-    // of every registered owned field of the struct value.
-    void assumeAllSFieldsNull(const VarDecl *VD);
+    // __assume_null(t) / __assume_null(*s): drop ownership of every registered
+    // owned field of the whole object (an S struct value or an OPS owned
+    // struct pointer).
+    void assumeAllFieldsNull(const VarDecl *VD);
     // __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
     // ownership of every owned field nested under `fieldPath` (prefix match),
     // on whichever host (OPS owned struct pointer or S struct value) tracks VD.
     void assumeOwnedFieldsUnderNull(const VarDecl *VD,
                                     const bsc::Place *fieldPath);
     // __forget(*s) / __forget(t) / __forget(s->in): the Moved-semantics
-    // counterparts of assumeAllOwnedFieldsNull / assumeAllSFieldsNull /
-    // assumeOwnedFieldsUnderNull (fields abandoned, not asserted null).
-    void forgetAllOwnedFields(const VarDecl *VD);
-    void forgetAllSFields(const VarDecl *VD);
+    // counterparts of assumeAllFieldsNull / assumeOwnedFieldsUnderNull (fields
+    // abandoned, not asserted null).
+    void forgetAllFields(const VarDecl *VD);
     void forgetOwnedFieldsUnderPath(const VarDecl *VD,
                                     const bsc::Place *fieldPath);
     void setToMoved(const VarDecl *VD);
     void setToMoved(const Expr *E, ASTContext &Ctx);
 
-    // whole-array / struct-field ownership transitions applied
+    // whole-array / struct-field ownership transition applied
     // by the dataflow when a qualifying for-loop transfers array elements.
     // The whole array is one aggregate; an element transfer applies to all
-    // elements uniformly, so the aggregate state moves as a unit.
-    void setArrayElemMoved(const VarDecl *VD);
-    void setArrayElemOwned(const VarDecl *VD);
-    void setArrayElemNull(const VarDecl *VD);
-    void setArrayFieldMoved(const VarDecl *VD, const bsc::Place *fieldName);
-    void setArrayFieldOwned(const VarDecl *VD, const bsc::Place *fieldName);
-    void setArrayFieldNull(const VarDecl *VD, const bsc::Place *fieldName);
-    // Shared by the three setArrayField*: after erasing / inserting fieldName
-    // (and its `fieldName.` prefix children) in the per-VD owned set, refresh
+    // elements uniformly, so the aggregate state moves as a unit. `Field` is
+    // nullptr for the whole aggregate, otherwise the host-relative array-field
+    // path ("arr[]", "arr[].p"); `S` is the target state (Owned / Null /
+    // Moved).
+    void setArrayAggregate(const VarDecl *VD, const bsc::Place *Field, Status S);
+    // Shared by setArrayAggregate's field-path cases: after erasing / inserting
+    // Field (and its `Field.` prefix children) in the per-VD owned set, refresh
     // the aggregate bit state from the owned count vs the static field count.
     void refreshArrayFieldState(const VarDecl *VD, size_t OwnedCount,
                                 size_t AllCount);
@@ -764,6 +761,11 @@ public:
                int depth = 10, const bsc::Place *Parent = nullptr);
     void initBOP(QualType QT, const VarDecl *VD, ASTContext &Ctx, int depth = 10,
                  const bsc::Place *Parent = nullptr);
+    // The __assume_null / __forget transitions over an explicit key set: the
+    // whole-object variants pass the static schema, the "under path" variants
+    // the field descendants of one path. Both dispatch on the host family.
+    void assumeFieldsNull(const VarDecl *VD, const FieldSet &Keys);
+    void forgetFields(const VarDecl *VD, const FieldSet &Keys);
     std::string collectMovedFields(const VarDecl *VD);
 
     friend class OwnerShip;
