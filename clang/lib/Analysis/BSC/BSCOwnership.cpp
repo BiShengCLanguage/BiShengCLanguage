@@ -996,7 +996,9 @@ void Ownership::OwnershipStatus::resetAll(const VarDecl *VD) {
 }
 
 void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
-  if (isHost(VD, HostKind::OPS)) {
+  // The pointer families (OPS / BOP) share one transition: the null-field set
+  // is always empty for a BOP host, so clearing it is a no-op there.
+  if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::BOP)) {
     resetAll(VD);
     set(VD, Ownership::Status::Owned);
     ownedFields(VD) = allFields(VD);
@@ -1012,26 +1014,10 @@ void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
     uninitFields(VD).clear();
     movedFields(VD).clear();
   }
-
-  if (isHost(VD, HostKind::BOP)) {
-    resetAll(VD);
-    set(VD, Ownership::Status::Owned);
-    ownedFields(VD) = allFields(VD);
-  }
 }
 
 void Ownership::OwnershipStatus::setToAllMoved(const VarDecl *VD) {
-  if (isHost(VD, HostKind::OPS)) {
-    resetAll(VD);
-    if (!allFields(VD).empty()) {
-      set(VD, Ownership::Status::AllMoved);
-      ownedFields(VD).clear();
-    } else {
-      set(VD, Ownership::Status::Owned);
-    }
-  }
-
-  if (isHost(VD, HostKind::BOP)) {
+  if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::BOP)) {
     resetAll(VD);
     if (!allFields(VD).empty()) {
       set(VD, Ownership::Status::AllMoved);
@@ -1098,12 +1084,7 @@ void Ownership::OwnershipStatus::setToAllMoved(const Expr *E, ASTContext &Ctx) {
 }
 
 void Ownership::OwnershipStatus::setToNull(const VarDecl *VD) {
-  if (isHost(VD, HostKind::OPS)) {
-    ownedFields(VD).clear();
-    resetAll(VD);
-    set(VD, Ownership::Status::Null);
-  }
-  if (isHost(VD, HostKind::BOP)) {
+  if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::BOP)) {
     ownedFields(VD).clear();
     resetAll(VD);
     set(VD, Ownership::Status::Null);
@@ -1447,12 +1428,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
 }
 
 void Ownership::OwnershipStatus::setToMoved(const VarDecl *VD) {
-  if (isHost(VD, HostKind::OPS)) {
-    ownedFields(VD).clear();
-    resetAll(VD);
-    set(VD, Ownership::Status::Moved);
-  }
-  if (isHost(VD, HostKind::BOP)) {
+  if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::BOP)) {
     ownedFields(VD).clear();
     resetAll(VD);
     set(VD, Ownership::Status::Moved);
@@ -2207,9 +2183,12 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
   return diags;
 }
 
+// The root assign check shared by both pointer families (OPS and BOP): the
+// rules and diagnostics are identical, and canAssign() already restricts the
+// check to them.
 SmallVector<OwnershipDiagInfo>
-Ownership::OwnershipStatus::checkOPSAssign(const VarDecl *VD,
-                                           const SourceLocation &Loc) {
+Ownership::OwnershipStatus::checkPointerAssign(const VarDecl *VD,
+                                               const SourceLocation &Loc) {
   SmallVector<OwnershipDiagInfo> diags;
 
   // when assign ops, we must ensure the variable is uninit or moved
@@ -2858,38 +2837,6 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPFieldUse(
 }
 
 SmallVector<OwnershipDiagInfo>
-Ownership::OwnershipStatus::checkBOPAssign(const VarDecl *VD,
-                                           const SourceLocation &Loc) {
-  SmallVector<OwnershipDiagInfo> diags;
-
-  // check the status of the variable
-  if (!canAssign(VD)) {
-    if (isOrHas(VD, Ownership::Status::Owned)) {
-      diags.push_back(OwnershipDiagInfo(
-          Loc, OwnershipDiagKind::InvalidAssignOfOwned, VD->getNameAsString()));
-    } else if (is(VD, Ownership::Status::PartialMoved)) {
-      diags.push_back(OwnershipDiagInfo(
-          Loc, OwnershipDiagKind::InvalidAssignOfPartiallyMoved,
-          VD->getNameAsString(), collectMovedFields(VD)));
-    } else if (has(VD, Ownership::Status::PartialMoved)) {
-      diags.push_back(OwnershipDiagInfo(
-          Loc, OwnershipDiagKind::InvalidAssignOfPossiblyPartiallyMoved,
-          VD->getNameAsString(), collectMovedFields(VD)));
-    } else if (is(VD, Ownership::Status::AllMoved)) {
-      diags.push_back(
-          OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignOfAllMoved,
-                            VD->getNameAsString()));
-    }
-  }
-  // change the status to owned
-  ownedFields(VD) = allFields(VD);
-  resetAll(VD);
-  set(VD, Ownership::Status::Owned);
-
-  return diags;
-}
-
-SmallVector<OwnershipDiagInfo>
 Ownership::OwnershipStatus::checkBOPFieldAssign(const VarDecl *VD,
                                                 const SourceLocation &Loc,
                                                 FieldKey fullFieldName) {
@@ -3169,11 +3116,12 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
 SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
     const VarDecl *VD, const SourceLocation &Loc, bool isDestructor) {
   SmallVector<OwnershipDiagInfo> diags;
-  // for a struct pointer owned variable,
+  // for an owned pointer variable (OPS or BOP; the two families follow the
+  // same leak rules),
   // the following two situations indicates that a memory leak has occurred:
   // 1. if VD is not MOVED or UNINITIALIZED, VD memory leak
   // 2. if ownedFields(VD) is not empty, VD's owned fields memory leak
-  if (isHost(VD, HostKind::OPS)) {
+  if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::BOP)) {
     // situation 1
     if (!canAssign(VD)) {
       diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::MemoryLeak,
@@ -3231,27 +3179,6 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
           ownedFields(VD).clear();
         }
       }
-    }
-  }
-
-  // for a basic owned pointer,
-  // the following situation indicates that a memory leak has occurred:
-  // 1. if VD is not MOVED, VD's memory leak
-  // 2. if ownedFields(VD) is not empty, VD's owned fields memory leak
-  if (isHost(VD, HostKind::BOP)) {
-    // situation 1
-    if (!canAssign(VD)) {
-      diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::MemoryLeak,
-                                        VD->getNameAsString()));
-      resetAll(VD);
-      set(VD, Ownership::Status::Moved);
-    }
-    // situation 2
-    if (!ownedFields(VD).empty()) {
-      diags.push_back(OwnershipDiagInfo(
-          Loc, OwnershipDiagKind::FieldMemoryLeak, VD->getNameAsString(),
-          concatFields(VD, ownedFields(VD))));
-      ownedFields(VD).clear();
     }
   }
 
@@ -5017,7 +4944,7 @@ void TransferFunctions::HandleDREPlaceAssign(FieldKey Place,
   if (stat.isHost(VD, HostKind::OPS)) {
     if (Place->getKind() == bsc::Place::Kind::Var) {
       SmallVector<OwnershipDiagInfo> diags =
-          stat.checkOPSAssign(VD, Loc);
+          stat.checkPointerAssign(VD, Loc);
       reporter.addDiags(diags);
     } else if (Place->getKind() == bsc::Place::Kind::Deref &&
                Place->getBase()->getKind() == bsc::Place::Kind::Var) {
@@ -5070,7 +4997,7 @@ void TransferFunctions::HandleDREPlaceAssign(FieldKey Place,
   if (stat.isHost(VD, HostKind::BOP)) {
     if (Place->getKind() == bsc::Place::Kind::Var) {
       SmallVector<OwnershipDiagInfo> diags =
-          stat.checkBOPAssign(VD, Loc);
+          stat.checkPointerAssign(VD, Loc);
       reporter.addDiags(diags);
     } else {
       SmallVector<OwnershipDiagInfo> diags =

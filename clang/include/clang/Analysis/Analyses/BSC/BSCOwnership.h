@@ -707,8 +707,9 @@ public:
     checkOPSFieldUse(const VarDecl *VD, const SourceLocation &Loc,
                      const bsc::Place *fullFieldName, bool isGetAddr,
                      bool IsAggregateAccess = false);
+    // Root assign check shared by the OPS and BOP families.
     llvm::SmallVector<OwnershipDiagInfo>
-    checkOPSAssign(const VarDecl *VD, const SourceLocation &Loc);
+    checkPointerAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkOPSDerefAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
@@ -734,8 +735,6 @@ public:
     llvm::SmallVector<OwnershipDiagInfo>
     checkBOPFieldUse(const VarDecl *VD, const SourceLocation &Loc,
                      const bsc::Place *fullFieldName, bool isGetAddr);
-    llvm::SmallVector<OwnershipDiagInfo>
-    checkBOPAssign(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkBOPFieldAssign(const VarDecl *VD, const SourceLocation &Loc,
                         const bsc::Place *fullFieldName);
