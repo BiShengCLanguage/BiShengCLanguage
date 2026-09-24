@@ -1,0 +1,118 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+_Safe T *_Owned safe_malloc<T>(T);
+void safe_free(void *_Owned);
+
+_Unsafe int take2(int a, int b) { return a + b; }
+
+struct S { int *_Owned v; };
+
+// The four channels from the report: comparison, comma, logical, ternary.
+_Unsafe int channels(void) {
+  int *_Owned q;
+  int r1 = (q = safe_malloc<int>(5)) != 0;
+  safe_free((void *_Owned)q);
+  int r2 = (q = safe_malloc<int>(5), 1);
+  safe_free((void *_Owned)q);
+  int r3 = ((q = safe_malloc<int>(5)) != 0 && 1);
+  safe_free((void *_Owned)q);
+  int r4 = (q = safe_malloc<int>(5)) ? 1 : 0;
+  safe_free((void *_Owned)q);
+  return r1 + r2 + r3 + r4;
+}
+
+// Ternary-branch channel: q stays null on the false path.
+_Unsafe int ternary_branch(int c) {
+  int *_Owned _Nullable q = nullptr;
+  int r = c ? (q = safe_malloc<int>(5)) != 0 : 0;
+  safe_free((void *_Owned)q);
+  return r;
+}
+
+// Right operand of a plain assignment statement.
+_Unsafe int assign_rhs(void) {
+  int *_Owned q;
+  int r;
+  r = (q = safe_malloc<int>(5)) != 0;
+  safe_free((void *_Owned)q);
+  return r;
+}
+
+// Call-argument channel.
+_Unsafe int call_argument(void) {
+  int *_Owned q;
+  int r = take2((q = safe_malloc<int>(5)) != 0, 1);
+  safe_free((void *_Owned)q);
+  return r;
+}
+
+// Move right-hand side: the source is consumed exactly once.
+_Unsafe int move_rhs(int *_Owned p) {
+  int *_Owned q;
+  int r = (q = p) != 0;
+  safe_free((void *_Owned)q);
+  return r;
+}
+
+// Struct-field channel.
+_Unsafe int field_channel(void) {
+  struct S s = {0};
+  int flag = (s.v = safe_malloc<int>(1)) != 0;
+  safe_free((void *_Owned)s.v);
+  return flag;
+}
+
+// Statement-condition channel (already worked; regression guard).
+_Unsafe int if_condition(void) {
+  int *_Owned q;
+  if ((q = safe_malloc<int>(5)) != 0) {
+    safe_free((void *_Owned)q);
+  }
+  return 0;
+}
+
+// Consuming positions: the assignment's value is the LHS after the store,
+// so consuming it moves the LHS out — single owner, no double ownership.
+_Unsafe void take_owned(int *_Owned v) { safe_free((void *_Owned)v); }
+
+_Unsafe int chained_assign_single_owner(void) {
+  int *_Owned p;
+  int *_Owned q;
+  q = p = safe_malloc<int>(5);
+  safe_free((void *_Owned)q);
+  return 0;
+}
+
+_Unsafe int decl_init_moves_source(void) {
+  int *_Owned p;
+  int *_Owned q = (p = safe_malloc<int>(5));
+  safe_free((void *_Owned)q);
+  return 0;
+}
+
+_Unsafe int call_arg_moves_source(void) {
+  int *_Owned q;
+  take_owned(q = safe_malloc<int>(5));
+  return 0;
+}
+
+// Statement expression: only the result expression is the value, so a
+// consuming consumer moves the result, not the body's assignments.
+_Unsafe int stmtexpr_result_reads_assignment(void) {
+  int *_Owned q = safe_malloc<int>(3);
+  int *_Owned q2 = 0;
+  int *_Owned p = ({ q2 = q; q2; });
+  safe_free((void *_Owned)p);
+  return 0;
+}
+
+// Trailing empty statements don't change the result
+// (getStmtExprResult() skips them).
+_Unsafe int stmtexpr_trailing_nulls(void) {
+  int *_Owned q = safe_malloc<int>(3);
+  int *_Owned q2 = 0;
+  int *_Owned p = ({ q2 = q; q2; ; });
+  safe_free((void *_Owned)p);
+  return 0;
+}

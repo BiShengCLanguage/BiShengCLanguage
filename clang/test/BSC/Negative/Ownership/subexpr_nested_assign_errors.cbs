@@ -1,0 +1,80 @@
+// RUN: %clang_cc1 -verify %s
+
+_Safe T *_Owned safe_malloc<T>(T);
+void safe_free(void *_Owned);
+
+struct S { int *_Owned v; };
+
+// Overwriting a value that is still owned, through the nested channel.
+_Unsafe int reassign_owned_in_subexpr(void) {
+  int *_Owned q;
+  q = safe_malloc<int>(5);
+  int r = (q = safe_malloc<int>(6)) != 0; // expected-error {{cannot assign to 'q' because it still holds an _Owned value; move or free it first}}
+  return r; // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
+}
+
+// The nested assignment still consumes its source exactly once.
+_Unsafe int use_moved_source(void) {
+  int *_Owned p;
+  p = safe_malloc<int>(5);
+  int *_Owned a;
+  int *_Owned b;
+  int r1 = (a = p) != 0;
+  int r2 = (b = p) != 0; // expected-error {{use of moved value: 'p'}}
+  safe_free((void *_Owned)a);
+  safe_free((void *_Owned)b);
+  return r1 + r2;
+}
+
+// The struct-field channel keeps the same rule.
+_Unsafe int reassign_owned_field_in_subexpr(void) {
+  struct S s = {0};
+  s.v = safe_malloc<int>(1);
+  int flag = (s.v = safe_malloc<int>(2)) != 0; // expected-error {{cannot assign to 's.v' because it still holds an _Owned value; move or free it first}}
+  safe_free((void *_Owned)s.v);
+  return flag;
+}
+
+// A nested assignment in a return statement is accepted, but the allocation
+// it stores is genuinely abandoned by the int-returning function.
+_Unsafe int leak_in_return(void) {
+  int *_Owned q;
+  return (q = safe_malloc<int>(5)) != 0; // expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
+}
+
+// The consuming channels must not accept a double free: the nested
+// assignment's LHS is moved out when its value is consumed.
+_Unsafe void take_owned(int *_Owned v) { safe_free((void *_Owned)v); }
+
+_Unsafe int chained_assign_double_free(void) {
+  int *_Owned p;
+  int *_Owned q;
+  q = p = safe_malloc<int>(5);
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)q);
+  return 0;
+}
+
+_Unsafe int decl_init_double_free(void) {
+  int *_Owned p;
+  int *_Owned q = (p = safe_malloc<int>(5));
+  safe_free((void *_Owned)p); // expected-error {{cannot cast 'p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)q);
+  return 0;
+}
+
+_Unsafe int call_arg_double_free(void) {
+  int *_Owned q;
+  take_owned(q = safe_malloc<int>(5));
+  safe_free((void *_Owned)q); // expected-error {{cannot cast 'q' to 'void * _Owned' because it was moved}}
+  return 0;
+}
+
+// A statement expression's body statement is not its value: the
+// assignment's LHS keeps ownership and a real leak is still diagnosed.
+_Unsafe int stmtexpr_body_leak(void) {
+  int *_Owned q2 = 0;
+  int *_Owned p = ({ q2 = safe_malloc<int>(1); safe_malloc<int>(2); });
+  safe_free((void *_Owned)p);
+  return 0; // expected-error {{memory leak because 'q2' is not freed or moved before it goes out of scope}}
+}

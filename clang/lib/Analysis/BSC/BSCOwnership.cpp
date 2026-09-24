@@ -101,6 +101,19 @@ static bool IsDiscardedExprStmt(const Stmt *S, ParentMap &PM) {
   return E && !PM.isConsumedExpr(E);
 }
 
+// Element kinds that run their transfer here, as their own CFGStmt element;
+// every other element is a hoisted sub-expression re-visited inline by its
+// enclosing statement (or a discarded expression, visited read-only).
+static bool HasTransferSemantics(const Stmt *S) {
+  if (isa<DeclStmt, CallExpr, ReturnStmt>(S))
+    return true;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S))
+    return BO->isAssignmentOp();
+  if (const auto *UO = dyn_cast<UnaryOperator>(S))
+    return UO->isIncrementDecrementOp();
+  return false;
+}
+
 // Whether Terminator identifies a block that evaluates part of a statement
 // condition. Short-circuit operators split their operands across blocks, so
 // intermediate blocks have a logical BinaryOperator terminator rather than
@@ -3360,7 +3373,6 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
   Ownership::OwnershipStatus &stat;
   OwnershipDiagReporter &reporter;
   const llvm::DenseSet<const StmtExpr *> &StmtExprsWithDeferredLifetimeEnds;
-  bool isHandlingCallExpr = false;
   bool isAddrMut = false;
   // The RHS of the assignment currently being visited (nullptr check for
   // "assign to null" which must not be reported as overwriting an owned
@@ -3369,10 +3381,10 @@ class TransferFunctions : public StmtVisitor<TransferFunctions> {
 
   enum Operation { None, Assign, Move, GetAddr };
   Operation op = Operation::None;
-  // True while revisiting an expression for read checks: transfer semantics
-  // (assignment RHS consumption, ++/-- writes) degrade to read-only checks
-  // because those ran through their own hoisted CFGStmt elements already.
-  bool ReadOnlyMode = false;
+  // The CFGStmt element whose transfer this walk executes, or null in a
+  // read-only walk. An assignment, ++/--, or call visited while not being
+  // this element is a re-visit — its own hoisted element runs the semantics.
+  const Stmt *TransferStmt = nullptr;
 
 public:
   TransferFunctions(OwnershipImpl &os, Ownership::OwnershipStatus &Stat,
@@ -3380,6 +3392,8 @@ public:
                     const llvm::DenseSet<const StmtExpr *> &DeferredStmtExprs)
       : OS(os), stat(Stat), reporter(reporter),
         StmtExprsWithDeferredLifetimeEnds(DeferredStmtExprs) {}
+
+  void SetTransferStmt(const Stmt *S) { TransferStmt = S; }
 
   void VisitArraySubscriptExpr(ArraySubscriptExpr *ASE);
   void VisitBinaryOperator(BinaryOperator *BO);
@@ -3496,10 +3510,6 @@ public:
                                 QualType MemberTy) const;
   // Record a transfer-forbidden diagnostic for ArrVD at Loc.
   void emitArrayElemForbidden(SourceLocation Loc, const VarDecl *ArrVD);
-
-  void SetHandlingCallExpr() {
-    isHandlingCallExpr = true;
-  }
 };
 } // namespace
 
@@ -3513,33 +3523,46 @@ void TransferFunctions::VisitStmt(Stmt *S) {
 
 /// Visit an expression as a read-only use of its bases: op == GetAddr checks
 /// use-of-moved / use-of-uninit without consuming ownership.
-///
-/// Sub-expressions with real transfer semantics (assignments, calls,
-/// ++/--) must not re-run that semantics here — they already ran through
-/// their own hoisted CFGStmt elements.
 void TransferFunctions::VisitReadOnlyExpr(Stmt *S) {
-  bool Saved = ReadOnlyMode;
-  ReadOnlyMode = true;
+  const Stmt *Saved = TransferStmt;
+  TransferStmt = nullptr;
   op = GetAddr;
   Visit(S);
   op = None;
   isAddrMut = false;
-  ReadOnlyMode = Saved;
+  TransferStmt = Saved;
 }
 
 void TransferFunctions::VisitStmtExpr(StmtExpr *SE) {
-  // Block-local deferral is unavailable for cross-block consumers.
-  if (!StmtExprsWithDeferredLifetimeEnds.count(SE)) {
-    VisitStmt(SE);
-  } else {
-    CompoundStmt *CS = SE->getSubStmt();
-    if (!CS->body_empty()) {
-      // The CFG already visited the body; propagate op only to its result.
-      if (auto *Result = dyn_cast<ValueStmt>(CS->getStmtExprResult()))
-        if (Expr *ResultExpr = Result->getExprStmt())
-          VisitStmtExprResult(ResultExpr);
-    }
+  CompoundStmt *CS = SE->getSubStmt();
+  if (CS->body_empty()) {
+    op = Operation::None;
+    return;
   }
+
+  // getStmtExprResult() skips trailing NullStmts, so stop the body walk at
+  // its node rather than at body_back(): otherwise a trailing ';' makes the
+  // result statement part of the walk AND the result visit.
+  Stmt *ResultStmt = CS->getStmtExprResult();
+
+  // Only the result expression is the StmtExpr's value: the incoming op is
+  // propagated to it alone — a consuming op must not reach statement-
+  // position reads and assignments in the body, which nothing consumes.
+  // Cross-block consumers arrive before the body's elements have run, so
+  // unlike the deferred case the body is still walked here — as reads.
+  if (!StmtExprsWithDeferredLifetimeEnds.count(SE)) {
+    Operation Saved = op;
+    op = GetAddr;
+    for (Stmt *S : CS->body()) {
+      if (S == ResultStmt)
+        break;
+      Visit(S);
+    }
+    op = Saved;
+  }
+  if (auto *Result = dyn_cast<ValueStmt>(ResultStmt))
+    if (Expr *ResultExpr = Result->getExprStmt())
+      VisitStmtExprResult(ResultExpr);
 
   op = Operation::None;
 }
@@ -4197,9 +4220,8 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
     }
     op = GetAddr;
   } else if (UO->isIncrementDecrementOp()) {
-    // Discarded-statement recursion: ++/-- ran through its own hoisted
-    // CFGStmt element; skip (see the assignment case above).
-    if (ReadOnlyMode)
+    // Re-visit: see the assignment case below.
+    if (UO != TransferStmt)
       return;
     op = Assign;
   }
@@ -4209,12 +4231,14 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
 
 void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
   if (BO->isAssignmentOp()) {
-    // Discarded-statement recursion: the assignment's real semantics ran
-    // through its own hoisted CFGStmt element; re-checking its operands here
-    // would inspect the RHS after that transfer already consumed it, so the
-    // whole sub-expression is skipped.
-    if (ReadOnlyMode)
+    // A consuming re-visit uses the assignment's value — the LHS after the
+    // store — so route to it (as VisitStmtExprResult does); every other
+    // re-visit skips: the transfer ran at this assignment's own element.
+    if (BO != TransferStmt) {
+      if (op == Move)
+        Visit(BO->getLHS());
       return;
+    }
     Expr *LHS = BO->getLHS();
     Expr *RHS = BO->getRHS();
 
@@ -4316,10 +4340,10 @@ void TransferFunctions::VisitBinaryConditionalOperator(
 }
 
 void TransferFunctions::VisitCallExpr(CallExpr *CE) {
-  if (!isHandlingCallExpr && !OS.ArgCalls.count(CE))
+  // A call's semantics run as its own element, or inline as an argument of
+  // the call being processed (ArgCalls) — nowhere else.
+  if (TransferStmt != CE && !OS.ArgCalls.count(CE))
     return;
-
-  isHandlingCallExpr = false;
 
   // __assume_null: the callee promises the _Nullable owned pointer has been
   // freed and set to null by an opaque legacy API the analyzer cannot model.
@@ -4413,8 +4437,8 @@ void TransferFunctions::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr* 
 void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
   if (CSCE->getType()->isVoidPointerType() &&
       CSCE->getType().isOwnedPointer()) {
-    // A condition inspects the operand without committing the cast's move.
-    if (ReadOnlyMode) {
+    // Read-only walk: inspect the operand without committing its move.
+    if (!TransferStmt) {
       Operation SavedOp = op;
       op = GetAddr;
       Visit(CSCE->getSubExpr());
@@ -5032,30 +5056,20 @@ OwnershipImpl::runOnBlock(const CFGBlock *block,
       // Whitelisted statements keep priority: `f(p);` in statement position
       // is both discarded-position and a real-semantics CallExpr, and the
       // latter wins.
-      bool HasRealSemantics =
-          isa<DeclStmt>(S) || isa<CallExpr>(S) ||
-          (isa<BinaryOperator>(S) &&
-           dyn_cast<BinaryOperator>(S)->isAssignmentOp()) ||
-          (isa<UnaryOperator>(S) &&
-           dyn_cast<UnaryOperator>(S)->isIncrementDecrementOp()) ||
-          isa<ReturnStmt>(S);
-      bool IsDiscardedStmt =
-          !HasRealSemantics &&
-          IsDiscardedExprStmt(S, analysisContext.getParentMap());
-      if (HasRealSemantics || IsDiscardedStmt) {
-        // Handling CallExpr iff it is a CFG stmt.
-        if (HasRealSemantics && isa<CallExpr>(S)) {
-          // Nested calls inside an enclosing call's argument list are
-          // analyzed inline by that enclosing call (see CollectArgumentCalls)
-          // skip their hoisted CFGStmt elements.
-          if (ArgCalls.count(S))
-            continue;
-          TF.SetHandlingCallExpr();
-        }
-        if (IsDiscardedStmt)
-          TF.VisitReadOnlyExpr(const_cast<Stmt *>(S));
-        else
-          TF.Visit(const_cast<Stmt *>(S));
+
+      // Nested calls inside an enclosing call's argument list are analyzed
+      // inline by that enclosing call (see CollectArgumentCalls); skip their
+      // hoisted CFGStmt elements.
+      if (ArgCalls.count(S))
+        continue;
+      if (HasTransferSemantics(S)) {
+        // The element running its transfer; nested transfers become
+        // re-visits (see TransferStmt).
+        TF.SetTransferStmt(S);
+        TF.Visit(const_cast<Stmt *>(S));
+        TF.SetTransferStmt(nullptr);
+      } else if (IsDiscardedExprStmt(S, analysisContext.getParentMap())) {
+        TF.VisitReadOnlyExpr(const_cast<Stmt *>(S));
       }
     }
 
