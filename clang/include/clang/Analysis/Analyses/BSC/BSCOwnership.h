@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include <cassert>
 #include <string>
 
 namespace clang {
@@ -375,13 +376,19 @@ public:
     return static_cast<Status>(~static_cast<unsigned char>(A) & 0x3f);
   }
 
+  // Which kind of tracked variable a VarState describes. The three families
+  // differ only in the rules they follow — the owned-struct special cases,
+  // the OPS AllMoved exemption, the BOP diagnostic spelling — not in how
+  // their state is stored.
+  enum class HostKind : unsigned char {
+    Unset, // no family: an entry created by an unguarded per-variable access
+    OPS,   // Owned Pointer to Struct, e.g. struct S* owned s
+    S,     // Struct, e.g. struct S s
+    BOP    // Owned Pointer to Basic Types, e.g. int* owned p
+  };
+
   class OwnershipStatus {
   public:
-    enum Source { 
-      OPS, // Owned Pointer to Struct, e.g. struct S* owned s
-      S,   // Struct, e.g. struct S s
-      BOP  // Owned Pointer to Basic Types, e.g. int* owned p
-    };
     // The state set of one variable: a bitmask of Ownership::Status values.
     using OwnershipSet = Status;
 
@@ -428,33 +435,94 @@ public:
       bool operator!=(const FieldSet &RHS) const { return !(*this == RHS); }
     };
 
-    // One shared set type across the three families.
-    // owned pointer struct status, e.g. struct S * owned s
-    using OPSOwnedField = FieldSet;
-    llvm::DenseMap<const VarDecl *, OwnershipSet> OPSStatus;
-    llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSAllOwnedFields;
-    llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSOwnedOwnedFields;
-    llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSNullOwnedFields;
-    llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSMovedOwnedFields;
+    // Everything tracked about one variable. The static schema of its owned
+    // field paths (All) is written once by init and never mutated by an
+    // ownership transition; the rest is the flow state of the variable itself
+    // (Root) and of each of its field paths (Owned / Null / Uninit / Moved).
+    struct VarState {
+      HostKind Kind = HostKind::Unset;
+      OwnershipSet Root = None;
+      FieldSet All;
+      // Owned field paths currently owning a value.
+      FieldSet Owned;
+      // Owned field paths dropped by __assume_null: null, not moved.
+      FieldSet Null;
+      // Owned field paths never yet assigned; distinguishes uninitialized from
+      // moved-out at field granularity.
+      FieldSet Uninit;
+      // Owned field paths moved out on some branch; a merge preserves them (and
+      // may simultaneously keep may-own state for leak diagnostics).
+      FieldSet Moved;
 
-    // struct status, e.g. struct S s
-    using SOwnedField = FieldSet;
-    llvm::DenseMap<const VarDecl *, OwnershipSet> SStatus;
-    llvm::DenseMap<const VarDecl *, SOwnedField> SAllOwnedFields;
-    llvm::DenseMap<const VarDecl *, SOwnedField> SOwnedOwnedFields;
-    llvm::DenseMap<const VarDecl *, SOwnedField> SNullOwnedFields;
-    // Owned field paths never yet assigned; distinguishes uninitialized from
-    // moved-out at field granularity.
-    llvm::DenseMap<const VarDecl *, SOwnedField> SUninitOwnedFields;
-    // Owned field paths moved out on some branch; a merge preserves them (and
-    // may simultaneously keep may-own state for leak diagnostics).
-    llvm::DenseMap<const VarDecl *, SOwnedField> SMovedOwnedFields;
+      bool operator==(const VarState &RHS) const {
+        return Kind == RHS.Kind && Root == RHS.Root && All == RHS.All &&
+               Owned == RHS.Owned && Null == RHS.Null &&
+               Uninit == RHS.Uninit && Moved == RHS.Moved;
+      }
+      bool operator!=(const VarState &RHS) const { return !(*this == RHS); }
+    };
+    llvm::DenseMap<const VarDecl *, VarState> Vars;
 
-    // basic owned pointer status, e.g. int * owned p
-    using BOPOwnedField = FieldSet;
-    llvm::DenseMap<const VarDecl *, OwnershipSet> BOPStatus;
-    llvm::DenseMap<const VarDecl *, BOPOwnedField> BOPAllOwnedFields;
-    llvm::DenseMap<const VarDecl *, BOPOwnedField> BOPOwnedOwnedFields;
+    // A variable is tracked iff init() registered it; its family never changes
+    // afterwards. Every per-variable access below must be guarded by
+    // isTracked(), since the non-const ones create the entry — such an entry
+    // stays HostKind::Unset and reads as untracked, so an unguarded access
+    // cannot flip the family of a variable.
+    bool isTracked(const VarDecl *VD) const {
+      const VarState *VS = lookupVar(VD);
+      return VS && VS->Kind != HostKind::Unset;
+    }
+    // The state of a tracked variable, or nullptr when it is not tracked.
+    const VarState *lookupVar(const VarDecl *VD) const;
+    // Whether VD is tracked and belongs to family K. Replaces the historical
+    // per-family XStatus.count(VD) test.
+    bool isHost(const VarDecl *VD, HostKind K) const {
+      const VarState *VS = lookupVar(VD);
+      return VS && VS->Kind == K;
+    }
+
+    // The static schema of a tracked variable and its per-state field sets.
+    // The const forms return a shared empty set for an untracked variable.
+    FieldSet &allFields(const VarDecl *VD) {
+      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
+      return Vars[VD].All;
+    }
+    const FieldSet &allFields(const VarDecl *VD) const {
+      const VarState *VS = lookupVar(VD);
+      return VS ? VS->All : noFields();
+    }
+    FieldSet &ownedFields(const VarDecl *VD) {
+      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
+      return Vars[VD].Owned;
+    }
+    const FieldSet &ownedFields(const VarDecl *VD) const {
+      const VarState *VS = lookupVar(VD);
+      return VS ? VS->Owned : noFields();
+    }
+    FieldSet &nullFields(const VarDecl *VD) {
+      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
+      return Vars[VD].Null;
+    }
+    const FieldSet &nullFields(const VarDecl *VD) const {
+      const VarState *VS = lookupVar(VD);
+      return VS ? VS->Null : noFields();
+    }
+    FieldSet &uninitFields(const VarDecl *VD) {
+      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
+      return Vars[VD].Uninit;
+    }
+    const FieldSet &uninitFields(const VarDecl *VD) const {
+      const VarState *VS = lookupVar(VD);
+      return VS ? VS->Uninit : noFields();
+    }
+    FieldSet &movedFields(const VarDecl *VD) {
+      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
+      return Vars[VD].Moved;
+    }
+    const FieldSet &movedFields(const VarDecl *VD) const {
+      const VarState *VS = lookupVar(VD);
+      return VS ? VS->Moved : noFields();
+    }
 
     bool equals(const OwnershipStatus &V) const;
     bool empty() const;
@@ -482,7 +550,7 @@ public:
     void setToNull(const Expr *E, ASTContext &Ctx);
     void setOwnedFieldNull(const VarDecl *VD, const bsc::Place *fieldPath);
     void assumeAllOwnedFieldsNull(const VarDecl *VD);
-    // __assume_null(t) on a struct-value variable (VD in SStatus): drop ownership
+    // __assume_null(t) on a struct-value variable (an S host): drop ownership
     // of every registered owned field of the struct value.
     void assumeAllSFieldsNull(const VarDecl *VD);
     // __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
@@ -611,46 +679,23 @@ public:
     checkMemoryLeak(const VarDecl *VD, const SourceLocation &Loc,
                     bool isDestructor);
 
-    OwnershipStatus()
-        : OPSStatus(0), OPSAllOwnedFields(0), OPSOwnedOwnedFields(0),
-          OPSNullOwnedFields(0), OPSMovedOwnedFields(0), SStatus(0),
-          SAllOwnedFields(0), SOwnedOwnedFields(0), SMovedOwnedFields(0),
-          BOPStatus(0), BOPAllOwnedFields(0), BOPOwnedOwnedFields(0) {}
-
-    OwnershipStatus(llvm::DenseMap<const VarDecl *, OwnershipSet> opss,
-                    llvm::DenseMap<const VarDecl *, OPSOwnedField> opsaof,
-                    llvm::DenseMap<const VarDecl *, OPSOwnedField> opsoof,
-                    llvm::DenseMap<const VarDecl *, OPSOwnedField> opsofn,
-                    llvm::DenseMap<const VarDecl *, OPSOwnedField> opsmof,
-                    llvm::DenseMap<const VarDecl *, OwnershipSet> ss,
-                    llvm::DenseMap<const VarDecl *, OPSOwnedField> saof,
-                    llvm::DenseMap<const VarDecl *, SOwnedField> soof,
-                    llvm::DenseMap<const VarDecl *, OPSOwnedField> snof,
-                    llvm::DenseMap<const VarDecl *, SOwnedField> sunof,
-                    llvm::DenseMap<const VarDecl *, SOwnedField> smof,
-                    llvm::DenseMap<const VarDecl *, OwnershipSet> bops,
-                    llvm::DenseMap<const VarDecl *, BOPOwnedField> bopaof,
-                    llvm::DenseMap<const VarDecl *, BOPOwnedField> bopoof)
-        : OPSStatus(opss), OPSAllOwnedFields(opsaof),
-          OPSOwnedOwnedFields(opsoof), OPSNullOwnedFields(opsofn),
-          OPSMovedOwnedFields(opsmof), SStatus(ss), SAllOwnedFields(saof),
-          SOwnedOwnedFields(soof), SNullOwnedFields(snof),
-          SUninitOwnedFields(sunof), SMovedOwnedFields(smof), BOPStatus(bops),
-          BOPAllOwnedFields(bopaof), BOPOwnedOwnedFields(bopoof) {}
+    OwnershipStatus() : Vars(0) {}
 
   private:
-    // init* build the registered key places root-relative: Parent threads the
-    // place of the enclosing field chain from the root variable (nullptr at
-    // the root). Field keys are Field chains from the root; nested owned
-    // pointer keys are Deref(Field(...)); array-field levels are Index.
-    void initOPS(const RecordDecl *RD, const VarDecl *VD, Source source,
-                 ASTContext &Ctx, int depth = 10,
-                 const bsc::Place *Parent = nullptr);
-    void initS(const RecordDecl *RD, const VarDecl *VD, Source source,
-               ASTContext &Ctx, int depth = 10,
-               const bsc::Place *Parent = nullptr);
-    void initBOP(QualType QT, const VarDecl *VD, Source source,
-                 ASTContext &Ctx, int depth = 10,
+    // The shared empty set the const field accessors return for an untracked
+    // variable.
+    static const FieldSet &noFields();
+
+    // init* register the owned field paths of a tracked variable into its
+    // schema: Parent threads the place of the enclosing field chain from the
+    // root variable (nullptr at the root). Field keys are Field chains from
+    // the root; nested owned pointer keys are Deref(Field(...)); array-field
+    // levels are Index.
+    void initOPS(const RecordDecl *RD, const VarDecl *VD, ASTContext &Ctx,
+                 int depth = 10, const bsc::Place *Parent = nullptr);
+    void initS(const RecordDecl *RD, const VarDecl *VD, ASTContext &Ctx,
+               int depth = 10, const bsc::Place *Parent = nullptr);
+    void initBOP(QualType QT, const VarDecl *VD, ASTContext &Ctx, int depth = 10,
                  const bsc::Place *Parent = nullptr);
     std::string collectMovedFields(const VarDecl *VD);
 
