@@ -3377,6 +3377,21 @@ static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
   Stat.refreshArrayFieldState(VD, Stat.ownedFields(VD).size(), Stat.allFields(VD).size());
 }
 
+// Whether P and Q name the same projection chain below their respective
+// prefixes, i.e. the same sub-cell of two structs of the same record type.
+// Comparing the chains directly avoids having to rebuild one of them on the
+// other's root.
+static bool sameRelativePath(const bsc::Place *P, const bsc::Place *PPrefix,
+                             const bsc::Place *Q, const bsc::Place *QPrefix) {
+  while (P && Q && !P->equals(PPrefix) && !Q->equals(QPrefix)) {
+    if (P->getKind() != Q->getKind() || P->getName() != Q->getName())
+      return false;
+    P = P->getBase();
+    Q = Q->getBase();
+  }
+  return P && Q && P->equals(PPrefix) && Q->equals(QPrefix);
+}
+
 class TransferFunctions : public StmtVisitor<TransferFunctions> {
   OwnershipImpl &OS;
   Ownership::OwnershipStatus &stat;
@@ -3429,6 +3444,14 @@ public:
                           FieldKey fullFieldName = nullptr);
   void HandleDREPlaceAssign(FieldKey Place, SourceLocation Loc);
   void HandleDREPlaceUse(FieldKey Place, SourceLocation Loc);
+
+  /// A struct value copied from another struct value (`struct S b = a;` /
+  /// `b = a;`) carries the source's must-be-null fields: a field that owns
+  /// nothing in the source owns nothing in the destination either (the copy
+  /// duplicates a null pointer, it does not transfer ownership of anything).
+  void mirrorNullFieldsFromStructValue(const VarDecl *DstVD,
+                                       const bsc::Place *DstPlace,
+                                       const Expr *Src);
 
   /// Returns true if \p E is a must-be-null owned pointer expression: a
   /// DeclRefExpr referring to a tracked variable whose only OwnershipStatus
@@ -4368,6 +4391,12 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
       stat.setToNull(LHS, OS.ctx);
     } else if (IsCastFromVoidPointer(RHS)) {
       stat.setToAllMoved(LHS, OS.ctx);
+    } else if (LHSType->isRecordType()) {
+      // `b = a;`: the same field-level mirror as the declaration form.
+      bsc::PlaceBuilder PB(OS.ctx);
+      const bsc::Place *DstPlace = PB.Build(LHS);
+      if (DstPlace && DstPlace->getRoot())
+        mirrorNullFieldsFromStructValue(DstPlace->getRoot(), DstPlace, RHS);
     }
   } else {
     // for operators doesn't consume ownership, change the operation to GetAddr
@@ -4724,6 +4753,30 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
   op = SavedOp;
 }
 
+void TransferFunctions::mirrorNullFieldsFromStructValue(
+    const VarDecl *DstVD, const bsc::Place *DstPlace, const Expr *Src) {
+  if (!DstPlace || !stat.isHost(DstVD, HostKind::S))
+    return;
+  const bsc::Place *SrcPlace = bsc::PlaceBuilder(OS.ctx).Build(Src);
+  if (!SrcPlace)
+    return;
+  const VarDecl *SrcVD = SrcPlace->getRoot();
+  if (!SrcVD || !stat.isTracked(SrcVD) || stat.nullFields(SrcVD).empty())
+    return;
+  // Walk the destination's tracked paths (the source may track paths the
+  // destination does not, and vice versa; a shape mismatch leaves the
+  // destination conservatively owned).
+  for (const bsc::Place *DstKey : stat.allFields(DstVD)) {
+    for (const bsc::Place *SrcKey : stat.nullFields(SrcVD)) {
+      if (!sameRelativePath(SrcKey, SrcPlace, DstKey, DstPlace))
+        continue;
+      stat.ownedFields(DstVD).erase(DstKey);
+      stat.nullFields(DstVD).insert(DstKey);
+      break;
+    }
+  }
+}
+
 void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
   for (Decl *D : DS->decls()) {
     if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
@@ -4795,6 +4848,13 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
           }
         } else {
           stat.setToOwned(VD);
+          // `struct S b = a;`: the copy carries a's must-be-null fields, so
+          // b does not look like it acquired ownership of them.
+          if (VQT->isRecordType()) {
+            bsc::PlaceBuilder PB(OS.ctx);
+            mirrorNullFieldsFromStructValue(
+                VD, PB.Build(VD, VD->getLocation()), Init);
+          }
         }
         // Initialization consumes RHS only for move-semantic destination types.
         op = IsTrackedType(VQT) ? Move : GetAddr;

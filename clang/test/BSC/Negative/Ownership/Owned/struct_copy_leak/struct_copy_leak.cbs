@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -verify %s
+
+// A struct-value copy carries the source's must-be-null fields, so a null
+// field stays null in the destination. A field that genuinely owns a value in
+// the source is still owned by the destination, though: the copy duplicates
+// the pointer, so the destination must free or move it.
+
+void *malloc(unsigned long size);
+
+struct S { int *_Owned _Nullable p; };
+
+void copy_owned_field_leaks(void) {
+  struct S a = {};
+  a.p = __take_from_raw((int *)malloc(4));
+  struct S b = a;
+} // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}
+
+void assign_owned_field_leaks(void) {
+  struct S a = {};
+  a.p = __take_from_raw((int *)malloc(4));
+  struct S b = {};
+  b = a;
+} // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}
+
+// Only the field that owns a value is reported: the null sibling stays null.
+struct T { int *_Owned _Nullable p; int *_Owned _Nullable q; };
+
+void partial_copy_reports_only_owned_field(void) {
+  struct T a = {};
+  a.p = __take_from_raw((int *)malloc(4));
+  struct T b = a;
+} // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}

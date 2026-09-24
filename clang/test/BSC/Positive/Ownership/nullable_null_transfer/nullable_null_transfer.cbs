@@ -248,3 +248,51 @@ void safeexpr_struct_field(void) {
 void safeexpr_take_from_raw_null(void) {
     int *_Owned _Nullable r = __take_from_raw(_Unsafe((int *)0));
 }
+
+// ---------------------------------------------------------------------------
+// Struct-value copies: `struct S b = a;` / `b = a;` duplicates the source
+// struct, so a field that is must-be-null in the source owns nothing in the
+// destination either. The copy must not make b look like it acquired
+// ownership of a null pointer.
+// ---------------------------------------------------------------------------
+
+struct SV { int *_Owned _Nullable p; };
+
+void struct_copy_from_null_init(void) {
+    struct SV a = {0};
+    struct SV b = a;
+}
+
+void struct_copy_after_field_nulled(void) {
+    struct SV a = {0};
+    a.p = nullptr;
+    struct SV b = a;
+}
+
+void struct_assign_from_null_init(void) {
+    struct SV a = {0};
+    struct SV b = {0};
+    b = a;
+}
+
+// A null field survives a chain of copies.
+void struct_copy_chain(void) {
+    struct SV a = {0};
+    struct SV b = a;
+    struct SV c = b;
+}
+
+// Nested struct fields mirror recursively, both for a whole-struct copy and
+// for a copy out of a nested member.
+struct SVIn { int *_Owned _Nullable p; };
+struct SVOut { struct SVIn in; };
+
+void nested_struct_copy_from_null(void) {
+    struct SVOut a = {0};
+    struct SVOut b = a;
+}
+
+void nested_struct_member_copy_from_null(void) {
+    struct SVOut a = {0};
+    struct SVIn b = a.in;
+}
