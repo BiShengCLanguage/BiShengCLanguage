@@ -435,33 +435,119 @@ public:
       bool operator!=(const FieldSet &RHS) const { return !(*this == RHS); }
     };
 
+    // The flow state of the tracked field paths of one variable: the may-set
+    // of possible states of each path. A cell whose set empties out is erased,
+    // so an entry always holds a non-empty set.
+    using CellMap = llvm::DenseMap<const bsc::Place *, OwnershipSet>;
+
     // Everything tracked about one variable. The static schema of its owned
     // field paths (All) is written once by init and never mutated by an
-    // ownership transition; the rest is the flow state of the variable itself
-    // (Root) and of each of its field paths (Owned / Null / Uninit / Moved).
+    // ownership transition; Root and Cells are the flow state.
     struct VarState {
       HostKind Kind = HostKind::Unset;
       OwnershipSet Root = None;
       FieldSet All;
-      // Owned field paths currently owning a value.
-      FieldSet Owned;
-      // Owned field paths dropped by __assume_null: null, not moved.
-      FieldSet Null;
-      // Owned field paths never yet assigned; distinguishes uninitialized from
-      // moved-out at field granularity.
-      FieldSet Uninit;
-      // Owned field paths moved out on some branch; a merge preserves them (and
-      // may simultaneously keep may-own state for leak diagnostics).
-      FieldSet Moved;
+      CellMap Cells;
 
       bool operator==(const VarState &RHS) const {
         return Kind == RHS.Kind && Root == RHS.Root && All == RHS.All &&
-               Owned == RHS.Owned && Null == RHS.Null &&
-               Uninit == RHS.Uninit && Moved == RHS.Moved;
+               Cells == RHS.Cells;
       }
       bool operator!=(const VarState &RHS) const { return !(*this == RHS); }
     };
     llvm::DenseMap<const VarDecl *, VarState> Vars;
+
+    // The fields of one variable that are currently in state State: a view
+    // over the variable's cell map, so all four field states share one entry
+    // per path. Every operation touches only the State bit of a cell. size(),
+    // empty() and iteration walk the static schema (All), preserving the
+    // iteration-order contract the diagnostics depend on.
+    class FieldStateView {
+      CellMap &Cells;
+      const FieldSet &All;
+      Status State;
+      mutable llvm::SmallVector<const bsc::Place *, 16> Snapshot;
+      mutable bool SnapshotValid = false;
+
+      void buildSnapshot() const {
+        if (SnapshotValid)
+          return;
+        for (const bsc::Place *P : All)
+          if (count(P))
+            Snapshot.push_back(P);
+        SnapshotValid = true;
+      }
+
+    public:
+      FieldStateView(CellMap &Cells, const FieldSet &All, Status State)
+          : Cells(Cells), All(All), State(State) {}
+
+      bool count(const bsc::Place *P) const {
+        return (Cells.lookup(P) & State) != None;
+      }
+      bool insert(const bsc::Place *P) {
+        OwnershipSet &C = Cells[P];
+        if ((C & State) != None)
+          return false;
+        C |= State;
+        return true;
+      }
+      bool erase(const bsc::Place *P) {
+        auto It = Cells.find(P);
+        if (It == Cells.end() || (It->second & State) == None)
+          return false;
+        It->second &= ~State;
+        if (It->second == None)
+          Cells.erase(It);
+        return true;
+      }
+      void clear() {
+        for (const bsc::Place *P : All)
+          erase(P);
+      }
+      // Replace the set with exactly RHS: the tracked paths in RHS gain State,
+      // every other tracked path loses it.
+      FieldStateView &operator=(const FieldSet &RHS) {
+        for (const bsc::Place *P : All) {
+          if (RHS.count(P))
+            insert(P);
+          else
+            erase(P);
+        }
+        return *this;
+      }
+      size_t size() const {
+        size_t N = 0;
+        for (const bsc::Place *P : All)
+          if (count(P))
+            ++N;
+        return N;
+      }
+      bool empty() const { return size() == 0; }
+
+      // The set of fields this view denotes, in the static schema's order.
+      // The set helpers (fieldDescendants, findMovedFieldKey, concatFields, …)
+      // take a FieldSet, so a view converts to the set it denotes. The explicit
+      // member operations above still win for a view, so `v = s` writes through
+      // the view rather than assigning to a temporary.
+      operator FieldSet() const {
+        FieldSet Fields;
+        for (const bsc::Place *P : All)
+          if (count(P))
+            Fields.insert(P);
+        return Fields;
+      }
+
+      using const_iterator = const bsc::Place *const *;
+      const_iterator begin() const {
+        buildSnapshot();
+        return Snapshot.begin();
+      }
+      const_iterator end() const {
+        buildSnapshot();
+        return Snapshot.end();
+      }
+    };
 
     // A variable is tracked iff init() registered it; its family never changes
     // afterwards. Every per-variable access below must be guarded by
@@ -480,48 +566,34 @@ public:
       const VarState *VS = lookupVar(VD);
       return VS && VS->Kind == K;
     }
+    // Whether one field path of a tracked variable is currently in state S.
+    bool fieldInState(const VarDecl *VD, const bsc::Place *P, Status S) const {
+      const VarState *VS = lookupVar(VD);
+      return VS && (VS->Cells.lookup(P) & S) != None;
+    }
 
-    // The static schema of a tracked variable and its per-state field sets.
-    // The const forms return a shared empty set for an untracked variable.
+    // The static schema of a tracked variable.
     FieldSet &allFields(const VarDecl *VD) {
       assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
       return Vars[VD].All;
     }
-    const FieldSet &allFields(const VarDecl *VD) const {
-      const VarState *VS = lookupVar(VD);
-      return VS ? VS->All : noFields();
-    }
-    FieldSet &ownedFields(const VarDecl *VD) {
+    // The fields of a tracked variable currently in state S.
+    FieldStateView fieldsInState(const VarDecl *VD, Status S) {
       assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
-      return Vars[VD].Owned;
+      VarState &VS = Vars[VD];
+      return FieldStateView(VS.Cells, VS.All, S);
     }
-    const FieldSet &ownedFields(const VarDecl *VD) const {
-      const VarState *VS = lookupVar(VD);
-      return VS ? VS->Owned : noFields();
+    FieldStateView ownedFields(const VarDecl *VD) {
+      return fieldsInState(VD, Owned);
     }
-    FieldSet &nullFields(const VarDecl *VD) {
-      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
-      return Vars[VD].Null;
+    FieldStateView nullFields(const VarDecl *VD) {
+      return fieldsInState(VD, Null);
     }
-    const FieldSet &nullFields(const VarDecl *VD) const {
-      const VarState *VS = lookupVar(VD);
-      return VS ? VS->Null : noFields();
+    FieldStateView uninitFields(const VarDecl *VD) {
+      return fieldsInState(VD, Uninitialized);
     }
-    FieldSet &uninitFields(const VarDecl *VD) {
-      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
-      return Vars[VD].Uninit;
-    }
-    const FieldSet &uninitFields(const VarDecl *VD) const {
-      const VarState *VS = lookupVar(VD);
-      return VS ? VS->Uninit : noFields();
-    }
-    FieldSet &movedFields(const VarDecl *VD) {
-      assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
-      return Vars[VD].Moved;
-    }
-    const FieldSet &movedFields(const VarDecl *VD) const {
-      const VarState *VS = lookupVar(VD);
-      return VS ? VS->Moved : noFields();
+    FieldStateView movedFields(const VarDecl *VD) {
+      return fieldsInState(VD, Moved);
     }
 
     bool equals(const OwnershipStatus &V) const;
@@ -580,9 +652,9 @@ public:
     void setArrayFieldNull(const VarDecl *VD, const bsc::Place *fieldName);
     // Shared by the three setArrayField*: after erasing / inserting fieldName
     // (and its `fieldName.` prefix children) in the per-VD owned set, refresh
-    // the aggregate bit state from the owned count vs the static field list.
-    void refreshArrayFieldState(const VarDecl *VD, const FieldSet &Owned,
-                                const FieldSet &All);
+    // the aggregate bit state from the owned count vs the static field count.
+    void refreshArrayFieldState(const VarDecl *VD, size_t OwnedCount,
+                                size_t AllCount);
     // Whether the aggregate is (possibly) uninitialized, or owns nothing (the
     // whole aggregate / the given field is null). Shared by the move-out checks
     // (BOP uses status bits; S/OPS use the per-field sets).
@@ -682,10 +754,6 @@ public:
     OwnershipStatus() : Vars(0) {}
 
   private:
-    // The shared empty set the const field accessors return for an untracked
-    // variable.
-    static const FieldSet &noFields();
-
     // init* register the owned field paths of a tracked variable into its
     // schema: Parent threads the place of the enclosing field chain from the
     // root variable (nullptr at the root). Field keys are Field chains from

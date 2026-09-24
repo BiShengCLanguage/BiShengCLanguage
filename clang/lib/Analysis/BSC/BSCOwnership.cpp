@@ -166,6 +166,7 @@ static bool IsStatementConditionTerminator(const Stmt *Terminator,
 //   "pp**"        -> Deref(Deref(Field(Var, "pp"))) (deref use markers)
 using FieldKey = const bsc::Place *;
 using FieldSet = Ownership::OwnershipStatus::FieldSet;
+using FieldStateView = Ownership::OwnershipStatus::FieldStateView;
 using HostKind = Ownership::HostKind;
 
 // The old key spelling of a place, used for diagnostics and for the grown-mode
@@ -344,7 +345,7 @@ static bool overlapsOwnedFields(const FieldSet &OwnedFields, FieldKey Path) {
 // Erase the field itself and every descendant (any projection below it,
 // Index levels included) from a moved-set — the re-initialization path of
 // the explicit moved-field tracking.
-static void eraseFieldAndDescendants(FieldSet &fields, FieldKey fieldName) {
+static void eraseFieldAndDescendants(FieldStateView fields, FieldKey fieldName) {
   llvm::SmallVector<FieldKey, 10> toErase;
   for (FieldKey field : fields)
     if (field->hasPrefix(fieldName))
@@ -357,7 +358,7 @@ static void eraseFieldAndDescendants(FieldSet &fields, FieldKey fieldName) {
 // fields that are tracked at all).
 static void
 markFieldAndDescendantsMoved(const FieldSet &allFields,
-                             FieldSet &movedFields, FieldKey fieldName) {
+                             FieldStateView movedFields, FieldKey fieldName) {
   for (FieldKey field : allFields)
     if (field->hasPrefix(fieldName))
       movedFields.insert(field);
@@ -552,9 +553,12 @@ static bool ArrayFieldPathMoved(const Ownership::OwnershipStatus &Stat,
   const Ownership::OwnershipStatus::VarState *VS = Stat.lookupVar(VD);
   if (!VS || VS->All.empty())
     return false;
-  const FieldSet &All = VS->All;
-  const FieldSet &Owned = VS->Owned;
-  const FieldSet &Null = VS->Null;
+  // Owned or null-owned: a path in either state still owns nothing that could
+  // be moved out again.
+  auto IsOwnedOrNull = [&VS](const bsc::Place *P) {
+    return (VS->Cells.lookup(P) & (Ownership::Owned | Ownership::Null)) !=
+           Ownership::None;
+  };
   bool HasTracked = false;
   bool HasOwnedOrNull = false;
   if (!FieldPath || FieldPath->getKind() == bsc::Place::Kind::Var) {
@@ -564,18 +568,18 @@ static bool ArrayFieldPathMoved(const Ownership::OwnershipStatus &Stat,
     // key of the variable. The aggregate is moved only when none of its
     // tracked fields is still owned or null-owned.
     HasTracked = true;
-    for (FieldKey Key : All) {
-      if (Owned.count(Key) || Null.count(Key)) {
+    for (FieldKey Key : VS->All) {
+      if (IsOwnedOrNull(Key)) {
         HasOwnedOrNull = true;
         break;
       }
     }
   } else {
-    for (FieldKey Key : All) {
+    for (FieldKey Key : VS->All) {
       if (isFieldPathPrefix(FieldPath, Key) ||
           isFieldPathPrefix(Key, FieldPath)) {
         HasTracked = true;
-        if (Owned.count(Key) || Null.count(Key))
+        if (IsOwnedOrNull(Key))
           HasOwnedOrNull = true;
       }
     }
@@ -684,12 +688,6 @@ Ownership::OwnershipStatus::lookupVar(const VarDecl *VD) const {
   return &It->second;
 }
 
-const Ownership::OwnershipStatus::FieldSet &
-Ownership::OwnershipStatus::noFields() {
-  static const FieldSet Empty;
-  return Empty;
-}
-
 Ownership::OwnershipStatus
 OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
                      Ownership::OwnershipStatus statsB) {
@@ -714,14 +712,8 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
     A.Root |= B.Root;
     for (FieldKey P : B.All)
       A.All.insert(P);
-    for (FieldKey P : B.Owned)
-      A.Owned.insert(P);
-    for (FieldKey P : B.Null)
-      A.Null.insert(P);
-    for (FieldKey P : B.Uninit)
-      A.Uninit.insert(P);
-    for (FieldKey P : B.Moved)
-      A.Moved.insert(P);
+    for (const auto &Cell : B.Cells)
+      A.Cells[Cell.first] |= Cell.second;
   }
 
   return statsA;
@@ -1731,7 +1723,7 @@ void Ownership::OwnershipStatus::setArrayFieldMoved(const VarDecl *VD,
       ownedFields(VD).erase(str);
       nullFields(VD).erase(str);
     }
-    refreshArrayFieldState(VD, ownedFields(VD), allFields(VD));
+    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
   // Owned struct-pointer host (`struct S *_Owned p`): the array field of the
   // pointee is tracked with the OPS field sets.
@@ -1745,8 +1737,7 @@ void Ownership::OwnershipStatus::setArrayFieldMoved(const VarDecl *VD,
       ownedFields(VD).erase(str);
       nullFields(VD).erase(str);
     }
-    refreshArrayFieldState(VD, ownedFields(VD),
-                           allFields(VD));
+    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
 }
 
@@ -1771,7 +1762,7 @@ void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
     }
     if (!Found)
       return;
-    refreshArrayFieldState(VD, ownedFields(VD), allFields(VD));
+    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
   if (isHost(VD, HostKind::OPS)) {
     bool Found = false;
@@ -1789,7 +1780,7 @@ void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
     }
     if (!Found)
       return;
-    refreshArrayFieldState(VD, ownedFields(VD), allFields(VD));
+    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
 }
 
@@ -1801,7 +1792,7 @@ void Ownership::OwnershipStatus::setArrayFieldNull(const VarDecl *VD,
     ownedFields(VD).erase(fieldName);
     nullFields(VD).insert(fieldName);
     eraseFieldAndDescendants(movedFields(VD), fieldName);
-    refreshArrayFieldState(VD, ownedFields(VD), allFields(VD));
+    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
   if (isHost(VD, HostKind::OPS)) {
     if (!allFields(VD).count(fieldName))
@@ -1809,7 +1800,7 @@ void Ownership::OwnershipStatus::setArrayFieldNull(const VarDecl *VD,
     ownedFields(VD).erase(fieldName);
     nullFields(VD).insert(fieldName);
     eraseFieldAndDescendants(movedFields(VD), fieldName);
-    refreshArrayFieldState(VD, ownedFields(VD), allFields(VD));
+    refreshArrayFieldState(VD, ownedFields(VD).size(), allFields(VD).size());
   }
 }
 
@@ -1829,12 +1820,16 @@ bool Ownership::OwnershipStatus::arrayAggregateNull(
   // whole answer.
   if (VS->Kind == HostKind::BOP)
     return is(VD, Ownership::Status::Null);
-  const FieldSet &Null = VS->Null;
   const FieldSet &All = VS->All;
   // A Var-kind (root) place is the whole-aggregate query, the historical "".
-  if (!fieldName || fieldName->getKind() == bsc::Place::Kind::Var)
-    return Null.size() == All.size();
-  if (Null.count(fieldName))
+  if (!fieldName || fieldName->getKind() == bsc::Place::Kind::Var) {
+    size_t NullCount = 0;
+    for (FieldKey P : All)
+      if ((VS->Cells.lookup(P) & Null) != None)
+        ++NullCount;
+    return NullCount == All.size();
+  }
+  if ((VS->Cells.lookup(fieldName) & Null) != None)
     return true;
   // Aggregate prefix (e.g. "arr[]"): the field aggregate is null when every
   // tracked descendant field (e.g. "arr[].q") is null. This keeps an
@@ -1845,7 +1840,7 @@ bool Ownership::OwnershipStatus::arrayAggregateNull(
     if (isFieldPathPrefix(fieldName, Key) ||
         isFieldPathPrefix(Key, fieldName)) {
       HasTracked = true;
-      if (!Null.count(Key))
+      if ((VS->Cells.lookup(Key) & Null) == None)
         return false;
     }
   }
@@ -1869,11 +1864,15 @@ bool Ownership::OwnershipStatus::arrayAggregateNotOwned(
            !isOrHas(VD, Ownership::Status::Owned) &&
            !isOrHas(VD, Ownership::Status::PartialMoved);
   }
+  FieldSet OwnedSet;
+  for (FieldKey P : VS->All)
+    if ((VS->Cells.lookup(P) & Ownership::Status::Owned) != None)
+      OwnedSet.insert(P);
   if (!fieldName || fieldName->getKind() == bsc::Place::Kind::Var)
-    return VS->Owned.empty();
-  if (VS->Owned.count(fieldName))
+    return OwnedSet.empty();
+  if (OwnedSet.count(fieldName))
     return false;
-  for (FieldKey Key : VS->Owned) {
+  for (FieldKey Key : OwnedSet) {
     if (isFieldPathPrefix(fieldName, Key) ||
         isFieldPathPrefix(Key, fieldName))
       return false;
@@ -1899,9 +1898,12 @@ bool Ownership::OwnershipStatus::arrayElemPathInconsistent(
   // moved out on one path but still owned on another. The moved field sets are
   // unions over the paths, so this distinguishes Owned|Null (allowed) from
   // Owned|Moved (rejected).
-  for (FieldKey Field : VS->All)
-    if (VS->Moved.count(Field) && VS->Owned.count(Field))
+  for (FieldKey Field : VS->All) {
+    const OwnershipSet Cell = VS->Cells.lookup(Field);
+    if ((Cell & Ownership::Status::Moved) != None &&
+        (Cell & Ownership::Status::Owned) != None)
       return true;
+  }
   return false;
 }
 
@@ -1914,7 +1916,10 @@ bool Ownership::OwnershipStatus::arrayElemPossiblyMoved(
     return false;
   if (VS->Kind == HostKind::BOP)
     return isOrHas(VD, Ownership::Status::Moved);
-  return !VS->Moved.empty();
+  for (FieldKey P : VS->All)
+    if ((VS->Cells.lookup(P) & Ownership::Status::Moved) != None)
+      return true;
+  return false;
 }
 
 bool Ownership::OwnershipStatus::arrayElemNullNoop(const VarDecl *VD,
@@ -1932,18 +1937,22 @@ bool Ownership::OwnershipStatus::arrayElemNullNoop(const VarDecl *VD,
     return true;
   // The field itself or any tracked path below it (a moved "arr[].p" also means
   // the enclosing "arr[]" element field was moved on some path).
-  return !VS->Moved.count(field) && fieldDescendants(VS->Moved, field).empty();
+  FieldSet MovedSet;
+  for (FieldKey P : VS->All)
+    if ((VS->Cells.lookup(P) & Ownership::Status::Moved) != None)
+      MovedSet.insert(P);
+  return !MovedSet.count(field) && fieldDescendants(MovedSet, field).empty();
 }
 
 void Ownership::OwnershipStatus::refreshArrayFieldState(
-    const VarDecl *VD, const FieldSet &Owned, const FieldSet &All) {
+    const VarDecl *VD, size_t OwnedCount, size_t AllCount) {
   resetAll(VD);
-  if (Owned.empty()) {
-    if (All.empty())
+  if (OwnedCount == 0) {
+    if (AllCount == 0)
       set(VD, Ownership::Status::Owned);
     else
       set(VD, Ownership::Status::AllMoved);
-  } else if (Owned.size() < All.size()) {
+  } else if (OwnedCount < AllCount) {
     set(VD, Ownership::Status::PartialMoved);
   } else {
     set(VD, Ownership::Status::Owned);
@@ -1975,19 +1984,19 @@ string Ownership::OwnershipStatus::collectMovedFields(const VarDecl *VD) {
   if (!VS)
     return movedFields + " is";
   const FieldSet &All = VS->All;
-  const FieldSet &Owned = VS->Owned;
   // Only the struct family tracks explicit per-field moves.
-  const FieldSet *ExplicitMoved = VS->Kind == HostKind::S ? &VS->Moved : nullptr;
+  const bool HasExplicitMoved = VS->Kind == HostKind::S;
   // Iteration follows the FieldSet order contract (the historical
   // SmallSet iteration). No 8-element cap here (the historical
   // collectMovedFields listed every moved field).
   int count = 0;
   for (FieldKey P : All) {
+    Status Cell = VS->Cells.lookup(P);
     // A field moved on some branch is reported as moved even if the merge
     // restored its ownership (may-own preserved for leak checks only).
-    if (ExplicitMoved && ExplicitMoved->count(P)) {
+    if (HasExplicitMoved && (Cell & Moved) != None) {
       // fall through: reported as moved
-    } else if (Owned.count(P)) {
+    } else if ((Cell & Owned) != None) {
       continue;
     }
     const string element = placeToKeyString(P);
@@ -2115,9 +2124,9 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
   // a field dropped via __assume_null (moved out of OwnedOwned into
   // NullOwned) is not mistaken for a moved field on a later borrow —
   // mirroring the S-path call below, which already passes the Null set.
+  FieldSet NullSet = nullFields(VD);
   FieldKey movedFieldName =
-      findMovedFieldKey(allFields(VD), ownedFields(VD),
-                        &nullFields(VD), fullFieldName,
+      findMovedFieldKey(allFields(VD), ownedFields(VD), &NullSet, fullFieldName,
                         IsAggregateAccess);
   if (movedFieldName && diags.empty()) {
     diags.push_back(
@@ -2473,11 +2482,11 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
       IsAggregateAccess
           ? nullptr
           : findExplicitMovedFieldKey(movedFields(VD), fullFieldName);
-  if (!movedFieldName)
-    movedFieldName =
-        findMovedFieldKey(allFields(VD), ownedFields(VD),
-                          &nullFields(VD), fullFieldName,
-                          IsAggregateAccess);
+  if (!movedFieldName) {
+    FieldSet NullSet = nullFields(VD);
+    movedFieldName = findMovedFieldKey(allFields(VD), ownedFields(VD), &NullSet,
+                                       fullFieldName, IsAggregateAccess);
+  }
   if (movedFieldName && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
@@ -3365,8 +3374,7 @@ static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
         }
     }
   }
-  Stat.refreshArrayFieldState(VD, Stat.ownedFields(VD),
-                              Stat.allFields(VD));
+  Stat.refreshArrayFieldState(VD, Stat.ownedFields(VD).size(), Stat.allFields(VD).size());
 }
 
 class TransferFunctions : public StmtVisitor<TransferFunctions> {
