@@ -15,12 +15,14 @@ void safe_free(void *_Owned p) {
 
 struct S { int *_Owned arr[2]; };
 
-// Negated null check: free(null) is a no-op; the non-null elements leak.
+// Negated null check. The loop is not a qualifying one (one index drives both
+// levels), so the check cannot narrow the aggregate: the release stays an
+// element transfer and is rejected. The non-null elements leak.
 void test_negated() {
   struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
   for (int i = 0; i < 2; i++) {
     if (!s[i].arr[i])
-      safe_free((void *_Owned)s[i].arr[i]); // no use-of-moved here
+      safe_free((void *_Owned)s[i].arr[i]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}} expected-note {{for-loop is not a qualifying for-loop: one loop index must not index several array levels}}
   }
 } // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}
 
@@ -29,7 +31,7 @@ void test_eq_null() {
   struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
   for (int i = 0; i < 2; i++) {
     if (s[i].arr[i] == nullptr)
-      safe_free((void *_Owned)s[i].arr[i]);
+      safe_free((void *_Owned)s[i].arr[i]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}} expected-note {{for-loop is not a qualifying for-loop: one loop index must not index several array levels}}
   }
 } // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}
 

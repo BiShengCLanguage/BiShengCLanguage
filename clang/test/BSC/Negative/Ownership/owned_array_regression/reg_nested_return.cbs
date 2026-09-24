@@ -18,7 +18,7 @@ void test_nested_return(int flag) {
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 3; j++) {
       if (flag)
-        return; // expected-note {{for-loop is not a qualifying for-loop: loop body must not return or goto early}}
+        return; // expected-note {{for-loop is not a qualifying for-loop: loop body must not break, return or goto out of the loop}}
       a[i][j] = safe_malloc(i * j); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop}}
     }
   }

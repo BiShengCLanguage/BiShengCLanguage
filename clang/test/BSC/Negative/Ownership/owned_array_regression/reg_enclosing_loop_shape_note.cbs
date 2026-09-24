@@ -1,0 +1,41 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct Inner { int *_Owned p; };
+struct S { struct Inner arr[2]; };
+
+// An enclosing subscript level of a field-array element chain must be driven
+// by a full-range for-loop over that level's length. A loop that is not such a
+// for-loop at all (rather than one whose bound is a different constant, or a
+// non-constant bound on a fixed-length level) is reported with the generic
+// loop-shape reason.
+
+// The enclosing loop's condition is not `i < N` (here `i != 2`).
+void test_enclosing_cond_shape(void) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int i = 0; i != 2; i++)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop shape does not match the qualifying for-loop rules}}
+      safe_free((void *_Owned)s[i].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}
+
+// The enclosing loop does not start at zero.
+void test_enclosing_init_shape(void) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int i = 1; i < 2; i++)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop shape does not match the qualifying for-loop rules}}
+      safe_free((void *_Owned)s[i].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}

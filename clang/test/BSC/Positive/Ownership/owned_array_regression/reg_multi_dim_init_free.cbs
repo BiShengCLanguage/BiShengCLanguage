@@ -40,3 +40,17 @@ void test_struct_inner_array_field() {
     }
   }
 }
+
+// Same through a member tail: s[i].arr[j].p. Each subscript level is driven by
+// its own loop, so the whole `arr[].p` aggregate is released (no leak).
+struct Inner { int *_Owned p; };
+struct Outer { struct Inner arr[2]; };
+void test_struct_inner_array_field_member() {
+  struct Outer s[2] = {{safe_malloc(1), safe_malloc(2)},
+                       {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      safe_free((void *_Owned)s[i].arr[j].p);
+    }
+  }
+}

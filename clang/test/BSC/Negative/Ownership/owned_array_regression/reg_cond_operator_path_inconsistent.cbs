@@ -1,0 +1,69 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+void consume(int *_Owned p) {
+  safe_free((void *_Owned)p);
+}
+
+// A conditional operator is a path split exactly like if/else: moving the
+// element out on one arm only leaves `a` Owned|Moved (forbidden). `b` is only
+// Owned|Null (one arm stores an owned value, the other stores null), which is
+// a stable loop-end state and must not be reported.
+// Releasing `a` after the loop is itself a use-after-move (on the moved paths
+// the element is already gone), so the later transfer is reported as well.
+void test_cond_assign(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  int *_Owned b[3] = {nullptr, nullptr, nullptr};
+  for (int i = 0; i < 3; i++) {
+    b[i] = (i == 0) ? a[i] : nullptr;
+  } // expected-error {{ownership state of array element `a` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)b[i]);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}
+
+// Bare conditional value (call argument): the source array diverges.
+void test_cond_arg(int c) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    consume(c ? a[i] : nullptr);
+  } // expected-error {{ownership state of array element `a` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}
+
+// Same through the explicit void *_Owned cast of a safe_free argument.
+void test_cond_cast_arg(int c) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    safe_free((void *_Owned)(c ? a[i] : nullptr));
+  } // expected-error {{ownership state of array element `a` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}
+
+// Nested conditional: every leaf arm is compared. Again only `a` diverges.
+void test_cond_nested(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  int *_Owned b[3] = {nullptr, nullptr, nullptr};
+  for (int i = 0; i < 3; i++) {
+    b[i] = (i == 0) ? a[i] : ((i == 1) ? a[i] : nullptr);
+  } // expected-error {{ownership state of array element `a` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)b[i]);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}

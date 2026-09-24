@@ -1,0 +1,61 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A null-checked release leaves the array Moved|Null: the released elements are
+// already gone (Moved), the null ones own nothing. Releasing the array again
+// may double free the moved paths, so the second release is a use-after-move.
+
+// Basic owned-pointer element array.
+void test_bop_moved_null(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++)
+    if (a[i] != nullptr)
+      safe_free((void *_Owned)a[i]);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}
+
+// Struct-element owned member (s[i].p).
+struct S { int *_Owned p; };
+void test_s_moved_null(void) {
+  struct S s[3] = {{safe_malloc(1)}, {safe_malloc(2)}, {safe_malloc(3)}};
+  for (int i = 0; i < 3; i++)
+    if (s[i].p != nullptr)
+      safe_free((void *_Owned)s[i].p);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)s[i].p); // expected-error {{use of moved value: 's'}}
+}
+
+// Owned-struct-pointer host field array (p->arr[i]).
+struct A { int *_Owned arr[2]; };
+void test_ops_moved_null(void) {
+  struct A *_Owned p = __take_from_raw((struct A *)malloc(sizeof(struct A)));
+  for (int i = 0; i < 2; i++)
+    if (p->arr[i] != nullptr)
+      safe_free((void *_Owned)p->arr[i]);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)p->arr[i]); // expected-error {{use of moved value: 'p'}}
+  safe_free((void *_Owned)p);
+}
+
+// The divergent release followed by a second release in the same iteration.
+void test_in_loop(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (a[i] != nullptr)
+      safe_free((void *_Owned)a[i]);
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+  }
+}

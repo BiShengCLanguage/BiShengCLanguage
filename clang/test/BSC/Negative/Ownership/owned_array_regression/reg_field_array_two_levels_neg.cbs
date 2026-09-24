@@ -1,0 +1,82 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct V { int *_Owned arr[2][2]; };
+
+// A field whose type has two array levels is one aggregate: releasing it needs a
+// full-range loop per level, in the declared dimension order. Each function
+// below releases only part of the aggregate, so the transfer is rejected and the
+// elements that were never released leak.
+
+// The inner level is only partially iterated.
+void test_inner_partial(void) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  for (int i = 0; i < 2; ++i)
+    for (int j = 0; j < 1; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+      safe_free((void *_Owned)v.arr[i][j]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}
+
+// The outer level is only partially iterated.
+void test_outer_partial(void) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  for (int i = 0; i < 1; ++i)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+      safe_free((void *_Owned)v.arr[i][j]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}
+
+// The two levels are iterated in the transposed order.
+void test_transposed(void) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  for (int j = 0; j < 2; ++j)
+    for (int i = 0; i < 2; ++i) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+      safe_free((void *_Owned)v.arr[i][j]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}
+
+// One index drives both levels (the diagonal only).
+void test_diagonal(void) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  for (int i = 0; i < 2; ++i)
+    safe_free((void *_Owned)v.arr[i][i]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}} expected-note {{for-loop is not a qualifying for-loop: one loop index must not index several array levels}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}
+
+// The outer level index is a constant, so only one row is released.
+void test_constant_outer(void) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    safe_free((void *_Owned)v.arr[0][j]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}
+
+// The outer level index is not a loop counter.
+void test_non_loop_outer(int k) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    safe_free((void *_Owned)v.arr[k][j]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}
+
+// A fixed-length level cannot be iterated in full by a variable bound.
+void test_variable_bound(void) {
+  struct V v = {.arr = {{safe_malloc(1), safe_malloc(2)},
+                        {safe_malloc(3), safe_malloc(4)}}};
+  int n = 2;
+  for (int i = 0; i < n; ++i)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop bound must be an integer constant expression equal to the array length}}
+      safe_free((void *_Owned)v.arr[i][j]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[][] is not freed or moved before 'v' goes out of scope}}

@@ -1,0 +1,62 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A pure-null array owns nothing: releasing it (even repeatedly) is a no-op.
+void test_pure_null(void) {
+  int *_Owned a[3] = {nullptr, nullptr, nullptr};
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]);
+}
+
+// A Moved|Null array that is re-owned before the next release is fine: the
+// second release targets fresh owned elements, not the already-released ones.
+void test_reown_bop(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++)
+    if (a[i] != nullptr)
+      safe_free((void *_Owned)a[i]);
+  for (int i = 0; i < 3; i++)
+    a[i] = safe_malloc(i);
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]);
+}
+
+struct S { int *_Owned p; };
+void test_reown_s(void) {
+  struct S s[2] = {{safe_malloc(1)}, {safe_malloc(2)}};
+  for (int i = 0; i < 2; i++)
+    if (s[i].p != nullptr)
+      safe_free((void *_Owned)s[i].p);
+  for (int i = 0; i < 2; i++)
+    s[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)s[i].p);
+}
+
+// Owned-struct-pointer host freed and re-allocated before the next release.
+struct A { int *_Owned arr[2]; };
+void test_reown_ops(void) {
+  struct A *_Owned p = __take_from_raw((struct A *)malloc(sizeof(struct A)));
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)p->arr[i]);
+  safe_free((void *_Owned)p);
+  p = __take_from_raw((struct A *)malloc(sizeof(struct A)));
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)p->arr[i]);
+  safe_free((void *_Owned)p);
+}

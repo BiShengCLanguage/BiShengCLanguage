@@ -27,7 +27,7 @@ void test_owned_array_leak_break() {
   for (int i = 0; i < 3; i++) {
     safe_free((void *_Owned)arr[i]); // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop}}
     if (i == 1)
-      break; // expected-note {{for-loop is not a qualifying for-loop: loop body must not return or goto early}}
+      break; // expected-note {{for-loop is not a qualifying for-loop: loop body must not break, return or goto out of the loop}}
   }
 } // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}
 

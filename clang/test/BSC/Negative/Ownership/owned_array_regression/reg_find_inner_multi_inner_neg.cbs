@@ -35,7 +35,7 @@ void test_inner_bound_mismatch() {
                            {safe_malloc(3), safe_malloc(4)}};
   for (int i = 0; i < 2; i++) {
     for (int k = 0; k < 1; k++) {}
-    for (int j = 0; j < 3; j++) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    for (int j = 0; j < 3; j++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
       safe_free((void *_Owned)arr[i][j]); // expected-error {{cannot transfer ownership of array element `arr` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
   }
 } // expected-error {{memory leak because 'arr' is not freed or moved before it goes out of scope}}

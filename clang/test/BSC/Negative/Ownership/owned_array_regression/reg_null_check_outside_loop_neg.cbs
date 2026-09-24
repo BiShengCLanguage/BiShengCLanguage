@@ -1,0 +1,75 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct Inner { int *_Owned p; };
+struct W { struct Inner arr[2]; };
+struct V { int *_Owned arr[2]; };
+
+// A null check on one element only narrows the whole field/array aggregate when
+// the check is uniform over every element, i.e. inside a covering qualifying
+// for-loop. Outside such a loop the check proves nothing about the other
+// elements, so the aggregate may still own a value and every element release /
+// clear of it stays an element transfer: it must happen inside a qualifying
+// for-loop. Otherwise the aggregate would be treated as null and the release of
+// a live element would silently become a no-op (a double-free window).
+
+// The released element is a different one than the checked element (twice).
+void test_release_other_element(void) {
+  struct W w = {{{0}, {safe_malloc(2)}}};
+  if (w.arr[0].p == nullptr) {
+    safe_free((void *_Owned)w.arr[1].p); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+  safe_free((void *_Owned)w.arr[1].p); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because w.arr[].p is not freed or moved before 'w' goes out of scope}}
+
+// Same, but the aggregate is moved out afterwards, so no scope-exit leak
+// compensates: the forbidden transfers are the only diagnostics.
+struct W test_no_compensating_leak(void) {
+  struct W w = {{{0}, {safe_malloc(2)}}};
+  if (w.arr[0].p == nullptr) {
+    safe_free((void *_Owned)w.arr[1].p); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    safe_free((void *_Owned)w.arr[1].p); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+  return w;
+}
+
+// Clearing another element is an ownership transfer too: the element may still
+// hold a value, so it needs the qualifying loop.
+void test_clear_other_element(void) {
+  struct W w = {{{0}, {safe_malloc(2)}}};
+  if (w.arr[0].p == nullptr) {
+    w.arr[1].p = nullptr; // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+} // expected-error {{memory leak because w.arr[].p is not freed or moved before 'w' goes out of scope}}
+
+// Releasing the checked element itself is rejected as well: a single subscript
+// check outside a covering qualifying loop is not enough to prove the aggregate
+// is null (that is what per-element tracking would be needed for).
+void test_release_checked_element(void) {
+  struct W w = {{{0}, {safe_malloc(2)}}};
+  if (w.arr[0].p == nullptr) {
+    safe_free((void *_Owned)w.arr[0].p); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+} // expected-error {{memory leak because w.arr[].p is not freed or moved before 'w' goes out of scope}}
+
+// The same holds for a one-level field array: `v.arr[0] == nullptr` outside a
+// loop does not turn `v.arr[]` into a null aggregate either.
+void test_one_level_field_array(void) {
+  struct V v = {{0, safe_malloc(2)}};
+  if (v.arr[0] == nullptr) {
+    safe_free((void *_Owned)v.arr[1]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  }
+  safe_free((void *_Owned)v.arr[1]); // expected-error {{cannot transfer ownership of array element `v` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because v.arr[] is not freed or moved before 'v' goes out of scope}}

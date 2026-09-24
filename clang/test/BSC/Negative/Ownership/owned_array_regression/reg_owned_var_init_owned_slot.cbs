@@ -1,0 +1,48 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned v; };
+struct O { struct S n; };
+struct A { int *_Owned a; int *_Owned b; };
+
+// A value that still owns something is owned by the slot it is moved into, so
+// not releasing it leaks. Only null values are folded into a null slot.
+
+void test_owned_var_field(void) {
+  int *_Owned w = safe_malloc(1);
+  struct S st = {w};
+} // expected-error {{memory leak because st.v is not freed or moved before 'st' goes out of scope}}
+
+void test_owned_var_nested(void) {
+  int *_Owned w = safe_malloc(1);
+  struct O o = {{w}};
+} // expected-error {{memory leak because o.n.v is not freed or moved before 'o' goes out of scope}}
+
+void test_owned_var_array_elem(void) {
+  int *_Owned w = safe_malloc(1);
+  int *_Owned a[2] = {0, w};
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+void test_owned_struct_elem_field(void) {
+  int *_Owned w = 0;
+  struct A a[1] = {{w, safe_malloc(2)}};
+} // expected-error {{memory leak because a.b is not freed or moved before 'a' goes out of scope}}
+
+// Freeing the slot afterwards is still accepted.
+void test_owned_var_field_freed(void) {
+  int *_Owned w = safe_malloc(1);
+  struct S st = {w};
+  safe_free((void *_Owned)st.v);
+}

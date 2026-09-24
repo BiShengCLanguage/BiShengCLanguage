@@ -496,10 +496,11 @@ static bool IsCastFromVoidPointer(Expr *E) {
 bool Ownership::OwnershipStatus::empty() const {
   return OPSStatus.empty() && OPSAllOwnedFields.empty() &&
          OPSOwnedOwnedFields.empty() && OPSNullOwnedFields.empty() &&
-         SStatus.empty() && SAllOwnedFields.empty() &&
-         SOwnedOwnedFields.empty() && SNullOwnedFields.empty() &&
-         SMovedOwnedFields.empty() && BOPStatus.empty() &&
-         BOPAllOwnedFields.empty() && BOPOwnedOwnedFields.empty();
+         OPSMovedOwnedFields.empty() && SStatus.empty() &&
+         SAllOwnedFields.empty() && SOwnedOwnedFields.empty() &&
+         SNullOwnedFields.empty() && SMovedOwnedFields.empty() &&
+         BOPStatus.empty() && BOPAllOwnedFields.empty() &&
+         BOPOwnedOwnedFields.empty();
 }
 
 Ownership::OwnershipStatus
@@ -508,10 +509,11 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   if (statsA.empty())
     return Ownership::OwnershipStatus(
         statsB.OPSStatus, statsB.OPSAllOwnedFields, statsB.OPSOwnedOwnedFields,
-        statsB.OPSNullOwnedFields, statsB.SStatus, statsB.SAllOwnedFields,
-        statsB.SOwnedOwnedFields, statsB.SNullOwnedFields,
-        statsB.SUninitOwnedFields, statsB.SMovedOwnedFields, statsB.BOPStatus,
-        statsB.BOPAllOwnedFields, statsB.BOPOwnedOwnedFields);
+        statsB.OPSNullOwnedFields, statsB.OPSMovedOwnedFields, statsB.SStatus,
+        statsB.SAllOwnedFields, statsB.SOwnedOwnedFields,
+        statsB.SNullOwnedFields, statsB.SUninitOwnedFields,
+        statsB.SMovedOwnedFields, statsB.BOPStatus, statsB.BOPAllOwnedFields,
+        statsB.BOPOwnedOwnedFields);
 
   for (auto it = statsB.OPSStatus.begin(), ei = statsB.OPSStatus.end();
        it != ei; ++it) {
@@ -607,6 +609,12 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
        it != ei; ++it)
     for (const auto &s : it->second)
       statsA.SMovedOwnedFields[it->first].insert(s);
+  // Owned-pointer-to-struct host counterpart (mirror of SMovedOwnedFields).
+  for (auto it = statsB.OPSMovedOwnedFields.begin(),
+            ei = statsB.OPSMovedOwnedFields.end();
+       it != ei; ++it)
+    for (const auto &s : it->second)
+      statsA.OPSMovedOwnedFields[it->first].insert(s);
 
   for (auto it = statsB.BOPStatus.begin(), ei = statsB.BOPStatus.end();
        it != ei; ++it) {
@@ -636,8 +644,8 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
 
   return Ownership::OwnershipStatus(
       statsA.OPSStatus, statsA.OPSAllOwnedFields, statsA.OPSOwnedOwnedFields,
-      statsA.OPSNullOwnedFields, statsA.SStatus, statsA.SAllOwnedFields,
-      statsA.SOwnedOwnedFields, statsA.SNullOwnedFields,
+      statsA.OPSNullOwnedFields, statsA.OPSMovedOwnedFields, statsA.SStatus,
+      statsA.SAllOwnedFields, statsA.SOwnedOwnedFields, statsA.SNullOwnedFields,
       statsA.SUninitOwnedFields, statsA.SMovedOwnedFields, statsA.BOPStatus,
       statsA.BOPAllOwnedFields, statsA.BOPOwnedOwnedFields);
 }
@@ -645,7 +653,8 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
 bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
   return OPSStatus == V.OPSStatus && OPSAllOwnedFields == V.OPSAllOwnedFields &&
          OPSOwnedOwnedFields == V.OPSOwnedOwnedFields &&
-         OPSNullOwnedFields == V.OPSNullOwnedFields && SStatus == V.SStatus &&
+         OPSNullOwnedFields == V.OPSNullOwnedFields &&
+         OPSMovedOwnedFields == V.OPSMovedOwnedFields && SStatus == V.SStatus &&
          SAllOwnedFields == V.SAllOwnedFields &&
          SOwnedOwnedFields == V.SOwnedOwnedFields &&
          SNullOwnedFields == V.SNullOwnedFields &&
@@ -655,78 +664,49 @@ bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
          BOPOwnedOwnedFields == V.BOPOwnedOwnedFields;
 }
 
-bool Ownership::OwnershipStatus::is(const VarDecl *VD, Status S) const {
-  if (OPSStatus.count(VD)) {
-    auto it = OPSStatus.find(VD);
-    llvm::BitVector status = it->second;
-    unsigned bitIndex = getIndex(S);
-    if (status.test(bitIndex)) {
-      status.reset(bitIndex);
-      return !status.any();
-    }
-    return false;
-  }
-
-  if (SStatus.count(VD)) {
-    auto it = SStatus.find(VD);
-    llvm::BitVector status = it->second;
-    unsigned bitIndex = getIndex(S);
-    if (status.test(bitIndex)) {
-      status.reset(bitIndex);
-      return !status.any();
-    }
-    return false;
-  }
-
-  if (BOPStatus.count(VD)) {
-    auto it = BOPStatus.find(VD);
-    llvm::BitVector status = it->second;
-    unsigned bitIndex = getIndex(S);
-    if (status.test(bitIndex)) {
-      status.reset(bitIndex);
-      return !status.any();
-    }
-    return false;
-  }
-
-  return false;
+// The status bits of VD, or nullptr when it is not a tracked aggregate. A
+// variable is tracked by exactly one of the three aggregate maps; shared by
+// is / has / isOrHas.
+const llvm::BitVector *
+Ownership::OwnershipStatus::bitsOf(const VarDecl *VD) const {
+  auto Find = [VD](const auto &Map) -> const llvm::BitVector * {
+    auto It = Map.find(VD);
+    return It == Map.end() ? nullptr : &It->second;
+  };
+  if (const llvm::BitVector *Bits = Find(OPSStatus))
+    return Bits;
+  if (const llvm::BitVector *Bits = Find(SStatus))
+    return Bits;
+  if (const llvm::BitVector *Bits = Find(BOPStatus))
+    return Bits;
+  return nullptr;
 }
 
+// Exactly one bit is set and it is S.
+bool Ownership::OwnershipStatus::is(const VarDecl *VD, Status S) const {
+  const llvm::BitVector *StatusBits = bitsOf(VD);
+  if (!StatusBits || !StatusBits->test(getIndex(S)))
+    return false;
+  llvm::BitVector Rest = *StatusBits;
+  Rest.reset(getIndex(S));
+  return !Rest.any();
+}
+
+// The S bit is set, together with at least one other bit.
 bool Ownership::OwnershipStatus::has(const VarDecl *VD, Status S) const {
-  if (OPSStatus.count(VD)) {
-    auto it = OPSStatus.find(VD);
-    llvm::BitVector status = it->second;
-    unsigned bitIndex = getIndex(S);
-    if (status.test(bitIndex)) {
-      status.reset(bitIndex);
-      return status.any();
-    }
+  const llvm::BitVector *StatusBits = bitsOf(VD);
+  if (!StatusBits || !StatusBits->test(getIndex(S)))
     return false;
-  }
+  llvm::BitVector Rest = *StatusBits;
+  Rest.reset(getIndex(S));
+  return Rest.any();
+}
 
-  if (SStatus.count(VD)) {
-    auto it = SStatus.find(VD);
-    llvm::BitVector status = it->second;
-    unsigned bitIndex = getIndex(S);
-    if (status.test(bitIndex)) {
-      status.reset(bitIndex);
-      return status.any();
-    }
-    return false;
-  }
-
-  if (BOPStatus.count(VD)) {
-    auto it = BOPStatus.find(VD);
-    llvm::BitVector status = it->second;
-    unsigned bitIndex = getIndex(S);
-    if (status.test(bitIndex)) {
-      status.reset(bitIndex);
-      return status.any();
-    }
-    return false;
-  }
-
-  return false;
+// The S component is present, exactly or together with other bits (e.g.
+// Moved|Null): `is(VD, S) || has(VD, S)`, the "possibly S" idiom of the move /
+// use-after-move checks.
+bool Ownership::OwnershipStatus::isOrHas(const VarDecl *VD, Status S) const {
+  return is(VD, S) || has(VD, S);
 }
 
 bool Ownership::OwnershipStatus::canAssign(const VarDecl *VD) const {
@@ -1151,6 +1131,7 @@ void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
     set(VD, Ownership::Status::Owned);
     OPSOwnedOwnedFields[VD] = OPSAllOwnedFields[VD];
     OPSNullOwnedFields[VD].clear();
+    OPSMovedOwnedFields[VD].clear();
   }
 
   if (SStatus.count(VD)) {
@@ -1465,6 +1446,15 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E) {
           setArrayFieldNull(VD, memberField.second);
           return;
         }
+      }
+    }
+    {
+      const VarDecl *HostVD = nullptr;
+      std::string FieldPath;
+      if (PeelHostAndFieldPath(E, HostVD, FieldPath) &&
+          IsOwnedArrayFieldPath(HostVD, FieldPath)) {
+        setArrayFieldNull(HostVD, FieldPath);
+        return;
       }
     }
     // Peel a leading deref / implicit cast from the member base so `q->p`
@@ -1842,6 +1832,8 @@ void Ownership::OwnershipStatus::setArrayFieldMoved(const VarDecl *VD,
       return;
     OPSOwnedOwnedFields[VD].erase(fieldName);
     OPSNullOwnedFields[VD].erase(fieldName);
+    markFieldAndDescendantsMoved(OPSAllOwnedFields[VD],
+                                 OPSMovedOwnedFields[VD], fieldName);
     for (const string &str :
          findPrefixStrings(OPSAllOwnedFields[VD], fieldName + ".")) {
       OPSOwnedOwnedFields[VD].erase(str);
@@ -1881,12 +1873,14 @@ void Ownership::OwnershipStatus::setArrayFieldOwned(const VarDecl *VD,
     if (OPSAllOwnedFields[VD].count(fieldName)) {
       OPSOwnedOwnedFields[VD].insert(fieldName);
       OPSNullOwnedFields[VD].erase(fieldName);
+      OPSMovedOwnedFields[VD].erase(fieldName);
       Found = true;
     }
     for (const std::string &F :
          findPrefixStrings(OPSAllOwnedFields[VD], fieldName + ".")) {
       OPSOwnedOwnedFields[VD].insert(F);
       OPSNullOwnedFields[VD].erase(F);
+      OPSMovedOwnedFields[VD].erase(F);
       Found = true;
     }
     if (!Found)
@@ -1910,27 +1904,9 @@ void Ownership::OwnershipStatus::setArrayFieldNull(const VarDecl *VD,
       return;
     OPSOwnedOwnedFields[VD].erase(fieldName);
     OPSNullOwnedFields[VD].insert(fieldName);
+    eraseFieldAndDescendants(OPSMovedOwnedFields[VD], fieldName);
     refreshArrayFieldState(VD, OPSOwnedOwnedFields[VD], OPSAllOwnedFields[VD]);
   }
-}
-
-bool Ownership::OwnershipStatus::arrayAggregateMoved(const VarDecl *VD) const {
-  if (BOPStatus.count(VD))
-    return is(VD, Ownership::Status::Moved);
-  if (SStatus.count(VD))
-    return SOwnedOwnedFields.lookup(VD).empty();
-  if (OPSStatus.count(VD))
-    return OPSOwnedOwnedFields.lookup(VD).empty();
-  return false;
-}
-
-bool Ownership::OwnershipStatus::arrayFieldOwned(
-    const VarDecl *VD, const std::string &fieldName) const {
-  if (SStatus.count(VD))
-    return SOwnedOwnedFields.lookup(VD).count(fieldName) > 0;
-  if (OPSStatus.count(VD))
-    return OPSOwnedOwnedFields.lookup(VD).count(fieldName) > 0;
-  return false;
 }
 
 bool Ownership::OwnershipStatus::arrayAggregateUninit(const VarDecl *VD) const {
@@ -1991,6 +1967,125 @@ bool Ownership::OwnershipStatus::arrayAggregateNull(
   return false;
 }
 
+// Whether a null clear of the aggregate / field drops nothing: no path of it can
+// still hold an owning value. Clearing such an aggregate is a no-op (it simply
+// also becomes null, e.g. Moved becomes Moved|Null), while clearing one that may
+// still own something is an ownership transfer and stays gated by the
+// qualifying-loop rules. A partial move keeps the remaining elements owned, so
+// PartialMoved is treated as holding something.
+bool Ownership::OwnershipStatus::arrayAggregateNotOwned(
+    const VarDecl *VD, const std::string &fieldName) const {
+  if (fieldName.empty()) {
+    if (BOPStatus.count(VD))
+      return !isOrHas(VD, Ownership::Status::Owned) &&
+             !isOrHas(VD, Ownership::Status::PartialMoved);
+    if (SStatus.count(VD))
+      return SOwnedOwnedFields.lookup(VD).empty();
+    if (OPSStatus.count(VD))
+      return OPSOwnedOwnedFields.lookup(VD).empty();
+    return false;
+  }
+  using FieldSet = llvm::SmallSet<std::string, 10>;
+  auto PathNotOwned = [&](const FieldSet &Owned) {
+    if (Owned.count(fieldName))
+      return false;
+    for (const std::string &Key : Owned) {
+      if (isFieldPathPrefix(fieldName, Key) ||
+          isFieldPathPrefix(Key, fieldName))
+        return false;
+    }
+    return true;
+  };
+  if (SStatus.count(VD))
+    return PathNotOwned(SOwnedOwnedFields.lookup(VD));
+  if (OPSStatus.count(VD))
+    return PathNotOwned(OPSOwnedOwnedFields.lookup(VD));
+  return false;
+}
+
+// The forbidden loop-end state of an owned-element array: the element possibly
+// owns a value on some path and was moved out on another (Owned|Moved). A path
+// that leaves the element null is compatible with both, because a null element
+// owns nothing: Owned|Null and Moved|Null are stable states and may be released
+// directly or after a null check. Null alone owns nothing.
+bool Ownership::OwnershipStatus::arrayElemPathInconsistent(
+    const VarDecl *VD) const {
+  // Basic owned-pointer element arrays: the aggregate bits carry the state.
+  if (BOPStatus.count(VD))
+    return isOrHas(VD, Ownership::Status::Owned) &&
+           isOrHas(VD, Ownership::Status::Moved);
+  // Struct-element / owned-struct-pointer-host field arrays: a tracked field
+  // moved out on one path but still owned on another. The moved field sets are
+  // unions over the paths, so this distinguishes Owned|Null (allowed) from
+  // Owned|Moved (rejected).
+  using FieldSet = llvm::SmallSet<std::string, 10>;
+  auto FindSet = [](const auto &Map, const VarDecl *VD) -> const FieldSet * {
+    auto It = Map.find(VD);
+    return It == Map.end() ? nullptr : &It->second;
+  };
+  const FieldSet *All = nullptr;
+  const FieldSet *Owned = nullptr;
+  const FieldSet *Moved = nullptr;
+  if (SStatus.count(VD)) {
+    All = FindSet(SAllOwnedFields, VD);
+    Owned = FindSet(SOwnedOwnedFields, VD);
+    Moved = FindSet(SMovedOwnedFields, VD);
+  } else if (OPSStatus.count(VD)) {
+    All = FindSet(OPSAllOwnedFields, VD);
+    Owned = FindSet(OPSOwnedOwnedFields, VD);
+    Moved = FindSet(OPSMovedOwnedFields, VD);
+  } else {
+    return false;
+  }
+  if (!All || !Owned || !Moved)
+    return false;
+  for (const std::string &Field : *All)
+    if (Moved->count(Field) && Owned->count(Field))
+      return true;
+  return false;
+}
+
+bool Ownership::OwnershipStatus::arrayElemPossiblyMoved(
+    const VarDecl *VD) const {
+  // The Moved component present: exactly Moved, or moved on some path only
+  // (Owned|Moved from a partial release, Moved|Null from a null-checked one).
+  if (BOPStatus.count(VD))
+    return isOrHas(VD, Ownership::Status::Moved);
+  if (SStatus.count(VD))
+    return !SMovedOwnedFields.lookup(VD).empty();
+  if (OPSStatus.count(VD))
+    return !OPSMovedOwnedFields.lookup(VD).empty();
+  return false;
+}
+
+bool Ownership::OwnershipStatus::arrayElemNullNoop(
+    const VarDecl *VD, const std::string &field) const {
+  if (!arrayAggregateNull(VD, field))
+    return false;
+  // Basic owned-pointer arrays: arrayAggregateNull is the exact Null bit, so a
+  // Moved|Null aggregate (Null + Moved bits) is already excluded here.
+  if (field.empty())
+    return true;
+  // Field-level: the null field set is a union over the paths, so a field that
+  // was also moved on some path (Moved|Null) is a double free, not a no-op.
+  using FieldSet = llvm::SmallSet<std::string, 10>;
+  auto FindSet = [](const auto &Map, const VarDecl *VD) -> const FieldSet * {
+    auto It = Map.find(VD);
+    return It == Map.end() ? nullptr : &It->second;
+  };
+  const FieldSet *Moved = nullptr;
+  if (SStatus.count(VD))
+    Moved = FindSet(SMovedOwnedFields, VD);
+  else if (OPSStatus.count(VD))
+    Moved = FindSet(OPSMovedOwnedFields, VD);
+  if (!Moved)
+    return true;
+  // The field itself or any tracked path below it (a moved "arr[].p" also means
+  // the enclosing "arr[]" element field was moved on some path).
+  return Moved->count(field) == 0 &&
+         findPrefixStrings(*Moved, field + ".").empty();
+}
+
 void Ownership::OwnershipStatus::refreshArrayFieldState(
     const VarDecl *VD, const llvm::SmallSet<std::string, 10> &Owned,
     const llvm::SmallSet<std::string, 10> &All) {
@@ -2012,6 +2107,7 @@ void Ownership::OwnershipStatus::removeArraysOne(const VarDecl *VD) {
   OPSAllOwnedFields.erase(VD);
   OPSOwnedOwnedFields.erase(VD);
   OPSNullOwnedFields.erase(VD);
+  OPSMovedOwnedFields.erase(VD);
   SStatus.erase(VD);
   SAllOwnedFields.erase(VD);
   SOwnedOwnedFields.erase(VD);
@@ -2038,6 +2134,7 @@ void Ownership::OwnershipStatus::takeArraysFrom(
       OPSAllOwnedFields[VD] = Other.OPSAllOwnedFields.lookup(VD);
       OPSOwnedOwnedFields[VD] = Other.OPSOwnedOwnedFields.lookup(VD);
       OPSNullOwnedFields[VD] = Other.OPSNullOwnedFields.lookup(VD);
+      OPSMovedOwnedFields[VD] = Other.OPSMovedOwnedFields.lookup(VD);
     }
     if (Other.SStatus.count(VD)) {
       SStatus[VD] = Other.SStatus.lookup(VD);
@@ -2101,7 +2198,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSUse(
 
   // check the status of the variable
   if (!is(VD, Ownership::Status::Owned)) {
-    if (has(VD, Ownership::Status::Moved) || is(VD, Ownership::Status::Moved)) {
+    if (isOrHas(VD, Ownership::Status::Moved)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfMoved, VD->getNameAsString()));
     } else if (is(VD, Ownership::Status::Uninitialized)) {
@@ -2181,7 +2278,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
     }
     if (OPSAllOwnedFields[VD].count(current) &&
         !OPSOwnedOwnedFields[VD].count(current)) {
-      OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
+      OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? OwnershipDiagKind::InvalidUseOfUninit
                                    : OwnershipDiagKind::InvalidUseOfMoved;
       diags.push_back(OwnershipDiagInfo(
@@ -2192,12 +2289,12 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
   }
 
   // check condition 2
-  if ((is(VD, Moved) || has(VD, Moved)) && diags.empty()) {
+  if (isOrHas(VD, Moved) && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                           VD->getNameAsString() + "." + fullFieldName));
   }
-  if ((is(VD, Uninitialized) || has(VD, Uninitialized)) && diags.empty()) {
+  if (isOrHas(VD, Uninitialized) && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfUninit,
                           VD->getNameAsString() + "." + fullFieldName));
@@ -2301,7 +2398,7 @@ Ownership::OwnershipStatus::checkOPSAssign(const VarDecl *VD,
 
   // check the status of the variable
   if (!canAssign(VD)) {
-    if (has(VD, Ownership::Status::Owned) || is(VD, Ownership::Status::Owned)) {
+    if (isOrHas(VD, Ownership::Status::Owned)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidAssignOfOwned, VD->getNameAsString()));
     } else if (is(VD, Ownership::Status::PartialMoved)) {
@@ -2320,6 +2417,7 @@ Ownership::OwnershipStatus::checkOPSAssign(const VarDecl *VD,
   }
   // change the status to owned
   OPSOwnedOwnedFields[VD] = OPSAllOwnedFields[VD];
+  OPSMovedOwnedFields[VD].clear();
   resetAll(VD);
   set(VD, Ownership::Status::Owned);
 
@@ -2331,14 +2429,14 @@ Ownership::OwnershipStatus::checkOPSDerefAssign(const VarDecl *VD,
                                                const SourceLocation &Loc) {
   SmallVector<OwnershipDiagInfo> diags;
   if (!is(VD, AllMoved)) {
-    if (is(VD, Moved) || has(VD, Moved)) {
+    if (isOrHas(VD, Moved)) {
       OwnershipDiagInfo Info(Loc, InvalidUseOfMoved, VD->getNameAsString());
       diags.push_back(Info);
     } else {
       QualType Pointee = VD->getType()->getPointeeType();
       if (!Pointee.isNull() &&
           Pointee.isOrContainsOwned(BSCLookThrough::NoPointer)) {
-        if (has(VD, Owned) || is(VD, Owned)) {
+        if (isOrHas(VD, Owned)) {
           OwnershipDiagInfo Info(Loc, InvalidAssignOfOwned,
                                  VD->getNameAsString());
           diags.push_back(Info);
@@ -2357,6 +2455,7 @@ Ownership::OwnershipStatus::checkOPSDerefAssign(const VarDecl *VD,
 
   if (diags.empty()) {
     OPSOwnedOwnedFields[VD] = OPSAllOwnedFields[VD];
+    OPSMovedOwnedFields[VD].clear();
     resetAll(VD);
     set(VD, Ownership::Status::Owned);
   }
@@ -2379,7 +2478,7 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
        parent = parentFieldPath(parent)) {
     if (OPSAllOwnedFields[VD].count(parent) &&
         !OPSOwnedOwnedFields[VD].count(parent)) {
-      OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
+      OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? OwnershipDiagKind::InvalidUseOfUninit
                                    : OwnershipDiagKind::InvalidUseOfMoved;
       diags.push_back(OwnershipDiagInfo(
@@ -2390,12 +2489,12 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
   }
 
   // check condition 2
-  if ((is(VD, Moved) || has(VD, Moved)) && diags.empty()) {
+  if (isOrHas(VD, Moved) && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignFieldOfMoved,
                           moveAsterisksToFront(VD->getNameAsString() + "." + fullFieldName)));
   }
-  if ((is(VD, Uninitialized) || has(VD, Uninitialized)) && diags.empty()) {
+  if (isOrHas(VD, Uninitialized) && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignFieldOfUninit,
                           VD->getNameAsString()));
@@ -2478,10 +2577,10 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSUse(
   // owned struct special manipulation
   if (VD->getType().getTypePtr()->isOwnedStruct()) {
     if (!is(VD, Owned)) {
-      if (is(VD, Uninitialized) || has(VD, Uninitialized)) {
+      if (isOrHas(VD, Uninitialized)) {
         diags.push_back(OwnershipDiagInfo(
             Loc, OwnershipDiagKind::InvalidUseOfUninit, VD->getNameAsString()));
-      } else if (is(VD, Moved) || has(VD, Moved)) {
+      } else if (isOrHas(VD, Moved)) {
         diags.push_back(OwnershipDiagInfo(
             Loc, OwnershipDiagKind::InvalidUseOfMoved, VD->getNameAsString()));
       }
@@ -2532,7 +2631,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
     }
   }
 
-  if ((is(VD, Moved) || has(VD, Moved)) && diags.empty()) {
+  if (isOrHas(VD, Moved) && diags.empty()) {
     diags.push_back(
         OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                           VD->getNameAsString() + "." + fullFieldName));
@@ -2677,11 +2776,11 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   // owned struct special manipulation
   if (VD->getType().getTypePtr()->isOwnedStruct()) {
     if (!is(VD, Owned)) {
-      if (is(VD, Uninitialized) || has(VD, Uninitialized)) {
+      if (isOrHas(VD, Uninitialized)) {
         diags.push_back(OwnershipDiagInfo(
             Loc, OwnershipDiagKind::InvalidAssignFieldOfUninit,
             VD->getNameAsString()));
-      } else if (is(VD, Moved) || has(VD, Moved)) {
+      } else if (isOrHas(VD, Moved)) {
         diags.push_back(
             OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidAssignFieldOfMoved,
                               moveAsterisksToFront(VD->getNameAsString() + "." + fullFieldName)));
@@ -2769,7 +2868,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPUse(
 
   // check the status of the variable
   if (!is(VD, Ownership::Status::Owned)) {
-    if (has(VD, Ownership::Status::Moved) || is(VD, Ownership::Status::Moved)) {
+    if (isOrHas(VD, Ownership::Status::Moved)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfMoved, VD->getNameAsString()));
     } else if (is(VD, Ownership::Status::Uninitialized)) {
@@ -2834,7 +2933,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPFieldUse(
                                         VD->getNameAsString()));
     }
   }
-  if ((is(VD, Ownership::Status::Moved) || has(VD, Ownership::Status::Moved)) &&
+  if (isOrHas(VD, Ownership::Status::Moved) &&
       diags.empty()) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                                       VD->getNameAsString()));
@@ -2890,7 +2989,7 @@ Ownership::OwnershipStatus::checkBOPAssign(const VarDecl *VD,
 
   // check the status of the variable
   if (!canAssign(VD)) {
-    if (has(VD, Ownership::Status::Owned) || is(VD, Ownership::Status::Owned)) {
+    if (isOrHas(VD, Ownership::Status::Owned)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidAssignOfOwned, VD->getNameAsString()));
     } else if (is(VD, Ownership::Status::PartialMoved)) {
@@ -2938,9 +3037,7 @@ Ownership::OwnershipStatus::checkBOPFieldAssign(const VarDecl *VD,
       break;
     }
   }
-  if ((is(VD, Moved) || has(VD, Moved) || is(VD, Uninitialized) ||
-       has(VD, Uninitialized)) &&
-      diags.empty()) {
+  if ((isOrHas(VD, Moved) || isOrHas(VD, Uninitialized)) && diags.empty()) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                                       VD->getNameAsString()));
   }
@@ -2998,11 +3095,11 @@ Ownership::OwnershipStatus::checkCastOPS(const VarDecl *VD,
                                          const SourceLocation &Loc) {
   SmallVector<OwnershipDiagInfo> diags;
 
-  if (has(VD, Ownership::Status::Moved) || is(VD, Ownership::Status::Moved)) {
+  if (isOrHas(VD, Ownership::Status::Moved)) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastMoved,
                                       VD->getNameAsString()));
   }
-  if (has(VD, Uninitialized) || is(VD, Uninitialized)) {
+  if (isOrHas(VD, Uninitialized)) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastUninit,
                                       VD->getNameAsString()));
   }
@@ -3032,12 +3129,12 @@ Ownership::OwnershipStatus::checkCastBOP(const VarDecl *VD,
   SmallVector<OwnershipDiagInfo> diags;
 
   // AllMoved is OK - it means all sub-fields are freed, so we can free the variable itself
-  if ((has(VD, Ownership::Status::Moved) || is(VD, Ownership::Status::Moved)) &&
+  if (isOrHas(VD, Ownership::Status::Moved) &&
       !is(VD, Ownership::Status::AllMoved)) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastMoved,
                                       VD->getNameAsString()));
   }
-  if (has(VD, Uninitialized) || is(VD, Uninitialized)) {
+  if (isOrHas(VD, Uninitialized)) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastUninit,
                                       VD->getNameAsString()));
   }
@@ -3059,7 +3156,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
 
   if (OPSStatus.count(VD)) {
     if (!OPSOwnedOwnedFields[VD].count(fullFieldName) && diags.empty()) {
-      OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
+      OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
       diags.push_back(OwnershipDiagInfo(
@@ -3111,7 +3208,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
           Loc, OwnershipDiagKind::InvalidCastMoved,
           moveAsterisksToFront(VD->getNameAsString() + "." + movedFieldName)));
     } else if (!SOwnedOwnedFields[VD].count(fullFieldName) && !ArrayFieldPath) {
-      OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
+      OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
       diags.push_back(OwnershipDiagInfo(
@@ -3143,7 +3240,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
 
   if (BOPStatus.count(VD)) {
     if (!BOPOwnedOwnedFields[VD].count(fullFieldName) && diags.empty()) {
-      OwnershipDiagKind Kind = is(VD, Uninitialized) || has(VD, Uninitialized)
+      OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
       diags.push_back(OwnershipDiagInfo(
@@ -3269,20 +3366,29 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
 //===----------------------------------------------------------------------===//
 
 namespace {
+// Extra null test applied to a leaf initializer expression by the helpers
+// below: the syntactic test (omitted init / null literal) is always applied,
+// while this one folds expressions that are must-be-null in the current
+// dataflow state (e.g. a null _Owned variable moved into a field:
+// `struct S st = {null_v};`), mirroring `st.v = null_v;`.
+using NullInitTest = std::function<bool(const Expr *)>;
+
 // recursively check that an initializer list initializes every
 // element/field with a null (or omitted / zero) value, so the whole array can
 // be treated as null-initialized.
 // True when an initializer of type `Ty` leaves every _Owned pointer (or
-// move-semantic sub-object) null: implicit init, an explicit null, or (for a
-// struct) every _Owned field owned-null. Plain (non-owned) fields may be
-// non-zero without implying ownership.
-static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
+// move-semantic sub-object) null: implicit init, an explicit null, an
+// expression that is must-be-null in the current state, or (for a struct)
+// every _Owned field owned-null. Plain (non-owned) fields may be non-zero
+// without implying ownership.
+static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty,
+                            const NullInitTest &ExtraNull) {
   if (!Init)
     return true;
   Init = Init->IgnoreParenImpCasts();
   if (isa<ImplicitValueInitExpr>(Init))
     return true;
-  if (IsNullExpr(ctx, Init))
+  if (IsNullExpr(ctx, Init) || (ExtraNull && ExtraNull(Init)))
     return true;
   const auto *ILE = dyn_cast<InitListExpr>(Init);
   if (!ILE)
@@ -3296,7 +3402,7 @@ static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
       const Expr *FieldInit = FD->getFieldIndex() < ILE->getNumInits()
                                   ? ILE->getInit(FD->getFieldIndex())
                                   : nullptr;
-      if (!isOwnedNullInit(ctx, FieldInit, FT))
+      if (!isOwnedNullInit(ctx, FieldInit, FT, ExtraNull))
         return false;
     }
     return true;
@@ -3306,7 +3412,7 @@ static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
   if (const auto *AT = InnerTy->getAsArrayTypeUnsafe())
     InnerTy = AT->getElementType();
   for (unsigned I = 0; I < ILE->getNumInits(); ++I)
-    if (!isOwnedNullInit(ctx, ILE->getInit(I), InnerTy))
+    if (!isOwnedNullInit(ctx, ILE->getInit(I), InnerTy, ExtraNull))
       return false;
   return true;
 }
@@ -3314,9 +3420,9 @@ static bool isOwnedNullInit(ASTContext &ctx, const Expr *Init, QualType Ty) {
 // True when every element of an owned-element array initializer owns nothing
 // (all elements owned-null).
 static bool isAllNullInits(ASTContext &ctx, const InitListExpr *ILE,
-                           QualType ElemType) {
+                           QualType ElemType, const NullInitTest &ExtraNull) {
   for (unsigned I = 0; I < ILE->getNumInits(); ++I)
-    if (!isOwnedNullInit(ctx, ILE->getInit(I), ElemType))
+    if (!isOwnedNullInit(ctx, ILE->getInit(I), ElemType, ExtraNull))
       return false;
   return true;
 }
@@ -3328,7 +3434,8 @@ static bool isAllNullInits(ASTContext &ctx, const InitListExpr *ILE,
 static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
                                          ASTContext &Ctx, const VarDecl *VD,
                                          RecordDecl *RD,
-                                         const InitListExpr *ILE) {
+                                         const InitListExpr *ILE,
+                                         const NullInitTest &ExtraNull) {
   for (const FieldDecl *FD : RD->fields()) {
     QualType FT = FD->getType();
     if (!IsTrackedType(FT))
@@ -3348,7 +3455,7 @@ static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
           FD->getFieldIndex() < ElemILE->getNumInits()
               ? ElemILE->getInit(FD->getFieldIndex())
               : nullptr;
-      if (!isOwnedNullInit(Ctx, FieldInit, FT)) {
+      if (!isOwnedNullInit(Ctx, FieldInit, FT, ExtraNull)) {
         AllNull = false;
         break;
       }
@@ -3446,9 +3553,15 @@ public:
       if (const DeclRefExpr *DRE =
               getRootDREFromMemberBase(memberField.first)) {
         if (const VarDecl *SrcVD = dyn_cast<VarDecl>(DRE->getDecl())) {
-          // Struct value whose field is tracked as must-be-null.
+          // Struct value whose field is must-be-null. SNullOwnedFields is the
+          // union over the paths reaching here, so require the field to own
+          // nothing on *every* path: a field that is null on one path but owned
+          // on another (Owned|Null) still owns the value being read, and folding
+          // it as a null source would leave the destination unowned and hide the
+          // leak of that value (the scalar form below uses the exact test).
           if (stat.SStatus.count(SrcVD) &&
-              stat.SNullOwnedFields[SrcVD].count(memberField.second))
+              stat.SNullOwnedFields[SrcVD].count(memberField.second) &&
+              !stat.SOwnedOwnedFields[SrcVD].count(memberField.second))
             return true;
           // Owned pointer to struct in must-be-null state: any field access
           // yields a must-be-null value.
@@ -3469,6 +3582,15 @@ public:
       }
     }
     return false;
+  }
+
+  // Extra null test for initializer lists: folds expressions that are
+  // must-be-null in the current state into "the slot owns nothing", so
+  // `struct S st = {null_v};` is treated like `st.v = null_v;` instead of
+  // leaving the field owned (a false leak). Values that still own something
+  // are left alone, keeping the conservative owned state.
+  NullInitTest stateNullInitTest() const {
+    return [this](const Expr *E) { return isExprRefToNullOwnedVar(E); };
   }
 
   // helpers for owned-element array element access.
@@ -3600,8 +3722,11 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
         Visit(ASE->getIdx());
         return;
       }
+      // A clear only needs no qualifying loop when the aggregate drops
+      // nothing (no path still owns): clearing a null/moved aggregate just
+      // records "also null", while clearing one that may own is a transfer.
       if (op == Assign && CurRHS && CurRHS->isNullExpr(OS.ctx) &&
-          stat.arrayAggregateNull(ArrVD, "")) {
+          stat.arrayAggregateNotOwned(ArrVD, "")) {
         Visit(ASE->getIdx());
         return;
       }
@@ -3742,20 +3867,37 @@ bool TransferFunctions::isArrayElemTransferAllowed(const Expr *Site,
     emitArrayElemForbidden(Site->getExprLoc(), ArrVD);
     return false;
   }
-  // Inside a qualifying loop, transfers recorded in AllowedTransferExprs are
-  // permitted; for nested subscripts any enclosing subscript in the chain may
-  // have been recorded (e.g. the outer loop records a[i][j]).
-  bool Allowed = OS.LoopInfo.AllowedTransferExprs.count(Site);
-  if (!Allowed) {
-    for (const Expr *E = Site; E;) {
-      if (OS.LoopInfo.AllowedTransferExprs.count(E)) {
-        Allowed = true;
-        break;
+  // A transfer site is legal only inside the loop whose classification recorded
+  // it: AllowedTransferExprs is keyed by that loop, so a site validated by one
+  // loop cannot be allowed at an occurrence enclosed by an unrelated loop. Any
+  // enclosing loop may be the one that recorded it: for a multi-dim nest the
+  // outermost loop records a[i][j] while the transfer sits in an inner loop. The
+  // recorded expression may also be an enclosing subscript of the site (e.g. the
+  // outer loop records a[i][j] for a site a[i][j].f), hence the base-chain walk.
+  bool Allowed = false;
+  {
+    ParentMap &PM = OS.analysisContext.getParentMap();
+    auto RecordedInLoop = [&](const ForStmt *F) {
+      auto It = OS.LoopInfo.AllowedTransferExprs.find(F);
+      if (It == OS.LoopInfo.AllowedTransferExprs.end())
+        return false;
+      for (const Expr *E = Site; E;) {
+        if (It->second.count(E))
+          return true;
+        if (const ArraySubscriptExpr *A = dyn_cast<ArraySubscriptExpr>(E))
+          E = A->getBase()->IgnoreParenImpCasts();
+        else
+          break;
       }
-      if (const ArraySubscriptExpr *A = dyn_cast<ArraySubscriptExpr>(E))
-        E = A->getBase()->IgnoreParenImpCasts();
-      else
+      return false;
+    };
+    for (const Stmt *S = Site; S && !Allowed;) {
+      const Stmt *Parent = PM.getParent(S);
+      if (!Parent)
         break;
+      if (const ForStmt *F = dyn_cast<ForStmt>(Parent))
+        Allowed = RecordedInLoop(F);
+      S = Parent;
     }
   }
   if (!Allowed)
@@ -3817,9 +3959,19 @@ bool TransferFunctions::tryTransferArrayField(const Expr *Site,
   // A null element releases/clears nothing (free(null) and `= nullptr` are
   // no-ops): no transfer is needed and the site does not need to qualify --
   // e.g. the null branch of a `if (!s[i].arr[i]) safe_free(...)`, or clearing
-  // an already-null field with `w.arr[0].q = nullptr`.
+  // an already-null field with `w.arr[0].q = nullptr`. A release of a field
+  // that is only possibly null (Moved|Null) is not a no-op though: its moved
+  // paths are already released, so the release may double free. Clearing such a
+  // field (`= nullptr`) stays harmless.
   bool IsNullAssign = IsAssign && CurRHS && CurRHS->isNullExpr(OS.ctx);
-  if (stat.arrayAggregateNull(HostVD, FieldPath) && (!IsAssign || IsNullAssign))
+  // Clearing (`= nullptr`) is a no-op when the aggregate drops nothing (no path
+  // still owns it): it only records "also null". Clearing an aggregate that may
+  // own is an ownership transfer, so it stays gated; a *release* of a field that
+  // was only possibly null but also moved (Moved|Null) is a double free and is
+  // not a no-op either (arrayElemNullNoop).
+  bool NullNoop = IsAssign ? stat.arrayAggregateNotOwned(HostVD, FieldPath)
+                           : stat.arrayElemNullNoop(HostVD, FieldPath);
+  if (NullNoop && (!IsAssign || IsNullAssign))
     return true;
   if (!isArrayElemTransferAllowed(Site, HostVD, /*IsArrElemPtr=*/false))
     return false;
@@ -3881,22 +4033,32 @@ void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
   // merging the back-edge, the aggregate reaches this point with the clean
   // pre-loop state, so a second move-out of the same aggregate / field is a
   // real use-after-move.
+  // A move-out of a value that was already moved on some path is a
+  // use-after-move even when the merge also has an owned or null path
+  // (Owned|Moved from a partial release, Moved|Null from a null-checked one):
+  // the element may already be freed, so transferring it out again may double
+  // free. Only a state without the Moved component (pure Null owns nothing,
+  // pure Owned / Uninitialized) is not already moved.
   bool AlreadyMoved = false;
   if (fieldName.empty()) {
-    AlreadyMoved = stat.arrayAggregateMoved(ArrVD);
+    AlreadyMoved = stat.arrayElemPossiblyMoved(ArrVD);
   } else {
     // Every tracked owned-field path (plain "a", pure array field "arr[]",
     // or nested array-field path "arr[].a") is an aggregate state in the
     // caller's per-field sets. A second move-out of the same path is a real
-    // use-after-move, so detect it uniformly.
+    // use-after-move, so detect it uniformly: explicitly moved on some path
+    // (the moved field sets are unions over the paths), or gone entirely
+    // (absent from both the owned and the null sets).
     if (stat.SStatus.count(ArrVD))
-      AlreadyMoved = !stat.SOwnedOwnedFields[ArrVD].count(fieldName) &&
-                     !stat.SNullOwnedFields[ArrVD].count(fieldName) &&
-                     !isArrayField(ArrVD, fieldName);
+      AlreadyMoved = stat.SMovedOwnedFields[ArrVD].count(fieldName) ||
+                     (!stat.SOwnedOwnedFields[ArrVD].count(fieldName) &&
+                      !stat.SNullOwnedFields[ArrVD].count(fieldName) &&
+                      !isArrayField(ArrVD, fieldName));
     else if (stat.OPSStatus.count(ArrVD))
-      AlreadyMoved = !stat.OPSOwnedOwnedFields[ArrVD].count(fieldName) &&
-                     !stat.OPSNullOwnedFields[ArrVD].count(fieldName) &&
-                     !isArrayField(ArrVD, fieldName);
+      AlreadyMoved = stat.OPSMovedOwnedFields[ArrVD].count(fieldName) ||
+                     (!stat.OPSOwnedOwnedFields[ArrVD].count(fieldName) &&
+                      !stat.OPSNullOwnedFields[ArrVD].count(fieldName) &&
+                      !isArrayField(ArrVD, fieldName));
   }
   // A move-out of an uninitialized aggregate / field is a use of an
   // uninitialized value (mirror of the scalar cast-uninit check), not a
@@ -3915,6 +4077,14 @@ void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
     OwnershipDiagInfo DI(Loc, OwnershipDiagKind::InvalidUseOfMoved,
                          ArrVD->getNameAsString());
     reporter.addDiagInfo(DI);
+    // The value is treated as moved from here on (mirror of the scalar
+    // move-out checks, which report and then set Moved): without this, the
+    // already-reported double free would be re-reported as a loop-end
+    // inconsistency / scope-exit leak of the same element.
+    if (fieldName.empty())
+      stat.setArrayElemMoved(ArrVD);
+    else
+      stat.setArrayFieldMoved(ArrVD, fieldName);
     return;
   }
   // A must-be-null aggregate (all elements initialized to null) owns nothing:
@@ -3950,13 +4120,16 @@ static std::string getNonQualifyingReasonString(NonQualifyingLoopReason R) {
   case NonQualifyingLoopReason::VlaBoundVarModified:
     return "VLA length / loop bound variable must not be modified, address-taken or mutably borrowed";
   case NonQualifyingLoopReason::EarlyExit:
-    return "loop body must not return or goto early";
+    return "loop body must not break, return or goto out of the loop";
   case NonQualifyingLoopReason::BoundMismatch:
     return "loop bound must equal the array length";
+  case NonQualifyingLoopReason::BoundNotConstant:
+    return "loop bound must be an integer constant expression equal to the "
+           "array length";
   case NonQualifyingLoopReason::ElemAccessMismatch:
     return "array accesses in the body must use the loop index (a[i])";
-  case NonQualifyingLoopReason::PathInconsistent:
-    return "if/else branches must transfer the element the same way";
+  case NonQualifyingLoopReason::IndexReused:
+    return "one loop index must not index several array levels";
   case NonQualifyingLoopReason::NotAForLoop:
   case NonQualifyingLoopReason::NotQualifying:
     return "loop shape does not match the qualifying for-loop rules";
@@ -4054,10 +4227,12 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
                                     ME->getType()))
         return;
       // Null member releases/clears nothing (free(null) and `= nullptr` are
-      // no-ops).
-      if ((op == Move ||
-           (op == Assign && CurRHS && CurRHS->isNullExpr(OS.ctx))) &&
-          stat.arrayAggregateNull(ArrVD, memberField.second))
+      // no-ops); a release of a possibly-null member that was also moved
+      // (Moved|Null) is not a no-op, while clearing it remains harmless.
+      if (op == Move && stat.arrayElemNullNoop(ArrVD, memberField.second))
+        return;
+      if (op == Assign && CurRHS && CurRHS->isNullExpr(OS.ctx) &&
+          stat.arrayAggregateNotOwned(ArrVD, memberField.second))
         return;
       bool Allowed = isArrayElemTransferAllowed(ME, ArrVD, IsArrElemPtr);
       if (!Allowed)
@@ -4482,8 +4657,9 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
       const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
       if (ArrVD &&
           IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
-        // Null member releases nothing (free(null) is a no-op).
-        if (!stat.arrayAggregateNull(ArrVD, memberField.second)) {
+        // Null member releases nothing (free(null) is a no-op); a
+        // possibly-null member that was also moved is not a no-op.
+        if (!stat.arrayElemNullNoop(ArrVD, memberField.second)) {
           bool Allowed = isArrayElemTransferAllowed(ME, ArrVD, IsArrElemPtr);
           if (Allowed)
             applyArrayElemTransition(CSCE->getExprLoc(), ArrVD,
@@ -4537,7 +4713,7 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
         const VarDecl *HostVD = nullptr;
         std::string FieldPath;
         if (GetOwnedArrayField(ASE, HostVD, FieldPath)) {
-          if (!stat.arrayAggregateNull(HostVD, FieldPath)) {
+          if (!stat.arrayElemNullNoop(HostVD, FieldPath)) {
             bool Allowed = isArrayElemTransferAllowed(ASE, HostVD,
                                                       /*IsArrElemPtr=*/false);
             if (Allowed)
@@ -4635,7 +4811,9 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
           while (const auto *AT = ElemTy->getAsArrayTypeUnsafe())
             ElemTy = AT->getElementType();
           if (const auto *ILE = dyn_cast<InitListExpr>(Init)) {
-            if (ILE->getNumInits() == 0 || isAllNullInits(OS.ctx, ILE, ElemTy)) {
+            NullInitTest IsNullState = stateNullInitTest();
+            if (ILE->getNumInits() == 0 ||
+                isAllNullInits(OS.ctx, ILE, ElemTy, IsNullState)) {
               stat.setArrayElemNull(VD);
             } else if (const RecordType *RT =
                            dyn_cast<RecordType>(ElemTy.getCanonicalType())) {
@@ -4645,7 +4823,7 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
               // owns values.
               stat.setArrayElemOwned(VD);
               NullAllNullStructArrayFields(stat, OS.ctx, VD, RT->getDecl(),
-                                           ILE);
+                                           ILE, IsNullState);
             } else {
               stat.setArrayElemOwned(VD);
             }
@@ -4701,6 +4879,8 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
       markAsNull(str);
   };
 
+  NullInitTest IsNullState = stateNullInitTest();
+
   for (const auto &FD : RD->fields()) {
     Expr *FieldInit = Inits[FD->getFieldIndex()];
     std::string memberField = FD->getNameAsString();
@@ -4718,17 +4898,21 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD, InitList
     std::string ArraySuffix;
     if (StripArrayFieldLevels(FD->getType(), ArraySuffix, FieldTy)) {
       std::string ArrFieldName = newFullFieldName + ArraySuffix;
-      bool IsNullInit = FieldInit->isNullExpr(OS.ctx) || IsImplicitValueInit;
+      bool IsNullInit = IsImplicitValueInit || IsNullState(FieldInit) ||
+                        FieldInit->isNullExpr(OS.ctx);
       if (!IsNullInit)
         if (const InitListExpr *FieldILE = dyn_cast<InitListExpr>(FieldInit))
-          IsNullInit = isAllNullInits(OS.ctx, FieldILE, FieldTy);
+          IsNullInit = isAllNullInits(OS.ctx, FieldILE, FieldTy, IsNullState);
       if (IsNullInit)
         markPrefixAsNull(ArrFieldName);
       continue;
     }
 
-    // allow ImplicitValueInit, e.g. struct S s = {0}
-    if (FieldInit->isNullExpr(OS.ctx) || IsImplicitValueInit) {
+    // allow ImplicitValueInit, e.g. struct S s = {0}; and a null value moved
+    // in through a variable, e.g. `struct S s = {null_v}` (the assignment
+    // path folds the same case for `s.p = null_v`).
+    if (IsImplicitValueInit || IsNullState(FieldInit) ||
+        FieldInit->isNullExpr(OS.ctx)) {
       if (IsTrackedOwnedField) {
         // For `int *_Owned _Nullable *_Owned _Nullable f`, null-init also
         // covers deref-derived keys like "f*" (the internal key for `*f`).
@@ -4989,7 +5173,8 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
     ArrElem = Cond->IgnoreParenImpCasts();
     ArrElemNonNull = true;
   }
-  bool ArrElemIsArray = ArrElem && PeelArrayElemBase(ArrElem) != nullptr;
+  const VarDecl *ArrElemVD = ArrElem ? PeelArrayElemBase(ArrElem) : nullptr;
+  bool ArrElemIsArray = ArrElemVD != nullptr;
   if (!ArrElemIsArray && ArrElem) {
     // Struct-field array element: w.arr[i] / o.w.arr[i]. The base is a
     // member access, which PeelArrayElemBase cannot unwrap; recognise it via
@@ -4998,21 +5183,46 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
     const VarDecl *HostVD = nullptr;
     std::string FieldPath;
     if (PeelHostAndFieldPath(ArrElem, HostVD, FieldPath) &&
-        IsOwnedArrayFieldPath(HostVD, FieldPath))
+        IsOwnedArrayFieldPath(HostVD, FieldPath)) {
       ArrElemIsArray = true;
+      ArrElemVD = HostVD;
+    }
+  }
+  // Narrowing the whole aggregate is only sound when the check applies to every
+  // element, i.e. when it sits inside a qualifying for-loop that covers this
+  // array (LoopCoveredArrays is filled for qualifying loops only). Outside such
+  // a loop one subscript cannot prove the other elements are null, and marking
+  // the aggregate null would turn their releases / clears into silent no-ops
+  // (a double-free window).
+  bool CoversWholeArray = false;
+  if (ArrElemVD) {
+    for (const Stmt *S = ArrElem; S;) {
+      const Stmt *Parent = analysisContext.getParentMap().getParent(S);
+      if (!Parent)
+        break;
+      if (const ForStmt *F = dyn_cast<ForStmt>(Parent)) {
+        auto It = LoopInfo.LoopCoveredArrays.find(F);
+        if (It != LoopInfo.LoopCoveredArrays.end() &&
+            llvm::is_contained(It->second, ArrElemVD)) {
+          CoversWholeArray = true;
+          break;
+        }
+      }
+      S = Parent;
+    }
   }
 
   if (cur->succ_begin()[0] == block) {
     // block is True branch
     for (const Expr *E : Info.nullCheckedExprs)
       status.setToNull(E);
-    if (ArrElemIsArray && !ArrElemNonNull)
+    if (ArrElemIsArray && !ArrElemNonNull && CoversWholeArray)
       status.setToNull(ArrElem);
   } else if (cur->succ_begin()[1] == block) {
     // block is False branch, inversely set present checked exprs to null
     for (const Expr *E : Info.presentCheckedExprs)
       status.setToNull(E);
-    if (ArrElemIsArray && ArrElemNonNull)
+    if (ArrElemIsArray && ArrElemNonNull && CoversWholeArray)
       status.setToNull(ArrElem);
   }
 }
@@ -5140,7 +5350,7 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
   // per-loop allow-sites for element transfer.
   OwnedArrayLoopInfo LoopInfo;
   if (fd.getBody())
-    classifyOwnedArrayLoops(ctx, &fd, LoopInfo, reporter);
+    classifyOwnedArrayLoops(ctx, &fd, LoopInfo);
 
   OwnershipImpl *OS = new OwnershipImpl(ac, ctx, std::move(LoopInfo));
 
@@ -5324,6 +5534,31 @@ void clang::runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
 
     // Enqueue the value to the successors.
     enqueueSuccessors(block);
+  }
+
+  // Loop-end element-state consistency for qualifying loops. The loop exit's
+  // begin state is the post-loop state taken from the back edge, i.e. the merge
+  // of one body iteration's paths: an owned-element array left Owned|Moved is
+  // reported. Reading the converged state here (instead of during the worklist)
+  // avoids reporting on an intermediate back-edge state. The dataflow already
+  // computes the per-path union for us (bits for owned-pointer element arrays,
+  // moved/owned/null field sets for struct hosts), so no separate AST-side path
+  // analysis is needed: any control flow (`if`, `?:`, `switch`, ...) is covered.
+  for (const auto &KV : LoopExitBlocks) {
+    const ForStmt *FS = KV.first;
+    const CFGBlock *Exit = KV.second;
+    auto CoveredIt = OS->LoopInfo.LoopCoveredArrays.find(FS);
+    if (CoveredIt == OS->LoopInfo.LoopCoveredArrays.end())
+      continue;
+    const Ownership::OwnershipStatus &ExitState = OS->blocksBeginStatus[Exit];
+    for (const VarDecl *VD : CoveredIt->second) {
+      if (!ExitState.arrayElemPathInconsistent(VD))
+        continue;
+      OwnershipDiagInfo DI(FS->getEndLoc(),
+                           OwnershipDiagKind::ArrayElemPathInconsistent,
+                           VD->getNameAsString());
+      reporter.addDiagInfo(DI);
+    }
   }
 
   // check ownership rules of function parameters

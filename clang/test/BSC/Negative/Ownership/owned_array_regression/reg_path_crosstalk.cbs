@@ -22,5 +22,5 @@ void test_path_crosstalk(int flag) {
       safe_free((void *_Owned)b[i]);
   } // expected-error {{ownership state of array element `b` is inconsistent across paths in for-loop body}}
   for (int i = 0; i < 3; i++)
-    safe_free((void *_Owned)b[i]);
+    safe_free((void *_Owned)b[i]); // expected-error {{use of moved value: 'b'}}
 }

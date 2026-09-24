@@ -262,10 +262,11 @@ enum class NonQualifyingLoopReason : unsigned {
   LoopVarModified,     // loop variable modified / address-taken in the body
   EarlyExit,           // return / goto in the loop body
   BoundMismatch,       // loop bound != array length
+  BoundNotConstant,    // fixed array: loop bound is not a constant expression
   ElemAccessMismatch,  // array access does not use the loop index (a[i])
+  IndexReused,         // one loop index drives several subscript levels
   VlaBoundVarMismatch, // VLA length variable is not the loop bound variable
   VlaBoundVarModified, // VLA length variable address-taken / borrowed / modified
-  PathInconsistent,    // if/else branches transfer differently
 };
 
 // Why a loop / array failed the qualifying-loop rules, with the exact
@@ -373,6 +374,7 @@ public:
     llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSAllOwnedFields;
     llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSOwnedOwnedFields;
     llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSNullOwnedFields;
+    llvm::DenseMap<const VarDecl *, OPSOwnedField> OPSMovedOwnedFields;
 
     // struct status, e.g. struct S s
     using SOwnedField = llvm::SmallSet<std::string, 10>;
@@ -395,6 +397,13 @@ public:
     bool empty() const;
     bool is(const VarDecl *VD, Status S) const;
     bool has(const VarDecl *VD, Status S) const;
+    // The S component is present, exactly or together with other bits (e.g.
+    // Moved|Null): `is(S) || has(S)`, the "possibly S" idiom of the move /
+    // use-after-move checks.
+    bool isOrHas(const VarDecl *VD, Status S) const;
+    // Shared by is / has / isOrHas: the status bits of VD, or nullptr when it
+    // is not a tracked aggregate.
+    const llvm::BitVector *bitsOf(const VarDecl *VD) const;
     bool canAssign(const VarDecl *VD) const;
     void set(const VarDecl *VD, Status S);
     void reset(const VarDecl *VD, Status S);
@@ -441,15 +450,38 @@ public:
     void refreshArrayFieldState(const VarDecl *VD,
                                 const llvm::SmallSet<std::string, 10> &Owned,
                                 const llvm::SmallSet<std::string, 10> &All);
-    // Whether the aggregate owns nothing (every tracked field moved out) /
-    // is (possibly) uninitialized / owns nothing or the field is null.
-    // Shared by the move-out checks (BOP uses bits; S/OPS use field sets).
-    bool arrayAggregateMoved(const VarDecl *VD) const;
-    bool arrayFieldOwned(const VarDecl *VD,
-                         const std::string &fieldName) const;
+    // Whether the aggregate is (possibly) uninitialized, or owns nothing (the
+    // whole aggregate / the given field is null). Shared by the move-out checks
+    // (BOP uses status bits; S/OPS use the per-field sets).
     bool arrayAggregateUninit(const VarDecl *VD) const;
     bool arrayAggregateNull(const VarDecl *VD,
                             const std::string &fieldName) const;
+    // Whether a null clear (`= nullptr`) of the aggregate / field drops nothing:
+    // no path of it can still hold an owning value (Null, Moved, Moved|Null,
+    // uninitialized, ... all count, but any Owned component does not). Such a
+    // clear is a no-op (the aggregate simply also becomes null -- e.g. Moved
+    // becomes Moved|Null); a clear of an aggregate that may still own something
+    // is an ownership transfer and stays gated by the qualifying-loop rules.
+    // Unlike arrayAggregateNull this deliberately rejects Owned|Null: owning on
+    // one path is not cleared by a single null assignment.
+    bool arrayAggregateNotOwned(const VarDecl *VD,
+                                const std::string &fieldName) const;
+    // Whether the aggregate is in the forbidden Owned|Moved state at a
+    // qualifying for-loop's end: the element possibly owns a value on some path
+    // and was moved out on another. A null path is compatible with both (a null
+    // element owns nothing), so Owned|Null and Moved|Null are stable states.
+    bool arrayElemPathInconsistent(const VarDecl *VD) const;
+    // Whether the aggregate (or a tracked field) has been moved out on some
+    // path: the Moved component is present, possibly alongside Owned / Null
+    // (exactly Moved also counts). Transferring ownership out again may double
+    // free, so this is the predicate the move-out checks use.
+    bool arrayElemPossiblyMoved(const VarDecl *VD) const;
+    // Whether a move-out / clear of the aggregate (or field) is a pure-null
+    // no-op: the value is null on every path and was never moved, so
+    // free(null) / `= nullptr` changes nothing. A field that is only possibly
+    // null but was already moved on another path (Moved|Null) is NOT a null
+    // no-op: transferring it again may double free.
+    bool arrayElemNullNoop(const VarDecl *VD, const std::string &field) const;
 
     // Remove the aggregate state of a set of owned-element arrays. Used by the
     // loop-header dataflow to drop the back-edge state of arrays covered by a
@@ -512,14 +544,15 @@ public:
 
     OwnershipStatus()
         : OPSStatus(0), OPSAllOwnedFields(0), OPSOwnedOwnedFields(0),
-          OPSNullOwnedFields(0), SStatus(0), SAllOwnedFields(0),
-          SOwnedOwnedFields(0), SMovedOwnedFields(0), BOPStatus(0),
-          BOPAllOwnedFields(0), BOPOwnedOwnedFields(0) {}
+          OPSNullOwnedFields(0), OPSMovedOwnedFields(0), SStatus(0),
+          SAllOwnedFields(0), SOwnedOwnedFields(0), SMovedOwnedFields(0),
+          BOPStatus(0), BOPAllOwnedFields(0), BOPOwnedOwnedFields(0) {}
 
     OwnershipStatus(llvm::DenseMap<const VarDecl *, OwnershipSet> opss,
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> opsaof,
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> opsoof,
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> opsofn,
+                    llvm::DenseMap<const VarDecl *, OPSOwnedField> opsmof,
                     llvm::DenseMap<const VarDecl *, OwnershipSet> ss,
                     llvm::DenseMap<const VarDecl *, OPSOwnedField> saof,
                     llvm::DenseMap<const VarDecl *, SOwnedField> soof,
@@ -530,11 +563,11 @@ public:
                     llvm::DenseMap<const VarDecl *, BOPOwnedField> bopaof,
                     llvm::DenseMap<const VarDecl *, BOPOwnedField> bopoof)
         : OPSStatus(opss), OPSAllOwnedFields(opsaof),
-          OPSOwnedOwnedFields(opsoof), OPSNullOwnedFields(opsofn), SStatus(ss),
-          SAllOwnedFields(saof), SOwnedOwnedFields(soof),
-          SNullOwnedFields(snof), SUninitOwnedFields(sunof),
-          SMovedOwnedFields(smof), BOPStatus(bops), BOPAllOwnedFields(bopaof),
-          BOPOwnedOwnedFields(bopoof) {}
+          OPSOwnedOwnedFields(opsoof), OPSNullOwnedFields(opsofn),
+          OPSMovedOwnedFields(opsmof), SStatus(ss), SAllOwnedFields(saof),
+          SOwnedOwnedFields(soof), SNullOwnedFields(snof),
+          SUninitOwnedFields(sunof), SMovedOwnedFields(smof), BOPStatus(bops),
+          BOPAllOwnedFields(bopaof), BOPOwnedOwnedFields(bopoof) {}
 
   private:
     void initOPS(const RecordDecl *RD, const VarDecl *VD, Source source,
@@ -681,9 +714,13 @@ public:
 struct OwnedArrayLoopInfo {
   /// Qualifying for-loops (full-range shape).
   llvm::SmallPtrSet<const ForStmt *, 8> QualifyingLoops;
-  /// Arrays covered by at least one qualifying for-loop. The loop-header
-  /// ArraySubscript / MemberExpr sites where ownership transfer is allowed.
-  llvm::SmallPtrSet<const Expr *, 16> AllowedTransferExprs;
+  /// Per qualifying loop, the ArraySubscript / MemberExpr sites whose transfer
+  /// that loop's classification validated (it drives one level of the access
+  /// and every other level is iterated in full by its own loop). The loop is
+  /// part of the key on purpose: a site validated by one loop must not be
+  /// allowed at an occurrence that only an unrelated loop encloses.
+  llvm::DenseMap<const ForStmt *, llvm::SmallPtrSet<const Expr *, 16>>
+      AllowedTransferExprs;
   /// For-loops that are NOT qualifying, with the rule that failed and the
   /// exact location to point the note at (e.g. the return/break statement or
   /// the loop-variable modification site; invalid when the failure is at the
@@ -716,8 +753,7 @@ void runOwnershipAnalysis(const FunctionDecl &fd, const CFG &cfg,
 // them, and — for for-loops that are NOT qualifying — the rule that failed
 // (for a diagnostic note). It computes no ownership state itself.
 void classifyOwnedArrayLoops(ASTContext &Context, const FunctionDecl *FD,
-                             OwnedArrayLoopInfo &LoopInfo,
-                             OwnershipDiagReporter &OwnershipReporter);
+                             OwnedArrayLoopInfo &LoopInfo);
 
 } // end namespace clang
 

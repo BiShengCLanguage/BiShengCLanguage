@@ -1,0 +1,54 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned p; };
+struct Inner { int *_Owned p; };
+struct W { struct Inner arr[2]; };
+
+// A null aggregate owns nothing (a null pointer has no ownership), so releasing
+// or clearing it is a no-op and needs no qualifying for-loop. Unlike a
+// single-element null *check* (see reg_null_check_outside_loop_neg), the
+// aggregate here is null on every path: every element was initialized to null,
+// which is what makes the no-op sound.
+
+void test_all_null_struct_array_release(void) {
+  struct S s[2] = {{0}, {0}};
+  safe_free((void *_Owned)s[0].p);
+}
+
+void test_all_null_struct_array_clear(void) {
+  struct S s[2] = {{0}, {0}};
+  s[1].p = nullptr;
+}
+
+void test_all_null_field_array_release(void) {
+  struct W w = {{{0}, {0}}};
+  safe_free((void *_Owned)w.arr[0].p);
+}
+
+void test_all_null_field_array_clear(void) {
+  struct W w = {{{0}, {0}}};
+  w.arr[1].p = nullptr;
+}
+
+// A moved aggregate holds nothing either, so clearing it later is a no-op (the
+// state simply also becomes null).
+void test_moved_aggregate_clear(void) {
+  struct S s[2] = {{safe_malloc(1)}, {safe_malloc(2)}};
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)s[i].p);
+  s[0].p = nullptr;
+}

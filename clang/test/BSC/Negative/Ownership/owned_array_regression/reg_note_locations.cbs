@@ -17,7 +17,7 @@ void test_note_at_break() {
   for (int i = 0; i < 3; i++) {
     consume(a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
     if (i == 1)
-      break; // expected-note {{for-loop is not a qualifying for-loop: loop body must not return or goto early}}
+      break; // expected-note {{for-loop is not a qualifying for-loop: loop body must not break, return or goto out of the loop}}
   }
 } // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
 

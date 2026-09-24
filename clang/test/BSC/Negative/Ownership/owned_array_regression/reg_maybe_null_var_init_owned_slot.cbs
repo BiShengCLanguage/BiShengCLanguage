@@ -1,0 +1,89 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned v; };
+struct O { struct S n; };
+struct A { int *_Owned a; int *_Owned b; };
+
+// A field that is null on one path but owned on another (Owned|Null) still owns
+// the value being read, so moving it into a slot must not be folded as a null
+// source: the source is moved out, and folding would leave the destination
+// owning nothing, silently dropping the leak of that value. Only a field that
+// owns nothing on every path folds (see the Positive
+// reg_null_var_init_owned_slot for those forms).
+
+void test_maybe_null_field(int c) {
+  struct S s = {0};
+  if (c) s.v = safe_malloc(1);
+  struct S t = {s.v};
+} // expected-error {{memory leak because t.v is not freed or moved before 't' goes out of scope}}
+
+void test_maybe_null_designated_field(int c) {
+  struct S s = {0};
+  if (c) s.v = safe_malloc(1);
+  struct S t = {.v = s.v};
+} // expected-error {{memory leak because t.v is not freed or moved before 't' goes out of scope}}
+
+void test_maybe_null_nested_field(int c) {
+  struct S s = {0};
+  if (c) s.v = safe_malloc(1);
+  struct O o = {{s.v}};
+} // expected-error {{memory leak because o.n.v is not freed or moved before 'o' goes out of scope}}
+
+void test_maybe_null_array_elem(int c) {
+  struct S s = {0};
+  if (c) s.v = safe_malloc(1);
+  int *_Owned a[1] = {s.v};
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// The same predicate backs the assignment path, so the two stay consistent.
+void test_maybe_null_assign_twin(int c) {
+  struct S s = {0};
+  if (c) s.v = safe_malloc(1);
+  struct S t = {0};
+  t.v = s.v;
+} // expected-error {{memory leak because t.v is not freed or moved before 't' goes out of scope}}
+
+// The source is moved out by the initialization, which is reported as well.
+void test_maybe_null_source_moved_out(int c) {
+  struct S s = {0};
+  if (c) s.v = safe_malloc(1);
+  struct S t = {s.v};
+  safe_free((void *_Owned)s.v); // expected-error {{cannot cast 's.v' to 'void * _Owned' because it was moved}}
+} // expected-error {{memory leak because t.v is not freed or moved before 't' goes out of scope}}
+
+// Boundary: a source that owns nothing on every path still folds, so the fix
+// does not re-introduce the false leak it was added for.
+void test_must_null_field_source_still_folds(void) {
+  struct S s = {0};
+  struct S t = {s.v};
+}
+
+void test_must_null_field_source_still_folds_nested(void) {
+  struct S s = {0};
+  struct O o = {{s.v}};
+}
+
+void test_must_null_array_elem_still_folds(void) {
+  struct S s = {0};
+  int *_Owned a[1] = {s.v};
+}
+
+// Boundary: a field that always owns still leaks (unchanged).
+void test_owned_field_still_leaks(void) {
+  struct S s = {0};
+  s.v = safe_malloc(1);
+  struct S t = {s.v};
+} // expected-error {{memory leak because t.v is not freed or moved before 't' goes out of scope}}

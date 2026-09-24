@@ -1,0 +1,54 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A null element owns nothing, so `Owned|Null` (owns when non-null) and
+// `Moved|Null` (does not own when non-null) are both stable loop-end states.
+// Only `Owned|Moved` is forbidden.
+
+// Owned|Null from a conditional operator, released directly.
+void test_owned_null_ternary_direct(void) {
+  int *_Owned b[3] = {nullptr, nullptr, nullptr};
+  for (int i = 0; i < 3; i++)
+    b[i] = (i == 0) ? safe_malloc(i) : nullptr;
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)b[i]);
+}
+
+// Owned|Null from an if/else, released after a null check.
+void test_owned_null_ifelse_checked(void) {
+  int *_Owned b[3] = {nullptr, nullptr, nullptr};
+  for (int i = 0; i < 3; i++) {
+    if (i == 0)
+      b[i] = safe_malloc(1);
+    else
+      b[i] = nullptr;
+  }
+  for (int i = 0; i < 3; i++) {
+    if (b[i] != nullptr)
+      safe_free((void *_Owned)b[i]);
+  }
+}
+
+// Moved|Null: free the non-null elements, clear the null ones.
+void test_moved_null(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (a[i] != nullptr)
+      safe_free((void *_Owned)a[i]);
+    else
+      a[i] = nullptr;
+  }
+}

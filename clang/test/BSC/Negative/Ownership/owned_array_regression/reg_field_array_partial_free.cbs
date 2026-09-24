@@ -15,10 +15,12 @@ void safe_free(void *_Owned p) {
 
 struct S { int *_Owned a[2]; };
 
-// Partial element free (constant inner index) must be rejected and leak.
+// Partial element free (constant inner index) must be rejected and leak. The
+// host level is iterated in full, but the field's own level is indexed by a
+// constant, so the note names the index rule rather than the bound.
 void test_partial_free() {
   struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
-  for (int i = 0; i < 2; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+  for (int i = 0; i < 2; i++) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
     safe_free((void *_Owned)s[i].a[0]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
 } // expected-error {{memory leak because s.a[] is not freed or moved before 's' goes out of scope}}
 
@@ -29,11 +31,11 @@ struct Mid { struct Inner arr[2]; };
 
 void test_double_free() {
   struct Mid m[2];
-  for (int a = 0; a < 2; a++) {
+  for (int a = 0; a < 2; a++) { // expected-note 2 {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
     m[a].arr[0].p = safe_malloc(1); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
     m[a].arr[1].p = safe_malloc(2); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
   }
-  for (int a = 0; a < 2; a++) {
+  for (int a = 0; a < 2; a++) { // expected-note 2 {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
     safe_free((void *_Owned)m[a].arr[0].p); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
     safe_free((void *_Owned)m[a].arr[0].p); // expected-error {{cannot transfer ownership of array element `m` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
   }

@@ -1,0 +1,47 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// The loop-end element-state consistency is derived from the dataflow's merged
+// state, so any control flow that transfers the element on some paths only is
+// reported, not just `if`/`?:`. Releasing the divergent array after the loop is
+// then a use-after-move of the already-released elements.
+
+// switch-based partial transfer.
+void test_switch(int x) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    switch (x) {
+    case 0:
+      safe_free((void *_Owned)a[i]);
+      break;
+    default:
+      break;
+    }
+  } // expected-error {{ownership state of array element `a` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}
+
+// continue-based partial transfer.
+void test_continue(int c) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i++) {
+    if (c)
+      continue;
+    safe_free((void *_Owned)a[i]);
+  } // expected-error {{ownership state of array element `a` is inconsistent across paths in for-loop body}}
+  for (int i = 0; i < 3; i++)
+    safe_free((void *_Owned)a[i]); // expected-error {{use of moved value: 'a'}}
+}

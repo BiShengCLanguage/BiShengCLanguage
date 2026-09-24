@@ -1,0 +1,40 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// Clearing a possibly-moved field to null is harmless: no value is released, so
+// it is not a double free and must not be reported as a forbidden transfer.
+// (Only a *release* of a Moved|Null field is a use-after-move.)
+
+// Struct-element owned member.
+struct S { int *_Owned p; };
+void clear_s_field(void) {
+  struct S s[2] = {{safe_malloc(1)}, {safe_malloc(2)}};
+  for (int i = 0; i < 2; i++)
+    if (s[i].p != nullptr)
+      safe_free((void *_Owned)s[i].p);
+  s[0].p = nullptr;
+}
+
+// Owned-struct-pointer host field array.
+struct A { int *_Owned arr[2]; };
+void clear_ops_field(void) {
+  struct A *_Owned p = __take_from_raw((struct A *)malloc(sizeof(struct A)));
+  for (int i = 0; i < 2; i++)
+    if (p->arr[i] != nullptr)
+      safe_free((void *_Owned)p->arr[i]);
+  p->arr[0] = nullptr;
+  safe_free((void *_Owned)p);
+}

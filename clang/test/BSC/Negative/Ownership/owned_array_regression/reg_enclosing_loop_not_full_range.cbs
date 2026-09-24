@@ -1,0 +1,51 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct Inner { int *_Owned p; };
+struct S { struct Inner arr[2]; };
+
+// Every subscript level of a field-array element chain must be iterated in full
+// by its own loop, otherwise the transfer covers only part of the field
+// aggregate: the transfer is forbidden and the unreleased elements leak.
+// The enclosing level's loop is checked against that level's array length.
+
+// The loop driving the host level is nested inside the loop driving the field
+// array, and only iterates part of the host array.
+void test_nested_partial_host(void) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int j = 0; j < 2; ++j)
+    for (int k = 0; k < 1; ++k) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+      safe_free((void *_Owned)s[k].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}
+
+// The host loop encloses the field loop but has a partial bound.
+void test_enclosing_partial_host(void) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int i = 0; i < 1; ++i)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+      safe_free((void *_Owned)s[i].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}
+
+// The host loop encloses the field loop, matches the host length, but is not a
+// full-range for-loop (step two), so it skips host elements.
+void test_enclosing_not_full_range(void) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int i = 0; i < 2; i += 2)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop shape does not match the qualifying for-loop rules}}
+      safe_free((void *_Owned)s[i].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}

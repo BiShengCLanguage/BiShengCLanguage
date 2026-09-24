@@ -1,0 +1,91 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct S { int *_Owned v; };
+struct P { int *_Owned f; };
+struct O { struct S n; };
+struct A { int *_Owned a; int *_Owned b; };
+
+// A _Owned value that is must-be-null in the current state owns nothing, so
+// moving it into a slot through an initializer list leaves that slot null --
+// exactly like `st.v = w;` with a null w. No leak may be reported.
+
+void test_null_var_field(void) {
+  int *_Owned w = 0;
+  struct S st = {w};
+}
+
+void test_null_var_designated_field(void) {
+  int *_Owned w = 0;
+  struct S st = {.v = w};
+}
+
+void test_null_var_nested_field(void) {
+  int *_Owned w = 0;
+  struct O o = {{w}};
+}
+
+void test_null_var_array_elem(void) {
+  int *_Owned w = 0;
+  int *_Owned a[1] = {w};
+}
+
+void test_null_field_source(void) {
+  struct P p = {0};
+  struct S st = {p.f};
+}
+
+void test_null_var_cast(void) {
+  int *_Owned w = 0;
+  struct S st = {(int *_Owned)w};
+}
+
+void test_null_var_conditional(int c) {
+  int *_Owned w = 0;
+  int *_Owned w2 = 0;
+  struct S st = {c ? w : w2};
+}
+
+void test_null_var_struct_elem_array(void) {
+  int *_Owned w = 0;
+  struct A a[1] = {{w, w}};
+}
+
+void test_null_var_nested_struct_elem_array(void) {
+  int *_Owned w = 0;
+  struct O o[1] = {{{w}}};
+}
+
+void test_null_var_nullable(void) {
+  int *_Owned _Nullable w = 0;
+  struct S st = {w};
+}
+
+// The null-initialized slot behaves like a null field afterwards: it can be
+// reassigned and released, and reading it is not a use of a moved value.
+void test_null_var_then_reassign(void) {
+  int *_Owned w = 0;
+  struct S st = {w};
+  st.v = safe_malloc(1);
+  safe_free((void *_Owned)st.v);
+}
+
+void test_null_var_read(void) {
+  int *_Owned w = 0;
+  struct S st = {w};
+  int x = *st.v;
+  (void)x;
+}

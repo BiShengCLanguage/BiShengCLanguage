@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// The condition of a qualifying for-loop must be `i < N`, where N is the array
+// length. `i <= N - 1` spans the same range, but it is not the qualifying form,
+// so the transfer is rejected and the note names the condition rule instead of
+// the generic loop-shape reason.
+void test_cond_not_match(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i <= 2; i++) // expected-note {{for-loop is not a qualifying for-loop: condition must be `i < N` where N is the array length}}
+    safe_free((void *_Owned)a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}

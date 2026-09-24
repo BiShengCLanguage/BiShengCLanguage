@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A member of an owned-array-field element (`w.arr[i].p`) that is null-checked
+// before being freed: on the null path the whole field aggregate owns nothing,
+// so the loop is a full-range release and must not report a leak.
+struct Inner { int *_Owned p; };
+struct W { struct Inner arr[2]; };
+
+void test_field_array_elem_member_null_check(void) {
+  struct W w;
+  for (int i = 0; i < 2; i++)
+    w.arr[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++) {
+    if (w.arr[i].p != nullptr)
+      safe_free((void *_Owned)w.arr[i].p);
+  }
+}
+
+// Nested host: o.w.arr[i].p.
+struct Outer { struct W w; };
+
+void test_nested_host_null_check(void) {
+  struct Outer o;
+  for (int i = 0; i < 2; i++)
+    o.w.arr[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++) {
+    if (o.w.arr[i].p != nullptr)
+      safe_free((void *_Owned)o.w.arr[i].p);
+  }
+}

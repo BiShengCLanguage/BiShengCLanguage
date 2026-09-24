@@ -18,5 +18,5 @@ struct S { int *_Owned arr[2]; };
 void test_diagonal_release() {
   struct S s[2] = {{safe_malloc(1), safe_malloc(2)}, {safe_malloc(3), safe_malloc(4)}};
   for (int i = 0; i < 2; i++)
-    safe_free((void *_Owned)s[i].arr[i]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    safe_free((void *_Owned)s[i].arr[i]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}} expected-note {{one loop index must not index several array levels}}
 } // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}

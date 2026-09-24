@@ -1,0 +1,61 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+// A fixed-length array can only be iterated in full by an integer constant
+// expression equal to its length; a VLA is iterated with the variable that
+// declares its length (reported separately). A non-constant bound on a
+// fixed-length dimension therefore does not merely mismatch the length: it
+// cannot equal it at all, which is the reason the note names here (instead of
+// claiming the bound must equal the array length, which is false for e.g.
+// `int n = N; for (i = 0; i < n; ++i)`).
+
+// A one-dimensional fixed array with a variable bound.
+void test_fixed_variable_bound(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  int n = 3;
+  for (int i = 0; i < n; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must be an integer constant expression equal to the array length}}
+    safe_free((void *_Owned)a[i]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// The outermost dimension of a fixed multi-dimensional array.
+void test_fixed_multi_dim_outer_variable_bound(void) {
+  int *_Owned a[2][2] = {{safe_malloc(1), safe_malloc(2)},
+                         {safe_malloc(3), safe_malloc(4)}};
+  int n = 2;
+  for (int i = 0; i < n; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must be an integer constant expression equal to the array length}}
+    for (int j = 0; j < 2; j++)
+      safe_free((void *_Owned)a[i][j]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// An inner dimension of a fixed multi-dimensional array.
+void test_fixed_multi_dim_inner_variable_bound(int m) {
+  int *_Owned a[2][2] = {{safe_malloc(1), safe_malloc(2)},
+                         {safe_malloc(3), safe_malloc(4)}};
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < m; j++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must be an integer constant expression equal to the array length}}
+      safe_free((void *_Owned)a[i][j]); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because 'a' is not freed or moved before it goes out of scope}}
+
+// The enclosing level of a field-array element chain.
+struct Inner { int *_Owned p; };
+struct S { struct Inner arr[2]; };
+
+void test_enclosing_variable_bound(int m) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int i = 0; i < m; i++)
+    for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: loop bound must be an integer constant expression equal to the array length}}
+      safe_free((void *_Owned)s[i].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}

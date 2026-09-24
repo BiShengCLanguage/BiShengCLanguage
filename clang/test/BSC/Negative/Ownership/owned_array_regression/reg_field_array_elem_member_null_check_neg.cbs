@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct Inner { int *_Owned p; };
+struct W { struct Inner arr[2]; };
+
+// Null-checking the element member but never releasing it still leaks.
+void test_null_check_no_free(void) {
+  struct W w;
+  for (int i = 0; i < 2; i++)
+    w.arr[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++) {
+    if (w.arr[i].p != nullptr) {
+    }
+  }
+} // expected-error {{memory leak because w.arr[].p is not freed or moved before 'w' goes out of scope}}
+
+// Negated null check: only the null path frees, so the owned elements leak.
+void test_negated_null_check(void) {
+  struct W w;
+  for (int i = 0; i < 2; i++)
+    w.arr[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++) {
+    if (w.arr[i].p == nullptr)
+      safe_free((void *_Owned)w.arr[i].p);
+  }
+} // expected-error {{memory leak because w.arr[].p is not freed or moved before 'w' goes out of scope}}

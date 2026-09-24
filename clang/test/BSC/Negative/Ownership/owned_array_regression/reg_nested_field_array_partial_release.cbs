@@ -1,0 +1,52 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) {
+  free(__move_to_raw(p));
+}
+
+struct Inner { int *_Owned p; };
+struct S { struct Inner arr[2]; };
+
+// A partial release of a nested array-field element (s[i].arr[i].p) must not
+// be accepted as a full release of the whole `arr[].p` aggregate: the transfer
+// is forbidden and the elements that were never released leak. The enclosing
+// subscript levels must be driven by *other* loops than the one transferring
+// the field array (the inner `arr[i]` level); the note distinguishes a reused
+// loop index from a constant / non-loop index.
+
+// Diagonal release: the same loop variable indexes the host element and the
+// field array, so only s[0].arr[0].p / s[1].arr[1].p are released.
+void test_diagonal(void) {
+  struct Inner e00 = {safe_malloc(0)};
+  struct Inner e01 = {safe_malloc(1)};
+  struct Inner e10 = {safe_malloc(2)};
+  struct Inner e11 = {safe_malloc(3)};
+  struct S s[2] = {{e00, e01}, {e10, e11}};
+  for (int i = 0; i < 2; ++i)
+    safe_free((void *_Owned)s[i].arr[i].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}} expected-note {{one loop index must not index several array levels}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}
+
+// Constant host index: only the row s[0].arr[] is released.
+void test_const_host_index(void) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    safe_free((void *_Owned)s[0].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}
+
+// Host index that is not a loop variable: only one row is released.
+void test_nonloop_host_index(int k) {
+  struct S s[2] = {{safe_malloc(0), safe_malloc(1)},
+                   {safe_malloc(2), safe_malloc(3)}};
+  for (int j = 0; j < 2; ++j) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    safe_free((void *_Owned)s[k].arr[j].p); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[].p is not freed or moved before 's' goes out of scope}}

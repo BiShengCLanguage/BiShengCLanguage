@@ -264,21 +264,169 @@ static bool InnerLoopShapeQualifies(const ASTContext &Context,
 // any expression whose type is an owned-element array (`arr`, `w.arr`,
 // `o.w[i].arr`, ...); when none exists the classifier has nothing to do and
 // returns immediately (the dataflow then applies no array rules at all).
-// True when the field-array index (e.g. arr's i in s[i].arr[i]) shares its
-// variable with any host-level index (s's i): the loop releases only the
-// diagonal, not the whole field array, so the field level must not be
-// treated as covered / transferable. Shared by scanBody and collectSites.
-static bool FieldIndexSharesHostIndex(const Expr *FieldIdx,
-                                      llvm::ArrayRef<const Expr *> HostIdxs) {
+// The first of HostIdxs that is the same variable as FieldIdx (i.e. the index
+// variable is reused across subscript levels: the diagonal s[i].arr[i] releases
+// only s[0].arr[0], s[1].arr[1], ...), or nullptr. Shared by scanBody
+// (coverage) and collectSites (site recording).
+static const Expr *FindReusedHostIndex(const Expr *FieldIdx,
+                                       llvm::ArrayRef<const Expr *> HostIdxs) {
   const DeclRefExpr *FD = dyn_cast<DeclRefExpr>(FieldIdx);
   if (!FD)
-    return false;
+    return nullptr;
   for (const Expr *HIdx : HostIdxs) {
     const DeclRefExpr *HD = dyn_cast<DeclRefExpr>(HIdx);
     if (HD && HD->getDecl() == FD->getDecl())
-      return true;
+      return HIdx;
   }
-  return false;
+  return nullptr;
+}
+
+// The second occurrence of a variable that indexes more than one level of the
+// same subscript chain (the diagonal a[i][i]), or nullptr.
+static const Expr *FindReusedIndex(llvm::ArrayRef<const Expr *> Idxs) {
+  for (size_t I = 0; I < Idxs.size(); ++I) {
+    const DeclRefExpr *A = dyn_cast<DeclRefExpr>(Idxs[I]);
+    if (!A)
+      continue;
+    for (size_t J = I + 1; J < Idxs.size(); ++J) {
+      const DeclRefExpr *B = dyn_cast<DeclRefExpr>(Idxs[J]);
+      if (B && A->getDecl() == B->getDecl())
+        return Idxs[J];
+    }
+  }
+  return nullptr;
+}
+
+// Why a field-array element chain is not usable as a full-range access.
+enum class FieldChainIssue {
+  None,                  // every enclosing level is iterated in full
+  IndexReused,           // an enclosing level reuses the tracked level's index
+  IndexNotLoop,          // an enclosing index is constant or not a loop variable
+  EnclosingBoundMismatch,// the enclosing loop's bound != that level's length
+  EnclosingBoundNotConstant, // the level is fixed length but the bound is not
+                             // an integer constant expression
+  EnclosingShape,        // the enclosing loop is not a full-range for-loop
+};
+
+// The reason to report for a rejected field-array element chain.
+static NonQualifyingLoopReason ReasonForIssue(FieldChainIssue Issue) {
+  switch (Issue) {
+  case FieldChainIssue::IndexReused:
+    return NonQualifyingLoopReason::IndexReused;
+  case FieldChainIssue::EnclosingBoundMismatch:
+    return NonQualifyingLoopReason::BoundMismatch;
+  case FieldChainIssue::EnclosingBoundNotConstant:
+    return NonQualifyingLoopReason::BoundNotConstant;
+  case FieldChainIssue::EnclosingShape:
+    return NonQualifyingLoopReason::NotQualifying;
+  case FieldChainIssue::IndexNotLoop:
+  case FieldChainIssue::None:
+    return NonQualifyingLoopReason::ElemAccessMismatch;
+  }
+  llvm_unreachable("unknown field chain issue");
+}
+
+// Whether the loop \p F driving one enclosing subscript level iterates that
+// level of type \p LevelTy in full (`for (T k = 0; k < N; ++k)` with N the
+// constant level length). Reports the specific failure: a bound that does not
+// equal the level length versus a bound that cannot equal it at all because the
+// level is fixed length and the bound is not a constant expression, versus a
+// loop that is not a full-range for-loop (non-zero init, non-unit step, counter
+// modified, ...).
+static FieldChainIssue CheckEnclosingLoop(const ASTContext &Context,
+                                          const ForStmt *F, QualType LevelTy) {
+  const Expr *Cond = F->getCond();
+  const BinaryOperator *CBO =
+      Cond ? dyn_cast<BinaryOperator>(Cond->IgnoreParens()) : nullptr;
+  const auto *CAT = Context.getAsConstantArrayType(LevelTy);
+  if (!CBO || CBO->getOpcode() != BO_LT || !CAT)
+    return FieldChainIssue::EnclosingShape;
+  if (!CBO->getRHS()->isIntegerConstantExpr(Context))
+    return FieldChainIssue::EnclosingBoundNotConstant;
+  if (CBO->getRHS()->EvaluateKnownConstInt(Context).getZExtValue() !=
+      CAT->getSize().getZExtValue())
+    return FieldChainIssue::EnclosingBoundMismatch;
+  if (!InnerLoopShapeQualifies(Context, F))
+    return FieldChainIssue::EnclosingShape;
+  return FieldChainIssue::None;
+}
+
+// Validate the *enclosing* subscript levels of a field-array element chain
+// whose tracked level is indexed by the current loop's variable \p LevelIdx.
+// Every enclosing level is a (index expression, array type) pair and must be
+// iterated in full by its own loop: a reused index (the diagonal s[i].arr[i])
+// releases only the diagonal, while a constant / non-loop index (s[0].arr[j],
+// s[k].arr[j]) or a loop that does not span the level
+// (for (k = 0; k < 1; ++k) over S[2]) releases only part of the field array.
+// OffendingIdx receives the index that failed, for the note location.
+static FieldChainIssue ValidateEnclosingIdxs(
+    const ASTContext &Context, const Expr *LevelIdx,
+    llvm::ArrayRef<std::pair<const Expr *, QualType>> EnclosingLevels,
+    const VarDecl *LoopVar,
+    const llvm::DenseMap<const VarDecl *, const ForStmt *> &LoopOfCounter,
+    const Expr *&OffendingIdx) {
+  OffendingIdx = nullptr;
+  llvm::SmallVector<const Expr *, 4> EnclosingIdxs;
+  for (const auto &L : EnclosingLevels)
+    EnclosingIdxs.push_back(L.first);
+  if (const Expr *Reused = FindReusedHostIndex(LevelIdx, EnclosingIdxs)) {
+    OffendingIdx = Reused;
+    return FieldChainIssue::IndexReused;
+  }
+  for (const auto &L : EnclosingLevels) {
+    const DeclRefExpr *IdxDRE = dyn_cast<DeclRefExpr>(L.first);
+    const VarDecl *VD =
+        IdxDRE ? dyn_cast<VarDecl>(IdxDRE->getDecl()) : nullptr;
+    const ForStmt *F = VD ? LoopOfCounter.lookup(VD) : nullptr;
+    if (!F) {
+      OffendingIdx = L.first;
+      return FieldChainIssue::IndexNotLoop;
+    }
+    FieldChainIssue Issue = CheckEnclosingLoop(Context, F, L.second);
+    if (Issue != FieldChainIssue::None) {
+      OffendingIdx = L.first;
+      return Issue;
+    }
+  }
+  return FieldChainIssue::None;
+}
+
+// The innermost subscript of a field-array element chain (e.g. the `arr[i]` in
+// s[i].arr[i].p) when the enclosing levels make it a full-range transfer for
+// the current loop, or nullptr otherwise. The innermost subscript indexes the
+// tracked field array, so the current loop must drive it; every enclosing
+// subscript (host levels such as s[i], outer field levels such as w[i] in
+// w2.w[i].arr[j]) must be driven in full by its own loop (ValidateEnclosingIdxs).
+// Otherwise the transfer would move the whole aggregate and hide the leak of
+// the unreleased elements.
+static const Expr *FullRangeFieldChainInnermost(
+    const ASTContext &Context, const Expr *Site, const VarDecl *LoopVar,
+    const llvm::DenseMap<const VarDecl *, const ForStmt *> &LoopOfCounter) {
+  const Expr *Innermost = nullptr;
+  llvm::SmallVector<std::pair<const Expr *, QualType>, 4> OuterLevels;
+  for (const Expr *Cur = Site ? Site->IgnoreParenImpCasts() : nullptr; Cur;) {
+    if (const ArraySubscriptExpr *A = dyn_cast<ArraySubscriptExpr>(Cur)) {
+      const Expr *Idx = A->getIdx()->IgnoreParenImpCasts();
+      if (!Innermost)
+        Innermost = Idx;
+      else
+        OuterLevels.push_back(
+            {Idx, A->getBase()->IgnoreParenImpCasts()->getType()});
+      Cur = A->getBase()->IgnoreParenImpCasts();
+    } else if (const MemberExpr *M = dyn_cast<MemberExpr>(Cur)) {
+      Cur = M->getBase()->IgnoreParenImpCasts();
+    } else {
+      break;
+    }
+  }
+  if (!Innermost || !IsLoopIndex(Innermost, LoopVar))
+    return nullptr;
+  const Expr *OffendingIdx = nullptr;
+  if (ValidateEnclosingIdxs(Context, Innermost, OuterLevels, LoopVar,
+                            LoopOfCounter, OffendingIdx) !=
+      FieldChainIssue::None)
+    return nullptr;
+  return Innermost;
 }
 
 // Peel `w.arr[i]` / `o.w[i].arr[j]` / `w.arr[i].a` to the host variable plus
@@ -322,134 +470,6 @@ static bool PeelFieldIndexLevels(
   return true;
 }
 
-// E is arr[LoopVar] / arr[LoopVar].field / w.arr[i] / o.w.arr[i] of ArrVD
-// (single-level). If so, FieldName receives the field path ("" for plain
-// arrays, "field" for s[i].field, "arr[]" / "w.arr[]" for field arrays).
-static bool IsElemAccess(const Expr *E, const VarDecl *ArrVD,
-                         const VarDecl *LoopVar, std::string &FieldName) {
-  if (!E)
-    return false;
-  E = E->IgnoreParenImpCasts();
-  if (const MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
-    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-    if (const ArraySubscriptExpr *ASE =
-            dyn_cast<ArraySubscriptExpr>(Base)) {
-      if (const DeclRefExpr *B = dyn_cast<DeclRefExpr>(
-              ASE->getBase()->IgnoreParenImpCasts())) {
-        if (B->getDecl() == ArrVD) {
-          if (const DeclRefExpr *Idx = dyn_cast<DeclRefExpr>(
-                  ASE->getIdx()->IgnoreParenImpCasts())) {
-            if (IsLoopIndex(Idx, LoopVar)) {
-              FieldName = ME->getMemberNameInfo().getAsString();
-              return true;
-            }
-          }
-        }
-      }
-    }
-  } else if (const ArraySubscriptExpr *ASE =
-                  dyn_cast<ArraySubscriptExpr>(E)) {
-    const Expr *B = ASE->getBase()->IgnoreParenImpCasts();
-    if (const DeclRefExpr *B2 = dyn_cast<DeclRefExpr>(B)) {
-      if (B2->getDecl() == ArrVD) {
-        if (const DeclRefExpr *Idx = dyn_cast<DeclRefExpr>(
-                ASE->getIdx()->IgnoreParenImpCasts())) {
-          if (IsLoopIndex(Idx, LoopVar)) {
-            FieldName = "";
-            return true;
-          }
-        }
-      }
-    }
-    // Struct-field array element: w.arr[i] / o.w.arr[i]. The base is a
-    // member access; peel the host + "arr[]" path (PeelHostAndFieldPath,
-    // shared with the CFG dataflow) so null-free if recognition
-    // (`if (w.arr[i] != nullptr) { free }`) works like local arrays.
-    if (dyn_cast<MemberExpr>(B)) {
-      const VarDecl *HostVD = nullptr;
-      std::string Path;
-      if (PeelHostAndFieldPath(E, HostVD, Path) && HostVD == ArrVD &&
-          !Path.empty() && Path.find("[]") != std::string::npos) {
-        if (const DeclRefExpr *Idx = dyn_cast<DeclRefExpr>(
-                ASE->getIdx()->IgnoreParenImpCasts())) {
-          if (IsLoopIndex(Idx, LoopVar)) {
-            FieldName = Path;
-            return true;
-          }
-        }
-      }
-    }
-  }
-  return false;
-}
-// Per-array transfer summary of one branch (then/else): which covered arrays
-// are moved out / assigned into, and the final order-sensitive state
-// (0 = untouched, 1 = moved, 2 = owned, 3 = null). Shared by the null-free-if
-// check (a move-out without a later assign-in frees the element) and the
-// generic if path-consistency check.
-struct BranchSummary {
-  llvm::DenseMap<const VarDecl *, bool> HasMoveOut, HasAssignIn;
-  llvm::DenseMap<const VarDecl *, unsigned> FinalStates;
-};
-
-static BranchSummary SummarizeBranch(
-    ASTContext &Context,
-    const llvm::SmallVectorImpl<const VarDecl *> &Covered,
-    const VarDecl *LoopVar, const Stmt *Br) {
-  BranchSummary Sum;
-  std::function<void(const Stmt *)> scan = [&](const Stmt *X) {
-    if (!X)
-      return;
-    if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(X)) {
-      if (BO->getOpcode() == BO_Assign) {
-        const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
-        const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-        std::string F;
-        for (const VarDecl *ArrVD : Covered) {
-          if (IsElemAccess(LHS, ArrVD, LoopVar, F)) {
-            Sum.HasAssignIn[ArrVD] = true;
-            Sum.FinalStates[ArrVD] = IsNullExpr(Context, RHS) ? 3 : 2;
-          }
-          if (IsElemAccess(RHS, ArrVD, LoopVar, F)) {
-            Sum.HasMoveOut[ArrVD] = true;
-            Sum.FinalStates[ArrVD] = 1;
-          }
-        }
-      }
-    }
-    if (const CallExpr *CE = dyn_cast<CallExpr>(X)) {
-      for (const Expr *Arg : CE->arguments()) {
-        std::string F;
-        for (const VarDecl *ArrVD : Covered) {
-          if (IsElemAccess(Arg->IgnoreParenCasts(), ArrVD, LoopVar, F)) {
-            Sum.HasMoveOut[ArrVD] = true;
-            Sum.FinalStates[ArrVD] = 1;
-            break;
-          }
-        }
-      }
-    }
-    if (const ReturnStmt *RS = dyn_cast<ReturnStmt>(X)) {
-      if (const Expr *RV = RS->getRetValue()) {
-        std::string F;
-        for (const VarDecl *ArrVD : Covered) {
-          if (IsElemAccess(RV->IgnoreParenCasts(), ArrVD, LoopVar, F)) {
-            Sum.HasMoveOut[ArrVD] = true;
-            Sum.FinalStates[ArrVD] = 1;
-            break;
-          }
-        }
-      }
-    }
-    for (const Stmt *C : X->children())
-      scan(C);
-  };
-  scan(Br);
-  return Sum;
-}
-
-
-
 // Collect every VLA bound variable used in any for-loop condition (3.2.1
 // cond 2): they must not be modified / address-taken / mutably borrowed.
 static void CollectBoundVarInStmt(
@@ -485,6 +505,24 @@ static void CollectBoundVarInStmt(
 static void CollectLoopBoundVars(ASTContext &Context, const FunctionDecl *FD,
                                  llvm::SmallPtrSetImpl<const VarDecl *> &Out) {
   CollectBoundVarInStmt(Context, FD->getBody(), Out);
+}
+
+// Collect the counter variable of every for-loop in Stmt (the variable declared
+// by the loop init) and the loop it belongs to. Used to require that the
+// enclosing subscript levels of a field-array element chain are driven by loops
+// that iterate those levels in full.
+static void CollectLoopCounterVars(
+    const Stmt *S, llvm::DenseMap<const VarDecl *, const ForStmt *> &Out) {
+  if (!S)
+    return;
+  if (const ForStmt *FS = dyn_cast<ForStmt>(S)) {
+    if (const DeclStmt *DS = dyn_cast_or_null<DeclStmt>(FS->getInit()))
+      if (DS->isSingleDecl())
+        if (const VarDecl *VD = dyn_cast<VarDecl>(DS->getSingleDecl()))
+          Out[VD] = FS;
+  }
+  for (const Stmt *Child : S->children())
+    CollectLoopCounterVars(Child, Out);
 }
 
 // First statement in FD that modifies / address-takes / mutably borrows
@@ -602,13 +640,16 @@ class OwnedArrayLoopClassifier {
   ASTContext &Context;
   const FunctionDecl *FD;
   OwnedArrayLoopInfo &LoopInfo;
-  OwnershipDiagReporter &OwnershipReporter;
 
   // Function-wide state.
   llvm::DenseMap<const ArraySubscriptExpr *, SmallVector<const Expr *, 4>>
       SubscriptIdxsCache;
   llvm::DenseMap<const ArraySubscriptExpr *, const Expr *> SubscriptBaseCache;
   llvm::DenseMap<const VarDecl *, SourceLocation> BoundVarModLocs;
+  // Counter variable of every for-loop in the function -> that loop: an
+  // enclosing subscript level of a field-array element chain must be driven by
+  // one of these loops, and the loop must iterate that level in full.
+  llvm::DenseMap<const VarDecl *, const ForStmt *> LoopOfCounter;
 
   // Per-loop state (reset by classifyForLoop).
   const ForStmt *FS = nullptr;
@@ -620,10 +661,12 @@ class OwnedArrayLoopClassifier {
   bool HasEarlyExit = false;
   SourceLocation EarlyExitLoc;
   llvm::DenseMap<const VarDecl *, bool> ArrayOk;
+  // Per-array reason for an accessed-but-not-covered array (e.g. a reused loop
+  // index); falls back to the generic index-misuse reason when unset.
+  llvm::DenseMap<const VarDecl *, LoopFailure> ArrayFailures;
   llvm::SmallPtrSet<const VarDecl *, 4> MultiDimDone;
   llvm::SmallPtrSet<const VarDecl *, 4> FieldArrayDone;
   SmallVector<const VarDecl *, 4> Covered;
-  bool Inconsistent = false;
 
   bool reject(NonQualifyingLoopReason R,
               SourceLocation Loc = SourceLocation()) {
@@ -636,6 +679,14 @@ class OwnedArrayLoopClassifier {
       ArrayOk[VD] = true;
     if (!GoodIdx)
       ArrayOk[VD] = false;
+  }
+
+  // Record that VD is accessed but not fully covered, with the reason and the
+  // location to report in the note (e.g. a reused loop index).
+  void setNotCovered(const VarDecl *VD, NonQualifyingLoopReason R,
+                     SourceLocation Loc = SourceLocation()) {
+    setCovered(VD, /*GoodIdx=*/false);
+    ArrayFailures[VD] = {R, Loc};
   }
 
   // Parse and validate the for-loop head (`init; cond`) for the
@@ -799,14 +850,39 @@ class OwnedArrayLoopClassifier {
         return false;
       if (StartD == 0 && D == 0) {
         if (!ArrayBoundMatches(Context, ArrVD, IsConstantBound, BoundVal,
-                               BoundVD))
+                               BoundVD)) {
+          // A constant bound that does not equal the length of this dimension is
+          // a bound mismatch; a non-constant bound can only match a VLA length
+          // variable, so on a fixed-length dimension it is reported as such.
+          // Either way the note names the rule instead of falling back to the
+          // generic index-misuse reason.
+          if (IsConstantBound)
+            setNotCovered(ArrVD, NonQualifyingLoopReason::BoundMismatch,
+                          CurFS->getBeginLoc());
+          else if (Context.getAsConstantArrayType(DimTy))
+            setNotCovered(ArrVD, NonQualifyingLoopReason::BoundNotConstant,
+                          CurFS->getBeginLoc());
           return false;
+        }
       } else {
         if (const auto *CAT = Context.getAsConstantArrayType(DimTy)) {
-          if (!CBO->getRHS()->isIntegerConstantExpr(Context) ||
-              CBO->getRHS()->EvaluateKnownConstInt(Context).getZExtValue() !=
-                  CAT->getSize().getZExtValue())
+          if (!CBO->getRHS()->isIntegerConstantExpr(Context)) {
+            // This level has a fixed length, so only an integer constant
+            // expression can iterate it in full.
+            setNotCovered(ArrVD, NonQualifyingLoopReason::BoundNotConstant,
+                          CurFS->getBeginLoc());
             return false;
+          }
+          if (CBO->getRHS()->EvaluateKnownConstInt(Context).getZExtValue() !=
+              CAT->getSize().getZExtValue()) {
+            // An inner loop whose constant bound does not equal this level's
+            // length (e.g. `for (j = 0; j < 1; ++j)` over `a[2][2]`) releases
+            // only part of the array, exactly like a short bound on the
+            // outermost dimension.
+            setNotCovered(ArrVD, NonQualifyingLoopReason::BoundMismatch,
+                          CurFS->getBeginLoc());
+            return false;
+          }
         } else {
           return false;
         }
@@ -878,9 +954,12 @@ class OwnedArrayLoopClassifier {
           Covered.push_back(KV.first);
           continue;
         }
-        // Bound mismatch. For a VLA whose length variable is a *different*
-        // variable than the loop bound variable, report that rule instead of
-        // a generic bound mismatch.
+        // Bound mismatch. The allowed forms differ by array kind: a VLA is
+        // iterated with its length variable (report a different variable than
+        // the one declaring the length), while a fixed-length array is only
+        // matched by an integer constant expression equal to its length, so a
+        // non-constant bound cannot equal it (report that rule rather than the
+        // misleading "bound must equal the array length").
         NonQualifyingLoopReason R = NonQualifyingLoopReason::BoundMismatch;
         if (!IsConstantBound) {
           if (const auto *VAT = dyn_cast_or_null<VariableArrayType>(
@@ -890,16 +969,138 @@ class OwnedArrayLoopClassifier {
               if (SizeDRE->getDecl() != BoundVD)
                 R = NonQualifyingLoopReason::VlaBoundVarMismatch;
             }
+          } else {
+            R = NonQualifyingLoopReason::BoundNotConstant;
           }
         }
         LoopInfo.NonCoveredArrays[FS][KV.first] = {R, SourceLocation()};
       } else {
-        LoopInfo.NonCoveredArrays[FS][KV.first] = {
-            NonQualifyingLoopReason::ElemAccessMismatch, SourceLocation()};
+        // A specific reason (e.g. a reused loop index) when the coverage scan
+        // recorded one, otherwise the generic index-misuse reason.
+        auto FIt = ArrayFailures.find(KV.first);
+        LoopInfo.NonCoveredArrays[FS][KV.first] =
+            FIt != ArrayFailures.end()
+                ? FIt->second
+                : LoopFailure{NonQualifyingLoopReason::ElemAccessMismatch,
+                              SourceLocation()};
       }
     }
     LoopInfo.LoopCoveredArrays[FS].assign(Covered.begin(), Covered.end());
   }
+
+  // The for-loop inside Outer's body whose declared counter is the variable
+  // used as the subscript Idx, or nullptr (the index is constant / not a loop
+  // counter / its loop is not nested in Outer).
+  const ForStmt *findNestedLoopForIndex(const ForStmt *Outer, const Expr *Idx) {
+    const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Idx);
+    const VarDecl *Wanted = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!Wanted || !Outer->getBody())
+      return nullptr;
+    const ForStmt *Found = nullptr;
+    std::function<void(const Stmt *)> Find = [&](const Stmt *S) {
+      if (!S || Found)
+        return;
+      if (const ForStmt *F = dyn_cast<ForStmt>(S)) {
+        const DeclStmt *DS = dyn_cast_or_null<DeclStmt>(F->getInit());
+        const VarDecl *FV = DS && DS->isSingleDecl()
+                                ? dyn_cast<VarDecl>(DS->getSingleDecl())
+                                : nullptr;
+        if (FV == Wanted) {
+          Found = F;
+          return;
+        }
+      }
+      for (const Stmt *Child : S->children())
+        Find(Child);
+    };
+    Find(Outer->getBody());
+    return Found;
+  }
+
+  // Validate the level chain of an owned-element array access (outermost level
+  // first) for the loop currently being classified: this loop must drive one
+  // level, every level outside it must be iterated in full by an enclosing loop
+  // and every level inside it by a nested full-range for-loop, in the declared
+  // dimension order (manual 3.3.3.1 cond 5). The covered aggregate is HostVD; a
+  // failing level records the specific per-array reason so the note names the
+  // rule that failed. Returns true when the whole chain is covered.
+  bool validateLevelChain(
+      llvm::ArrayRef<std::pair<const Expr *, QualType>> Chain,
+      const VarDecl *HostVD) {
+    unsigned StartD = Chain.size();
+    for (unsigned D = 0; D < Chain.size(); ++D) {
+      const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Chain[D].first);
+      if (DRE && IsLoopIndex(DRE, LoopVar)) {
+        StartD = D;
+        break;
+      }
+    }
+    if (StartD == Chain.size())
+      return false; // this loop does not drive the chain
+
+    // Levels outside this loop's level: host levels such as the k of
+    // s[k].arr[j] and the field's own outer levels such as the i of
+    // v.arr[i][j] when j drives the transfer. Each must be driven by its own
+    // enclosing loop, iterating it in full.
+    llvm::SmallVector<std::pair<const Expr *, QualType>, 4> Enclosing(
+        Chain.begin(), Chain.begin() + StartD);
+    const Expr *OffendingIdx = nullptr;
+    FieldChainIssue Issue = ValidateEnclosingIdxs(
+        Context, Chain[StartD].first, Enclosing, LoopVar, LoopOfCounter,
+        OffendingIdx);
+    if (Issue != FieldChainIssue::None) {
+      setNotCovered(HostVD, ReasonForIssue(Issue),
+                    Issue == FieldChainIssue::IndexReused
+                        ? OffendingIdx->getExprLoc()
+                        : SourceLocation());
+      return false;
+    }
+
+    // A loop index reused by several levels of this chain (the diagonal
+    // v.arr[i][i]) releases only the diagonal, never the whole aggregate. Reuse
+    // between an enclosing level and this one is reported by
+    // ValidateEnclosingIdxs above.
+    llvm::SmallVector<const Expr *, 4> SubIdxs;
+    for (unsigned D = StartD; D < Chain.size(); ++D)
+      SubIdxs.push_back(Chain[D].first);
+    if (const Expr *Reused = FindReusedIndex(SubIdxs)) {
+      setNotCovered(HostVD, NonQualifyingLoopReason::IndexReused,
+                    Reused->getExprLoc());
+      return false;
+    }
+
+    // The level this loop drives and every level inside it: each must be a
+    // full-range for-loop over its own length, and the loop of level D+1 must
+    // be nested inside the loop of level D (a transposed nest such as
+    // `for (j) for (i) v.arr[i][j]` releases only part of the aggregate).
+    const ForStmt *CurFS = FS;
+    for (unsigned D = StartD; D < Chain.size(); ++D) {
+      // A level whose length is not a compile-time constant (a flexible array
+      // member, or a variably modified level) can never be proven covered, but
+      // a loop driving it can still be well formed: leave the reason to the
+      // per-loop fallback instead of reporting a loop-shape failure.
+      if (D == StartD && !Context.getAsConstantArrayType(Chain[D].second))
+        return false;
+      if (D > StartD) {
+        const ForStmt *Next = findNestedLoopForIndex(CurFS, Chain[D].first);
+        if (!Next) {
+          setNotCovered(HostVD, NonQualifyingLoopReason::ElemAccessMismatch,
+                        SourceLocation());
+          return false;
+        }
+        CurFS = Next;
+      }
+      FieldChainIssue LevelIssue =
+          CheckEnclosingLoop(Context, CurFS, Chain[D].second);
+      if (LevelIssue != FieldChainIssue::None) {
+        setNotCovered(HostVD, ReasonForIssue(LevelIssue),
+                      CurFS->getBeginLoc());
+        return false;
+      }
+    }
+    return true;
+  }
+
   void scanBody(const Stmt *S, bool DirectBody) {
     if (!S || HasEarlyExit)
       return;
@@ -942,6 +1143,7 @@ class OwnedArrayLoopClassifier {
                 dyn_cast<VarDecl>(BaseDRE->getDecl())) {
           if (IsOwnedElementArrayType(ArrVD->getType())) {
             bool GoodIdx = false;
+            const Expr *ReusedIdx = nullptr;
             if (Idxs.size() == 1) {
               if (const DeclRefExpr *IdxDRE =
                       dyn_cast<DeclRefExpr>(Idxs.front()))
@@ -951,8 +1153,17 @@ class OwnedArrayLoopClassifier {
                                         Idxs);
               if (GoodIdx)
                 MultiDimDone.insert(ArrVD);
+              else
+                // The same loop index indexing several dimensions (a[i][i])
+                // releases only the diagonal: distinguish it from the other
+                // index-misuse failures.
+                ReusedIdx = FindReusedIndex(Idxs);
             }
-            setCovered(ArrVD, GoodIdx);
+            if (ReusedIdx)
+              setNotCovered(ArrVD, NonQualifyingLoopReason::IndexReused,
+                            ReusedIdx->getExprLoc());
+            else
+              setCovered(ArrVD, GoodIdx);
           }
         }
       }
@@ -986,8 +1197,15 @@ class OwnedArrayLoopClassifier {
               bool FieldIdxOk = true;
               if (ME->getType()->isArrayType())
                 FieldIdxOk = dyn_cast<DeclRefExpr>(Idxs.front()) != nullptr;
-              if (GoodIdx && FieldIdxOk)
-                ArrayOk[ArrVD] = true;
+              if (GoodIdx && FieldIdxOk) {
+                // The field-array index must not be the same loop variable as
+                // the host index: s[i].a[i] releases only the diagonal.
+                if (FindReusedHostIndex(Idxs.front(), {MIdx}))
+                  setNotCovered(ArrVD, NonQualifyingLoopReason::IndexReused,
+                                MIdx->getExprLoc());
+                else
+                  ArrayOk[ArrVD] = true;
+              }
               // A host-level mismatch (s[i].a[j] where i != LoopVar) does
               // NOT reject the array: the field-level branch below may
               // still cover it with the field index.
@@ -1048,62 +1266,45 @@ class OwnedArrayLoopClassifier {
             std::string FieldName = FieldPath;
             if (IsTrackedType(HostVD->getType()) &&
                 IsOwnedArrayField(HostVD, FieldName)) {
-              // Collect the array-field chain levels, innermost first:
-              // (index expression, array-field type). The innermost level
-              // is the outer ASE's Idx and FieldME's type; each outer
-              // level is a subscripted member access (o.w[i].arr[j]: j is
-              // the arr level, i is the w level). A loop covers the host
-              // when it drives ANY level whose length matches the bound.
-              llvm::SmallVector<std::pair<const Expr *, QualType>, 4>
-                  Levels;
-              Levels.push_back({Idxs.front(), FieldME->getType()});
-              const Expr *LCur =
-                  FieldME->getBase()->IgnoreParenImpCasts();
-              while (const ArraySubscriptExpr *A =
-                         dyn_cast<ArraySubscriptExpr>(LCur)) {
-                const Expr *ABase = A->getBase()->IgnoreParenImpCasts();
-                if (const MemberExpr *NextME =
-                        dyn_cast<MemberExpr>(ABase)) {
-                  Levels.push_back(
-                      {A->getIdx()->IgnoreParenImpCasts(),
-                       NextME->getType()});
-                  LCur = NextME->getBase()->IgnoreParenImpCasts();
-                } else {
-                  break;
-                }
+              // Build the level chain of this access, outermost level first:
+              // the host subscript levels (e.g. the k of s[k].arr[j]) followed
+              // by the field's own array levels, each with that level's array
+              // type (e.g. `int *_Owned[2][2]` then `int *_Owned[2]` for
+              // v.arr[i][j]). validateLevelChain then checks that this loop
+              // drives one level and that every level outside / inside it is
+              // iterated in full by its own loop, in the declared dimension
+              // order.
+              llvm::SmallVector<std::pair<const Expr *, QualType>, 4> Chain;
+              for (const Expr *HCur = FieldME->getBase()->IgnoreParenImpCasts();
+                   const ArraySubscriptExpr *A =
+                       dyn_cast<ArraySubscriptExpr>(HCur);) {
+                Chain.push_back({A->getIdx()->IgnoreParenImpCasts(),
+                                 A->getBase()
+                                     ->IgnoreParenImpCasts()
+                                     ->getType()});
+                HCur = A->getBase()->IgnoreParenImpCasts();
               }
-              for (const auto &L : Levels) {
-                bool GoodIdx = false;
-                const DeclRefExpr *IdxDRE =
-                    dyn_cast<DeclRefExpr>(L.first);
-                if (IdxDRE)
-                  GoodIdx = IsLoopIndex(IdxDRE, LoopVar);
-                if (!GoodIdx)
-                  continue;
-                // The field-array level (Levels.front()) must not share its
-                // index variable with a host level: `s[i].arr[i]` releases
-                // only the diagonal (s[0].arr[0], s[1].arr[1], ...), not the
-                // whole arr field, so the aggregate must not be marked moved.
-                if (&L == &Levels.front()) {
-                  llvm::SmallVector<const Expr *, 4> HostIdxs;
-                  for (size_t k = 1; k < Levels.size(); ++k)
-                    HostIdxs.push_back(Levels[k].first);
-                  if (FieldIndexSharesHostIndex(IdxDRE, HostIdxs)) {
-                    GoodIdx = false;
-                    continue;
-                  }
+              std::reverse(Chain.begin(), Chain.end());
+              // The field's own levels are the subscripts this expression peels
+              // (`Idxs`; PeelSubscriptChain stops at the member access), one per
+              // array level of the field type, outermost first. A partial access
+              // (fewer indices than levels) is not an element transfer.
+              QualType DimTy = FieldME->getType();
+              unsigned FieldLevels = 0;
+              while (const ArrayType *AT = Context.getAsArrayType(DimTy)) {
+                ++FieldLevels;
+                DimTy = AT->getElementType();
+              }
+              if (FieldLevels > 0 && Idxs.size() == FieldLevels) {
+                DimTy = FieldME->getType();
+                for (unsigned D = 0; D < FieldLevels; ++D) {
+                  const ArrayType *AT = Context.getAsArrayType(DimTy);
+                  Chain.push_back({Idxs[D], DimTy});
+                  DimTy = AT->getElementType();
                 }
-                bool BoundOk = false;
-                if (IsConstantBound) {
-                  if (const auto *CAT = Context.getAsConstantArrayType(
-                          L.second))
-                    BoundOk = CAT->getSize().getZExtValue() ==
-                              BoundVal.getZExtValue();
-                }
-                if (BoundOk) {
+                if (validateLevelChain(Chain, HostVD)) {
                   ArrayOk[HostVD] = true;
                   FieldArrayDone.insert(HostVD);
-                  break;
                 }
               }
             }
@@ -1196,92 +1397,6 @@ class OwnedArrayLoopClassifier {
   void collectSites(const Stmt *S) {
     if (!S)
       return;
-    // Path-consistency and null-free if recognition: `if (a[i] != nullptr)
-    // { free }` with no else is consistent; an if whose branches transfer
-    // differently is reported (but does not disqualify the loop).
-    if (const IfStmt *IS = dyn_cast<IfStmt>(S)) {
-      if (!Inconsistent) {
-        const Expr *CondE = IS->getCond()->IgnoreParenImpCasts();
-        const Expr *Elem = nullptr;
-        if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(CondE)) {
-          if (BO->getOpcode() == BO_NE || BO->getOpcode() == BO_EQ) {
-            const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
-            const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-            if (IsNullExpr(Context, RHS))
-              Elem = LHS;
-            else if (IsNullExpr(Context, LHS))
-              Elem = RHS;
-          }
-        } else if (const UnaryOperator *UO =
-                       dyn_cast<UnaryOperator>(CondE)) {
-          if (UO->getOpcode() == UO_LNot) {
-            // if (!arr[i]) -- implicit null check (arr[i] == nullptr)
-            const Expr *Inner = UO->getSubExpr()->IgnoreParenImpCasts();
-            std::string F;
-            for (const VarDecl *ArrVD : Covered)
-              if (IsElemAccess(Inner, ArrVD, LoopVar, F)) {
-                Elem = Inner;
-                break;
-              }
-          }
-        } else {
-          // if (arr[i]) -- implicit null check (arr[i] != nullptr)
-          std::string F;
-          for (const VarDecl *ArrVD : Covered)
-            if (IsElemAccess(CondE, ArrVD, LoopVar, F)) {
-              Elem = CondE;
-              break;
-            }
-        }
-        const VarDecl *ElemArrVD = nullptr;
-        if (Elem) {
-          std::string F;
-          for (const VarDecl *ArrVD : Covered) {
-            if (IsElemAccess(Elem, ArrVD, LoopVar, F)) {
-              ElemArrVD = ArrVD;
-              break;
-            }
-          }
-        }
-        bool IsNullFree = false;
-        if (ElemArrVD && IS->getElse() == nullptr) {
-          BranchSummary S = SummarizeBranch(Context, Covered, LoopVar, IS->getThen());
-          if (S.HasMoveOut[ElemArrVD] && !S.HasAssignIn[ElemArrVD])
-            IsNullFree = true;
-        }
-        if (IsNullFree) {
-          // Consistent null-free if: nothing to report; the site
-          // collection below still scans the branches for transfers.
-        }
-        if (!IsNullFree) {
-        // Generic if: then/else must end in the same per-(branch, array)
-        // final state (0 = no transfer, 1 = moved, 2 = owned, 3 = null),
-        // so a divergence in `b` does not taint `a` and a swapped-order
-        // if/else (free-then-assign vs assign-then-free) is rejected.
-        BranchSummary ThenS = SummarizeBranch(Context, Covered, LoopVar, IS->getThen());
-        BranchSummary ElseS =
-            IS->getElse() ? SummarizeBranch(Context, Covered, LoopVar,
-                                            IS->getElse())
-                          : BranchSummary();
-        for (const VarDecl *ArrVD : Covered) {
-          unsigned TS = ThenS.FinalStates.count(ArrVD)
-                            ? ThenS.FinalStates[ArrVD]
-                            : 0;
-          unsigned ES = ElseS.FinalStates.count(ArrVD)
-                            ? ElseS.FinalStates[ArrVD]
-                            : 0;
-          if (TS != ES) {
-            Inconsistent = true;
-            OwnershipDiagInfo DI(
-                FS->getEndLoc(),
-                OwnershipDiagKind::ArrayElemPathInconsistent,
-                ArrVD->getNameAsString());
-            OwnershipReporter.addDiagInfo(DI);
-          }
-        }
-        }
-      }
-    }
     // MemberExpr root (w.arr[i].a / arr[i].in[j].a / s[i].a[j]): the
     // dataflow transfers on the MemberExpr itself, so record it (not just
     // its subscripted sub-expressions).
@@ -1299,13 +1414,16 @@ class OwnedArrayLoopClassifier {
           // field-element transfer whose field index shares the host index
           // variable (s[i].arr[i] releases only the diagonal).
           !ME->getType()->isArrayType()) {
-        // The innermost level carries the field-array index (w.arr[i] /
-        // a[j] / arr[0].p); only a loop-variable index qualifies the site.
-        // A constant inner index (s[i].a[0] / m[a].arr[0].p) must not be
-        // allowed: the loop would only partially cover the field array and
-        // a partial element free must not silently move the whole aggregate.
-        if (IsLoopIndex(Levels.back().second, LoopVar))
-          LoopInfo.AllowedTransferExprs.insert(ME);
+        // The innermost subscript indexes the tracked field array, so this
+        // loop must drive it; every enclosing subscript level must be iterated
+        // in full by its own loop. This rejects a partial release (the diagonal
+        // s[i].arr[i], a constant host index s[0].arr[j], a non-loop host index
+        // s[k].arr[j], a partially iterating enclosing loop, or a constant
+        // inner index m[a].arr[0]): the transfer would otherwise silently move
+        // the whole field aggregate and hide the leak of the unreleased
+        // elements.
+        if (FullRangeFieldChainInnermost(Context, ME, LoopVar, LoopOfCounter))
+          LoopInfo.AllowedTransferExprs[FS].insert(ME);
       }
       for (const Stmt *Child : S->children())
         collectSites(Child);
@@ -1324,7 +1442,7 @@ class OwnedArrayLoopClassifier {
             if (const DeclRefExpr *IdxDRE =
                     dyn_cast<DeclRefExpr>(Idxs.front())) {
               if (IsLoopIndex(IdxDRE, LoopVar))
-                LoopInfo.AllowedTransferExprs.insert(ASE);
+                LoopInfo.AllowedTransferExprs[FS].insert(ASE);
             }
           }
         }
@@ -1349,9 +1467,9 @@ class OwnedArrayLoopClassifier {
                   // index (Idxs.front(), e.g. arr's i in s[i].arr[i]) shares
                   // the host-level index variable (MIdx, s's i), only the
                   // diagonal is released -- do not allow the transfer.
-                  if (!FieldIndexSharesHostIndex(Idxs.front(), {MIdx})) {
-                    LoopInfo.AllowedTransferExprs.insert(ASE);
-                    LoopInfo.AllowedTransferExprs.insert(ME);
+                  if (!FindReusedHostIndex(Idxs.front(), {MIdx})) {
+                    LoopInfo.AllowedTransferExprs[FS].insert(ASE);
+                    LoopInfo.AllowedTransferExprs[FS].insert(ME);
                   }
                 }
               }
@@ -1383,66 +1501,9 @@ class OwnedArrayLoopClassifier {
                   // Mirror of scanBody: if the field-array index (Idxs.front)
                   // shares a variable with a host index (s[i].arr[i]), only
                   // the diagonal is released -- do not allow the transfer.
-                  if (!FieldIndexSharesHostIndex(Idxs.front(), HostIdxs)) {
-                    LoopInfo.AllowedTransferExprs.insert(ASE);
-                    LoopInfo.AllowedTransferExprs.insert(FieldME);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    if (const MemberExpr *ME = dyn_cast<MemberExpr>(S)) {
-      const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-      const Expr *Idx = nullptr;
-      while (const ArraySubscriptExpr *ASE =
-                 dyn_cast<ArraySubscriptExpr>(Base)) {
-        Idx = ASE->getIdx()->IgnoreParenImpCasts();
-        Base = ASE->getBase()->IgnoreParenImpCasts();
-      }
-      if (const DeclRefExpr *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
-        if (const VarDecl *ArrVD =
-                dyn_cast<VarDecl>(BaseDRE->getDecl())) {
-          if (llvm::is_contained(Covered, ArrVD) && Idx) {
-            if (const DeclRefExpr *IdxDRE = dyn_cast<DeclRefExpr>(Idx)) {
-              if (IsLoopIndex(IdxDRE, LoopVar))
-                LoopInfo.AllowedTransferExprs.insert(ME);
-            }
-          }
-        }
-      }
-      // w.arr[i].a / w2.w[i].arr[j].a: the subscripted base is one or more
-      // member-array fields of a covered host struct.
-      if (const MemberExpr *FieldME = dyn_cast<MemberExpr>(Base)) {
-        llvm::SmallVector<std::pair<const MemberExpr *, const Expr *>, 4>
-            Fields;
-        Fields.push_back({FieldME, Idx});
-        const Expr *Cur = FieldME->getBase()->IgnoreParenImpCasts();
-        while (const ArraySubscriptExpr *A =
-                   dyn_cast<ArraySubscriptExpr>(Cur)) {
-          const Expr *AIdx = A->getIdx()->IgnoreParenImpCasts();
-          const Expr *ABase = A->getBase()->IgnoreParenImpCasts();
-          if (const MemberExpr *NextME = dyn_cast<MemberExpr>(ABase)) {
-            Fields.push_back({NextME, AIdx});
-            Cur = NextME->getBase()->IgnoreParenImpCasts();
-          } else {
-            break;
-          }
-        }
-        if (const DeclRefExpr *HostDRE = dyn_cast<DeclRefExpr>(Cur)) {
-          if (const VarDecl *HostVD =
-                  dyn_cast<VarDecl>(HostDRE->getDecl())) {
-            if (llvm::is_contained(Covered, HostVD)) {
-              for (const auto &F : Fields) {
-                if (!F.second)
-                  continue;
-                if (const DeclRefExpr *IdxDRE =
-                        dyn_cast<DeclRefExpr>(F.second)) {
-                  if (IsLoopIndex(IdxDRE, LoopVar)) {
-                    LoopInfo.AllowedTransferExprs.insert(ME);
-                    break;
+                  if (!FindReusedHostIndex(Idxs.front(), HostIdxs)) {
+                    LoopInfo.AllowedTransferExprs[FS].insert(ASE);
+                    LoopInfo.AllowedTransferExprs[FS].insert(FieldME);
                   }
                 }
               }
@@ -1470,10 +1531,10 @@ class OwnedArrayLoopClassifier {
     HasEarlyExit = false;
     EarlyExitLoc = SourceLocation();
     ArrayOk.clear();
+    ArrayFailures.clear();
     MultiDimDone.clear();
     FieldArrayDone.clear();
     Covered.clear();
-    Inconsistent = false;
     // Record why this for-loop is not qualifying (for a diagnostic note) and
     // reject it. Loc (when valid) is the exact statement to point the note
     // at (e.g. a return/break or a loop-variable modification site).
@@ -1558,9 +1619,8 @@ class OwnedArrayLoopClassifier {
 
 public:
   OwnedArrayLoopClassifier(ASTContext &Ctx, const FunctionDecl *F,
-                           OwnedArrayLoopInfo &LI,
-                           OwnershipDiagReporter &R)
-      : Context(Ctx), FD(F), LoopInfo(LI), OwnershipReporter(R) {}
+                           OwnedArrayLoopInfo &LI)
+      : Context(Ctx), FD(F), LoopInfo(LI) {}
 
   void run() {
     if (!BodyUsesOwnedElementArray(FD))
@@ -1569,16 +1629,14 @@ public:
     CollectLoopBoundVars(Context, FD, AllBoundVars);
     FindBoundVarModifications(Context, FD, AllBoundVars,
                              BoundVarModLocs);
+    CollectLoopCounterVars(FD->getBody(), LoopOfCounter);
     scanForLoops(FD->getBody());
   }
 };
 
-void classifyOwnedArrayLoops(ASTContext &Context,
-                             const FunctionDecl *FD,
-                             OwnedArrayLoopInfo &LoopInfo,
-                             OwnershipDiagReporter &OwnershipReporter) {
-  OwnedArrayLoopClassifier Classifier(Context, FD, LoopInfo,
-                                       OwnershipReporter);
+void classifyOwnedArrayLoops(ASTContext &Context, const FunctionDecl *FD,
+                             OwnedArrayLoopInfo &LoopInfo) {
+  OwnedArrayLoopClassifier Classifier(Context, FD, LoopInfo);
   Classifier.run();
 }
 
