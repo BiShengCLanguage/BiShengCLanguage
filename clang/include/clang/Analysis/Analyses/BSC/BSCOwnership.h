@@ -22,7 +22,6 @@
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Sema/Sema.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -346,7 +345,13 @@ class OwnershipDiagInfo {
 
 class Ownership : public ManagedAnalysis {
 public:
-  enum Status {
+  // The ownership state of a tracked variable or field is a *set* of possible
+  // states: the analysis is a may-analysis, so a CFG merge unions the states
+  // of the incoming paths ({Owned, Moved} means "owned on one path, moved on
+  // another"). A single state is a one-element set: is(VD, S) asks for exactly
+  // {S}, has(VD, S) for {S} plus at least one more. None is the empty set.
+  enum Status : unsigned char {
+    None = 0x0,
     Uninitialized = 0x1,
     Null = 0x2,
     Owned = 0x4,
@@ -355,6 +360,21 @@ public:
     AllMoved = 0x20,
   };
 
+  friend constexpr Status operator|(Status A, Status B) {
+    return static_cast<Status>(static_cast<unsigned char>(A) |
+                               static_cast<unsigned char>(B));
+  }
+  friend constexpr Status &operator|=(Status &A, Status B) { return A = A | B; }
+  friend constexpr Status operator&(Status A, Status B) {
+    return static_cast<Status>(static_cast<unsigned char>(A) &
+                               static_cast<unsigned char>(B));
+  }
+  friend constexpr Status &operator&=(Status &A, Status B) { return A = A & B; }
+  // Complement within the six defined states.
+  friend constexpr Status operator~(Status A) {
+    return static_cast<Status>(~static_cast<unsigned char>(A) & 0x3f);
+  }
+
   class OwnershipStatus {
   public:
     enum Source { 
@@ -362,7 +382,8 @@ public:
       S,   // Struct, e.g. struct S s
       BOP  // Owned Pointer to Basic Types, e.g. int* owned p
     };
-    using OwnershipSet = llvm::BitVector;
+    // The state set of one variable: a bitmask of Ownership::Status values.
+    using OwnershipSet = Status;
 
     // Field-path state is keyed by bsc::Place: a root variable followed by
     // field / deref / index projections, mirroring the historical string
@@ -445,7 +466,7 @@ public:
     bool isOrHas(const VarDecl *VD, Status S) const;
     // Shared by is / has / isOrHas: the status bits of VD, or nullptr when it
     // is not a tracked aggregate.
-    const llvm::BitVector *bitsOf(const VarDecl *VD) const;
+    const OwnershipSet *bitsOf(const VarDecl *VD) const;
     bool canAssign(const VarDecl *VD) const;
     void set(const VarDecl *VD, Status S);
     void reset(const VarDecl *VD, Status S);

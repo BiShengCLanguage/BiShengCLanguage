@@ -20,6 +20,7 @@
 #include "clang/Analysis/Analyses/PostOrderCFGView.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Basic/Builtins.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
@@ -446,16 +447,6 @@ static FieldKey findMovedEnclosingField(const FieldSet &AllFields,
   return nullptr;
 }
 
-static unsigned getIndex(Ownership::Status S) {
-  int value = static_cast<int>(S);
-  unsigned bitIndex = 0;
-  while ((value & 1) == 0) {
-    value = value >> 1;
-    bitIndex++;
-  }
-  return bitIndex;
-}
-
 // Build the root-relative field place of a member expression: the Field-chain
 // place rooted at the member chain's base variable. `s.f.g` and `s->f.g` /
 // `(*s).f.g` both resolve to Field(Field(Var(s), f), g) — arrow / leading
@@ -726,7 +717,7 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   for (auto it = statsB.OPSStatus.begin(), ei = statsB.OPSStatus.end();
        it != ei; ++it) {
     const VarDecl *VD = it->first;
-    const llvm::BitVector BV = it->second;
+    const Ownership::Status BV = it->second;
     if (statsA.OPSStatus.count(VD)) {
       statsA.OPSStatus[VD] |= BV;
     } else {
@@ -767,7 +758,7 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   for (auto it = statsB.SStatus.begin(), ei = statsB.SStatus.end(); it != ei;
        ++it) {
     const VarDecl *VD = it->first;
-    const llvm::BitVector BV = it->second;
+    const Ownership::Status BV = it->second;
     if (statsA.SStatus.count(VD)) {
       statsA.SStatus[VD] |= BV;
     } else {
@@ -827,7 +818,7 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   for (auto it = statsB.BOPStatus.begin(), ei = statsB.BOPStatus.end();
        it != ei; ++it) {
     const VarDecl *VD = it->first;
-    const llvm::BitVector BV = it->second;
+    const Ownership::Status BV = it->second;
     if (statsA.BOPStatus.count(VD)) {
       statsA.BOPStatus[VD] |= BV;
     } else {
@@ -872,42 +863,34 @@ bool Ownership::OwnershipStatus::equals(const OwnershipStatus &V) const {
          BOPOwnedOwnedFields == V.BOPOwnedOwnedFields;
 }
 
-// The status bits of VD, or nullptr when it is not a tracked aggregate. A
-// variable is tracked by exactly one of the three aggregate maps; shared by
-// is / has / isOrHas.
-const llvm::BitVector *
+// Shared by is / has / isOrHas: the status bits of VD, or nullptr when it is
+// not a tracked aggregate. A variable is tracked by exactly one of the three
+// aggregate maps.
+const Ownership::OwnershipStatus::OwnershipSet *
 Ownership::OwnershipStatus::bitsOf(const VarDecl *VD) const {
-  auto Find = [VD](const auto &Map) -> const llvm::BitVector * {
+  auto Find = [VD](const auto &Map) -> const OwnershipSet * {
     auto It = Map.find(VD);
     return It == Map.end() ? nullptr : &It->second;
   };
-  if (const llvm::BitVector *Bits = Find(OPSStatus))
+  if (const OwnershipSet *Bits = Find(OPSStatus))
     return Bits;
-  if (const llvm::BitVector *Bits = Find(SStatus))
+  if (const OwnershipSet *Bits = Find(SStatus))
     return Bits;
-  if (const llvm::BitVector *Bits = Find(BOPStatus))
+  if (const OwnershipSet *Bits = Find(BOPStatus))
     return Bits;
   return nullptr;
 }
 
 // Exactly one bit is set and it is S.
 bool Ownership::OwnershipStatus::is(const VarDecl *VD, Status S) const {
-  const llvm::BitVector *StatusBits = bitsOf(VD);
-  if (!StatusBits || !StatusBits->test(getIndex(S)))
-    return false;
-  llvm::BitVector Rest = *StatusBits;
-  Rest.reset(getIndex(S));
-  return !Rest.any();
+  const OwnershipSet *Bits = bitsOf(VD);
+  return Bits && *Bits == S;
 }
 
 // The S bit is set, together with at least one other bit.
 bool Ownership::OwnershipStatus::has(const VarDecl *VD, Status S) const {
-  const llvm::BitVector *StatusBits = bitsOf(VD);
-  if (!StatusBits || !StatusBits->test(getIndex(S)))
-    return false;
-  llvm::BitVector Rest = *StatusBits;
-  Rest.reset(getIndex(S));
-  return Rest.any();
+  const OwnershipSet *Bits = bitsOf(VD);
+  return Bits && *Bits != S && (*Bits & S) != None;
 }
 
 // The S component is present, exactly or together with other bits (e.g.
@@ -918,40 +901,13 @@ bool Ownership::OwnershipStatus::isOrHas(const VarDecl *VD, Status S) const {
 }
 
 bool Ownership::OwnershipStatus::canAssign(const VarDecl *VD) const {
-  unsigned uninitIndex = getIndex(Uninitialized);
-  unsigned movedIndex = getIndex(Moved);
-  unsigned nullIndex = getIndex(Null);
-  if (OPSStatus.count(VD)) {
-    auto it = OPSStatus.find(VD);
-    llvm::BitVector status = it->second;
+  // Assignable when nothing but the "overwritable" states is still possible.
+  const Status Clearable = Uninitialized | Moved | Null;
+  if (OPSStatus.count(VD))
+    return (OPSStatus.lookup(VD) & ~Clearable) == None;
 
-    if (status.test(uninitIndex)) {
-      status.reset(uninitIndex);
-    }
-    if (status.test(movedIndex)) {
-      status.reset(movedIndex);
-    }
-    if (status.test(nullIndex)) {
-      status.reset(nullIndex);
-    }
-    return !status.any();
-  }
-
-  if (BOPStatus.count(VD)) {
-    auto it = BOPStatus.find(VD);
-    llvm::BitVector status = it->second;
-
-    if (status.test(uninitIndex)) {
-      status.reset(uninitIndex);
-    }
-    if (status.test(movedIndex)) {
-      status.reset(movedIndex);
-    }
-    if (status.test(nullIndex)) {
-      status.reset(nullIndex);
-    }
-    return !status.any();
-  }
+  if (BOPStatus.count(VD))
+    return (BOPStatus.lookup(VD) & ~Clearable) == None;
 
   return false;
 }
@@ -985,7 +941,7 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD, ASTContext &Ctx) {
       ElemTy = Inner->getElementType();
     if (ElemTy.isOwnedPointer()) {
       if (!BOPStatus.count(VD)) {
-        BOPStatus[VD] = llvm::BitVector(7, 0);
+        BOPStatus[VD] = None;
         set(VD, Uninitialized);
       }
     } else if (ElemTy->isRecordType() &&
@@ -1149,7 +1105,7 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
   }
   // set VD to UNINITIALIZED
   if (source == Source::OPS && depth == 10) {
-    OPSStatus[VD] = llvm::BitVector(7, 0);
+    OPSStatus[VD] = None;
     set(VD, Ownership::Status::Uninitialized);
   }
 }
@@ -1258,7 +1214,7 @@ void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
   }
   // set VD to UNINITIALIZED
   if (source == Source::S && depth == 10) {
-    SStatus[VD] = llvm::BitVector(7, 0);
+    SStatus[VD] = None;
     set(VD, Ownership::Status::Uninitialized);
     SUninitOwnedFields[VD] = SAllOwnedFields[VD];
   }
@@ -1297,69 +1253,42 @@ void Ownership::OwnershipStatus::initBOP(QualType QT, const VarDecl *VD,
   }
   // set VD to UNINITIALIZED
   if (source == Source::BOP) {
-    BOPStatus[VD] = llvm::BitVector(7, 0);
+    BOPStatus[VD] = None;
     set(VD, Ownership::Status::Uninitialized);
   }
 }
 
 void Ownership::OwnershipStatus::set(const VarDecl *VD, Status S) {
-  if (OPSStatus.count(VD)) {
-    llvm::BitVector &status = OPSStatus[VD];
-    unsigned bitIndex = getIndex(S);
-    status.set(bitIndex);
-  }
+  if (OPSStatus.count(VD))
+    OPSStatus[VD] |= S;
 
-  if (SStatus.count(VD)) {
-    llvm::BitVector &status = SStatus[VD];
-    unsigned bitIndex = getIndex(S);
-    status.set(bitIndex);
-  }
+  if (SStatus.count(VD))
+    SStatus[VD] |= S;
 
-  if (BOPStatus.count(VD)) {
-    llvm::BitVector &status = BOPStatus[VD];
-    unsigned bitIndex = getIndex(S);
-    status.set(bitIndex);
-  }
+  if (BOPStatus.count(VD))
+    BOPStatus[VD] |= S;
 }
 
 void Ownership::OwnershipStatus::reset(const VarDecl *VD, Status S) {
-  if (OPSStatus.count(VD)) {
-    llvm::BitVector &status = OPSStatus[VD];
-    unsigned bitIndex = getIndex(S);
-    status.reset(bitIndex);
-  }
+  if (OPSStatus.count(VD))
+    OPSStatus[VD] &= ~S;
 
-  if (SStatus.count(VD)) {
-    llvm::BitVector &status = SStatus[VD];
-    unsigned bitIndex = getIndex(S);
-    status.reset(bitIndex);
-  }
+  if (SStatus.count(VD))
+    SStatus[VD] &= ~S;
 
-  if (BOPStatus.count(VD)) {
-    llvm::BitVector &status = BOPStatus[VD];
-    unsigned bitIndex = getIndex(S);
-    status.reset(bitIndex);
-  }
+  if (BOPStatus.count(VD))
+    BOPStatus[VD] &= ~S;
 }
 
 void Ownership::OwnershipStatus::resetAll(const VarDecl *VD) {
-  if (OPSStatus.count(VD)) {
-    llvm::BitVector &status = OPSStatus[VD];
-    for (unsigned index = 0; index < 7; index++)
-      status.reset(index);
-  }
+  if (OPSStatus.count(VD))
+    OPSStatus[VD] = None;
 
-  if (SStatus.count(VD)) {
-    llvm::BitVector &status = SStatus[VD];
-    for (unsigned index = 0; index < 7; index++)
-      status.reset(index);
-  }
+  if (SStatus.count(VD))
+    SStatus[VD] = None;
 
-  if (BOPStatus.count(VD)) {
-    llvm::BitVector &status = BOPStatus[VD];
-    for (unsigned index = 0; index < 7; index++)
-      status.reset(index);
-  }
+  if (BOPStatus.count(VD))
+    BOPStatus[VD] = None;
 }
 
 void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
