@@ -29,9 +29,6 @@ void foo6<short N1, short N2>()
         arr[i] = i;
     }
 }
-bool foo8<bool N>() {
-    return N;
-}
 struct S<short N> {
     short a;
 };
@@ -49,9 +46,6 @@ int main() {
     int a5_0 = foo5<5>();
     int a5_1 = foo5<-5>();
     foo6<5, 10>();
-    int a8_0 = foo8<true>();
-    int a8_1 = foo8<-5>();
-    int a8_2 = foo8<0>();
     struct S<5> s;
     s.bar();
     return 0;
@@ -87,10 +81,6 @@ int main() {
 // CHECK-EMPTY:
 // CHECK-NEXT: static void foo6_5_10(void);
 // CHECK-EMPTY:
-// CHECK-NEXT: static _Bool foo8_1(void);
-// CHECK-EMPTY:
-// CHECK-NEXT: static _Bool foo8_0(void);
-// CHECK-EMPTY:
 // CHECK-NEXT: static void struct_S_5_bar(struct S_5 *this);
 // CHECK-EMPTY:
 // CHECK-NEXT: int main(void) {
@@ -104,9 +94,6 @@ int main() {
 // CHECK-NEXT:   int a5_0 = foo5_5();
 // CHECK-NEXT:   int a5_1 = foo5_n5();
 // CHECK-NEXT:   foo6_5_10();
-// CHECK-NEXT:   int a8_0 = foo8_1();
-// CHECK-NEXT:   int a8_1 = foo8_1();
-// CHECK-NEXT:   int a8_2 = foo8_0();
 // CHECK-NEXT:   struct S_5 s;
 // CHECK-NEXT:   struct_S_5_bar(&s);
 // CHECK-NEXT:   return 0;
@@ -155,14 +142,6 @@ int main() {
 // CHECK-NEXT:   for (int i = 0; i < 5 + 10; i++) {
 // CHECK-NEXT:     arr[i] = i;
 // CHECK-NEXT:   }
-// CHECK-NEXT: }
-// CHECK-EMPTY:
-// CHECK-NEXT: static _Bool foo8_1(void) {
-// CHECK-NEXT:   return 1;
-// CHECK-NEXT: }
-// CHECK-EMPTY:
-// CHECK-NEXT: static _Bool foo8_0(void) {
-// CHECK-NEXT:   return 0;
 // CHECK-NEXT: }
 // CHECK-EMPTY:
 // CHECK-NEXT: static void struct_S_5_bar(struct S_5 *this) {

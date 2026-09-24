@@ -21,6 +21,29 @@ float foo_4<float F>(int a) {   //  expected-error {{a non-type template paramet
     return x;
 }
 
+// Pointer types are not valid constant generic parameter types.
+struct S<int *P> {};           // expected-error {{a non-type template parameter cannot have type 'int *'}}
+
+typedef int *PI;
+// Function templates must reject pointer aliases too.
+void fn<PI P>(void);           // expected-error {{a non-type template parameter cannot have type 'PI'}}
+
+enum E { A };
+
+typedef enum E EA;
+// An alias must not hide an enum parameter type.
+struct U<EA N> {};             // expected-error {{a non-type template parameter cannot have type 'EA'}}
+
+void fn1<char C>(void);
+void fn2<_Bool B>(void);       // expected-error {{a non-type template parameter cannot have type '_Bool'}}
+
+void fn3<int V[2]>(void);     // expected-error {{a non-type template parameter cannot have type 'int[2]'}}
+typedef int Arr[2];
+void fn4<Arr N>(void);         // expected-error {{a non-type template parameter cannot have type 'Arr'}}
+
+typedef int F(void);
+void fn5<F N>(void);           // expected-error {{a non-type template parameter cannot have type 'F'}}
+
 int main() {
     int a = foo_2<3.15>(2);     // expected-error {{no matching function for call to 'foo_2'}}
 
