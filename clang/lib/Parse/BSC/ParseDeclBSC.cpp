@@ -282,7 +282,6 @@ void Parser::ParseTraitBody(SourceLocation TraitLoc,
         continue;
       }
       ParseTraitMemberDeclaration(AccessAttrs);
-      MaybeDestroyTemplateIds();
       if (TryConsumeToken(tok::semi))
         continue;
     }
@@ -1150,7 +1149,6 @@ void Parser::ParseBSCMemberSpecification(SourceLocation RecordLoc,
       // Each iteration of this loop reads one member-declaration.
       ParseBSCClassMemberDeclarationWithPragmas(
           CurAS, AccessAttrs, static_cast<DeclSpec::TST>(TagType), TagDecl);
-      MaybeDestroyTemplateIds();
     }
     T.consumeClose();
   } else {

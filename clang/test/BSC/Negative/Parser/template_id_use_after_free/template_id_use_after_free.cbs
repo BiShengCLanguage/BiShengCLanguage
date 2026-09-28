@@ -1,0 +1,5 @@
+// RUN: %clang_cc1 -fbsc-experimental -fsyntax-only -verify %s
+
+void func0<a>()b c<a,d> int func0<a,d>(_Owned struct e{int x;}) // expected-error 3{{expected ';' at end of declaration}} expected-error {{unknown type name 'b'}} expected-warning {{declaration of 'struct e' will not be visible outside of this function}} expected-error {{conflicting types for 'func0'}} expected-note {{previous declaration is here}}
+
+void func1<a,d>(_Owned struct e2{int y;}); // expected-warning {{declaration of 'struct e2' will not be visible outside of this function}}

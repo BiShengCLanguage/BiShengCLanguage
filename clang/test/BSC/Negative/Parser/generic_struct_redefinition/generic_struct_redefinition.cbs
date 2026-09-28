@@ -1,0 +1,13 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+struct S<A>{};
+struct S<int>{}; // expected-error {{template specialization requires 'template<>'}}
+
+struct T<A>{int a;};
+struct T<int>{int b;}; // expected-error {{template specialization requires 'template<>'}}
+
+struct U<A>{};
+struct U<U<int>>{}; // expected-error {{template specialization requires 'template<>'}}
+
+struct V<A>{}; // expected-note {{previous template declaration is here}}
+struct V<A,B>{}; // expected-error {{too many template parameters in template redeclaration}} expected-error {{expected identifier or '('}}
