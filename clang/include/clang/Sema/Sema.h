@@ -64,6 +64,7 @@
 #include "clang/Sema/Weak.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -3139,7 +3140,9 @@ private:
 #if ENABLE_BSC
   // global nullability check
   NullabilityKind GetExprNK(Expr *E);
-  void CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string Path);
+  void CheckGlobalInit(
+      llvm::PointerUnion<VarDecl *, CompoundLiteralExpr *> InitOwner,
+      QualType QT, Expr *Init, std::string Path);
 #endif
 
 public:

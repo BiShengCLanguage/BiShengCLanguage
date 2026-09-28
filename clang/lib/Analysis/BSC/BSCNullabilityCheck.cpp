@@ -110,8 +110,9 @@ public:
   bool IsStmtInSafeZone(Stmt *S);
   bool ShouldReportNullPtrError(Stmt *S);
   void VisitDeclStmt(DeclStmt *S);
-  void CheckInit(DeclStmt *DS, VarDecl *VD,
-                 QualType QT, Expr *Init, Place Path);
+  void VisitCompoundLiteralExpr(CompoundLiteralExpr *CLE);
+  void CheckInit(Stmt *CheckSite, VarDecl *VD, QualType QT, Expr *Init,
+                 Place Path);
   bool checkPathSensitiveFirstLevel(Expr *FirstLevel, QualType &CurLHS,
                                      QualType &CurRHS,
                                      NullabilityCheckDiagKind DiagKind,
@@ -180,18 +181,34 @@ MemberExpr *getMemberExprFromExpr(Expr *E) {
   return nullptr;
 }
 
-/// Resolve the InitListExpr that directly carries the value of \p Base when
-/// \p Base denotes an element/field of a compound-literal aggregate. Supports
-/// two base shapes:
+// Semantic struct initializers omit unnamed bit-field slots.
+static unsigned getCompoundLiteralFieldIndex(const FieldDecl *Field) {
+  const RecordDecl *RD = Field->getParent();
+  if (!RD->isStruct())
+    return Field->getFieldIndex();
+
+  unsigned Idx = 0;
+  for (const FieldDecl *FD : RD->fields()) {
+    if (FD == Field)
+      break;
+    if (!FD->isUnnamedBitfield())
+      ++Idx;
+  }
+  return Idx;
+}
+
+/// Resolve the initializer expression that directly carries the value of
+/// \p Base when it denotes an element/field of a compound-literal aggregate.
+/// Supports two base shapes:
 ///  - the compound literal itself: `(T[N]){...}` or `(struct S){...}`
 ///  - a member of a compound-literal record whose field is itself an
 ///    aggregate: `((struct SArr){0}).arr` (arr is T[N])
 /// Returns nullptr when the base is not rooted at a compound literal, in
 /// which case the static element/field type should be trusted as before.
-static InitListExpr *getCompoundLiteralInitList(Expr *Base, ASTContext &Ctx) {
+static Expr *getCompoundLiteralInitExpr(Expr *Base, ASTContext &Ctx) {
   Base = Base->IgnoreParenImpCasts();
   if (auto *CLE = dyn_cast<CompoundLiteralExpr>(Base))
-    return dyn_cast<InitListExpr>(CLE->getInitializer());
+    return CLE->getInitializer();
   // `((struct SArr){0}).arr` — the base is a MemberExpr whose base is a
   // compound-literal record; recurse to that record's init list, then index
   // into the accessed field.
@@ -199,13 +216,17 @@ static InitListExpr *getCompoundLiteralInitList(Expr *Base, ASTContext &Ctx) {
     auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
     if (!FD)
       return nullptr;
-    InitListExpr *ParentILE = getCompoundLiteralInitList(ME->getBase(), Ctx);
+    Expr *ParentInit = getCompoundLiteralInitExpr(ME->getBase(), Ctx);
+    if (!ParentInit || isa<ImplicitValueInitExpr>(ParentInit))
+      return ParentInit;
+    auto *ParentILE =
+        dyn_cast<InitListExpr>(ParentInit->IgnoreParenImpCasts());
     if (!ParentILE)
       return nullptr;
-    unsigned Idx = FD->getFieldIndex();
+    unsigned Idx = getCompoundLiteralFieldIndex(FD);
     if (Idx >= ParentILE->getNumInits())
       return nullptr;
-    return dyn_cast<InitListExpr>(ParentILE->getInit(Idx));
+    return ParentILE->getInit(Idx);
   }
   return nullptr;
 }
@@ -221,12 +242,15 @@ static InitListExpr *getCompoundLiteralInitList(Expr *Base, ASTContext &Ctx) {
 /// \p Field  — for member access, the accessed FieldDecl.
 static Expr *getCompoundLiteralInitElem(Expr *Base, Expr *IndexE,
                                         FieldDecl *Field, ASTContext &Ctx) {
-  InitListExpr *ILE = getCompoundLiteralInitList(Base, Ctx);
+  Expr *BaseInit = getCompoundLiteralInitExpr(Base, Ctx);
+  if (!BaseInit || isa<ImplicitValueInitExpr>(BaseInit))
+    return BaseInit;
+  auto *ILE = dyn_cast<InitListExpr>(BaseInit->IgnoreParenImpCasts());
   if (!ILE)
     return nullptr;
   unsigned Idx;
   if (Field) {
-    Idx = Field->getFieldIndex();
+    Idx = getCompoundLiteralFieldIndex(Field);
   } else {
     if (!IndexE)
       return nullptr;
@@ -241,9 +265,9 @@ static Expr *getCompoundLiteralInitElem(Expr *Base, Expr *IndexE,
   if (Idx >= ILE->getNumInits()) {
     // Omitted array elements are implicitly zero-initialized; Sema materializes
     // them as the InitListExpr's array_filler (an ImplicitValueInitExpr).
-    // Surface it so a _Nonnull slot filled with NULL is not laundered to the
-    // declared _Nonnull type. (Records never use a filler — Sema fills every
-    // field slot explicitly.)
+    // Return the filler to callers that inspect initializer values. Compound
+    // literal construction validity is checked separately by CheckInit.
+    // Records never use a filler because Sema fills every field slot.
     if (!Field && ILE->hasArrayFiller())
       return ILE->getArrayFiller();
     return nullptr;
@@ -306,11 +330,15 @@ bool FindNonnull(QualType QT, const ASTContext &Ctx) {
   return false;
 }
 
-// Normalize init expr (ignore casts, compound literal)
+// Normalize init expr (ignore constant wrappers, casts, and compound literals)
 Expr *NormalizeInitExpr(Expr *E) {
   if (!E)
     return nullptr;
   while (true) {
+    if (auto *CE = dyn_cast<ConstantExpr>(E)) {
+      E = CE->getSubExpr()->IgnoreParenImpCasts();
+      continue;
+    }
     if (auto *CSE = dyn_cast<CStyleCastExpr>(E)) {
       E = CSE->getSubExpr()->IgnoreParenImpCasts();
       continue;
@@ -523,8 +551,12 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       // Exception: the base is a compound literal aggregate.
       auto *ASE = cast<ArraySubscriptExpr>(E);
       if (Expr *InitE = getCompoundLiteralInitElem(
-              ASE->getBase(), ASE->getIdx(), /*Field=*/nullptr, Ctx))
+              ASE->getBase(), ASE->getIdx(), /*Field=*/nullptr, Ctx)) {
+        // An implicitly initialized base also zero-initializes this pointer.
+        if (isa<ImplicitValueInitExpr>(InitE))
+          return NullabilityKind::Nullable;
         return getExprPathNullability(InitE);
+      }
       NullabilityKind NK = ASE->getType().getDefNullability();
       if (NK == NullabilityKind::NonNull || NK == NullabilityKind::Nullable)
         return NK;
@@ -534,8 +566,12 @@ NullabilityKind TransferFunctions::getExprPathNullability(Expr *E) {
       auto *ME = cast<MemberExpr>(E);
       if (auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
         if (Expr *InitE = getCompoundLiteralInitElem(
-                ME->getBase(), /*IndexE=*/nullptr, FD, Ctx))
+                ME->getBase(), /*IndexE=*/nullptr, FD, Ctx)) {
+          // An implicitly initialized base also zero-initializes this pointer.
+          if (isa<ImplicitValueInitExpr>(InitE))
+            return NullabilityKind::Nullable;
           return getExprPathNullability(InitE);
+        }
         NullabilityKind NK = FD->getType().getDefNullability();
         if (NK == NullabilityKind::NonNull)
           return NullabilityKind::NonNull;
@@ -589,6 +625,10 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
       }
     }
   }
+}
+
+void TransferFunctions::VisitCompoundLiteralExpr(CompoundLiteralExpr *CLE) {
+  CheckInit(CLE, nullptr, CLE->getType(), CLE->getInitializer(), nullptr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -688,15 +728,31 @@ bool TransferFunctions::checkPathSensitiveFirstLevel(
   return true;
 }
 
-void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
-                                  QualType QT, Expr *Init,
-                                  Place path) {
+void TransferFunctions::CheckInit(Stmt *CheckSite, VarDecl *VD, QualType QT,
+                                  Expr *Init, Place path) {
+  auto *CLE = VD ? nullptr : cast<CompoundLiteralExpr>(CheckSite);
+  SourceLocation DiagLoc = VD ? VD->getLocation() : CLE->getExprLoc();
   QualType CanQT = QT.getCanonicalType();
+  Expr *NormalizedInit =
+      Init ? NormalizeInitExpr(Init->IgnoreParenImpCasts()) : nullptr;
+  // A checked, directly copied literal owns identical initialization errors.
+  // Keep walking the declaration to update its nullability state.
+  auto *OwnedCLE = VD && VD->getInit()
+                       ? dyn_cast<CompoundLiteralExpr>(
+                             VD->getInit()->IgnoreParenImpCasts())
+                       : nullptr;
+  if (OwnedCLE &&
+      (!Ctx.hasSameType(VD->getType(), OwnedCLE->getType()) ||
+       !ShouldReportNullPtrError(OwnedCLE)))
+    OwnedCLE = nullptr;
   // early return if no initialization
-  if (!Init || isa<ImplicitValueInitExpr>(Init)) {
-    if (ShouldReportNullPtrError(DS) && FindNonnull(QT, Ctx)) {
-      NullabilityCheckDiagInfo DI(VD->getLocation(), NonnullInitByDefault,
-                                  VD->getNameAsString());
+  if (!NormalizedInit || isa<ImplicitValueInitExpr>(NormalizedInit)) {
+    if (ShouldReportNullPtrError(CheckSite) && FindNonnull(QT, Ctx) &&
+        !OwnedCLE) {
+      std::string DiagName =
+          VD ? VD->getNameAsString() : CLE->getType().getAsString();
+      NullabilityCheckDiagInfo DI(DiagLoc, NonnullInitByDefault,
+                                  DiagName);
       Reporter.addDiagInfo(DI);
     }
     return;
@@ -706,19 +762,20 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
     NullabilityKind LHSKind = QT.getDefNullability();
     NullabilityKind RHSKind = getExprPathNullability(Init);
     if (LHSKind == NullabilityKind::NonNull) {
-      if (RHSKind == NullabilityKind::Nullable && ShouldReportNullPtrError(DS)) {
-        NullabilityCheckDiagInfo DI(VD->getLocation(),
+      if (RHSKind == NullabilityKind::Nullable &&
+          ShouldReportNullPtrError(CheckSite) && !OwnedCLE) {
+        NullabilityCheckDiagInfo DI(DiagLoc,
                                     NonnullAssignedByNullable,
                                     getDiagNameFromExpr(Init));
         Reporter.addDiagInfo(DI);
       }
     } else {
-      if (CurrState.count(path)) {
+      if (path && CurrState.count(path)) {
         // Here we update PathNullability of nullable pointer.
         CurrState[path] = RHSKind;
       }
     }
-    if (path->getKind() == bsc::Place::Kind::Var) {
+    if (path && VD && path->getKind() == bsc::Place::Kind::Var) {
       // Declaration-time rebinding can stale existing dereference-chain facts.
       // Example:
       //   if (*p) { /* (*p) is NonNull on this path */ }
@@ -731,22 +788,22 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
     // IgnoreParenImpCasts: Sema may BitCast the initializer to the declared
     // type when nested nullability lives in qualifier bits; use the pre-cast
     // type so nested mismatches remain visible.
-    if (ShouldReportNullPtrError(DS)) {
+    if (ShouldReportNullPtrError(CheckSite)) {
       Expr *InitBase = Init->IgnoreParenImpCasts();
       QualType CurLHS = QT;
       QualType CurRHS = InitBase->getType();
       QualType OrigLHS = CurLHS;
       QualType OrigRHS = CurRHS;
       if (checkPathSensitiveFirstLevel(stripBorrow(InitBase), CurLHS, CurRHS,
-              NonnullAssignedByNullable, VD->getLocation()))
+              NonnullAssignedByNullable, DiagLoc))
         checkNestedPointerNullability(CurLHS, CurRHS, OrigLHS, OrigRHS,
-                                      Ctx, Reporter, VD->getLocation());
+                                      Ctx, Reporter, DiagLoc);
     }
 
     return;
   }
-  // check record/array initialization recursively
-  Init = NormalizeInitExpr(Init->IgnoreParenImpCasts());
+  // Keep the caller's diagnostic context through aggregate recursion.
+  Init = NormalizedInit;
   if (auto *ILE = dyn_cast<InitListExpr>(Init)) {
     unsigned NumInits = ILE->getNumInits();
     if (CanQT->isRecordType()) {
@@ -758,10 +815,10 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       // check empty initialized record which has non-null fields
       if (NumInits == 0) {
         if (RD->isUnion()) {
-          FieldDecl *FD = ILE->getInitializedFieldInUnion();
-          CheckInit(DS, VD, FD->getType(), nullptr, path);
+          if (FieldDecl *FD = ILE->getInitializedFieldInUnion())
+            CheckInit(CheckSite, VD, FD->getType(), nullptr, path);
         } else {
-          CheckInit(DS, VD, QT, nullptr, path);
+          CheckInit(CheckSite, VD, QT, nullptr, path);
         }
         return;
       }
@@ -771,14 +828,17 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
         FieldsToProcess.push_back(ILE->getInitializedFieldInUnion());
       } else if (RD->isStruct()) {
         for (FieldDecl *FD : RD->fields())
-          FieldsToProcess.push_back(FD);
+          if (!FD->isUnnamedBitfield())
+            FieldsToProcess.push_back(FD);
       }
       // check fields to process
+      unsigned idx = 0;
       for (FieldDecl *FD : FieldsToProcess) {
-        unsigned idx = RD->isStruct() ? FD->getFieldIndex() : 0;
         Expr *FieldInit = idx < NumInits ? ILE->getInit(idx) : nullptr;
-        Place newPath = PB.BuildField(path, FD, FD->getLocation());
-        CheckInit(DS, VD, FD->getType(), FieldInit, newPath);
+        ++idx;
+        Place newPath = path ? PB.BuildField(path, FD, FD->getLocation())
+                             : nullptr;
+        CheckInit(CheckSite, VD, FD->getType(), FieldInit, newPath);
       }
     } else if (CanQT->isArrayType()) {
       // check array initialization
@@ -787,20 +847,24 @@ void TransferFunctions::CheckInit(DeclStmt *DS, VarDecl *VD,
       // check explicitly provided initializers
       for (unsigned i = 0; i < NumInits; ++i) {
         Expr *ElemInit = ILE->getInit(i);
-        Place newPath = PB.BuildIndex(
-            path, ElemTy, "[" + std::to_string(i) + "]", VD->getLocation());
-        CheckInit(DS, VD, ElemTy, ElemInit, newPath);
+        Place newPath = path ? PB.BuildIndex(
+                                   path, ElemTy,
+                                   "[" + std::to_string(i) + "]",
+                                   DiagLoc)
+                             : nullptr;
+        CheckInit(CheckSite, VD, ElemTy, ElemInit, newPath);
       }
       // check implicitly zero-initialized trailing elements
       if (auto *CAT = dyn_cast<ConstantArrayType>(AT)) {
         unsigned ArraySize = (unsigned)CAT->getSize().getZExtValue();
         if (NumInits < ArraySize) {
-          Place newPath = PB.BuildIndex(
-              path, ElemTy,
-              "[" + std::to_string(NumInits) + ":" + std::to_string(ArraySize) +
-                  "]",
-              VD->getLocation());
-          CheckInit(DS, VD, ElemTy, nullptr, newPath);
+          Place newPath = path ? PB.BuildIndex(
+                                     path, ElemTy,
+                                     "[" + std::to_string(NumInits) + ":" +
+                                         std::to_string(ArraySize) + "]",
+                                     DiagLoc)
+                               : nullptr;
+          CheckInit(CheckSite, VD, ElemTy, nullptr, newPath);
         }
       }
     }

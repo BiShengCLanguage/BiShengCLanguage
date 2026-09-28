@@ -8050,9 +8050,17 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
   if (isFileScope) {
     if (!LiteralExpr->isTypeDependent() &&
         !LiteralExpr->isValueDependent() &&
-        !literalType->isDependentType()) // C99 6.5.2.5p3
+        !literalType->isDependentType()) { // C99 6.5.2.5p3
       if (CheckForConstantInitializer(LiteralExpr, literalType))
         return ExprError();
+#if ENABLE_BSC
+      // File-scope construction is checked independently of its receiving decl.
+      if (getLangOpts().BSC &&
+          getLangOpts().getNullabilityCheck() == LangOptions::NC_ALL &&
+          !isUnevaluatedContext())
+        CheckGlobalInit(E, E->getType(), E->getInitializer(), "");
+#endif
+    }
   } else if (literalType.getAddressSpace() != LangAS::opencl_private &&
              literalType.getAddressSpace() != LangAS::Default) {
     // Embedded-C extensions to C99 6.5.2.5:

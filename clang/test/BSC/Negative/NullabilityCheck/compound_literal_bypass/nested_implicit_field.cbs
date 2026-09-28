@@ -1,0 +1,169 @@
+// RUN: %clang_cc1 -nullability-check=all -verify=safe,all %s
+// RUN: %clang_cc1 -nullability-check=safeonly -verify=safe,safeonly %s
+
+struct T { int *_Nonnull p; };
+struct U { int n; struct T t; };
+struct S { int n; int *_Nonnull p; };
+
+_Safe void take_nonnull(int *_Nonnull p);
+
+// An unused compound literal must satisfy the initialization contract in
+// either function safety mode.
+_Safe void test(void) {
+  (void)((struct U){.n = 1});
+  // safe-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+  // safe-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+}
+
+_Unsafe void test1(void) {
+  (void)((struct U){.n = 1});
+  // all-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+  // all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+}
+
+// A return checks the compound literal's member initializer in either
+// function safety mode.
+_Safe int *_Nonnull test2(void) {
+  return ((struct U){.n = 1}).t.p;
+  // safe-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+  // safe-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+  // safe-error@-3 {{cannot return possibly-null status pointer 'p' as a '_Nonnull' pointer}}
+}
+
+_Unsafe int *_Nonnull test3(void) {
+  return ((struct U){.n = 1}).t.p;
+  // all-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+  // all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+  // all-error@-3 {{cannot return possibly-null status pointer 'p' as a '_Nonnull' pointer}}
+}
+
+// Explicit non-null initialization is valid in either function safety mode.
+_Safe int *_Nonnull test4(int *_Nonnull p) {
+  return ((struct U){.n = 1, .t = {.p = p}}).t.p;
+}
+
+_Unsafe int *_Nonnull test5(int *_Nonnull p) {
+  return ((struct U){.n = 1, .t = {.p = p}}).t.p;
+}
+
+// Direct same-type initialization reports only the compound literal's error.
+_Safe void test6(void) {
+  struct U u =
+      (struct U){.n = 1};
+  // safe-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+  // safe-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+}
+
+_Unsafe void test7(void) {
+  struct U u =
+      (struct U){.n = 1};
+  // all-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+  // all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+}
+
+// The declaration still checks conversion from the compound literal's type
+// in either function safety mode.
+_Unsafe void test8(int *_Nullable q) {
+  int *_Nonnull x = // all-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+      (int *_Nullable){q};
+}
+
+_Safe void test9(int *_Nullable q) {
+  int *_Nonnull x = // safe-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+      (int *_Nullable){q};
+}
+
+// Every _Nonnull array element must have a non-null initializer in either
+// function safety mode.
+_Unsafe void test10(int *_Nonnull r) {
+  take_nonnull((int *_Nonnull[]){r, nullptr}[0]);
+  // all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+_Safe void test11(int *_Nonnull r) {
+  take_nonnull((int *_Nonnull[]){r, nullptr}[0]);
+  // safe-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+// A nullable sink does not make an invalid _Nonnull object constructible in
+// either function safety mode.
+_Unsafe int *_Nullable test12(void) {
+  return ((struct S){.n = 1}).p;
+  // all-error@-1 {{cannot implicitly initialize 'struct S' because it contains '_Nonnull' pointer}}
+  // all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct S' or declare them as '_Nullable'}}
+}
+
+_Safe int *_Nullable test13(void) {
+  return ((struct S){.n = 1}).p;
+  // safe-error@-1 {{cannot implicitly initialize 'struct S' because it contains '_Nonnull' pointer}}
+  // safe-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct S' or declare them as '_Nullable'}}
+}
+
+// An unchecked pointer compound literal does not hide its nullable value from
+// a checked declaration.
+_Safe void test14(int *_Nullable q) {
+  int *_Nonnull p = // safeonly-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+      _Unsafe((int *_Nonnull){q}); // all-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+  (void)p;
+}
+
+// The same rule applies after selecting a compound-literal field.
+_Safe void test15(int *_Nullable q) {
+  int *_Nonnull p = // safe-error {{cannot assign possibly-null status pointer 'p' to a '_Nonnull' pointer}}
+      _Unsafe(((struct S){.p = q}).p); // all-error {{cannot assign possibly-null status pointer 'q' to a '_Nonnull' pointer}}
+  (void)p;
+}
+
+// The same rule applies after selecting a compound-literal array element.
+_Safe void test16(int *_Nullable q) {
+  int *_Nonnull p = // safe-error {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+      _Unsafe(((int *_Nonnull[]){q})[0]); // all-error {{cannot assign possibly-null status pointer 'q' to a '_Nonnull' pointer}}
+  (void)p;
+}
+
+// In safeonly, unchecked construction leaves the declaration responsible.
+_Safe void test17(void) {
+  struct S s = // safeonly-error {{cannot implicitly initialize 's' because it contains '_Nonnull' pointer}}
+      _Unsafe((struct S){}); // all-error {{cannot implicitly initialize 'struct S' because it contains '_Nonnull' pointer}}
+  // safeonly-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 's' or declare them as '_Nullable'}}
+  // all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct S' or declare them as '_Nullable'}}
+  (void)s;
+}
+
+// Explicit null initialization after an unnamed bit-field is still rejected.
+_Safe void test18(void) {
+  struct V { int : 1; int *_Nonnull p; };
+  (void)(struct V){.p = nullptr};
+  // safe-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+// Named bit-fields retain initializer slots; only unnamed ones are skipped.
+_Safe void test19(void) {
+  struct X { unsigned n : 1; int : 1; int *_Nonnull p; };
+  struct X x = {.n = 1};
+  // safe-error@-1 {{cannot implicitly initialize 'x' because it contains '_Nonnull' pointer}}
+  // safe-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'x' or declare them as '_Nullable'}}
+}
+
+// Scalar initialization follows the same diagnostic ownership rule.
+_Safe void test20(void) {
+  int *_Nonnull p =
+      (int *_Nonnull){nullptr};
+  // safe-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+}
+
+// Unnamed bit-fields do not hide the selected field's nullable initializer.
+_Safe void test21(int *_Nullable q) {
+  struct V { int : 1; int *_Nonnull p; };
+  int *_Nonnull p = // safe-error {{cannot assign possibly-null status pointer 'p' to a '_Nonnull' pointer}}
+      _Unsafe(((struct V){.p = q}).p); // all-error {{cannot assign possibly-null status pointer 'q' to a '_Nonnull' pointer}}
+  (void)p;
+}
+
+// Nested field lookup skips unnamed bit-fields, but counts named ones.
+_Safe void test22(int *_Nullable q) {
+  struct V { unsigned n : 1; int : 1; struct T t; };
+  int *_Nonnull p = // safe-error {{cannot assign possibly-null status pointer 'p' to a '_Nonnull' pointer}}
+      _Unsafe(((struct V){.n = 1, .t = {.p = q}}).t.p); // all-error {{cannot assign possibly-null status pointer 'q' to a '_Nonnull' pointer}}
+  (void)p;
+}

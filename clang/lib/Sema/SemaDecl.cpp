@@ -14769,10 +14769,14 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
   QualType CanQT = QT.getCanonicalType();
   if (CanQT->isPointerType()) {
     switch (E->getStmtClass()) {
+    case Expr::ConstantExprClass:
+      return GetExprNK(cast<ConstantExpr>(E)->getSubExpr());
     case Expr::ParenExprClass:
       return GetExprNK(cast<ParenExpr>(E)->getSubExpr());
     case Expr::ImplicitCastExprClass:
       return GetExprNK(cast<ImplicitCastExpr>(E)->getSubExpr());
+    case Expr::CompoundLiteralExprClass:
+      return GetExprNK(cast<CompoundLiteralExpr>(E)->getInitializer());
     case Expr::CallExprClass: {
       CallExpr *CE = cast<CallExpr>(E);
       if (FunctionDecl *FD = CE->getDirectCallee()) {
@@ -14867,10 +14871,25 @@ NullabilityKind Sema::GetExprNK(Expr *E) {
   return NullabilityKind::Unspecified;
 }
 
-void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string path) {
+void Sema::CheckGlobalInit(
+    llvm::PointerUnion<VarDecl *, CompoundLiteralExpr *> InitOwner,
+    QualType QT, Expr *Init, std::string path) {
+  VarDecl *VD = dyn_cast<VarDecl *>(InitOwner);
+  auto *CLE = VD ? nullptr : cast<CompoundLiteralExpr *>(InitOwner);
+  SourceLocation DiagLoc = VD ? VD->getLocation() : CLE->getExprLoc();
   QualType CanQT = QT.getCanonicalType();
+  Expr *NormalizedInit =
+      Init ? NormalizeInitExpr(Init->IgnoreParenImpCasts()) : nullptr;
+  // Same-type literal construction was checked before the declaration.
+  auto *OwnedCLE = VD && VD->getInit()
+                       ? dyn_cast<CompoundLiteralExpr>(
+                             VD->getInit()->IgnoreParenImpCasts())
+                       : nullptr;
+  if (OwnedCLE &&
+      !Context.hasSameType(VD->getType(), OwnedCLE->getType()))
+    OwnedCLE = nullptr;
   // early return if no initialization
-  if (!Init || isa<ImplicitValueInitExpr>(Init)) {
+  if (!NormalizedInit || isa<ImplicitValueInitExpr>(NormalizedInit)) {
     if (CanQT->isRecordType()) {
       auto *RT = CanQT->getAs<RecordType>();
       RecordDecl *RD = RT->getDecl();
@@ -14878,11 +14897,11 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
         QT = RD->field_begin()->getType();
       }
     }
-    if (FindNonnull(QT, Context)) {
-      Diag(VD->getLocation(), diag::err_global_nonnull_init_by_default)
-          << VD->getNameAsString();
-      Diag(VD->getLocation(), diag::note_global_nonnull_init_reason)
-          << VD->getNameAsString();
+    if (FindNonnull(QT, Context) && !OwnedCLE) {
+      std::string DiagName =
+          VD ? VD->getNameAsString() : CLE->getType().getAsString();
+      Diag(DiagLoc, diag::err_global_nonnull_init_by_default) << DiagName;
+      Diag(DiagLoc, diag::note_global_nonnull_init_reason) << DiagName;
     }
     return;
   }
@@ -14891,15 +14910,14 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
     NullabilityKind LHSKind = QT.getDefNullability();
     NullabilityKind RHSKind = GetExprNK(Init);
     if (LHSKind == NullabilityKind::NonNull) {
-      if (RHSKind == NullabilityKind::Nullable) {
-        Diag(VD->getLocation(), diag::err_nonnull_assigned_by_nullable) << 0;
+      if (RHSKind == NullabilityKind::Nullable && !OwnedCLE) {
+        Diag(DiagLoc, diag::err_nonnull_assigned_by_nullable) << 0;
       }
     }
     return;
   }
   // check record/array initialization recursively
-  Init = NormalizeInitExpr(Init->IgnoreParenImpCasts());
-  if (auto *ILE = dyn_cast<InitListExpr>(Init)) {
+  if (auto *ILE = dyn_cast<InitListExpr>(NormalizedInit)) {
     InitListExpr *SemanticILE =
         ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
     if (!SemanticILE)
@@ -14913,10 +14931,10 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
         return;
       if (NumInits == 0) {
         if (RD->isUnion()) {
-          FieldDecl *FD = ILE->getInitializedFieldInUnion();
-          CheckGlobalInit(VD, FD->getType(), nullptr, path);
+          if (FieldDecl *FD = ILE->getInitializedFieldInUnion())
+            CheckGlobalInit(InitOwner, FD->getType(), nullptr, path);
         } else {
-          CheckGlobalInit(VD, QT, nullptr, path);
+          CheckGlobalInit(InitOwner, QT, nullptr, path);
         }
         return;
       }
@@ -14926,14 +14944,16 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
         FieldsToProcess.push_back(SemanticILE->getInitializedFieldInUnion());
       } else if (RD->isStruct()) {
         for (FieldDecl *FD : RD->fields())
-          FieldsToProcess.push_back(FD);
+          if (!FD->isUnnamedBitfield())
+            FieldsToProcess.push_back(FD);
       }
       // check fields to process
+      unsigned idx = 0;
       for (FieldDecl *FD : FieldsToProcess) {
-        unsigned idx = RD->isStruct() ? FD->getFieldIndex() : 0;
         Expr *FieldInit = idx < NumInits ? SemanticILE->getInit(idx) : nullptr;
+        ++idx;
         std::string newPath = path + "." + FD->getNameAsString();
-        CheckGlobalInit(VD, FD->getType(), FieldInit, newPath);
+        CheckGlobalInit(InitOwner, FD->getType(), FieldInit, newPath);
       }
     } else if (CanQT->isArrayType()) {
       auto *AT = Context.getAsArrayType(QT);
@@ -14942,14 +14962,14 @@ void Sema::CheckGlobalInit(VarDecl *VD, QualType QT, Expr *Init, std::string pat
       for (unsigned i = 0; i < NumInits; ++i) {
         Expr *ElemInit = SemanticILE->getInit(i);
         std::string newPath = path + "[" + std::to_string(i) + "]";
-        CheckGlobalInit(VD, ElemTy, ElemInit, newPath);
+        CheckGlobalInit(InitOwner, ElemTy, ElemInit, newPath);
       }
       // check implicitly zero-initialized trailing elements
       if (auto *CAT = dyn_cast<ConstantArrayType>(AT)) {
         unsigned ArraySize = (unsigned)CAT->getSize().getZExtValue();
         if (NumInits < ArraySize) {
           std::string newPath = path + "[" + std::to_string(NumInits) + ":" + std::to_string(ArraySize) + "]";
-          CheckGlobalInit(VD, ElemTy, nullptr, newPath);
+          CheckGlobalInit(InitOwner, ElemTy, nullptr, newPath);
         }
       }
     }

@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -nullability-check=all -verify %s
+// RUN: %clang_cc1 -nullability-check=safeonly -verify %s
 // expected-no-diagnostics
 
 int* _Owned safe_malloc(int);
@@ -202,4 +203,23 @@ void test_nonnull_static() {
   static int* _Nonnull arr[2] = {&x, &x};
   static struct S1 s1 = {&x};
   static union U1 u1 = {&x};
+}
+
+// Unnamed bit-fields occupy no initializer slots in either construction check.
+_Safe void test(int *_Nonnull p) {
+  struct S { int : 1; int *_Nonnull p; };
+  struct S s = (struct S){.p = p};
+}
+
+// A union with only unnamed bit-fields has no member to initialize.
+_Safe void test1(void) {
+  union U { int : 1; };
+  (void)(union U){};
+}
+
+// Field lookup must not select the next field's nullable initializer.
+_Safe void test2(int *_Nonnull p, int *_Nullable q) {
+  struct S { int : 1; int *_Nonnull p; int *_Nullable r; };
+  int *_Nonnull r = ((struct S){.p = p, .r = q}).p;
+  (void)r;
 }

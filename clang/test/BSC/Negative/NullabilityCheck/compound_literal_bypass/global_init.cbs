@@ -1,0 +1,57 @@
+// RUN: %clang_cc1 -nullability-check=all -verify=all %s
+// RUN: %clang_cc1 -nullability-check=safeonly -verify=safeonly %s
+// safeonly-no-diagnostics
+
+struct T { int *_Nonnull p; };
+struct U { int n; struct T t; };
+struct S { int n; int *_Nonnull p; };
+
+struct U g = (struct U){.n = 1};
+// all-error@-1 {{cannot implicitly initialize 'struct U' because it contains '_Nonnull' pointer}}
+// all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct U' or declare them as '_Nullable'}}
+
+struct S g1 =
+    (struct S){.p = nullptr};
+// all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+
+// A nullable global sink does not exempt the compound literal's construction.
+int *_Nullable p = (int *_Nonnull){nullptr};
+// all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+
+// A nested nullable compound literal must not hide its value from the outer one.
+int *_Nullable q = (int *_Nonnull){(int *_Nullable){nullptr}};
+// all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+
+// Array decay does not exempt the compound literal's non-null elements.
+int *_Nonnull *a = (int *_Nonnull[1]){nullptr};
+// all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+
+// Unevaluated compound literals do not initialize an object.
+int n = sizeof((struct U){.n = 1});
+
+// Valid scalar and aggregate construction remains accepted at file scope.
+int *_Nonnull p1 = (int *_Nonnull){&n};
+struct U g2 = (struct U){.n = 1, .t = {.p = &n}};
+
+// Nullable construction permits null, but a non-null receiving global does not.
+int *_Nullable p2 = (int *_Nullable){nullptr};
+int *_Nonnull p3 = (int *_Nullable){nullptr};
+// all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+
+// Direct same-type scalar initialization reports only the construction error.
+int *_Nonnull p4 =
+    (int *_Nonnull){nullptr};
+// all-error@-1 {{cannot assign a possibly-null status pointer to a '_Nonnull' pointer}}
+
+// Unnamed bit-fields do not occupy semantic initializer slots.
+struct V { int : 1; int *_Nonnull p; };
+struct V *v = &(struct V){.p = &n};
+
+// Named non-null fields still require initialization after an unnamed bit-field.
+struct V *v1 = &(struct V){};
+// all-error@-1 {{cannot implicitly initialize 'struct V' because it contains '_Nonnull' pointer}}
+// all-note@-2 {{add explicit initializer for '_Nonnull' pointers inside 'struct V' or declare them as '_Nullable'}}
+
+// A union with only unnamed bit-fields has no initializable member.
+union W { int : 1; };
+union W *w = &(union W){};
