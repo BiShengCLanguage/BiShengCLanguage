@@ -48,6 +48,16 @@ TEST_F(DefineInlineTest, TriggersOnFunctionDecl) {
   // Definition with no body.
   class Bar { Bar() = def^ault; };
   )cpp");
+
+#if ENABLE_BSC
+  EXPECT_UNAVAILABLE(R"cpp(
+  // Redeclaration after the definition.
+  void foo() {
+    return;
+  }
+  vo^id f^oo();
+  )cpp");
+#endif
 }
 
 TEST_F(DefineInlineTest, NoForwardDecl) {

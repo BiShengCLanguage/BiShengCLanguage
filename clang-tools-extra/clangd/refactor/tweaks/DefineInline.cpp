@@ -401,8 +401,14 @@ public:
     if (!SelNode)
       return false;
     Source = getSelectedFunction(SelNode);
+#if ENABLE_BSC
+    // hasBody() is true for a redeclaration of a defined function too.
+    if (!Source || !Source->doesThisDeclarationHaveABody())
+      return false;
+#else
     if (!Source || !Source->hasBody())
       return false;
+#endif
     // Only the last level of template parameter locations are not kept in AST,
     // so if we are inlining a method that is in a templated class, there is no
     // way to verify template parameter names. Therefore we bail out.
