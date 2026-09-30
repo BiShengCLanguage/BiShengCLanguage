@@ -319,6 +319,21 @@ static FieldSet derefDescendants(const FieldSet &S, FieldKey Prefix) {
   return Desc;
 }
 
+// The descendants P contributes to a field-path query: the strict field
+// children (the historical "P." lookup), plus — unless the query is the
+// aggregate form (the historical trailing '.') — the deref descendants (the
+// historical "P*" lookup, i.e. the registered nested-owned-pointer keys below
+// P). A Var-kind P contributes nothing either way: both helpers return empty
+// for it, so the whole-aggregate access needs no case of its own here.
+static FieldSet fieldQueryPrefixes(const FieldSet &S, FieldKey P,
+                                   bool IsAggregateAccess) {
+  FieldSet Prefixes = fieldDescendants(S, P);
+  if (!IsAggregateAccess)
+    for (FieldKey Q : derefDescendants(S, P))
+      Prefixes.insert(Q);
+  return Prefixes;
+}
+
 // The strict descendants of P in S under any projection, including through
 // Index levels. This is the old bare `findPrefixStrings(S, key)` minus the
 // key itself: a plain string prefix match (so "arr" also picks up "arr[]"
@@ -2030,34 +2045,16 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
   // matches nothing, since '.' is always followed by a field name); the
   // normal form paired the "." and "*" prefix lookups, i.e. all strict
   // field and deref descendants — the key itself is never included.
-  FieldSet allPrefixStrs;
-  if (IsAggregateAccess) {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-  } else {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(allFields(VD), fullFieldName))
-      allPrefixStrs.insert(P);
-  }
-  FieldSet ownedPrefixStrs;
-  if (IsAggregateAccess) {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-  } else {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(ownedFields(VD), fullFieldName))
-      ownedPrefixStrs.insert(P);
-  }
+  FieldSet allPrefixStrs =
+      fieldQueryPrefixes(allFields(VD), fullFieldName, IsAggregateAccess);
+  FieldSet ownedPrefixStrs =
+      fieldQueryPrefixes(ownedFields(VD), fullFieldName, IsAggregateAccess);
   // A sub-field dropped via __assume_null (moved out of OwnedOwned into
   // NullOwned) is null/handled, not moved — it must not count as a
   // partially-moved child of the accessed field (mirrors the AllMoved
   // exemption in checkOPSUse).
-  FieldSet nullPrefixStrs;
-  if (IsAggregateAccess) {
-    nullPrefixStrs = fieldDescendants(nullFields(VD), fullFieldName);
-  } else {
-    nullPrefixStrs = fieldDescendants(nullFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(nullFields(VD), fullFieldName))
-      nullPrefixStrs.insert(P);
-  }
+  FieldSet nullPrefixStrs =
+      fieldQueryPrefixes(nullFields(VD), fullFieldName, IsAggregateAccess);
   FieldSet ownedOrNullPrefixStrs = ownedPrefixStrs;
   for (FieldKey P : nullPrefixStrs)
     ownedOrNullPrefixStrs.insert(P);
@@ -2230,22 +2227,10 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
   // matches nothing, since '.' is always followed by a field name); the
   // normal form paired the "." and "*" prefix lookups, i.e. all strict
   // field and deref descendants — the key itself is never included.
-  FieldSet allPrefixStrs;
-  if (IsAggregateAccess) {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-  } else {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(allFields(VD), fullFieldName))
-      allPrefixStrs.insert(P);
-  }
-  FieldSet ownedPrefixStrs;
-  if (IsAggregateAccess) {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-  } else {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(ownedFields(VD), fullFieldName))
-      ownedPrefixStrs.insert(P);
-  }
+  FieldSet allPrefixStrs =
+      fieldQueryPrefixes(allFields(VD), fullFieldName, IsAggregateAccess);
+  FieldSet ownedPrefixStrs =
+      fieldQueryPrefixes(ownedFields(VD), fullFieldName, IsAggregateAccess);
   if (!ownedPrefixStrs.empty() && diags.empty()) {
     diags.push_back(OwnershipDiagInfo(
         Loc, OwnershipDiagKind::InvalidAssignSubFieldOwned,
@@ -2392,41 +2377,15 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
   // matches nothing, since '.' is always followed by a field name); the
   // normal form paired the "." and "*" prefix lookups, i.e. all strict
   // field and deref descendants — the key itself is never included.
-  FieldSet allPrefixStrs;
-  if (fullFieldName->getKind() == bsc::Place::Kind::Var) {
-    // whole-aggregate access (old empty key): only field children match
-    // the historical bare "." query.
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-  } else if (IsAggregateAccess) {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-  } else {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(allFields(VD), fullFieldName))
-      allPrefixStrs.insert(P);
-  }
-  FieldSet ownedPrefixStrs;
-  if (fullFieldName->getKind() == bsc::Place::Kind::Var) {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-  } else if (IsAggregateAccess) {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-  } else {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(ownedFields(VD), fullFieldName))
-      ownedPrefixStrs.insert(P);
-  }
+  FieldSet allPrefixStrs =
+      fieldQueryPrefixes(allFields(VD), fullFieldName, IsAggregateAccess);
+  FieldSet ownedPrefixStrs =
+      fieldQueryPrefixes(ownedFields(VD), fullFieldName, IsAggregateAccess);
   // A sub-field dropped via __assume_null (moved out of OwnedOwned into
   // NullOwned) is null/handled, not moved — it must not count as a
   // partially-moved child of the accessed field.
-  FieldSet nullPrefixStrs;
-  if (fullFieldName->getKind() == bsc::Place::Kind::Var) {
-    nullPrefixStrs = fieldDescendants(nullFields(VD), fullFieldName);
-  } else if (IsAggregateAccess) {
-    nullPrefixStrs = fieldDescendants(nullFields(VD), fullFieldName);
-  } else {
-    nullPrefixStrs = fieldDescendants(nullFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(nullFields(VD), fullFieldName))
-      nullPrefixStrs.insert(P);
-  }
+  FieldSet nullPrefixStrs =
+      fieldQueryPrefixes(nullFields(VD), fullFieldName, IsAggregateAccess);
   FieldSet ownedOrNullPrefixStrs = ownedPrefixStrs;
   for (FieldKey P : nullPrefixStrs)
     ownedOrNullPrefixStrs.insert(P);
@@ -2578,28 +2537,10 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldAssign(
   // matches nothing, since '.' is always followed by a field name); the
   // normal form paired the "." and "*" prefix lookups, i.e. all strict
   // field and deref descendants — the key itself is never included.
-  FieldSet allPrefixStrs;
-  if (fullFieldName->getKind() == bsc::Place::Kind::Var) {
-    // whole-aggregate access (old empty key): only field children match
-    // the historical bare "." query.
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-  } else if (IsAggregateAccess) {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-  } else {
-    allPrefixStrs = fieldDescendants(allFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(allFields(VD), fullFieldName))
-      allPrefixStrs.insert(P);
-  }
-  FieldSet ownedPrefixStrs;
-  if (fullFieldName->getKind() == bsc::Place::Kind::Var) {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-  } else if (IsAggregateAccess) {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-  } else {
-    ownedPrefixStrs = fieldDescendants(ownedFields(VD), fullFieldName);
-    for (FieldKey P : derefDescendants(ownedFields(VD), fullFieldName))
-      ownedPrefixStrs.insert(P);
-  }
+  FieldSet allPrefixStrs =
+      fieldQueryPrefixes(allFields(VD), fullFieldName, IsAggregateAccess);
+  FieldSet ownedPrefixStrs =
+      fieldQueryPrefixes(ownedFields(VD), fullFieldName, IsAggregateAccess);
   if (!ownedPrefixStrs.empty() && diags.empty()) {
     diags.push_back(OwnershipDiagInfo(
         Loc, OwnershipDiagKind::InvalidAssignSubFieldOwned,
@@ -2830,14 +2771,22 @@ Ownership::OwnershipStatus::checkBOPFieldAssign(const VarDecl *VD,
   return diags;
 }
 
-// if cast a `struct S * owned` variable to `void * owned`, we must ensure:
+// Casting an owned pointer to `void * _Owned` (freeing the variable itself):
+// we must ensure:
 // 1. it is not moved or uninit
 // 2. its owned fields are all moved
+// Both pointer families follow the same rules. One difference: a partially
+// moved OPS reports its remaining owned fields even when the set is empty (an
+// owned-struct pointee can be partially moved with nothing left owning), so it
+// needs the PartialMoved test of its own; a BOP is covered by the non-empty
+// check below.
 SmallVector<OwnershipDiagInfo>
-Ownership::OwnershipStatus::checkCastOPS(const VarDecl *VD,
-                                         const SourceLocation &Loc) {
+Ownership::OwnershipStatus::checkCastPointer(const VarDecl *VD,
+                                             const SourceLocation &Loc) {
   SmallVector<OwnershipDiagInfo> diags;
 
+  // Root == AllMoved is implicitly fine: the Moved bit cannot be set alongside
+  // it, so neither test below matches it.
   if (isOrHas(VD, Ownership::Status::Moved)) {
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastMoved,
                                       VD->getNameAsString()));
@@ -2846,40 +2795,10 @@ Ownership::OwnershipStatus::checkCastOPS(const VarDecl *VD,
     diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastUninit,
                                       VD->getNameAsString()));
   }
-  if (is(VD, PartialMoved)) {
+  if (isHost(VD, HostKind::OPS) && is(VD, PartialMoved)) {
     diags.push_back(OwnershipDiagInfo(
         Loc, OwnershipDiagKind::InvalidCastFieldOwned, VD->getNameAsString(),
         concatFields(VD, ownedFields(VD))));
-  }
-  if (!ownedFields(VD).empty() && diags.empty()) {
-    diags.push_back(OwnershipDiagInfo(
-        Loc, OwnershipDiagKind::InvalidCastFieldOwned, VD->getNameAsString(),
-        concatFields(VD, ownedFields(VD))));
-  }
-  ownedFields(VD).clear();
-  resetAll(VD);
-  set(VD, Ownership::Status::Moved);
-
-  return diags;
-}
-
-// if cast a `int * owned` variable to `void * owned`, we must ensure:
-// 1. it is not moved or uninit
-// 2. its owned fields are all moved
-SmallVector<OwnershipDiagInfo>
-Ownership::OwnershipStatus::checkCastBOP(const VarDecl *VD,
-                                         const SourceLocation &Loc) {
-  SmallVector<OwnershipDiagInfo> diags;
-
-  // AllMoved is OK - it means all sub-fields are freed, so we can free the variable itself
-  if (isOrHas(VD, Ownership::Status::Moved) &&
-      !is(VD, Ownership::Status::AllMoved)) {
-    diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastMoved,
-                                      VD->getNameAsString()));
-  }
-  if (isOrHas(VD, Uninitialized)) {
-    diags.push_back(OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidCastUninit,
-                                      VD->getNameAsString()));
   }
   if (!ownedFields(VD).empty() && diags.empty()) {
     diags.push_back(OwnershipDiagInfo(
@@ -4430,14 +4349,9 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
     // @endcode
     if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(InnerE)) {
       const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
-      if (stat.isHost(VD, HostKind::OPS)) {
+      if (stat.isHost(VD, HostKind::OPS) || stat.isHost(VD, HostKind::BOP)) {
         SmallVector<OwnershipDiagInfo> diags =
-            stat.checkCastOPS(VD, DRE->getLocation());
-        reporter.addDiags(diags);
-      }
-      if (stat.isHost(VD, HostKind::BOP)) {
-        SmallVector<OwnershipDiagInfo> diags =
-            stat.checkCastBOP(VD, DRE->getLocation());
+            stat.checkCastPointer(VD, DRE->getLocation());
         reporter.addDiags(diags);
       }
     }

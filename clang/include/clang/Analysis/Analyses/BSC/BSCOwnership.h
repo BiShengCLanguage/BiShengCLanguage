@@ -736,10 +736,10 @@ public:
     checkBOPFieldAssign(const VarDecl *VD, const SourceLocation &Loc,
                         const bsc::Place *fullFieldName);
 
+    // Cast to `void * _Owned` of a whole owned pointer: shared by the OPS and
+    // BOP families.
     llvm::SmallVector<OwnershipDiagInfo>
-    checkCastOPS(const VarDecl *VD, const SourceLocation &Loc);
-    llvm::SmallVector<OwnershipDiagInfo>
-    checkCastBOP(const VarDecl *VD, const SourceLocation &Loc);
+    checkCastPointer(const VarDecl *VD, const SourceLocation &Loc);
     llvm::SmallVector<OwnershipDiagInfo>
     checkCastField(const VarDecl *VD, const SourceLocation &Loc,
                    const bsc::Place *fullFieldName);
