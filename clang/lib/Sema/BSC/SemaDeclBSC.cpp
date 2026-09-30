@@ -1077,7 +1077,9 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       PushAssignOrExpr(Dest, E);
       return;
     case Stmt::AwaitExprClass:
-      llvm_unreachable("await expression is not implemented yet");
+      SemaRef.Diag(E->getBeginLoc(), diag::err_bsc_unimplemented)
+          << "borrow checking of '_Await' expressions";
+      return;
     default:
       llvm_unreachable("unsupported expression");
     }

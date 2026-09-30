@@ -601,6 +601,8 @@ def err_borrow_access_behind_immutable_borrow : Error<
   "expression cannot be mutably reborrowed}0 because it is behind an immutable "
   "borrow">,
   BSCDiag<"BOR", 22>;
+def err_bsc_unimplemented : Error<"%0 is not implemented yet">,
+  BSCDiag<"BOR", 23>;
 
 // BSC operator overload errors.
 def err_unsupport_overload_fun : Error<"function unsupport overload">,
