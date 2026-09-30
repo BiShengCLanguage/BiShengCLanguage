@@ -104,6 +104,25 @@ void forget_array_elem_field(void) {
     __forget(a[i].p);
 }
 
+// __forget on a host aggregate's array-field path (w.arr[i].p): the host is a
+// struct value and the field an array of structs, so this targets the
+// "arr[].p" field aggregate of the host rather than a local array's element.
+// Same aggregate semantics and the same qualifying-loop rule. __assume_null
+// has no counterpart here: Sema rejects it on this shape (see
+// Negative/NullabilityCheck/assume_null_sema.cbs), so only __forget reaches
+// the field-aggregate transition.
+struct ElemArr {
+  struct Elem arr[2];
+};
+
+void forget_host_array_field(void) {
+  struct ElemArr w = {};
+  for (int i = 0; i < 2; i++)
+    w.arr[i].p = safe_malloc(i);
+  for (int i = 0; i < 2; i++)
+    __forget(w.arr[i].p);
+}
+
 // __forget on a struct-value variable: forgets every owned field of the
 // struct value, so no field leak is reported at scope end.
 void forget_struct_var(void) {

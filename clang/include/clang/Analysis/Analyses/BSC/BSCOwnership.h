@@ -613,7 +613,6 @@ public:
     void setToAllMoved(const Expr *E, ASTContext &Ctx);
     void setToNull(const VarDecl *VD);
     void setToNull(const Expr *E, ASTContext &Ctx);
-    void setOwnedFieldNull(const VarDecl *VD, const bsc::Place *fieldPath);
     void setToMoved(const VarDecl *VD);
     void setToMoved(const Expr *E, ASTContext &Ctx);
 
@@ -741,6 +740,16 @@ public:
     // the field descendants of one path. Both dispatch on the host family.
     void assumeFieldsNull(const VarDecl *VD, const FieldSet &Keys);
     void forgetFields(const VarDecl *VD, const FieldSet &Keys);
+    // The explicit-drop family for state S: Null asserts the fields null
+    // (__assume_null / `= nullptr`), Moved abandons them (__forget).
+    void dropFields(Status S, const VarDecl *VD, const FieldSet &Keys);
+    // Drop one owned pointer member of an S / OPS host, in the family S: the
+    // Null family moves it (and its field descendants) into the Null set, the
+    // Moved family clears Null and marks the S-host fields as moved.
+    void dropOwnedField(Status S, const VarDecl *VD,
+                        const bsc::Place *FieldPath);
+    // Shared implementation of setToNull / setToMoved over an expression.
+    void applyExplicitDrop(Status S, const Expr *E, ASTContext &Ctx);
     // __assume_null(*q) / __forget(*q) on a pointer-to-owned-pointer
     // (int *_Owned *q): drop the inner owned pointer tracked as the Deref field
     // of a BOP host, then refresh its aggregate root state.
@@ -774,6 +783,14 @@ static const unsigned OwnershipDiagIdList[] = {
     diag::err_ownership_owned_struct_partially_moved,
     diag::err_ownership_owned_struct_not_properly_freed,
     diag::err_ownership_cast_pass_to_arg_or_ret};
+
+// One diag:: per OwnershipDiagKind, in enum order: getOwnershipDiagID indexes
+// this table by the enum value, and the runtime assert only bounds the index —
+// a kind added in the middle would silently shift every later entry onto the
+// wrong diagnostic.
+static_assert(sizeof(OwnershipDiagIdList) / sizeof(OwnershipDiagIdList[0]) ==
+                  static_cast<size_t>(OwnershipMaxDiagKind),
+              "OwnershipDiagIdList must have one entry per OwnershipDiagKind");
 
 class OwnershipDiagReporter {
   Sema &S;
