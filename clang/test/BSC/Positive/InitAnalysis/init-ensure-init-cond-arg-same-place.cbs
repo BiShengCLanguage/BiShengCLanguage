@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// A conditional contract argument whose arms address the same place
+// initializes that place on every path.
+
+void init_int(int *__attribute__((ensure_init)) out);
+struct S { int a; int b; };
+void init_field(int *__attribute__((ensure_init)) out);
+
+_Safe void same_place(int c) {
+    int x;
+    _Unsafe { init_int(c ? &x : &x); }
+    int y = x;
+    (void)y;
+}
+
+_Safe void same_field(int c) {
+    struct S s;
+    _Unsafe { init_field(c ? &s.a : &s.a); }
+    int y = s.a;
+    (void)y;
+}
+
+_Safe void nested_same_place(int c, int d) {
+    int x;
+    _Unsafe { init_int(c ? &x : (d ? &x : &x)); }
+    int y = x;
+    (void)y;
+}

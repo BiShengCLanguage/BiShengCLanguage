@@ -1,0 +1,43 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+// The analysis does not look inside atomic builtins. The caller vouches for
+// the store at the call site, or calls a function whose declaration carries
+// the contract and whose body the analysis never sees. (Under
+// -uninit-check=all the `&x` handed to the builtin is itself a use of the
+// uninitialized `x`, as rule 4 says.)
+
+void atomic_store_init(int *__attribute__((ensure_init)) p, int v);
+void atomic_init_c11(_Atomic int *__attribute__((ensure_init)) p, int v);
+
+_Safe int vouched_at_call_site(void) {
+    int x;
+    _Unsafe { __atomic_store_n(&x, 1, 5); __assume_initialized(&x); }
+    return x;
+}
+
+_Safe int c11_vouched_at_call_site(void) {
+    _Atomic int x;
+    _Unsafe { __c11_atomic_store(&x, 1, 5); __assume_initialized(&x); }
+    return x;
+}
+
+_Safe int through_declared_helper(void) {
+    int x;
+    _Unsafe { atomic_store_init(&x, 1); }
+    return x;
+}
+
+_Safe int c11_through_declared_helper(void) {
+    _Atomic int x;
+    _Unsafe { atomic_init_c11(&x, 1); }
+    return x;
+}
+
+struct S { int a; int b; };
+_Safe int field_vouched_at_call_site(void) {
+    struct S s;
+    _Unsafe { __atomic_store_n(&s.a, 1, 5); __assume_initialized(&s.a); }
+    s.b = 2;
+    return s.a + s.b;
+}

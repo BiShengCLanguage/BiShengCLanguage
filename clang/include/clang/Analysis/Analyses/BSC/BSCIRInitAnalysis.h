@@ -172,6 +172,7 @@ public:
   InitAnalysis(const Body &B, bool CheckAllZones = false)
       : B(B), CheckAllZones(CheckAllZones) {
     collectContractPointerFlow();
+    collectContractArgTemps();
   }
 
   InitLattice entryState(const Body &B) const override;
@@ -270,20 +271,18 @@ private:
   llvm::DenseSet<unsigned>
   contractArgIndices(const Terminator::CallData &CD) const;
 
-  /// The temps those arguments pass.
-  llvm::DenseSet<LocalId>
-  contractArgTemps(const Terminator::CallData &CD,
-                   const llvm::DenseSet<unsigned> &ContractArgs) const;
+  /// Temps whose value reaches such an argument, so taking the address that
+  /// produced them delegates rather than reads.
+  llvm::DenseSet<LocalId> ContractArgTemps;
+  void collectContractArgTemps();
 
   /// Check ensure_init constraints on an assignment (aliasing).
   void checkEnsureInitAssign(const Statement &S, const InitLattice &State,
                              SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Check deref reads of ensure_init params (*out before init).
-  void checkEnsureInitDerefReads(
-      const Statement &S, const InitLattice &State,
-      const llvm::DenseSet<LocalId> &EnsureInitArgTemps,
-      SmallVectorImpl<InitDiagInfo> &Diags) const;
+  void checkEnsureInitDerefReads(const Statement &S, const InitLattice &State,
+                                 SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Diagnose \p P reading the uninitialized pointee of a contract param.
   void checkEnsureInitPointeeRead(const Place &P, const InitLattice &State,

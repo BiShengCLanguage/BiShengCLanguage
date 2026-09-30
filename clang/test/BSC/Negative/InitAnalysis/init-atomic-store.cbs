@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// An atomic builtin is an opaque call: it writes nothing the analysis can
+// see, and the builtins are not enumerated. Wrap the store in a function
+// declared with __attribute__((ensure_init)) instead (see the positive test).
+
+_Safe int c11_store(void) {
+    _Atomic int x;
+    _Unsafe { __c11_atomic_store(&x, 1, 5); }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe int store_n(void) {
+    int x;
+    _Unsafe { __atomic_store_n(&x, 1, 5); }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe int store_from_pointer(void) {
+    int x;
+    int v = 1;
+    _Unsafe { __atomic_store(&x, &v, 5); }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe int c11_init(void) {
+    _Atomic int x;
+    _Unsafe { __c11_atomic_init(&x, 1); }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe int load_uninit(void) {
+    int x;
+    int r;
+    _Unsafe { r = __atomic_load_n(&x, 5); }
+    return r + x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+struct S { int a; int b; };
+_Safe int store_one_field(void) {
+    struct S s;
+    _Unsafe { __atomic_store_n(&s.a, 1, 5); }
+    return s.b; // expected-error {{use of uninitialized value: 's.b'}}
+}

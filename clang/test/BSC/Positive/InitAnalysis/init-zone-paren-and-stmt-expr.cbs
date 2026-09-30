@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
+// expected-no-diagnostics
+
+// A written _Unsafe zone leaves the read unchecked in the default mode, and
+// initialized reads pass in either zone.
+
+_Safe void unsafe_paren_read(void) {
+    int y;
+    int z = _Unsafe(y);
+    (void)z;
+}
+
+_Safe void unsafe_stmt_expr_result(void) {
+    int y;
+    int r = ({ 0; _Unsafe y + 0; });
+    (void)r;
+}
+
+void safe_paren_initialized(void) {
+    int y = 1;
+    int z = _Safe(y);
+    (void)z;
+}
+
+void safe_stmt_expr_initialized(void) {
+    int y = 1;
+    int r = ({ 0; _Safe y + 0; });
+    (void)r;
+}

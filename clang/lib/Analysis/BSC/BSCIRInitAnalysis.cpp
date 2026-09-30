@@ -503,7 +503,7 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
       IsFalseEdge = false;
       // An edge proves the comparison only when one discriminant value reaches
       // it; arms that share a target are reachable either way.
-      if (SW.Targets.size() != 1)
+      if (SW.Targets.size() != 1 || SW.Targets[0].second == SW.Otherwise)
         return;
       bool ListedIsZero = SW.Targets[0].first.getZExtValue() == 0;
       if (SW.Targets[0].second == Tgt) {
@@ -1229,14 +1229,29 @@ InitAnalysis::contractArgIndices(const Terminator::CallData &CD) const {
   return Indices;
 }
 
-llvm::DenseSet<LocalId> InitAnalysis::contractArgTemps(
-    const Terminator::CallData &CD,
-    const llvm::DenseSet<unsigned> &ContractArgs) const {
-  llvm::DenseSet<LocalId> Temps;
-  for (unsigned I : ContractArgs)
-    if (auto L = asPassedLocal(CD.Args[I]))
-      Temps.insert(*L);
-  return Temps;
+void InitAnalysis::collectContractArgTemps() {
+  for (const BasicBlock &BB : B.Blocks) {
+    if (BB.Term.K != Terminator::Call)
+      continue;
+    const auto &CD = BB.Term.getCall();
+    for (unsigned I : contractArgIndices(CD))
+      if (auto L = asPassedLocal(CD.Args[I]))
+        ContractArgTemps.insert(*L);
+  }
+  // A conditional argument reaches the call through copies between temps.
+  bool Changed = true;
+  while (Changed) {
+    Changed = false;
+    for (const BasicBlock &BB : B.Blocks)
+      for (const Statement &S : BB.Statements) {
+        if (S.K != Statement::Assign || !S.getAssign().Dest.isLocal() ||
+            !ContractArgTemps.count(S.getAssign().Dest.Base))
+          continue;
+        auto Src = asCopiedLocal(S.getAssign().Src);
+        if (Src && B.getLocal(*Src).IsTemp && ContractArgTemps.insert(*Src).second)
+          Changed = true;
+      }
+  }
 }
 
 llvm::Optional<LocalId> InitAnalysis::pointerHandedOn(const Rvalue &Src) const {
@@ -1475,11 +1490,10 @@ void InitAnalysis::checkEnsureInitPointeeRead(
 
 void InitAnalysis::checkEnsureInitDerefReads(
     const Statement &S, const InitLattice &State,
-    const llvm::DenseSet<LocalId> &EnsureInitArgTemps,
     SmallVectorImpl<InitDiagInfo> &Diags) const {
   // Addressing the pointee for a contract callee delegates it, not reads it.
   if (S.getAssign().Dest.isLocal() &&
-      EnsureInitArgTemps.count(S.getAssign().Dest.Base))
+      ContractArgTemps.count(S.getAssign().Dest.Base))
     return;
 
   forEachRvalueOperand(S.getAssign().Src, [&](const Operand &Op) {
@@ -1697,11 +1711,8 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
     // Arguments a contract callee or __assume_initialized takes the address
     // for are delegated, not read.
     llvm::DenseSet<unsigned> ContractArgs;
-    llvm::DenseSet<LocalId> EnsureInitArgTemps;
-    if (BB.Term.K == Terminator::Call) {
+    if (BB.Term.K == Terminator::Call)
       ContractArgs = contractArgIndices(BB.Term.getCall());
-      EnsureInitArgTemps = contractArgTemps(BB.Term.getCall(), ContractArgs);
-    }
 
     for (const Statement &S : BB.Statements) {
       // Check operands used in this statement
@@ -1712,7 +1723,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
           if (const Place *P = addressedPlace(Src)) {
             // Taking the address for a contract callee delegates, not reads.
             if (!S.getAssign().Dest.isLocal() ||
-                !EnsureInitArgTemps.count(S.getAssign().Dest.Base))
+                !ContractArgTemps.count(S.getAssign().Dest.Base))
               checkOperand(Operand::createCopy(*P), State, S.Loc, Diags);
           } else {
             forEachRvalueOperand(Src, [&](const Operand &Op) {
@@ -1723,7 +1734,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
 
         // Callee-side ensure_init checks (zone-independent).
         checkEnsureInitAssign(S, State, Diags);
-        checkEnsureInitDerefReads(S, State, EnsureInitArgTemps, Diags);
+        checkEnsureInitDerefReads(S, State, Diags);
 
         // Each prefix a later projection dereferences is itself read.
         const Place &Dest = S.getAssign().Dest;

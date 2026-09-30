@@ -1,0 +1,51 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
+
+// A const-qualified local is a variable, not an integer constant: reading it
+// is a load, and on a path that skipped its declaration the load is of an
+// uninitialized object.
+
+_Safe void skipped_decl(void) {
+    int x;
+    goto L;
+    const int k = 5;
+L:
+    x = k; // expected-error {{use of uninitialized value: 'k'}}
+    (void)x;
+}
+
+_Safe void skipped_decl_arith(void) {
+    int x;
+    goto L;
+    const int k = 5;
+L:
+    x = k + 0; // expected-error {{use of uninitialized value: 'k'}}
+    (void)x;
+}
+
+_Safe void skipped_decl_parens(void) {
+    int x;
+    goto L;
+    const int k = 5;
+L:
+    x = (k); // expected-error {{use of uninitialized value: 'k'}}
+    (void)x;
+}
+
+_Safe void skipped_decl_ternary(void) {
+    int x;
+    goto L;
+    const int k = 5;
+L:
+    x = k ? 1 : 2; // expected-error {{use of uninitialized value: 'k'}}
+    (void)x;
+}
+
+void unsafe_skipped_decl(void) {
+    int x;
+    goto L;
+    const int k = 5;
+L:
+    x = k; // all-error {{use of uninitialized value: 'k'}}
+    (void)x;
+}

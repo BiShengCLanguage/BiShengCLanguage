@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// An initialized size is fine under every spelling, and a typedef declared
+// with an initialized size may be used after the variable is written again.
+
+_Safe void typeof_type(void) {
+    int n = 3;
+    typeof(int[n]) a;
+}
+
+_Safe void through_typedef(void) {
+    int n = 3;
+    typedef int T[n];
+    T a;
+}
+
+_Safe void typedef_then_reassign(void) {
+    int n = 3;
+    typedef int T[n];
+    n = 4;
+    T a;
+}
+
+_Safe unsigned long sizeof_typeof(void) {
+    int n = 3;
+    return sizeof(typeof(int[n]));
+}

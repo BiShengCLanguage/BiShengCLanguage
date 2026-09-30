@@ -1,0 +1,43 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
+
+// A variable-length array's size is read where the declaration is reached,
+// however the type is spelled.
+
+_Safe void typeof_type(void) {
+    int n;
+    typeof(int[n]) a; // expected-error {{use of uninitialized value: 'n'}}
+}
+
+_Safe void dunder_typeof(void) {
+    int n;
+    __typeof__(int[n]) a; // expected-error {{use of uninitialized value: 'n'}}
+}
+
+// A typedef evaluates the size at the typedef; the later use reads nothing.
+_Safe void through_typedef(void) {
+    int n;
+    typedef int T[n]; // expected-error {{use of uninitialized value: 'n'}}
+    T a;
+}
+
+_Safe void typeof_through_typedef(void) {
+    int n;
+    typedef typeof(int[n]) T; // expected-error {{use of uninitialized value: 'n'}}
+    T a;
+}
+
+_Safe unsigned long sizeof_typeof(void) {
+    int n;
+    return sizeof(typeof(int[n])); // expected-error {{use of uninitialized value: 'n'}}
+}
+
+_Safe void pointer_to_vla(void) {
+    int n;
+    typeof(int (*)[n]) p; // expected-error {{use of uninitialized value: 'n'}}
+}
+
+void unsafe_typeof_type(void) {
+    int n;
+    typeof(int[n]) a; // all-error {{use of uninitialized value: 'n'}}
+}

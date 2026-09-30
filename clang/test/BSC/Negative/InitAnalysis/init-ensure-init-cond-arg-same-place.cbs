@@ -1,0 +1,29 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+
+// Arms that address different places, or one that is not an address, give
+// no credit.
+
+void init_int(int *__attribute__((ensure_init)) out);
+struct S { int a; int b; };
+
+_Safe void different_places(int c) {
+    int x;
+    int z;
+    _Unsafe { init_int(c ? &x : &z); }
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
+    (void)y;
+}
+
+_Safe void one_arm_null(int c) {
+    int x;
+    _Unsafe { init_int(c ? &x : (int *)0); }
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
+    (void)y;
+}
+
+_Safe void different_fields(int c) {
+    struct S s;
+    _Unsafe { init_int(c ? &s.a : &s.b); }
+    int y = s.a; // expected-error {{use of uninitialized value: 's.a'}}
+    (void)y;
+}

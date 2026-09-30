@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// A call through a noreturn function pointer does not fall through, so the
+// path it ends owes nothing at the return.
+
+void bail(void) __attribute__((noreturn));
+
+void through_pointer(int *__attribute__((ensure_init)) out, int v) {
+    void (*bp)(void) __attribute__((noreturn)) = bail;
+    if (v) bp();
+    else *out = 5;
+}
+
+_Safe int safe_through_pointer(int v) {
+    int x;
+    void (*bp)(void) __attribute__((noreturn)) = bail;
+    if (v) _Unsafe { bp(); }
+    else x = 1;
+    return x;
+}

@@ -96,16 +96,19 @@ int braceless_with_decl(int x) {
 
 // ---------------------------------------------------------------------------
 // A brace-less default-only body is lowered: its body statement appears in the
-// region (here the only region, so lowering emits it directly).
+// region (here the only region). The switch on `x` stays, since it reads `x`.
 // ---------------------------------------------------------------------------
 
 // CHECK-LABEL: fn braceless_default
 // CHECK:      bb0: {{[{]}}
-// CHECK-NEXT:   _0 = const 7
-// CHECK-NEXT:   goto -> bb1
+// CHECK-NEXT:   switchInt(copy(_1)) -> [, otherwise: bb2]
 // CHECK-NEXT: }
 // CHECK:      bb1: {{[{]}}
 // CHECK-NEXT:   return
+// CHECK-NEXT: }
+// CHECK:      bb2: {{[{]}}
+// CHECK-NEXT:   _0 = const 7
+// CHECK-NEXT:   goto -> bb1
 // CHECK-NEXT: }
 int braceless_default(int x) {
     switch (x) default: return 7;

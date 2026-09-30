@@ -46,6 +46,15 @@ bool BSCIRBuilder::inSafeZone() const {
   return SafeZoneStack.empty() ? TheBody->IsSafe : SafeZoneStack.back();
 }
 
+llvm::Optional<Place> BSCIRBuilder::addrOfOrigin(const Operand &Op) const {
+  if (Op.K != Operand::Copy && Op.K != Operand::Move)
+    return llvm::None;
+  auto It = AddrOfOrigins.find(Op.getPlace().Base);
+  if (It == AddrOfOrigins.end())
+    return llvm::None;
+  return It->second;
+}
+
 //===----------------------------------------------------------------------===//
 // Block Management
 //===----------------------------------------------------------------------===//
@@ -175,11 +184,10 @@ Place BSCIRBuilder::lowerToPlace(const Expr *E) {
 }
 
 Operand BSCIRBuilder::lowerToOperand(const Expr *E) {
-  // The C evaluator decides what is an integer constant; a variable never is.
-  Expr::EvalResult Result;
-  if (E->getType()->isIntegerType() && !E->isValueDependent() &&
-      E->EvaluateAsInt(Result, Ctx))
-    return Operand::createConstant(APValue(Result.Val.getInt()), E->getType());
+  // Only an integer constant expression folds; a const variable is a load.
+  if (E->getType()->isIntegerType() && !E->isValueDependent())
+    if (Optional<llvm::APSInt> V = E->getIntegerConstantExpr(Ctx))
+      return Operand::createConstant(APValue(*V), E->getType());
   return Visit(const_cast<Expr *>(E));
 }
 
@@ -1008,28 +1016,17 @@ Operand BSCIRBuilder::VisitCallExpr(CallExpr *CE) {
       Arg.K = Operand::Move;
     }
     // Capture address-of origin for ensure_init support
-    if (Arg.K == Operand::Copy || Arg.K == Operand::Move) {
-      auto It = AddrOfOrigins.find(Arg.getPlace().Base);
-      if (It != AddrOfOrigins.end()) {
-        ArgPlaces.push_back(It->second);
-        Args.push_back(std::move(Arg));
-        continue;
-      }
-    }
-    ArgPlaces.push_back(llvm::None);
+    ArgPlaces.push_back(addrOfOrigin(Arg));
     Args.push_back(std::move(Arg));
   }
 
   LocalId Dest = TheBody->addTemp(CE->getType(), CE->getExprLoc());
   Place DestPlace(Dest, CE->getType(), CE->getExprLoc());
 
-  bool Diverges = false;
-  if (CalleeDecl && CalleeDecl->isNoReturn())
-    Diverges = true;
-  if (!Diverges && CE->getCallee()->getType()->getAs<FunctionProtoType>()) {
-    if (CE->getCallee()->getType()->getAs<FunctionProtoType>()->getNoReturnAttr())
-      Diverges = true;
-  }
+  // The prototype was already peeled off a function pointer, so an indirect
+  // noreturn call diverges like a direct one.
+  bool Diverges = (CalleeDecl && CalleeDecl->isNoReturn()) ||
+                  (CalleeProtoType && CalleeProtoType->getNoReturnAttr());
 
   BasicBlockId Successor = createBlock();
 
@@ -1063,13 +1060,9 @@ Operand BSCIRBuilder::VisitCastExpr(CastExpr *CE) {
   }();
   LocalId Tmp = TheBody->addTemp(CE->getType(), CE->getExprLoc());
   Place TmpPlace(Tmp, CE->getType(), CE->getExprLoc());
-  // Propagate AddrOfOrigins through pointer casts (e.g., int* -> void*)
-  // so that ensure_init tracking can see through implicit casts.
-  if (Sub.K == Operand::Copy || Sub.K == Operand::Move) {
-    auto It = AddrOfOrigins.find(Sub.getPlace().Base);
-    if (It != AddrOfOrigins.end())
-      AddrOfOrigins[Tmp] = It->second;
-  }
+  // A pointer cast (e.g. int* -> void*) hands the address on.
+  if (auto Origin = addrOfOrigin(Sub))
+    AddrOfOrigins[Tmp] = *Origin;
   emit(Statement::createAssign(
       TmpPlace, Rvalue::createCast(CE->getCastKind(), Sub, CE->getType()),
       inSafeZone(), CE, CE->getExprLoc()));
@@ -1083,6 +1076,9 @@ Operand BSCIRBuilder::VisitImplicitCastExpr(ImplicitCastExpr *CE) {
 // A VLA behind a pointer is sized when its declaration is reached too.
 static const VariableArrayType *findVLA(const Type *T) {
   while (T) {
+    // A typedef's sizes were read where the typedef was declared.
+    if (isa<TypedefType>(T))
+      return nullptr;
     if (const auto *AT = dyn_cast<ArrayType>(T)) {
       if (const auto *VAT = dyn_cast<VariableArrayType>(AT))
         if (VAT->getSizeExpr())
@@ -1090,10 +1086,13 @@ static const VariableArrayType *findVLA(const Type *T) {
       T = AT->getElementType().getTypePtr();
     } else if (const auto *PT = dyn_cast<PointerType>(T)) {
       T = PT->getPointeeType().getTypePtr();
-    } else if (const auto *PT = dyn_cast<ParenType>(T)) {
-      T = PT->getInnerType().getTypePtr();
     } else {
-      return nullptr;
+      // typeof, parens and other sugar wrap the type that carries the size.
+      const Type *Inner =
+          T->getLocallyUnqualifiedSingleStepDesugaredType().getTypePtr();
+      if (Inner == T)
+        return nullptr;
+      T = Inner;
     }
   }
   return nullptr;
@@ -1288,9 +1287,20 @@ Operand BSCIRBuilder::VisitUnaryExprOrTypeTraitExpr(
 
 Operand BSCIRBuilder::VisitParenExpr(ParenExpr *PE) {
   SafeZoneSpecifier Zone = PE->getSafeZoneSpec();
+  bool ChangesZone = Zone != SZ_None && (Zone == SZ_Safe) != inSafeZone();
   if (Zone != SZ_None)
     SafeZoneStack.push_back(Zone == SZ_Safe);
   Operand Result = lowerToOperand(PE->getSubExpr());
+  // A bare load has no statement of its own; give it one inside the zone, or
+  // the enclosing statement's zone would claim the read.
+  if (ChangesZone && Result.K == Operand::Copy &&
+      !TheBody->getLocal(Result.getPlace().Base).IsTemp) {
+    LocalId Tmp = TheBody->addTemp(PE->getType(), PE->getExprLoc());
+    Place TmpPlace(Tmp, PE->getType(), PE->getExprLoc());
+    emit(Statement::createAssign(TmpPlace, Rvalue::createUse(Result),
+                                 inSafeZone(), PE, PE->getExprLoc()));
+    Result = Operand::createCopy(TmpPlace);
+  }
   if (Zone != SZ_None)
     SafeZoneStack.pop_back();
   return Result;
@@ -1349,6 +1359,11 @@ Operand BSCIRBuilder::VisitAbstractConditionalOperator(
 
   // Continue in join block
   switchToBlock(JoinBB);
+  // Arms that address the same place hand that address on.
+  if (auto TrueOrigin = addrOfOrigin(TrueOp))
+    if (auto FalseOrigin = addrOfOrigin(FalseOp))
+      if (*TrueOrigin == *FalseOrigin)
+        AddrOfOrigins[Result] = *TrueOrigin;
   return Operand::createCopy(ResultPlace);
 }
 
@@ -1386,25 +1401,30 @@ Operand BSCIRBuilder::VisitStmtExpr(StmtExpr *SE) {
       continue;
     }
     const Stmt *Value = ResultStmt;
+    // A zone written on the result statement covers its value.
+    unsigned ZoneDepth = SafeZoneStack.size();
     while (!isa<Expr>(Value)) {
       if (const auto *LS = dyn_cast<LabelStmt>(Value)) {
         enterLabelBlock(LS);
         Value = LS->getSubStmt();
       } else if (const auto *AS = dyn_cast<AttributedStmt>(Value)) {
+        SafeZoneSpecifier Zone = SafeZoneAttr::getSafeZoneSpec(AS);
+        if (Zone != SZ_None)
+          SafeZoneStack.push_back(Zone == SZ_Safe);
         Value = AS->getSubStmt();
       } else {
         break;
       }
     }
-    const auto *ValueExpr = dyn_cast<Expr>(Value);
-    if (!ValueExpr) {
+    if (const auto *ValueExpr = dyn_cast<Expr>(Value)) {
+      Operand Op = lowerToOperand(ValueExpr);
+      if (!SE->getType()->isVoidType())
+        emit(Statement::createAssign(ResultPlace, Rvalue::createUse(Op),
+                                     inSafeZone(), SE, SE->getExprLoc()));
+    } else {
       lowerStmt(Value);
-      continue;
     }
-    Operand Op = lowerToOperand(ValueExpr);
-    if (!SE->getType()->isVoidType())
-      emit(Statement::createAssign(ResultPlace, Rvalue::createUse(Op),
-                                   inSafeZone(), SE, SE->getExprLoc()));
+    SafeZoneStack.truncate(ZoneDepth);
   }
 
   emitScopeExit(CS->getRBracLoc());

@@ -317,13 +317,16 @@ static bool mergeBlocks(Body &B) {
   return EverChanged;
 }
 
-/// Simplify branches: if SwitchInt has all targets identical, replace with Goto.
+/// Simplify branches: a SwitchInt on a constant whose targets are all the same
+/// block is a Goto. A switch on a place still reads it, so it stays.
 static bool simplifyBranches(Body &B) {
   bool Changed = false;
   for (auto &BB : B.Blocks) {
     if (BB.Term.K != Terminator::SwitchInt)
       continue;
     const auto &SW = BB.Term.getSwitchInt();
+    if (SW.Discriminant.K != Operand::Constant)
+      continue;
     BasicBlockId Target = SW.Otherwise;
     bool AllSame = true;
     for (const auto &T : SW.Targets) {

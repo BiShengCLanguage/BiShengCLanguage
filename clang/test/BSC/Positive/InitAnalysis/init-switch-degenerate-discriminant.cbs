@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// A degenerate switch on an initialized value, or on a constant, is fine.
+
+_Safe void initialized(int x) {
+    switch (x) {
+    case 0:
+    case 1:
+        break;
+    }
+}
+
+_Safe void constant(void) {
+    switch (1) {
+    case 0:
+    case 1:
+        break;
+    }
+}
+
+_Safe void empty_if_initialized(void) {
+    int x = 1;
+    if (x) {
+    }
+}
+
+// A guard whose edges lead to different blocks still credits as before.
+_Safe int try_init_guard(int *_Borrow __attribute__((ensure_init_if_ret(0))) p);
+
+_Safe int bailout_guard(void) {
+    int x;
+    int r = try_init_guard(&_Mut x);
+    if (r != 0)
+        return 0;
+    return x;
+}

@@ -114,6 +114,9 @@ private:
   // Maps temp LocalId → the Place whose address was taken to produce that temp.
   llvm::DenseMap<LocalId, Place> AddrOfOrigins;
 
+  /// The place \p Op holds the address of, if it came from `&place`.
+  llvm::Optional<Place> addrOfOrigin(const Operand &Op) const;
+
   // --- Region ID counter for borrow checking ---
   // Each Rvalue::Ref gets a unique RegionId at build time.
   // Prepared for future borrow checker integration.

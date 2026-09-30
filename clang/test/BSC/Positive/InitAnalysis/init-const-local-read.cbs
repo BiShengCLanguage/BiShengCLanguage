@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// A const local read on a path that ran its declaration is initialized, and
+// genuine integer constant expressions are unaffected.
+
+enum E { A = 1 };
+
+_Safe int const_local_in_scope(void) {
+    const int k = 5;
+    int x = k;
+    return x + k;
+}
+
+_Safe int constant_expressions(void) {
+    int a = 1 + 2;
+    int b = (int)3L;
+    int c = sizeof(int);
+    int d = A;
+    int e = 1 ? 7 : 8;
+    return a + b + c + d + e;
+}

@@ -1,0 +1,71 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
+
+// A switch whose arms all reach the same block still evaluates its
+// controlling expression, so the read is checked.
+
+_Safe void all_cases_break(void) {
+    int x;
+    switch (x) { // expected-error {{use of uninitialized value: 'x'}}
+    case 0:
+    case 1:
+        break;
+    }
+}
+
+_Safe void empty_body(void) {
+    int x;
+    switch (x) { // expected-error {{use of uninitialized value: 'x'}}
+    }
+}
+
+_Safe void empty_if(void) {
+    int x;
+    if (x) { // expected-error {{use of uninitialized value: 'x'}}
+    }
+}
+
+_Safe void field_discriminant(void) {
+    struct S { int a; int b; } s;
+    s.b = 1;
+    switch (s.a) { // expected-error {{use of uninitialized value: 's.a'}}
+    default:
+        break;
+    }
+}
+
+void unsafe_all_cases_break(void) {
+    int x;
+    switch (x) { // all-error {{use of uninitialized value: 'x'}}
+    case 0:
+    case 1:
+        break;
+    }
+}
+
+// ----- a kept degenerate switch proves nothing about its guard --------------
+// `if (r != 0) {}` lowers to switchInt(cmp) -> [0: J, otherwise: J]. J is
+// reached whatever r is, so it credits no ensure_init_if_ret contract.
+
+_Safe int try_init_guard(int *_Borrow __attribute__((ensure_init_if_ret(0))) p);
+
+_Safe int empty_ne_guard(void) {
+    int x;
+    int r = try_init_guard(&_Mut x);
+    if (r != 0) { }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe int empty_eq_guard(void) {
+    int x;
+    int r = try_init_guard(&_Mut x);
+    if (r == 0) { }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}
+
+_Safe int empty_eq_else_guard(void) {
+    int x;
+    int r = try_init_guard(&_Mut x);
+    if (r == 0) { } else { }
+    return x; // expected-error {{use of uninitialized value: 'x'}}
+}

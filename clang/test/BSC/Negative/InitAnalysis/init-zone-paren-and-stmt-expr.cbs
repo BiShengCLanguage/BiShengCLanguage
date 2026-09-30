@@ -1,0 +1,35 @@
+// RUN: %clang_cc1 -fsyntax-only -Wno-unused-value -verify %s
+
+// A read inside a written _Safe zone is checked, whether the zone is a
+// parenthesised expression or the result statement of a statement expression.
+
+void paren_read(void) {
+    int y;
+    int z = _Safe(y); // expected-error {{use of uninitialized value: 'y'}}
+    (void)z;
+}
+
+void paren_field_read(void) {
+    struct S { int a; int b; } s;
+    s.b = 1;
+    int z = _Safe(s.a); // expected-error {{use of uninitialized value: 's.a'}}
+    (void)z;
+}
+
+void paren_in_arith(void) {
+    int y;
+    int z = _Safe(y) + 1; // expected-error {{use of uninitialized value: 'y'}}
+    (void)z;
+}
+
+void stmt_expr_result(void) {
+    int y;
+    int r = ({ 0; _Safe y + 0; }); // expected-error {{use of uninitialized value: 'y'}}
+    (void)r;
+}
+
+void stmt_expr_bare_result(void) {
+    int y;
+    int r = ({ 0; _Safe y; }); // expected-error {{use of uninitialized value: 'y'}}
+    (void)r;
+}
