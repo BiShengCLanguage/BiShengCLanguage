@@ -621,21 +621,6 @@ public:
     void setToNull(const VarDecl *VD);
     void setToNull(const Expr *E, ASTContext &Ctx);
     void setOwnedFieldNull(const VarDecl *VD, const bsc::Place *fieldPath);
-    // __assume_null(t) / __assume_null(*s): drop ownership of every registered
-    // owned field of the whole object (an S struct value or an OPS owned
-    // struct pointer).
-    void assumeAllFieldsNull(const VarDecl *VD);
-    // __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
-    // ownership of every owned field nested under `fieldPath` (prefix match),
-    // on whichever host (OPS owned struct pointer or S struct value) tracks VD.
-    void assumeOwnedFieldsUnderNull(const VarDecl *VD,
-                                    const bsc::Place *fieldPath);
-    // __forget(*s) / __forget(t) / __forget(s->in): the Moved-semantics
-    // counterparts of assumeAllFieldsNull / assumeOwnedFieldsUnderNull (fields
-    // abandoned, not asserted null).
-    void forgetAllFields(const VarDecl *VD);
-    void forgetOwnedFieldsUnderPath(const VarDecl *VD,
-                                    const bsc::Place *fieldPath);
     void setToMoved(const VarDecl *VD);
     void setToMoved(const Expr *E, ASTContext &Ctx);
 

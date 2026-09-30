@@ -1157,22 +1157,6 @@ void Ownership::OwnershipStatus::assumeFieldsNull(const VarDecl *VD,
   }
 }
 
-// __assume_null(t) on a struct-value variable (an S host) / __assume_null(*s)
-// on an owned struct pointer (an OPS host): drop ownership of every registered
-// owned field of the whole object.
-void Ownership::OwnershipStatus::assumeAllFieldsNull(const VarDecl *VD) {
-  assumeFieldsNull(VD, allFields(VD));
-}
-
-// __assume_null(s->in) / __assume_null(t.in) on a struct-typed field: drop
-// ownership of every owned field nested under `FieldPath` (field descendants)
-// on whichever host tracks VD. `FieldPath` is e.g. Field(Var, "in"); fields
-// under it are "in.ip", "in.x.y".
-void Ownership::OwnershipStatus::assumeOwnedFieldsUnderNull(
-    const VarDecl *VD, FieldKey FieldPath) {
-  assumeFieldsNull(VD, fieldDescendants(allFields(VD), FieldPath));
-}
-
 // __forget on a struct-typed target: abandon every owned field in `Keys` (and
 // its field descendants) — Moved semantics, the counterpart of
 // assumeFieldsNull (the fields are not asserted null, they are abandoned). On
@@ -1193,23 +1177,6 @@ void Ownership::OwnershipStatus::forgetFields(const VarDecl *VD,
   }
 }
 
-// __forget(*s) / __forget(t): forget every registered owned field of the whole
-// object. Unlike assumeAllFieldsNull, array fields ("arr[]") are forgotten too:
-// __forget is a promise to abandon the whole contents, and there is no Sema
-// warning that could exclude them. The pointer itself keeps owning the struct
-// allocation (still must be freed or forgotten), so no aggregate bit changes.
-void Ownership::OwnershipStatus::forgetAllFields(const VarDecl *VD) {
-  forgetFields(VD, allFields(VD));
-}
-
-// __forget(s->in) / __forget(t.in) on a struct-typed field: forget every owned
-// field nested under `FieldPath` (field descendants) on whichever host tracks
-// VD. Mirror of assumeOwnedFieldsUnderNull with Moved semantics.
-void Ownership::OwnershipStatus::forgetOwnedFieldsUnderPath(
-    const VarDecl *VD, FieldKey FieldPath) {
-  forgetFields(VD, fieldDescendants(allFields(VD), FieldPath));
-}
-
 void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
   E = E->IgnoreParenImpCasts();
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
@@ -1219,7 +1186,11 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
     // struct value, so this path is only reached via __assume_null.) Pointer
     // variables fall through to setToNull(VD) below.
     if (E->getType()->isRecordType() && isHost(VD, HostKind::S)) {
-      assumeAllFieldsNull(VD);
+      // The whole-object form takes the static schema directly. It must NOT be
+      // written as the descendants of the variable's own place:
+      // fieldDescendants() answers empty for a Var-kind prefix, which would
+      // silently turn __assume_null(t) into a no-op.
+      assumeFieldsNull(VD, allFields(VD));
       return;
     }
     setToNull(VD);
@@ -1294,7 +1265,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
       // __assume_null.) Pointer-typed members fall through to the single-field
       // drop below.
       if (E->getType()->isRecordType()) {
-        assumeOwnedFieldsUnderNull(VD, FieldPlace);
+        assumeFieldsNull(VD, fieldDescendants(allFields(VD), FieldPlace));
         return;
       }
       if (isHost(VD, HostKind::OPS))
@@ -1354,7 +1325,7 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
           isHost(RootVD, HostKind::OPS)) {
         QualType PointeeTy = RootVD->getType()->getPointeeType();
         if (PointeeTy->isRecordType())
-          assumeAllFieldsNull(RootVD);
+          assumeFieldsNull(RootVD, allFields(RootVD));
       }
       if (isHost(RootVD, HostKind::BOP)) {
         if (allFields(RootVD).count(DerefPlace)) {
@@ -1389,8 +1360,11 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
         QualType PointeeTy = ME->getType()->getPointeeType();
         if (PointeeTy->isRecordType()) {
           FieldKey FieldPlace = getMemberFieldPlace(ME, Ctx);
-          if (FieldPlace)
-            assumeOwnedFieldsUnderNull(FieldPlace->getRoot(), FieldPlace);
+          if (FieldPlace) {
+            const VarDecl *HostVD = FieldPlace->getRoot();
+            assumeFieldsNull(HostVD,
+                             fieldDescendants(allFields(HostVD), FieldPlace));
+          }
         }
       }
     }
@@ -1414,7 +1388,11 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
     const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
     if (E->getType()->isRecordType() && isHost(VD, HostKind::S)) {
-      forgetAllFields(VD);
+      // As in setToNull: the whole-object form takes the static schema directly.
+      // Unlike __assume_null, array fields ("arr[]") are forgotten too: __forget
+      // is a promise to abandon the whole contents, and there is no Sema
+      // warning that could exclude them.
+      forgetFields(VD, allFields(VD));
       return;
     }
     setToMoved(VD);
@@ -1494,7 +1472,7 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
       // forget every owned field nested under it on whichever host tracks VD.
       // Pointer-typed members fall through to the single-field drop below.
       if (E->getType()->isRecordType()) {
-        forgetOwnedFieldsUnderPath(VD, FieldPlace);
+        forgetFields(VD, fieldDescendants(allFields(VD), FieldPlace));
         return;
       }
       if (isHost(VD, HostKind::OPS)) {
@@ -1565,7 +1543,7 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
           isHost(RootVD, HostKind::OPS)) {
         QualType PointeeTy = RootVD->getType()->getPointeeType();
         if (PointeeTy->isRecordType())
-          forgetAllFields(RootVD);
+          forgetFields(RootVD, allFields(RootVD));
       }
       if (isHost(RootVD, HostKind::BOP)) {
         if (allFields(RootVD).count(DerefPlace)) {
@@ -1602,8 +1580,11 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
         QualType PointeeTy = ME->getType()->getPointeeType();
         if (PointeeTy->isRecordType()) {
           FieldKey FieldPlace = getMemberFieldPlace(ME, Ctx);
-          if (FieldPlace)
-            forgetOwnedFieldsUnderPath(FieldPlace->getRoot(), FieldPlace);
+          if (FieldPlace) {
+            const VarDecl *HostVD = FieldPlace->getRoot();
+            forgetFields(HostVD,
+                         fieldDescendants(allFields(HostVD), FieldPlace));
+          }
         }
       }
     }
