@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
 
 // ==========================================================================
 // ensure_init_if_ret(VALUE) — caller side, across control-flow forms.
@@ -50,12 +51,37 @@ _Safe void dowhile_use_in_if(int n) {
     } while (i < n);
 }
 
-// ERROR: the credit does not survive the loop merge — after the loop `x` is
-// not known-initialized (the loop may have run zero times, and the fact
-// tying `r` to the call no longer holds), so the post-loop check can't help.
+// ERROR: the zero-iteration path reaches the join without the association.
 _Safe void for_use_after_loop(int n) {
     int x;
     int r = 1;
+    for (int i = 0; i < n; i++)
+        r = try_init(&_Mut x);
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// ERROR: the seed IS the cond value, so a zero-iteration loop reaches the
+// guarded block with `x` still uninitialized.
+_Safe void for_use_after_loop_cond_seed(int n) {
+    int x;
+    int r = 0;
+    for (int i = 0; i < n; i++)
+        r = try_init(&_Mut x);
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// ERROR: the seed is not a constant, so a zero-iteration loop may reach the
+// guarded block with `x` uninitialized.
+_Safe int opaque_status(void);
+_Safe void for_use_after_loop_unknown_seed(int n) {
+    int x;
+    int r = opaque_status();
     for (int i = 0; i < n; i++)
         r = try_init(&_Mut x);
     if (r == 0) {
@@ -109,5 +135,1093 @@ _Safe void switch_on_ret(void) {
     }
     default:
         break;
+    }
+}
+
+// ERROR: the association is lost at a join unless every path carries it.
+_Safe void caller_delegate_cond(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : -1;
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void caller_other_arm_is_cond(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : 0;
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// A plain local is checked in an unsafe function only under -uninit-check=all.
+void unsafe_caller_delegate_cond(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : -1;
+    if (r == 0) {
+        int y = x; // all-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+void unsafe_caller_other_arm_is_cond(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : 0;
+    if (r == 0) {
+        int y = x; // all-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+void unsafe_for_use_after_loop(int n) {
+    int x;
+    int r = 1;
+    for (int i = 0; i < n; i++)
+        r = try_init(&_Mut x);
+    if (r == 0) {
+        int y = x; // all-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+void unsafe_for_use_after_loop_cond_seed(int n) {
+    int x;
+    int r = 0;
+    for (int i = 0; i < n; i++)
+        r = try_init(&_Mut x);
+    if (r == 0) {
+        int y = x; // all-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+void unsafe_for_use_after_loop_unknown_seed(int n) {
+    int x;
+    int r = opaque_status();
+    for (int i = 0; i < n; i++)
+        r = try_init(&_Mut x);
+    if (r == 0) {
+        int y = x; // all-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// ERROR: a path that wrote the field itself does not carry the association.
+struct Pair { int a; int b; };
+struct Outer { struct Pair in; int c; };
+
+_Safe void field_written_on_other_path(int c) {
+    struct Pair s;
+    int r;
+    if (c)
+        r = try_init(&_Mut s.a);
+    else {
+        s.a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.a; // expected-error {{use of possibly uninitialized value: 's.a'}}
+        (void)y;
+    }
+}
+
+_Safe void whole_struct_written_on_other_path(int c) {
+    struct Pair s;
+    int r;
+    if (c)
+        r = try_init(&_Mut s.a);
+    else {
+        s.a = 1;
+        s.b = 2;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.a; // expected-error {{use of possibly uninitialized value: 's.a'}}
+        (void)y;
+    }
+}
+
+_Safe void enclosing_struct_written_on_other_path(int c) {
+    struct Outer o;
+    int r;
+    if (c)
+        r = try_init(&_Mut o.in.a);
+    else {
+        o.in.a = 1;
+        o.in.b = 2;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = o.in.a; // expected-error {{use of possibly uninitialized value: 'o.in.a'}}
+        (void)y;
+    }
+}
+
+_Safe void other_field_written_on_other_path(int c) {
+    struct Pair s;
+    s.b = 0;
+    int r;
+    if (c)
+        r = try_init(&_Mut s.a);
+    else {
+        s.b = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.a; // expected-error {{use of uninitialized value: 's.a'}}
+        (void)y;
+    }
+}
+
+void unsafe_field_written_on_other_path(int c) {
+    struct Pair s;
+    int r;
+    if (c)
+        r = try_init(&_Mut s.a);
+    else {
+        s.a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.a; // all-error {{use of possibly uninitialized value: 's.a'}}
+        (void)y;
+    }
+}
+
+void unsafe_other_field_written_on_other_path(int c) {
+    struct Pair s;
+    s.b = 0;
+    int r;
+    if (c)
+        r = try_init(&_Mut s.a);
+    else {
+        s.b = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.a; // all-error {{use of uninitialized value: 's.a'}}
+        (void)y;
+    }
+}
+
+// ERROR: the same for a write to an enclosing struct or union.
+union Num { int i; long l; };
+struct Tagged { union Num n; int tag; };
+
+_Safe void enclosing_struct_assigned_on_other_path(int c, struct Pair p) {
+    struct Outer o;
+    int r;
+    if (c)
+        r = try_init(&_Mut o.in.a);
+    else {
+        o.in = p;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = o.in.a; // expected-error {{use of uninitialized value: 'o.in.a'}}
+        (void)y;
+    }
+}
+
+_Safe void sibling_of_enclosing_struct_written(int c) {
+    struct Outer o;
+    o.c = 0;
+    o.in.b = 0;
+    int r;
+    if (c)
+        r = try_init(&_Mut o.in.a);
+    else {
+        o.c = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = o.in.a; // expected-error {{use of uninitialized value: 'o.in.a'}}
+        (void)y;
+    }
+}
+
+void union_variant_written_on_other_path(int c) {
+    struct Tagged t;
+    int r;
+    if (c)
+        r = try_init(&_Mut t.n.i);
+    else {
+        t.n.l = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = t.n.i; // all-error {{use of possibly uninitialized value: 't.n'}}
+        (void)y;
+    }
+}
+
+void union_untouched_on_other_path(int c) {
+    struct Tagged t;
+    t.tag = 0;
+    int r;
+    if (c)
+        r = try_init(&_Mut t.n.i);
+    else {
+        t.tag = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = t.n.i; // all-error {{use of uninitialized value: 't.n'}}
+        (void)y;
+    }
+}
+
+// The same through the fields of a contract pointee.
+_Safe void safe_pointee_field(struct Pair *_Borrow __attribute__((ensure_init)) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+}
+
+_Safe void safe_pointee_other_field(struct Pair *_Borrow __attribute__((ensure_init)) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->b = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+}
+
+void pointee_field(struct Pair *_Borrow __attribute__((ensure_init)) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+}
+
+_Safe int safe_if_ret_pointee_field(struct Pair *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+    return 0;
+}
+
+int if_ret_pointee_other_field(struct Pair *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->b = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+    return 0;
+}
+
+void pointee_other_field(struct Pair *_Borrow __attribute__((ensure_init)) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->b = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+}
+
+_Safe int safe_if_ret_pointee_other_field(struct Pair *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->b = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+    return 0;
+}
+
+int if_ret_pointee_field(struct Pair *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut out->a);
+    else {
+        out->a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = out->a; // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init_if_ret)) function}}
+        (void)y;
+    }
+    out->a = 1;
+    out->b = 2;
+    return 0;
+}
+
+// A plain borrow's pointee has no tracked fields; the credit is not consulted.
+_Safe void plain_borrow_pointee_field(struct Pair *_Borrow q, int c) {
+    int r;
+    if (c)
+        r = try_init(&_Mut q->a);
+    else {
+        q->a = 1;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = q->a;
+        (void)y;
+    }
+}
+
+// ----- more caller-side shapes for the same rule -----------------------------
+_Safe void mutate_int(int *_Borrow p);
+_Safe int try_init_two(int *_Borrow __attribute__((ensure_init_if_ret(0))) a,
+                       int *_Borrow __attribute__((ensure_init_if_ret(0))) b);
+_Safe unsigned int try_init_unsigned(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+struct FieldPair { int a; int b; };
+
+_Safe void while_seeded_use_after(int n) {
+    int x;
+    int r = 1;
+    int i = 0;
+    while (i < n) {
+        r = try_init(&_Mut x);
+        i = i + 1;
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void dowhile_seeded_use_after(int n) {
+    int x;
+    int r = 1;
+    int i = 0;
+    do {
+        r = try_init(&_Mut x);
+        i = i + 1;
+    } while (i < n);
+    if (r == 0) {
+        int y = x;
+        (void)y;
+    }
+}
+
+_Safe void while_cond_seed_use_after(int n) {
+    int x;
+    int r = 0;
+    int i = 0;
+    while (i < n) {
+        r = try_init(&_Mut x);
+        i = i + 1;
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void loop_with_break(int n) {
+    int x;
+    int r = 1;
+    int i = 0;
+    while (i < n) {
+        if (i == 3)
+            break;
+        r = try_init(&_Mut x);
+        i = i + 1;
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void loop_with_continue(int n) {
+    int x;
+    int r = 1;
+    int i = 0;
+    while (i < n) {
+        i = i + 1;
+        if (i == 3)
+            continue;
+        r = try_init(&_Mut x);
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void nested_loops(int n) {
+    int x;
+    int r = -1;
+    int i = 0;
+    while (i < n) {
+        int j = 0;
+        while (j < n) {
+            r = try_init(&_Mut x);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// The only way out of the loop is the guarded break.
+_Safe void infinite_loop_break_on_cond(void) {
+    int x;
+    int r;
+    for (;;) {
+        r = try_init(&_Mut x);
+        if (r == 0)
+            break;
+    }
+    int y = x;
+    (void)y;
+}
+
+_Safe void call_in_if_in_loop(int n, int c) {
+    int x;
+    int r = 1;
+    int i = 0;
+    while (i < n) {
+        if (c)
+            r = try_init(&_Mut x);
+        i = i + 1;
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void nested_guard(int c) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == 0) {
+        if (c) {
+            int y = x;
+            (void)y;
+        }
+    }
+}
+
+_Safe void guard_then_loop(int n) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == 0) {
+        int i = 0;
+        while (i < n) {
+            int y = x;
+            (void)y;
+            i = i + 1;
+        }
+    }
+}
+
+_Safe void reassign_result_after_guard(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == 0) {
+        r = 5;
+        int y = x;
+        (void)y;
+    }
+}
+
+_Safe void guard_on_a_copy(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : -1;
+    int s = r;
+    if (s == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void guard_value_first(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : -1;
+    if (0 == r) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void guard_not_equal_value_first(int c) {
+    int x;
+    int r = c ? try_init(&_Mut x) : -1;
+    if (0 != r)
+        return;
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
+    (void)y;
+}
+
+_Safe void field_argument_join(int c) {
+    struct FieldPair s;
+    int r = c ? try_init(&_Mut s.a) : -1;
+    if (r == 0) {
+        int y = s.a; // expected-error {{use of uninitialized value: 's.a'}}
+        (void)y;
+    }
+}
+
+_Safe void two_out_params_one_call(void) {
+    int x;
+    int z;
+    int r = try_init_two(&_Mut x, &_Mut z);
+    if (r == 0) {
+        int y = x + z;
+        (void)y;
+    }
+}
+
+_Safe void unsigned_result_join(int c) {
+    int x;
+    unsigned int r = c ? try_init_unsigned(&_Mut x) : 7u;
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// A constant that is mutably borrowed afterwards is no longer known.
+_Safe void constant_then_borrowed(int c) {
+    int x;
+    int r;
+    if (c)
+        r = try_init(&_Mut x);
+    else {
+        r = -1;
+        mutate_int(&_Mut r);
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// A switch on the result is not one of the four recognised guard forms.
+_Safe void switch_guard_case_zero(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    switch (r) {
+    case 0: {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+_Safe void use_after_guarded_block(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == 0) {
+        int y = x;
+        (void)y;
+    }
+    int z = x; // expected-error {{use of possibly uninitialized value: 'x'}}
+    (void)z;
+}
+
+_Safe void empty_guard_then_use(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (r == 0) {
+    }
+    int y = x; // expected-error {{use of uninitialized value: 'x'}}
+    (void)y;
+}
+
+// ----- jumps, nesting and dead blocks ---------------------------------------
+// A goto into a case body bypasses the guard that credits x.
+_Safe void goto_into_switch_case(int c) {
+    int x;
+    int r = try_init(&_Mut x);
+    if (c)
+        goto inside;
+    switch (r) {
+    case 0:
+    inside:
+        {
+            int y = x; // expected-error {{use of uninitialized value: 'x'}}
+            (void)y;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+_Safe void goto_into_case_with_cond_seed(int c) {
+    int x;
+    int r = 0;
+    if (c)
+        goto skipped;
+    r = try_init(&_Mut x);
+skipped:
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// ERROR: the other path reaches the same label without the association.
+_Safe void switch_in_if_goto_between_cases(int c, int d) {
+    int x;
+    int r = 1;
+    if (c) {
+        switch (d) {
+        case 1:
+            r = try_init(&_Mut x);
+            goto check;
+        case 2:
+            r = -1;
+        check:
+            if (r == 0) {
+                int y = x; // expected-error {{use of uninitialized value: 'x'}}
+                (void)y;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+_Safe void forward_goto_skips_call(int c) {
+    int x;
+    int r = 1;
+    if (c)
+        goto after;
+    r = try_init(&_Mut x);
+after:
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void switch_in_if_in_loop_goto_out(int n, int c) {
+    int x;
+    int r = 1;
+    int i = 0;
+    while (i < n) {
+        if (c) {
+            switch (i) {
+            case 0:
+                r = try_init(&_Mut x);
+                goto done;
+            default:
+                break;
+            }
+        }
+        i = i + 1;
+    }
+done:
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// Dead code does not carry the credit, and does not lose it either.
+_Safe void dead_code_after_return_in_case(int c) {
+    int x;
+    int r = try_init(&_Mut x);
+    switch (c) {
+    case 1:
+        if (r != 0)
+            return;
+        {
+            int y = x;
+            (void)y;
+        }
+        return;
+        {
+            int y2 = x;
+            (void)y2;
+        }
+    default:
+        break;
+    }
+}
+
+_Safe void call_in_constant_false_branch(void) {
+    int x;
+    int r = 1;
+    if (0) {
+        r = try_init(&_Mut x);
+    }
+    if (r == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+_Safe void call_in_constant_true_branch(void) {
+    int x;
+    int r = 1;
+    if (1) {
+        r = try_init(&_Mut x);
+    }
+    if (r == 0) {
+        int y = x;
+        (void)y;
+    }
+}
+
+// The only exit from the loop is the guarded break, so the use after it is fine.
+_Safe void use_after_infinite_loop(void) {
+    int x;
+    int r = 1;
+    for (;;) {
+        r = try_init(&_Mut x);
+        if (r == 0)
+            break;
+    }
+    int y = x;
+    (void)y;
+}
+
+// ----- a field written on the other path ----------------------------------
+// The association is lost at the join whatever the other path wrote.
+
+typedef struct { int a; int b; } Pair;
+typedef struct { Pair in; int n; } Nest;
+
+_Safe void field_self_written(int c) {
+    Nest s;
+    int r;
+    if (c) {
+        r = try_init(&_Mut s.in.a);
+    } else {
+        s.in.a = 7;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.in.a; // expected-error {{use of possibly uninitialized value: 's.in.a'}}
+        (void)y;
+    }
+}
+
+_Safe void field_sibling_written(int c) {
+    Nest s;
+    int r;
+    if (c) {
+        r = try_init(&_Mut s.in.a);
+    } else {
+        s.in.b = 7;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.in.a; // expected-error {{use of uninitialized value: 's.in.a'}}
+        (void)y;
+    }
+}
+
+_Safe void field_ancestor_written(int c) {
+    Nest s;
+    int r;
+    if (c) {
+        r = try_init(&_Mut s.in.a);
+    } else {
+        Pair q;
+        q.a = 1;
+        q.b = 2;
+        s.in = q;
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.in.a; // expected-error {{use of uninitialized value: 's.in.a'}}
+        (void)y;
+    }
+}
+
+_Safe void field_ancestor_maybe(int c, int d) {
+    Nest s;
+    int r;
+    if (c) {
+        r = try_init(&_Mut s.in.a);
+    } else {
+        if (d) {
+            Pair q;
+            q.a = 1;
+            q.b = 2;
+            s.in = q;
+        }
+        r = 0;
+    }
+    if (r == 0) {
+        int y = s.in.a; // expected-error {{use of uninitialized value: 's.in.a'}}
+        (void)y;
+    }
+}
+
+int try_init_raw(int *__attribute__((ensure_init_if_ret(0))) out);
+
+int unsafe_field_self_written(int c) {
+    Nest s;
+    int r;
+    if (c) {
+        r = try_init_raw(&s.in.a);
+    } else {
+        s.in.a = 7;
+        r = 0;
+    }
+    if (r == 0)
+        return s.in.a; // all-error {{use of possibly uninitialized value: 's.in.a'}}
+    return 0;
+}
+
+int unsafe_field_sibling_written(int c) {
+    Nest s;
+    int r;
+    if (c) {
+        r = try_init_raw(&s.in.a);
+    } else {
+        s.in.b = 7;
+        r = 0;
+    }
+    if (r == 0)
+        return s.in.a; // all-error {{use of uninitialized value: 's.in.a'}}
+    return 0;
+}
+
+// ----- only the guard forms the manual enumerates credit the association ---
+// The credit belongs to `e == value` and its three siblings. Storing the
+// comparison in a variable, or branching on the result some other way, leaves
+// those forms and earns nothing.
+
+_Safe void bare_condition(void) {
+    int x;
+    int t = (try_init(&_Mut x) == 0);
+    if (t) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// A single-arm switch over a recognised comparison credits that arm: no init
+// error here, only Clang's own note about switching on a boolean.
+_Safe void switch_over_comparison(void) {
+    int x;
+    switch (try_init(&_Mut x) == 0) { // expected-warning {{switch condition has boolean value}}
+    case 1: {
+        int y = x;
+        (void)y;
+        break;
+    }
+    }
+}
+
+_Safe void switch_on_comparison_result(void) {
+    int x;
+    int t = (try_init(&_Mut x) == 0);
+    switch (t) {
+    case 1: {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+        break;
+    }
+    }
+}
+
+_Safe void switch_on_associated_variable(void) {
+    int x;
+    int r = try_init(&_Mut x);
+    switch (r) {
+    case 0: {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+        break;
+    }
+    }
+}
+
+// Two arms of a written switch may share a target, and that target is then
+// reachable whatever the call returned.
+_Safe void switch_arms_share_target(void) {
+    int x;
+    switch (try_init(&_Mut x) == 0) { // expected-warning {{switch condition has boolean value}}
+    case 0:
+    case 1: {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+        break;
+    }
+    }
+}
+
+int unsafe_bare_condition(void) {
+    int x;
+    int t = (try_init_raw(&x) == 0);
+    if (t)
+        return x; // all-error {{use of uninitialized value: 'x'}}
+    return 0;
+}
+
+int unsafe_switch_arms_share_target(void) {
+    int x;
+    switch (try_init_raw(&x) == 0) { // expected-warning {{switch condition has boolean value}}
+    case 0:
+    case 1:
+        return x; // all-error {{use of uninitialized value: 'x'}}
+    }
+    return 0;
+}
+
+// ----- the association does not survive a narrowing conversion -------------
+// The record claims something about the callee's returned value. A narrower
+// local holds a different value, so a guard on it proves nothing: try_init_long
+// may return 0x100000000, whose low 32 bits are 0.
+
+_Safe long try_init_long(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+long try_init_long_raw(int *__attribute__((ensure_init_if_ret(0))) out);
+
+_Safe void narrowed_association(void) {
+    int x;
+    long r = try_init_long(&_Mut x);
+    int narrow = (int)r;
+    if (narrow == 0) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// The wide local itself is still associated, so guarding on it is credited.
+_Safe void wide_association_kept(void) {
+    int x;
+    long r = try_init_long(&_Mut x);
+    if (r == 0) {
+        int y = x;
+        (void)y;
+    }
+}
+
+int unsafe_narrowed_association(void) {
+    int x;
+    long r = try_init_long_raw(&x);
+    int narrow = r;
+    if (narrow == 0)
+        return x; // all-error {{use of uninitialized value: 'x'}}
+    return 0;
+}
+
+// ----- the association ends with the variable's scope ----------------------
+
+_Safe void out_variable_redeclared_each_iteration(int n) {
+    int r = 1;
+    for (int i = 0; i < n; i++) {
+        int x;
+        if (r == 0) {
+            int y = x; // expected-error {{use of uninitialized value: 'x'}}
+            (void)y;
+        }
+        r = try_init(&_Mut x);
+    }
+}
+
+void unsafe_out_variable_redeclared_each_iteration(int n) {
+    int r = 1;
+    for (int i = 0; i < n; i++) {
+        int x;
+        if (r == 0) {
+            int y = x; // all-error {{use of uninitialized value: 'x'}}
+            (void)y;
+        }
+        r = try_init(&_Mut x);
+    }
+}
+
+// ----- a sign change keeps the association, a narrowing does not -----------
+// The compared constant and the cond value are both taken in the copy's type.
+
+_Safe int try_init_neg_one(int *_Borrow __attribute__((ensure_init_if_ret(-1))) out);
+
+_Safe void unsigned_copy_association_kept(void) {
+    int x;
+    unsigned r = (unsigned)try_init_neg_one(&_Mut x);
+    if (r == 4294967295u) {
+        int y = x;
+        (void)y;
+    }
+}
+
+// (unsigned char)-1 is 255, but so is (unsigned char)255.
+_Safe void unsigned_char_copy_not_associated(void) {
+    int x;
+    unsigned char r = (unsigned char)try_init_neg_one(&_Mut x);
+    if (r == 255) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
+    }
+}
+
+// A guard on the unsigned copy for a value it cannot hold credits nothing,
+// and the uninitialized read is still reported on that path.
+_Safe void unsigned_copy_guard_misses_cond(void) {
+    int x;
+    unsigned r = (unsigned)try_init_neg_one(&_Mut x);
+    if (r == 0u) {
+        int y = x; // expected-error {{use of uninitialized value: 'x'}}
+        (void)y;
     }
 }

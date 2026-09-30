@@ -84,6 +84,79 @@ static llvm::Optional<LocalId> asCopiedLocal(const Rvalue &R) {
   return llvm::None;
 }
 
+/// The place `&`, `&_Mut` or `&_Const` takes, or null for any other rvalue.
+static const Place *addressedPlace(const Rvalue &Src) {
+  if (Src.K == Rvalue::AddressOf)
+    return &Src.getAddrOf().P;
+  if (Src.K == Rvalue::Ref)
+    return &Src.getRef().P;
+  return nullptr;
+}
+
+/// What `_0 = Src` makes the return value.
+static InitLattice::ReturnValue classifyReturned(const Rvalue &Src) {
+  InitLattice::ReturnValue RV;
+  int64_t CV = 0;
+  if (Src.K == Rvalue::Use && foldConstOperand(Src.getUse().Op, CV)) {
+    RV.K = InitLattice::ReturnValue::Constant;
+    RV.Const = CV;
+  } else if (auto L = asCopiedLocal(Src)) {
+    RV.K = InitLattice::ReturnValue::Local;
+    RV.Src = *L;
+  } else {
+    RV.K = InitLattice::ReturnValue::Unknown;
+  }
+  return RV;
+}
+
+static bool isNamedLocal(const LocalDecl &LD) {
+  return !LD.IsTemp && !LD.Name.empty();
+}
+
+static unsigned calleeNumParams(const Terminator::CallData &CD) {
+  if (CD.Decl)
+    return CD.Decl->getNumParams();
+  return CD.CalleeProtoType ? CD.CalleeProtoType->getNumParams() : 0;
+}
+
+/// The first \p N indices of \p FP.
+static FieldPath pathPrefix(const FieldPath &FP, unsigned N) {
+  FieldPath Prefix;
+  Prefix.Base = FP.Base;
+  Prefix.Indices.assign(FP.Indices.begin(), FP.Indices.begin() + N);
+  return Prefix;
+}
+
+/// Compute the meet of two init states (intersection semantics).
+static InitState meetStates(InitState A, InitState B) {
+  if (A == B)
+    return A;
+  // Any combination of different states produces MaybeInit:
+  // Init + Uninit, Init + MaybeInit, or MaybeInit + Uninit.
+  return InitState::MaybeInit;
+}
+
+/// Meet \p Src into \p Dst key by key; a key only \p Src has is copied.
+/// Returns true if \p Dst changed.
+template <class MapT>
+static bool meetMapInto(const MapT &Src, MapT &Dst) {
+  bool Changed = false;
+  for (const auto &E : Src) {
+    auto It = Dst.find(E.first);
+    if (It == Dst.end()) {
+      Dst[E.first] = E.second;
+      Changed = true;
+      continue;
+    }
+    InitState New = meetStates(E.second, It->second);
+    if (New != It->second) {
+      It->second = New;
+      Changed = true;
+    }
+  }
+  return Changed;
+}
+
 /// Intersect \p Src into \p Dst by value: keep only keys present in both with
 /// equal values. Returns true if \p Dst changed.
 template <class MapT>
@@ -100,6 +173,21 @@ static bool intersectMapByValue(const MapT &Src, MapT &Dst) {
   return true;
 }
 
+/// Drop every fact that names \p L.
+static void invalidateLocal(InitLattice &State, LocalId L) {
+  llvm::erase_if(State.PendingCondInits,
+                 [&](const InitLattice::PendingCondInit &P) {
+                   return P.RetLocal == L || P.Out.Path.Base == L;
+                 });
+  State.ComparisonFacts.erase(L);
+  SmallVector<LocalId, 4> ToErase;
+  for (const auto &Entry : State.ComparisonFacts)
+    if (Entry.second.ComparedLocal == L)
+      ToErase.push_back(Entry.first);
+  for (LocalId K : ToErase)
+    State.ComparisonFacts.erase(K);
+}
+
 //===----------------------------------------------------------------------===//
 // InitAnalysis: Dataflow Implementation
 //===----------------------------------------------------------------------===//
@@ -108,43 +196,28 @@ InitLattice InitAnalysis::entryState(const Body &B) const {
   InitLattice State;
 
   // Return slot (_0) starts uninitialized
-  State.LocalStates[LocalId{0}] = InitState::Uninitialized;
+  setInitState(State, LocalId{0}, InitState::Uninitialized);
 
-  // Parameters (1..NumParams) start initialized, including all nested fields
+  bool Ignored = false;
+  // Parameters (1..NumParams) start initialized, including all nested fields;
+  // the pointee of a contract parameter starts uninitialized.
   for (unsigned I = 1; I <= B.NumParams; ++I) {
-    State.LocalStates[LocalId{I}] = InitState::Initialized;
-    // Recursively mark all fields as initialized for struct params.
-    const LocalDecl &LD = B.getLocal(LocalId{I});
-    SmallVector<unsigned, 4> Prefix;
-    markAllFieldsInit(State, LocalId{I}, LD.Ty, Prefix);
+    markLocalFullyInit(State, LocalId{I}, Ignored);
+    if (const ParmVarDecl *PVD = contractParamDecl(LocalId{I})) {
+      QualType PointeeTy = PVD->getType()->getPointeeType();
+      State.EnsureInitDerefStates[LocalId{I}] =
+          isVacuouslyInitialized(PointeeTy) ? InitState::Initialized
+                                            : InitState::Uninitialized;
+    }
   }
 
   // All other locals start uninitialized, except globals/statics and
   // va_list types which are treated as fully initialized.
   for (unsigned I = B.NumParams + 1; I < B.Locals.size(); ++I) {
-    const LocalDecl &LD = B.getLocal(LocalId{I});
-    if (isImplicitlyInitialized(LD, B)) {
-      State.LocalStates[LocalId{I}] = InitState::Initialized;
-      SmallVector<unsigned, 4> Prefix;
-      markAllFieldsInit(State, LocalId{I}, LD.Ty, Prefix);
-    } else {
-      State.LocalStates[LocalId{I}] = InitState::Uninitialized;
-    }
-  }
-
-  // For callee-side ensure_init / ensure_init_if_ret: *param starts uninitialized
-  if (B.SourceFD) {
-    for (unsigned I = 0; I < B.SourceFD->getNumParams(); ++I) {
-      const ParmVarDecl *PVD = B.SourceFD->getParamDecl(I);
-      if (PVD->hasAttr<EnsureInitAttr>() ||
-          PVD->hasAttr<EnsureInitIfRetAttr>()) {
-        QualType PointeeTy = PVD->getType()->getPointeeType();
-        InitState Seed = isVacuouslyInitialized(PointeeTy)
-                             ? InitState::Initialized
-                             : InitState::Uninitialized;
-        State.EnsureInitDerefStates[LocalId{I + 1}] = Seed;
-      }
-    }
+    if (isImplicitlyInitialized(B.getLocal(LocalId{I}), B))
+      markLocalFullyInit(State, LocalId{I}, Ignored);
+    else
+      setInitState(State, LocalId{I}, InitState::Uninitialized);
   }
 
   return State;
@@ -159,12 +232,7 @@ bool InitAnalysis::transferStatement(const Statement &S,
     // Assignment to a place: mark destination as initialized
     if (S.getAssign().Dest.isLocal()) {
       LocalId Dest = S.getAssign().Dest.Base;
-      auto It = State.LocalStates.find(Dest);
-      if (It == State.LocalStates.end() ||
-          It->second != InitState::Initialized) {
-        State.LocalStates[Dest] = InitState::Initialized;
-        Changed = true;
-      }
+      setInitState(State, Dest, InitState::Initialized, &Changed);
     } else if (auto FP = getFieldPath(S.getAssign().Dest)) {
       // Array-typed fields cannot be initialized element-by-element.
       // They must be initialized via {} or __assume_initialized.
@@ -194,9 +262,8 @@ bool InitAnalysis::transferStatement(const Statement &S,
     // decides whether the path is acceptable and notes it.
     if (S.getAssign().Dest.isLocal()) {
       LocalId DestId = S.getAssign().Dest.Base;
-      auto It = State.EnsureInitDerefStates.find(DestId);
-      if (It != State.EnsureInitDerefStates.end() &&
-          It->second != InitState::Initialized)
+      auto DS = getDerefState(State, DestId);
+      if (DS && *DS != InitState::Initialized)
         State.ReassignedParams[DestId].push_back(S.Loc);
     }
 
@@ -207,49 +274,20 @@ bool InitAnalysis::transferStatement(const Statement &S,
       LocalId DestId = S.getAssign().Dest.Base;
       const Rvalue &Src = S.getAssign().Src;
 
-      auto invalidateLocal = [&](LocalId L) {
-        llvm::erase_if(State.PendingCondInits,
-                       [&](const InitLattice::PendingCondInit &P) {
-                         return P.RetLocal == L || P.OutParamLocal == L;
-                       });
-        State.ComparisonFacts.erase(L);
-        SmallVector<LocalId, 4> ToErase;
-        for (const auto &Entry : State.ComparisonFacts)
-          if (Entry.second.ComparedLocal == L)
-            ToErase.push_back(Entry.first);
-        for (LocalId K : ToErase)
-          State.ComparisonFacts.erase(K);
-      };
       // Only address-of or a mutable borrow can change the local; an
       // immutable (&_Const) borrow must not invalidate the association.
-      if (Src.K == Rvalue::AddressOf) {
-        const Place &P = Src.getAddrOf().P;
-        if (P.Projections.empty())
-          invalidateLocal(P.Base);
-      } else if (Src.K == Rvalue::Ref &&
-                 Src.getRef().BK == BorrowKind::Mut) {
-        const Place &P = Src.getRef().P;
-        if (P.Projections.empty())
-          invalidateLocal(P.Base);
-      }
+      if (const Place *P = addressedPlace(Src))
+        if (P->Projections.empty() &&
+            (Src.K == Rvalue::AddressOf || Src.getRef().BK == BorrowKind::Mut))
+          invalidateLocal(State, P->Base);
 
       // DestId is overwritten: drop every fact about it (and any fact that
       // compares against it).
-      invalidateLocal(DestId);
+      invalidateLocal(State, DestId);
 
       if (DestId == LocalId{0}) {
-        InitLattice::ReturnValue RV;
+        InitLattice::ReturnValue RV = classifyReturned(Src);
         RV.Loc = S.Loc;
-        int64_t CV = 0;
-        if (Src.K == Rvalue::Use && foldConstOperand(Src.getUse().Op, CV)) {
-          RV.K = InitLattice::ReturnValue::Constant;
-          RV.Const = CV;
-        } else if (auto L = asCopiedLocal(Src)) {
-          RV.K = InitLattice::ReturnValue::Local;
-          RV.Src = *L;
-        } else {
-          RV.K = InitLattice::ReturnValue::Unknown;
-        }
         if (!(State.RetValue == RV)) {
           State.RetValue = RV;
           Changed = true;
@@ -286,18 +324,29 @@ bool InitAnalysis::transferStatement(const Statement &S,
       // `dst = (cast)src`. 
       if (auto SrcOpt = asCopiedLocal(Src)) {
         LocalId SrcId = *SrcOpt;
+        QualType CastTo =
+            Src.K == Rvalue::Cast ? Src.getCast().Ty : QualType();
+        QualType CastFrom = Src.K == Rvalue::Cast &&
+                                    Src.getCast().Op.K == Operand::Copy
+                                ? Src.getCast().Op.getPlace().Ty
+                                : QualType();
         SmallVector<InitLattice::PendingCondInit, 2> NewPCIs;
         for (const auto &PCI : State.PendingCondInits) {
-          if (PCI.RetLocal == SrcId) {
-            InitLattice::PendingCondInit NewPCI = PCI;
-            NewPCI.RetLocal = DestId;
-            NewPCIs.push_back(NewPCI);
-          }
+          if (PCI.RetLocal != SrcId)
+            continue;
+          InitLattice::PendingCondInit NewPCI = PCI;
+          if (!CastTo.isNull() && !recordFollowsCast(NewPCI, CastFrom, CastTo))
+            continue;
+          NewPCI.RetLocal = DestId;
+          NewPCIs.push_back(NewPCI);
         }
         for (const auto &PCI : NewPCIs)
           State.PendingCondInits.push_back(PCI);
+        // A comparison reaches its branch through the builder's own temps.
+        // Storing it in a named variable leaves the recognised guard forms.
         auto FactIt = State.ComparisonFacts.find(SrcId);
-        if (FactIt != State.ComparisonFacts.end()) {
+        if (FactIt != State.ComparisonFacts.end() &&
+            B.getLocal(DestId).IsTemp) {
           // Copy out before the insert: ComparisonFacts[DestId] may rehash the
           // map (DestId was erased above, so this always inserts), invalidating
           // FactIt and turning FactIt->second into a use-after-free.
@@ -315,36 +364,21 @@ bool InitAnalysis::transferStatement(const Statement &S,
     LocalId SL = S.getStorageLocal();
     const LocalDecl &SLD = B.getLocal(SL);
     if (isImplicitlyInitialized(SLD, B)) {
-      auto It = State.LocalStates.find(SL);
-      if (It == State.LocalStates.end() ||
-          It->second != InitState::Initialized) {
-        State.LocalStates[SL] = InitState::Initialized;
-        SmallVector<unsigned, 4> Prefix;
-        markAllFieldsInit(State, SL, SLD.Ty, Prefix);
-        Changed = true;
-      }
+      markLocalFullyInit(State, SL, Changed);
     } else {
-      auto It = State.LocalStates.find(SL);
-      if (It == State.LocalStates.end() ||
-          It->second != InitState::Uninitialized) {
-        State.LocalStates[SL] = InitState::Uninitialized;
-        Changed = true;
-      }
+      setInitState(State, SL, InitState::Uninitialized, &Changed);
       clearFieldStates(State, SL, Changed);
     }
+    invalidateLocal(State, SL);
     break;
   }
 
   case Statement::StorageDead: {
     // Variable goes out of scope: mark uninitialized
     LocalId SL = S.getStorageLocal();
-    auto It = State.LocalStates.find(SL);
-    if (It == State.LocalStates.end() ||
-        It->second != InitState::Uninitialized) {
-      State.LocalStates[SL] = InitState::Uninitialized;
-      Changed = true;
-    }
+    setInitState(State, SL, InitState::Uninitialized, &Changed);
     clearFieldStates(State, SL, Changed);
+    invalidateLocal(State, SL);
     break;
   }
 
@@ -363,7 +397,7 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
     InitLattice Result = StateBeforeTerm;
     const auto &CD = T.getCall();
     if (CD.Dest.isLocal()) {
-      Result.LocalStates[CD.Dest.Base] = InitState::Initialized;
+      setInitState(Result, CD.Dest.Base, InitState::Initialized);
     }
 
     // __assume_initialized: mark the addressed memory as initialized.
@@ -385,11 +419,7 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
     // Caller side: mark *param init for ensure_init params (attr on the
     // FunctionDecl, or ExtParameterInfo for indirect calls).
     {
-      unsigned NumParams = 0;
-      if (CD.Decl)
-        NumParams = CD.Decl->getNumParams();
-      else if (CD.CalleeProtoType)
-        NumParams = CD.CalleeProtoType->getNumParams();
+      unsigned NumParams = calleeNumParams(CD);
 
       // Stale facts about the return slot from prior calls must be
       // invalidated exactly once, before this call's PCIs are added, so
@@ -417,33 +447,20 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
           // or at the return. Marking unconditionally is unsound
           // (`r = inner(out); return 0;` does not establish *out).
           if (CD.Dest.isLocal()) {
-            LocalId OutLocal{0};
-            SmallVector<unsigned, 2> OutFields;
-            bool Recognised = false;
-            bool Pointee = false;
             AddressedPlace Addressed = classifyContractArg(CD, I);
             // A re-pointed param addresses a different pointee.
             if (Addressed.Recognised &&
                 !(Addressed.Pointee &&
                   Result.ReassignedParams.count(Addressed.Path.Base))) {
-              OutLocal = Addressed.Path.Base;
-              OutFields.assign(Addressed.Path.Indices.begin(),
-                               Addressed.Path.Indices.end());
-              Pointee = Addressed.Pointee;
-              Recognised = true;
-            }
-            if (Recognised) {
               InitLattice::PendingCondInit PCI;
-              PCI.OutParamLocal = OutLocal;
-              PCI.OutFieldIndices = std::move(OutFields);
+              PCI.Out = Addressed;
               PCI.RetLocal = CD.Dest.Base;
               PCI.CondValue = EIIRCondValue;
-              PCI.Pointee = Pointee;
+              PCI.RetTy = B.getLocal(CD.Dest.Base).Ty;
               invalidateForThisCall();
               llvm::erase_if(Result.PendingCondInits,
                              [&](const InitLattice::PendingCondInit &P) {
-                               return P.OutParamLocal == PCI.OutParamLocal &&
-                                      P.OutFieldIndices == PCI.OutFieldIndices;
+                               return P.Out.Path == PCI.Out.Path;
                              });
               Result.PendingCondInits.push_back(std::move(PCI));
             }
@@ -477,31 +494,24 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
 
     LocalId DiscLocal = SW.Discriminant.getPlace().Base;
 
-    // The BSCIR builder may emit either `[0: false, otherwise: true]` or
-    // `[1: true, otherwise: false]` for a boolean comparison, so the
-    // edge-to-truth-value mapping must be computed per-target rather
-    // than assumed.
+    // Only the two-way branch a recognised guard lowers to proves anything:
+    // one listed value plus `otherwise`. A written `switch` is not one of the
+    // guard forms, and its arms may share a target, which proves nothing.
     auto classifyEdge = [&](BasicBlockId Tgt,
                             bool &IsTrueEdge, bool &IsFalseEdge) {
       IsTrueEdge = false;
       IsFalseEdge = false;
-      bool ZeroInList = false;
-      for (const auto &Pair : SW.Targets) {
-        bool TgtIsZero = Pair.first.getZExtValue() == 0;
-        if (TgtIsZero)
-          ZeroInList = true;
-        if (Pair.second == Tgt) {
-          if (TgtIsZero)
-            IsFalseEdge = true;
-          else
-            IsTrueEdge = true;
-        }
-      }
-      if (Tgt == SW.Otherwise) {
-        if (ZeroInList)
-          IsTrueEdge = true;
-        else
-          IsFalseEdge = true;
+      // An edge proves the comparison only when one discriminant value reaches
+      // it; arms that share a target are reachable either way.
+      if (SW.Targets.size() != 1)
+        return;
+      bool ListedIsZero = SW.Targets[0].first.getZExtValue() == 0;
+      if (SW.Targets[0].second == Tgt) {
+        IsFalseEdge = ListedIsZero;
+        IsTrueEdge = !ListedIsZero;
+      } else if (Tgt == SW.Otherwise) {
+        IsTrueEdge = ListedIsZero;
+        IsFalseEdge = !ListedIsZero;
       }
     };
 
@@ -519,25 +529,11 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
           continue;
         // `CompLocal == CompValue` is proven on the true-edge of an EQ
         // tracker or on the false-edge of a NE tracker.
+        // Matching branch => inner returned cond => the place is init.
         if ((IsEq && IsTrueEdge) || (!IsEq && IsFalseEdge)) {
-          if (PCI.OutFieldIndices.empty() && PCI.Pointee) {
-            // Matching branch => inner returned cond => the pointee is init.
-            auto DerefIt = Result.EnsureInitDerefStates.find(PCI.OutParamLocal);
-            if (DerefIt != Result.EnsureInitDerefStates.end())
-              DerefIt->second = InitState::Initialized;
-          } else if (PCI.OutFieldIndices.empty()) {
-            Result.LocalStates[PCI.OutParamLocal] = InitState::Initialized;
-            SmallVector<unsigned, 4> Prefix;
-            markAllFieldsInit(Result, PCI.OutParamLocal,
-                              B.getLocal(PCI.OutParamLocal).Ty, Prefix);
-          } else {
-            FieldPath FP;
-            FP.Base = PCI.OutParamLocal;
-            FP.Indices.assign(PCI.OutFieldIndices.begin(),
-                              PCI.OutFieldIndices.end());
-            bool Changed = false;
-            markFieldInit(Result, FP, Changed);
-          }
+          bool Ignored = false;
+          markAddressedPlaceInit(Result, PCI.Out, /*CreditPointeeOfLocal=*/false,
+                                 Ignored);
         }
       }
       return Result;
@@ -553,32 +549,47 @@ InitLattice InitAnalysis::transferTerminator(const Terminator &T,
   return StateBeforeTerm;
 }
 
-/// Compute the meet of two init states (intersection semantics).
-static InitState meetStates(InitState A, InitState B) {
-  if (A == B)
-    return A;
-  // Any combination of different states produces MaybeInit:
-  // Init + Uninit, Init + MaybeInit, or MaybeInit + Uninit.
-  return InitState::MaybeInit;
+bool InitAnalysis::recordFollowsCast(InitLattice::PendingCondInit &PCI,
+                                     QualType From, QualType To) const {
+  if (From.isNull() || To.isNull() || !B.SourceFD)
+    return false;
+  if (!From->isIntegralOrEnumerationType() || !To->isIntegralOrEnumerationType())
+    return false;
+  ASTContext &Ctx = B.SourceFD->getASTContext();
+  // Integer conversions reduce mod 2^width (bool aside): only a lost width merges values.
+  bool Identifiable =
+      Ctx.hasSameUnqualifiedType(From, To) ||
+      (!To->isBooleanType() && Ctx.getIntWidth(To) >= Ctx.getIntWidth(From)) ||
+      (!PCI.RetTy.isNull() &&
+       To.getCanonicalType() == PCI.RetTy.getCanonicalType());
+  if (!Identifiable)
+    return false;
+  PCI.CondValue = convertedTo(PCI.CondValue, To);
+  return true;
+}
+
+int64_t InitAnalysis::convertedTo(int64_t V, QualType Ty) const {
+  if (!B.SourceFD || Ty.isNull() || !Ty->isIntegralOrEnumerationType())
+    return V;
+  // A conversion to bool yields 0 or 1, not the low bit.
+  if (Ty->isBooleanType())
+    return V != 0;
+  unsigned Width = B.SourceFD->getASTContext().getIntWidth(Ty);
+  if (Width == 0 || Width >= 64)
+    return V;
+  llvm::APInt Converted = llvm::APInt(64, (uint64_t)V).trunc(Width);
+  return Ty->isSignedIntegerOrEnumerationType()
+             ? Converted.getSExtValue()
+             : (int64_t)Converted.getZExtValue();
+}
+
+int64_t InitAnalysis::asReturnedValue(int64_t V) const {
+  return B.Locals.empty() ? V : convertedTo(V, B.Locals[0].Ty);
 }
 
 bool InitAnalysis::merge(const InitLattice &Src, InitLattice &Dst) const {
-  bool Changed = false;
-
-  // Merge LocalStates
-  for (const auto &Entry : Src.LocalStates) {
-    auto It = Dst.LocalStates.find(Entry.first);
-    if (It == Dst.LocalStates.end()) {
-      Dst.LocalStates[Entry.first] = Entry.second;
-      Changed = true;
-    } else {
-      InitState NewState = meetStates(Entry.second, It->second);
-      if (NewState != It->second) {
-        It->second = NewState;
-        Changed = true;
-      }
-    }
-  }
+  bool Changed = meetMapInto(Src.LocalStates, Dst.LocalStates);
+  Changed |= meetMapInto(Src.EnsureInitDerefStates, Dst.EnsureInitDerefStates);
 
   // Merge FieldStates: missing entries on either side treated as Uninitialized.
   for (const auto &Entry : Src.FieldStates) {
@@ -620,22 +631,6 @@ bool InitAnalysis::merge(const InitLattice &Src, InitLattice &Dst) const {
       Changed = true;
   }
 
-  // Merge EnsureInitDerefStates
-  for (const auto &Entry : Src.EnsureInitDerefStates) {
-    auto It = Dst.EnsureInitDerefStates.find(Entry.first);
-    if (It == Dst.EnsureInitDerefStates.end()) {
-      Dst.EnsureInitDerefStates[Entry.first] = Entry.second;
-      Changed = true;
-    } else {
-      InitState NewState = meetStates(Entry.second, It->second);
-      if (NewState != It->second) {
-        It->second = NewState;
-        Changed = true;
-      }
-    }
-  }
-
-
   // Merge PendingCondInits: intersection (keep only those in both)
   {
     SmallVector<InitLattice::PendingCondInit, 2> Merged;
@@ -670,8 +665,7 @@ bool InitAnalysis::merge(const InitLattice &Src, InitLattice &Dst) const {
 // Diagnostic Helpers
 //===----------------------------------------------------------------------===//
 
-InitAnalysis::AddressedPlace
-InitAnalysis::classifyAddressedPlace(const Place &P) const {
+AddressedPlace InitAnalysis::classifyAddressedPlace(const Place &P) const {
   AddressedPlace Addressed;
   Addressed.Path.Base = P.Base;
 
@@ -680,7 +674,14 @@ InitAnalysis::classifyAddressedPlace(const Place &P) const {
     return Addressed;
   }
 
-  if (P.Projections[0].K != ProjectionElem::Deref) {
+  // `p[0]` names the pointee, exactly as `*p` does. Over an array it is a real
+  // element, and one element never initializes the array.
+  bool NamesPointee =
+      P.Projections[0].K == ProjectionElem::Deref ||
+      (P.Projections[0].K == ProjectionElem::ConstantIndex &&
+       P.Projections[0].ConstIdx == 0 &&
+       B.getLocal(P.Base).Ty->isPointerType());
+  if (!NamesPointee) {
     if (auto FP = getFieldPath(P)) {
       Addressed.Path = *FP;
       Addressed.Recognised = true;
@@ -689,13 +690,15 @@ InitAnalysis::classifyAddressedPlace(const Place &P) const {
   }
 
   Addressed.Pointee = true;
+  if (auto Param = surelyHoldsParam(P.Base))
+    Addressed.Path.Base = *Param;
   if (P.Projections.size() == 1) {
     Addressed.Recognised = true;
     return Addressed;
   }
-  if (getEnsureInitPointeeType(P.Base).isNull())
+  if (getEnsureInitPointeeType(Addressed.Path.Base).isNull())
     return Addressed;
-  Place SubPlace(P.Base, P.Projections.slice(1), P.Ty, P.Loc);
+  Place SubPlace(Addressed.Path.Base, P.Projections.slice(1), P.Ty, P.Loc);
   if (auto FP = getFieldPath(SubPlace)) {
     Addressed.Path = *FP;
     Addressed.Recognised = true;
@@ -703,8 +706,7 @@ InitAnalysis::classifyAddressedPlace(const Place &P) const {
   return Addressed;
 }
 
-InitAnalysis::AddressedPlace
-InitAnalysis::classifyContractArg(const Terminator::CallData &CD,
+AddressedPlace InitAnalysis::classifyContractArg(const Terminator::CallData &CD,
                                   unsigned I) const {
   if (I < CD.ArgPlaces.size() && CD.ArgPlaces[I])
     return classifyAddressedPlace(*CD.ArgPlaces[I]);
@@ -715,7 +717,7 @@ InitAnalysis::classifyContractArg(const Terminator::CallData &CD,
     if (auto ArgBase = asPassedLocal(CD.Args[I])) {
       Addressed.Recognised = true;
       Addressed.Pointee = true;
-      Addressed.Path.Base = *ArgBase;
+      Addressed.Path.Base = surelyHoldsParam(*ArgBase).value_or(*ArgBase);
     }
   return Addressed;
 }
@@ -735,22 +737,24 @@ void InitAnalysis::markAddressedPlaceInit(InitLattice &State,
   } else if (Addressed.Pointee) {
     markPointeeFullyInit(State, Base, Changed);
   } else {
-    State.LocalStates[Base] = InitState::Initialized;
-    SmallVector<unsigned, 4> Prefix;
-    markAllFieldsInit(State, Base, B.getLocal(Base).Ty, Prefix);
+    markLocalFullyInit(State, Base, Changed);
     if (CreditPointeeOfLocal && !Repointed)
       markPointeeFullyInit(State, Base, Changed);
   }
 }
 
-QualType InitAnalysis::getEnsureInitPointeeType(LocalId Id) const {
-  if (Id.Index < 1 || Id.Index > B.NumParams)
-    return QualType();
-  if (!B.SourceFD)
-    return QualType();
+const ParmVarDecl *InitAnalysis::contractParamDecl(LocalId Id) const {
+  if (Id.Index < 1 || Id.Index > B.NumParams || !B.SourceFD)
+    return nullptr;
   const ParmVarDecl *PVD = B.SourceFD->getParamDecl(Id.Index - 1);
-  if (!PVD->hasAttr<EnsureInitAttr>() &&
-      !PVD->hasAttr<EnsureInitIfRetAttr>())
+  return PVD->hasAttr<EnsureInitAttr>() || PVD->hasAttr<EnsureInitIfRetAttr>()
+             ? PVD
+             : nullptr;
+}
+
+QualType InitAnalysis::getEnsureInitPointeeType(LocalId Id) const {
+  const ParmVarDecl *PVD = contractParamDecl(Id);
+  if (!PVD)
     return QualType();
   QualType PointeeTy = PVD->getType()->getPointeeType();
   if (PointeeTy.isNull() || !PointeeTy->isRecordType())
@@ -763,11 +767,9 @@ QualType InitAnalysis::getEnsureInitPointeeType(LocalId Id) const {
 }
 
 llvm::Optional<int> InitAnalysis::getIfRetCondValue(LocalId Id) const {
-  if (Id.Index < 1 || Id.Index > B.NumParams || !B.SourceFD)
-    return llvm::None;
-  const ParmVarDecl *PVD = B.SourceFD->getParamDecl(Id.Index - 1);
-  if (auto *A = PVD->getAttr<EnsureInitIfRetAttr>())
-    return A->getCondValue();
+  if (const ParmVarDecl *PVD = contractParamDecl(Id))
+    if (auto *A = PVD->getAttr<EnsureInitIfRetAttr>())
+      return A->getCondValue();
   return llvm::None;
 }
 
@@ -779,12 +781,60 @@ InitState InitAnalysis::getInitState(const InitLattice &State,
   return It->second;
 }
 
-void InitAnalysis::markInit(InitLattice &State, LocalId Id) const {
-  State.LocalStates[Id] = InitState::Initialized;
+void InitAnalysis::setInitState(InitLattice &State, LocalId Id, InitState S,
+                                bool *Changed) const {
+  auto It = State.LocalStates.find(Id);
+  if (It != State.LocalStates.end() && It->second == S)
+    return;
+  State.LocalStates[Id] = S;
+  if (Changed)
+    *Changed = true;
 }
 
-void InitAnalysis::markUninit(InitLattice &State, LocalId Id) const {
-  State.LocalStates[Id] = InitState::Uninitialized;
+llvm::Optional<InitState>
+InitAnalysis::getDerefState(const InitLattice &State, LocalId Id) const {
+  auto It = State.EnsureInitDerefStates.find(Id);
+  if (It == State.EnsureInitDerefStates.end())
+    return llvm::None;
+  return It->second;
+}
+
+void InitAnalysis::markLocalFullyInit(InitLattice &State, LocalId Id,
+                                      bool &Changed) const {
+  setInitState(State, Id, InitState::Initialized, &Changed);
+  markAllFieldsInit(State, Id, B.getLocal(Id).Ty, Changed);
+}
+
+void InitAnalysis::markWholeObjectInit(InitLattice &State, LocalId Base,
+                                       bool &Changed) const {
+  if (getDerefState(State, Base))
+    markPointeeFullyInit(State, Base, Changed);
+  else
+    markLocalFullyInit(State, Base, Changed);
+}
+
+void InitAnalysis::reportContract(const InitLattice &State, LocalId ParamId,
+                                  InitDiagKind K, SourceLocation Loc,
+                                  int CondValue,
+                                  SmallVectorImpl<InitDiagInfo> &Diags) const {
+  Diags.emplace_back(K, Loc, B.getLocal(ParamId).Name, CondValue);
+  auto RpIt = State.ReassignedParams.find(ParamId);
+  if (RpIt != State.ReassignedParams.end())
+    Diags.back().NoteLocs.assign(RpIt->second.begin(), RpIt->second.end());
+}
+
+/// The failure kind for a contract pointee in state \p DS, blaming a re-point
+/// on this path when there is one.
+static InitDiagKind contractFailureKind(bool IfRet, bool Reassigned,
+                                        InitState DS) {
+  if (Reassigned)
+    return IfRet ? InitDiagKind::EnsureInitIfRetReassigned
+                 : InitDiagKind::EnsureInitReassigned;
+  if (DS == InitState::Uninitialized)
+    return IfRet ? InitDiagKind::EnsureInitIfRetNotInit
+                 : InitDiagKind::EnsureInitNotInit;
+  return IfRet ? InitDiagKind::EnsureInitIfRetMaybeNotInit
+               : InitDiagKind::EnsureInitMaybeNotInit;
 }
 
 //===----------------------------------------------------------------------===//
@@ -804,10 +854,7 @@ unsigned InitAnalysis::getNumFields(QualType Ty) {
   const RecordDecl *RD = Ty->getAsRecordDecl();
   if (!RD || RD->isUnion())
     return 0;
-  unsigned Count = 0;
-  for (auto It = RD->field_begin(); It != RD->field_end(); ++It)
-    ++Count;
-  return Count;
+  return std::distance(RD->field_begin(), RD->field_end());
 }
 
 bool InitAnalysis::isVacuouslyInitialized(QualType Ty) {
@@ -821,17 +868,34 @@ bool InitAnalysis::isVacuouslyInitialized(QualType Ty) {
   return true;
 }
 
+QualType InitAnalysis::trackedRootType(LocalId Id) const {
+  QualType PointeeTy = getEnsureInitPointeeType(Id);
+  return PointeeTy.isNull() ? B.getLocal(Id).Ty : PointeeTy;
+}
+
+template <class Fn>
+void InitAnalysis::walkFieldPath(LocalId Base, ArrayRef<unsigned> Path,
+                                 Fn F) const {
+  QualType Ty = trackedRootType(Base);
+  for (unsigned I = 0; I < Path.size(); ++I) {
+    const RecordDecl *RD = Ty->getAsRecordDecl();
+    if (!RD)
+      return;
+    const FieldDecl *FD = getFieldAt(RD, Path[I]);
+    if (!F(RD, FD, I) || !FD)
+      return;
+    Ty = FD->getType();
+  }
+}
+
 QualType InitAnalysis::getFieldType(LocalId Id,
                                     ArrayRef<unsigned> Path) const {
-  // For ensure_init struct pointees, use the pointee type.
-  QualType PointeeTy = getEnsureInitPointeeType(Id);
-  QualType Ty = PointeeTy.isNull() ? B.getLocal(Id).Ty : PointeeTy;
-  for (unsigned Idx : Path) {
-    const RecordDecl *RD = Ty->getAsRecordDecl();
-    assert(RD && "getFieldType: expected record type along path");
-    if (const FieldDecl *FD = getFieldAt(RD, Idx))
+  QualType Ty = trackedRootType(Id);
+  walkFieldPath(Id, Path, [&](const RecordDecl *, const FieldDecl *FD, unsigned) {
+    if (FD)
       Ty = FD->getType();
-  }
+    return true;
+  });
   return Ty;
 }
 
@@ -853,10 +917,7 @@ InitAnalysis::getFieldPathPrefix(const Place &P) const {
   FieldPath FP;
   FP.Base = P.Base;
 
-  // Walk the local's type through the field/index chain.
-  // For ensure_init struct pointees, use the pointee type.
-  QualType PointeeTy = getEnsureInitPointeeType(P.Base);
-  QualType CurTy = PointeeTy.isNull() ? B.getLocal(P.Base).Ty : PointeeTy;
+  QualType CurTy = trackedRootType(P.Base);
 
   for (const auto &Proj : P.Projections) {
     if (Proj.K == ProjectionElem::Field) {
@@ -885,6 +946,29 @@ InitState InitAnalysis::getFieldInitState(const InitLattice &State,
   return It->second;
 }
 
+bool InitAnalysis::isFieldPathCovered(const InitLattice &State,
+                                      const FieldPath &FP) const {
+  if (isVacuouslyInitialized(getFieldType(FP.Base, FP.Indices)))
+    return true;
+  if (getFieldInitState(State, FP) == InitState::Initialized)
+    return true;
+  // A whole-struct or union write covers every path below it.
+  for (unsigned I = 1; I < FP.Indices.size(); ++I)
+    if (getFieldInitState(State, pathPrefix(FP, I)) == InitState::Initialized)
+      return true;
+  return false;
+}
+
+/// Set one field path Initialized, flagging \p Changed when it moves.
+static void setFieldInit(InitLattice &State, const FieldPath &FP,
+                         bool &Changed) {
+  auto &FS = State.FieldStates[FP];
+  if (FS != InitState::Initialized) {
+    FS = InitState::Initialized;
+    Changed = true;
+  }
+}
+
 void InitAnalysis::markFieldInit(InitLattice &State, const FieldPath &FP,
                                  bool &Changed) const {
   // Only a whole-variant write to the outermost union on the path covers it.
@@ -892,36 +976,15 @@ void InitAnalysis::markFieldInit(InitLattice &State, const FieldPath &FP,
     if (*FirstU + 1 != FP.Indices.size())
       return;
     if (*FirstU == 0) {
-      // A contract pointee's state lives in EnsureInitDerefStates.
-      auto DerefIt = State.EnsureInitDerefStates.find(FP.Base);
-      InitState &Target = (DerefIt != State.EnsureInitDerefStates.end())
-                              ? DerefIt->second
-                              : State.LocalStates[FP.Base];
-      if (Target != InitState::Initialized) {
-        Target = InitState::Initialized;
-        Changed = true;
-      }
+      markWholeObjectInit(State, FP.Base, Changed);
       return;
     }
-    FieldPath UnionFP;
-    UnionFP.Base = FP.Base;
-    UnionFP.Indices.assign(FP.Indices.begin(), FP.Indices.begin() + *FirstU);
-    markFieldInit(State, UnionFP, Changed);
+    markFieldInit(State, pathPrefix(FP, *FirstU), Changed);
     return;
   }
 
-  auto &FS = State.FieldStates[FP];
-  if (FS != InitState::Initialized) {
-    FS = InitState::Initialized;
-    Changed = true;
-  }
+  setFieldInit(State, FP, Changed);
   tryPromoteParent(State, FP, Changed);
-}
-
-void InitAnalysis::markFieldInit(InitLattice &State, const Place &P,
-                                 bool &Changed) const {
-  if (auto FP = getFieldPath(P))
-    markFieldInit(State, *FP, Changed);
 }
 
 void InitAnalysis::tryPromoteParent(InitLattice &State, const FieldPath &FP,
@@ -929,10 +992,7 @@ void InitAnalysis::tryPromoteParent(InitLattice &State, const FieldPath &FP,
   if (FP.Indices.empty())
     return;
 
-  // Build the parent path (everything except the last index).
-  FieldPath Parent;
-  Parent.Base = FP.Base;
-  Parent.Indices.assign(FP.Indices.begin(), FP.Indices.end() - 1);
+  FieldPath Parent = pathPrefix(FP, FP.Indices.size() - 1);
 
   // Get the parent type to count siblings.
   // getFieldType handles ensure_init pointee types for empty paths.
@@ -958,23 +1018,9 @@ void InitAnalysis::tryPromoteParent(InitLattice &State, const FieldPath &FP,
 
   // All siblings initialized. Promote parent.
   if (Parent.Indices.empty()) {
-    // Promote the whole local, or EnsureInitDerefStates for pointee tracking.
-    auto DerefIt = State.EnsureInitDerefStates.find(FP.Base);
-    InitState &Target = (DerefIt != State.EnsureInitDerefStates.end())
-                            ? DerefIt->second
-                            : State.LocalStates[FP.Base];
-    if (Target != InitState::Initialized) {
-      Target = InitState::Initialized;
-      Changed = true;
-    }
+    markWholeObjectInit(State, FP.Base, Changed);
   } else {
-    // Mark the parent field path as Initialized.
-    auto &PS = State.FieldStates[Parent];
-    if (PS != InitState::Initialized) {
-      PS = InitState::Initialized;
-      Changed = true;
-    }
-    // Recurse upward.
+    setFieldInit(State, Parent, Changed);
     tryPromoteParent(State, Parent, Changed);
   }
 }
@@ -1004,73 +1050,56 @@ void InitAnalysis::markPointeeFullyInit(InitLattice &State, LocalId Base,
     Changed = true;
   }
   QualType PointeeTy = getEnsureInitPointeeType(Base);
-  if (!PointeeTy.isNull()) {
-    SmallVector<unsigned, 4> Prefix;
-    markAllFieldsInit(State, Base, PointeeTy, Prefix);
+  if (!PointeeTy.isNull())
+    markAllFieldsInit(State, Base, PointeeTy, Changed);
+}
+
+/// Mark \p Path and every field below \p Ty under it initialized.
+static void markFieldsBelow(InitLattice &State, FieldPath &Path, QualType Ty,
+                            bool &Changed) {
+  const RecordDecl *RD = Ty->getAsRecordDecl();
+  if (!RD)
+    return;
+  unsigned FIdx = 0;
+  for (const FieldDecl *FD : RD->fields()) {
+    Path.Indices.push_back(FIdx++);
+    // Unions are covered whole, not per variant.
+    const RecordDecl *FieldRD = FD->getType()->getAsRecordDecl();
+    if (FieldRD && !FieldRD->isUnion())
+      markFieldsBelow(State, Path, FD->getType(), Changed);
+    setFieldInit(State, Path, Changed);
+    Path.Indices.pop_back();
   }
 }
 
 void InitAnalysis::markAllFieldsInit(InitLattice &State, LocalId Base,
-                                     QualType Ty,
-                                     SmallVector<unsigned, 4> &Prefix) const {
-  const RecordDecl *RD = Ty->getAsRecordDecl();
-  if (!RD)
-    return;
-
-  unsigned FIdx = 0;
-  for (auto It = RD->field_begin(); It != RD->field_end(); ++It, ++FIdx) {
-    Prefix.push_back(FIdx);
-
-    QualType FieldTy = It->getType();
-    const RecordDecl *FieldRD = FieldTy->getAsRecordDecl();
-    // Recurse into nested structs; unions are covered whole, not per-variant.
-    if (FieldRD && !FieldRD->isUnion())
-      markAllFieldsInit(State, Base, FieldTy, Prefix);
-
-    // Mark this field path as initialized (leaf or intermediate).
-    FieldPath FP;
-    FP.Base = Base;
-    FP.Indices.assign(Prefix.begin(), Prefix.end());
-    State.FieldStates[FP] = InitState::Initialized;
-
-    Prefix.pop_back();
-  }
+                                     QualType Ty, bool &Changed) const {
+  FieldPath Path;
+  Path.Base = Base;
+  markFieldsBelow(State, Path, Ty, Changed);
 }
 
 std::string InitAnalysis::buildFieldName(const FieldPath &FP) const {
-  const LocalDecl &LD = B.getLocal(FP.Base);
-  std::string Name = LD.Name.str();
-
-  QualType CurTy = LD.Ty;
-  for (unsigned Idx : FP.Indices) {
-    const RecordDecl *RD = CurTy->getAsRecordDecl();
-    if (!RD)
-      break;
-    const FieldDecl *FD = getFieldAt(RD, Idx);
-    if (!FD)
-      break;
-    if (!FD->isAnonymousStructOrUnion())
-      Name += "." + FD->getNameAsString();
-    CurTy = FD->getType();
-  }
+  std::string Name = B.getLocal(FP.Base).Name.str();
+  walkFieldPath(FP.Base, FP.Indices,
+                [&](const RecordDecl *, const FieldDecl *FD, unsigned) {
+                  if (FD && !FD->isAnonymousStructOrUnion())
+                    Name += "." + FD->getNameAsString();
+                  return true;
+                });
   return Name;
 }
 
 llvm::Optional<unsigned>
 InitAnalysis::firstUnionDepth(const FieldPath &FP) const {
-  QualType CurTy = getFieldType(FP.Base, {});
-  for (unsigned I = 0; I < FP.Indices.size(); ++I) {
-    const RecordDecl *RD = CurTy->getAsRecordDecl();
-    if (!RD)
-      break;
-    if (RD->isUnion())
-      return I;
-    const FieldDecl *FD = getFieldAt(RD, FP.Indices[I]);
-    if (!FD)
-      break;
-    CurTy = FD->getType();
-  }
-  return llvm::None;
+  llvm::Optional<unsigned> Depth;
+  walkFieldPath(FP.Base, FP.Indices,
+                [&](const RecordDecl *RD, const FieldDecl *, unsigned I) {
+                  if (RD->isUnion())
+                    Depth = I;
+                  return !Depth;
+                });
+  return Depth;
 }
 
 void InitAnalysis::checkOperand(const Operand &Op, const InitLattice &State,
@@ -1103,80 +1132,31 @@ void InitAnalysis::checkOperand(const Operand &Op, const InitLattice &State,
   // An Initialized local (for unions: covered) makes every field access fine.
   if (IS == InitState::Initialized)
     return;
+  const LocalDecl &LD = B.getLocal(Id);
+  if (!isNamedLocal(LD))
+    return;
+  auto report = [&](InitState S, StringRef Name) {
+    Diags.emplace_back(S == InitState::MaybeInit ? InitDiagKind::UseOfMaybeUninit
+                                                 : InitDiagKind::UseOfUninit,
+                       Loc.isValid() ? Loc : LD.DeclLoc, Name);
+  };
 
   // Check field-level state if the operand has a field projection.
-  if (auto FP = getFieldPathPrefix(Op.getPlace())) {
-    if (isVacuouslyInitialized(getFieldType(FP->Base, FP->Indices)))
+  if (auto FP = getFieldPathPrefix(P)) {
+    if (isFieldPathCovered(State, *FP))
       return;
-
-    InitState FS = getFieldInitState(State, *FP);
-    if (FS == InitState::Initialized)
-      return;
-
-    // Check if any ancestor field path is initialized (e.g., whole struct
-    // or union field assigned covers all sub-paths).
-    {
-      FieldPath Ancestor;
-      Ancestor.Base = FP->Base;
-      bool AncestorInit = false;
-      for (unsigned i = 0; i + 1 < FP->Indices.size(); ++i) {
-        Ancestor.Indices.push_back(FP->Indices[i]);
-        if (getFieldInitState(State, Ancestor) == InitState::Initialized) {
-          AncestorInit = true;
-          break;
-        }
-      }
-      if (AncestorInit)
-        return;
-    }
-
-    const LocalDecl &LD = B.getLocal(Id);
-    if (LD.IsTemp || LD.Name.empty())
-      return;
-
     // Nothing inside an uncovered union is readable; name that union.
     if (auto FirstU = firstUnionDepth(*FP)) {
-      FieldPath UnionFP;
-      UnionFP.Base = FP->Base;
-      UnionFP.Indices.assign(FP->Indices.begin(),
-                             FP->Indices.begin() + *FirstU);
-      InitState US =
-          *FirstU == 0 ? IS : getFieldInitState(State, UnionFP);
-      Diags.emplace_back(US == InitState::MaybeInit
-                             ? InitDiagKind::UseOfMaybeUninit
-                             : InitDiagKind::UseOfUninit,
-                         Loc.isValid() ? Loc : LD.DeclLoc,
-                         buildFieldName(UnionFP));
+      FieldPath UnionFP = pathPrefix(*FP, *FirstU);
+      report(*FirstU == 0 ? IS : getFieldInitState(State, UnionFP),
+             buildFieldName(UnionFP));
       return;
     }
-
-    // Build field-qualified name: "o.inner.b"
-    std::string FieldName = buildFieldName(*FP);
-
-    if (FS == InitState::Uninitialized) {
-      Diags.emplace_back(InitDiagKind::UseOfUninit,
-                         Loc.isValid() ? Loc : LD.DeclLoc, FieldName);
-    } else {
-      Diags.emplace_back(InitDiagKind::UseOfMaybeUninit,
-                         Loc.isValid() ? Loc : LD.DeclLoc, FieldName);
-    }
+    report(getFieldInitState(State, *FP), buildFieldName(*FP));
     return;
   }
 
-  // Whole-local check (existing logic).
-  if (IS == InitState::Uninitialized) {
-    const LocalDecl &LD = B.getLocal(Id);
-    if (!LD.IsTemp && !LD.Name.empty()) {
-      Diags.emplace_back(InitDiagKind::UseOfUninit,
-                         Loc.isValid() ? Loc : LD.DeclLoc, LD.Name);
-    }
-  } else if (IS == InitState::MaybeInit) {
-    const LocalDecl &LD = B.getLocal(Id);
-    if (!LD.IsTemp && !LD.Name.empty()) {
-      Diags.emplace_back(InitDiagKind::UseOfMaybeUninit,
-                         Loc.isValid() ? Loc : LD.DeclLoc, LD.Name);
-    }
-  }
+  report(IS, LD.Name);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1229,136 +1209,242 @@ static bool projectionLoadsPointer(const Place &P, unsigned I,
   return false;
 }
 
-llvm::DenseSet<LocalId>
-InitAnalysis::collectEnsureInitArgTemps(const BasicBlock &BB) const {
-  llvm::DenseSet<LocalId> Result;
-  if (BB.Term.K != Terminator::Call)
-    return Result;
-
-  const auto &CD = BB.Term.getCall();
-  llvm::DenseSet<LocalId> ExemptArgBases;
-  if (CD.Decl &&
-      CD.Decl->getBuiltinID() == Builtin::BI__assume_initialized) {
-    for (const Operand &Arg : CD.Args)
-      if (Arg.K == Operand::Copy || Arg.K == Operand::Move)
-        ExemptArgBases.insert(Arg.getPlace().Base);
+llvm::DenseSet<unsigned>
+InitAnalysis::contractArgIndices(const Terminator::CallData &CD) const {
+  llvm::DenseSet<unsigned> Indices;
+  if (CD.Decl && CD.Decl->getBuiltinID() == Builtin::BI__assume_initialized) {
+    for (unsigned I = 0; I < CD.Args.size(); ++I)
+      Indices.insert(I);
+    return Indices;
   }
-  unsigned NumParams = CD.Decl
-                           ? CD.Decl->getNumParams()
-                           : (CD.CalleeProtoType
-                                  ? CD.CalleeProtoType->getNumParams()
-                                  : 0);
-  for (unsigned I = 0; I < NumParams && I < CD.Args.size(); ++I) {
+  unsigned NumParams = std::min<size_t>(calleeNumParams(CD), CD.Args.size());
+  for (unsigned I = 0; I < NumParams; ++I) {
     int Cond = 0;
-    bool IsAI = classifyEnsureInit(CD.Decl, CD.CalleeProtoType, I, Cond) !=
-                EnsureInitKind::None;
-    if (IsAI && (CD.Args[I].K == Operand::Copy ||
-                 CD.Args[I].K == Operand::Move))
-      ExemptArgBases.insert(CD.Args[I].getPlace().Base);
-  }
-  // Find statements that are AddressOf/Ref producing these temps.
-  for (const Statement &S : BB.Statements) {
-    if (S.K != Statement::Assign || !S.getAssign().Dest.isLocal())
+    if (classifyEnsureInit(CD.Decl, CD.CalleeProtoType, I, Cond) ==
+        EnsureInitKind::None)
       continue;
-    LocalId DestId = S.getAssign().Dest.Base;
-    if (!ExemptArgBases.count(DestId))
-      continue;
-    const Rvalue &Src = S.getAssign().Src;
-    if (Src.K == Rvalue::AddressOf || Src.K == Rvalue::Ref)
-      Result.insert(DestId);
+    if (I < CD.ArgPlaces.size() && CD.ArgPlaces[I])
+      Indices.insert(I);
   }
-  return Result;
+  return Indices;
+}
+
+llvm::DenseSet<LocalId> InitAnalysis::contractArgTemps(
+    const Terminator::CallData &CD,
+    const llvm::DenseSet<unsigned> &ContractArgs) const {
+  llvm::DenseSet<LocalId> Temps;
+  for (unsigned I : ContractArgs)
+    if (auto L = asPassedLocal(CD.Args[I]))
+      Temps.insert(*L);
+  return Temps;
+}
+
+llvm::Optional<LocalId> InitAnalysis::pointerHandedOn(const Rvalue &Src) const {
+  const Operand *Op = nullptr;
+  switch (Src.K) {
+  case Rvalue::Use:
+    Op = &Src.getUse().Op;
+    break;
+  case Rvalue::Cast:
+    if (Src.getCast().Ty->isPointerType())
+      Op = &Src.getCast().Op;
+    break;
+  case Rvalue::Ref:
+  case Rvalue::AddressOf: {
+    const Place &P = *addressedPlace(Src);
+    // A reborrow's place is the pointer, but the result carries its value.
+    if (P.Projections.empty())
+      return Src.K == Rvalue::Ref && Src.getRef().IsReborrow
+                 ? llvm::Optional<LocalId>(P.Base)
+                 : llvm::None;
+    // `&p->f` and `&p[0]` point into the pointee just as `&*p` does.
+    if (projectionLoadsPointer(P, 0, B.getLocal(P.Base).Ty))
+      return P.Base;
+    return llvm::None;
+  }
+  default:
+    return llvm::None;
+  }
+  if (!Op || Op->K != Operand::Copy || !Op->getPlace().Projections.empty())
+    return llvm::None;
+  return Op->getPlace().Base;
+}
+
+InitAnalysis::ContractPointerFlow
+InitAnalysis::flowOf(const Rvalue &Src) const {
+  ContractPointerFlow Held;
+  auto add = [](SmallVectorImpl<LocalId> &To, ArrayRef<LocalId> From) {
+    for (LocalId L : From)
+      if (!llvm::is_contained(To, L))
+        To.push_back(L);
+  };
+  auto addLocal = [&](LocalId L) {
+    if (isContractParam(L)) {
+      add(Held.Params, L);
+      return;
+    }
+    auto It = TempFlows.find(L);
+    if (It == TempFlows.end()) {
+      Held.Other = true;
+      return;
+    }
+    add(Held.Params, It->second.Params);
+    add(Held.ParamAddresses, It->second.ParamAddresses);
+    Held.Other |= It->second.Other;
+  };
+
+  // `&p` is the parameter's own address, not its pointer.
+  if (const Place *P = addressedPlace(Src))
+    if (P->Projections.empty() &&
+        !(Src.K == Rvalue::Ref && Src.getRef().IsReborrow)) {
+      if (isContractParam(P->Base))
+        add(Held.ParamAddresses, P->Base);
+      else
+        Held.Other = true;
+      return Held;
+    }
+  // `*a` loads p's pointer where a holds `&p`, and something else wherever a
+  // may hold any other address.
+  if (Src.K == Rvalue::Use && Src.getUse().Op.K == Operand::Copy) {
+    const Place &P = Src.getUse().Op.getPlace();
+    if (P.Projections.size() == 1 &&
+        P.Projections[0].K == ProjectionElem::Deref) {
+      auto It = TempFlows.find(P.Base);
+      if (It == TempFlows.end()) {
+        Held.Other = true;
+        return Held;
+      }
+      add(Held.Params, It->second.ParamAddresses);
+      Held.Other = It->second.Other || !It->second.Params.empty() ||
+                   It->second.ParamAddresses.empty();
+      return Held;
+    }
+  }
+  // An aggregate carries whatever its elements hold, but is none of them.
+  if (Src.K == Rvalue::Aggregate || Src.K == Rvalue::Array) {
+    for (const Operand &Op : Src.K == Rvalue::Aggregate
+                                 ? Src.getAgg().Fields
+                                 : Src.getArray().Elements)
+      if (Op.K == Operand::Copy && Op.getPlace().Projections.empty())
+        addLocal(Op.getPlace().Base);
+    Held.Other = true;
+    return Held;
+  }
+  if (auto L = pointerHandedOn(Src)) {
+    addLocal(*L);
+    return Held;
+  }
+  // A truth value carries no pointer.
+  if ((Src.K == Rvalue::BinaryOp &&
+       BinaryOperator::isComparisonOp(Src.getBinOp().Op)) ||
+      (Src.K == Rvalue::UnaryOp && Src.getUnOp().Op == UO_LNot) ||
+      (Src.K == Rvalue::Cast && Src.getCast().Ty->isBooleanType())) {
+    Held.Other = true;
+    return Held;
+  }
+  // An unrecognised form still carries whatever its operands hold, or the
+  // guards would go silent on it rather than conservative.
+  forEachRvalueOperand(Src, [&](const Operand &Op) {
+    if ((Op.K == Operand::Copy || Op.K == Operand::Move) &&
+        Op.getPlace().Projections.empty())
+      addLocal(Op.getPlace().Base);
+  });
+  Held.Other = true;
+  return Held;
+}
+
+void InitAnalysis::collectContractPointerFlow() {
+  // A temp belongs to one expression, so any path reaching it reaches its reader.
+  for (const BasicBlock &BB : B.Blocks)
+    if (BB.Term.K == Terminator::Call && BB.Term.getCall().Dest.isLocal() &&
+        B.getLocal(BB.Term.getCall().Dest.Base).IsTemp)
+      TempFlows[BB.Term.getCall().Dest.Base].Other = true;
+  bool Changed = true;
+  while (Changed) {
+    Changed = false;
+    for (const BasicBlock &BB : B.Blocks) {
+      for (const Statement &S : BB.Statements) {
+        if (S.K != Statement::Assign || !S.getAssign().Dest.isLocal())
+          continue;
+        LocalId DestId = S.getAssign().Dest.Base;
+        if (!B.getLocal(DestId).IsTemp)
+          continue;
+        ContractPointerFlow Held = flowOf(S.getAssign().Src);
+        ContractPointerFlow &Flow = TempFlows[DestId];
+        for (LocalId P : Held.Params)
+          if (!llvm::is_contained(Flow.Params, P)) {
+            Flow.Params.push_back(P);
+            Changed = true;
+          }
+        for (LocalId P : Held.ParamAddresses)
+          if (!llvm::is_contained(Flow.ParamAddresses, P)) {
+            Flow.ParamAddresses.push_back(P);
+            Changed = true;
+          }
+        if (Held.Other && !Flow.Other) {
+          Flow.Other = true;
+          Changed = true;
+        }
+      }
+    }
+  }
+}
+
+SmallVector<LocalId, 1> InitAnalysis::mayHoldParam(LocalId L) const {
+  if (isContractParam(L))
+    return {L};
+  auto It = TempFlows.find(L);
+  if (It == TempFlows.end())
+    return {};
+  return It->second.Params;
+}
+
+llvm::Optional<LocalId> InitAnalysis::surelyHoldsParam(LocalId L) const {
+  if (isContractParam(L))
+    return L;
+  auto It = TempFlows.find(L);
+  if (It == TempFlows.end() || It->second.Other ||
+      !It->second.ParamAddresses.empty() || It->second.Params.size() != 1)
+    return llvm::None;
+  return It->second.Params.front();
 }
 
 void InitAnalysis::checkEnsureInitAssign(
     const Statement &S, const InitLattice &State,
-    llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
-    llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParamAddr,
     SmallVectorImpl<InitDiagInfo> &Diags) const {
-  // A store into an aggregate escapes the pointer just as a named copy does.
-  bool DestIsWholeLocal = S.getAssign().Dest.isLocal();
-  LocalId DestId = S.getAssign().Dest.Base;
-
   // Re-pointing is deferred to the at-return check; ReassignedParams
   // gating keeps it sound, and the failing return gets the error + note.
 
-  // Reject aliasing into a named variable before *param is init (the alias
-  // can't be tracked across blocks); temp copies are tracked, not rejected.
-  auto noteAlias = [&](LocalId ParamId, bool IsAddress) {
-    auto DerefIt = State.EnsureInitDerefStates.find(ParamId);
-    if (DerefIt == State.EnsureInitDerefStates.end() ||
-        DerefIt->second == InitState::Initialized)
+  // A temp is followed by ContractPointerFlow; storing into a named variable,
+  // or into a field or element of one, is the escape.
+  const LocalDecl &DestLD = B.getLocal(S.getAssign().Dest.Base);
+  if (!isNamedLocal(DestLD))
+    return;
+  ContractPointerFlow Held = flowOf(S.getAssign().Src);
+  auto noteAlias = [&](LocalId ParamId) {
+    // Writing the parameter itself re-points it; that is the return check's.
+    if (S.getAssign().Dest.Projections.empty() &&
+        S.getAssign().Dest.Base == ParamId)
       return;
-    const LocalDecl &DestLD = B.getLocal(DestId);
-    if (DestLD.IsTemp) {
-      if (!DestIsWholeLocal)
-        return;
-      if (IsAddress)
-        TempToEnsureInitParamAddr[DestId] = ParamId;
-      else
-        TempToEnsureInitParam[DestId] = ParamId;
+    auto DS = getDerefState(State, ParamId);
+    if (!DS || *DS == InitState::Initialized)
       return;
-    }
     const LocalDecl &ParamLD = B.getLocal(ParamId);
-    if (DestLD.Name.empty() || ParamLD.Name.empty())
+    if (ParamLD.Name.empty())
       return;
     Diags.emplace_back(InitDiagKind::EnsureInitPtrAliased,
                        S.Loc.isValid() ? S.Loc : DestLD.DeclLoc, ParamLD.Name);
     Diags.back().AttrSelect = getIfRetCondValue(ParamId) ? 1 : 0;
   };
-
-  const Rvalue &Src = S.getAssign().Src;
-
-  // `&*p` is p itself, so it aliases exactly what `q = p` does.
-  if (Src.K == Rvalue::AddressOf || Src.K == Rvalue::Ref) {
-    const Place &SrcPlace =
-        Src.K == Rvalue::AddressOf ? Src.getAddrOf().P : Src.getRef().P;
-    // A reborrow's place is the pointer, but the result carries its value.
-    bool IsReborrow = Src.K == Rvalue::Ref && Src.getRef().IsReborrow;
-    if (SrcPlace.Projections.empty())
-      noteAlias(SrcPlace.Base, /*IsAddress=*/!IsReborrow);
-    else if (SrcPlace.Projections.size() == 1 &&
-             SrcPlace.Projections[0].K == ProjectionElem::Deref)
-      noteAlias(SrcPlace.Base, /*IsAddress=*/false);
-    return;
-  }
-
-  if (Src.K != Rvalue::Use)
-    return;
-  const Operand &Op = Src.getUse().Op;
-  if (Op.K != Operand::Copy)
-    return;
-  const Place &SrcPlace = Op.getPlace();
-
-  // `t = *a` where a holds `&p`: t now carries p's own pointer value.
-  if (SrcPlace.Projections.size() == 1 &&
-      SrcPlace.Projections[0].K == ProjectionElem::Deref) {
-    auto AddrIt = TempToEnsureInitParamAddr.find(SrcPlace.Base);
-    if (AddrIt != TempToEnsureInitParamAddr.end())
-      noteAlias(AddrIt->second, /*IsAddress=*/false);
-    return;
-  }
-  if (!SrcPlace.Projections.empty())
-    return;
-
-  // A direct contract param, or a temp alias of its value or address.
-  LocalId SrcId = SrcPlace.Base;
-  auto AddrIt = TempToEnsureInitParamAddr.find(SrcId);
-  if (AddrIt != TempToEnsureInitParamAddr.end()) {
-    noteAlias(AddrIt->second, /*IsAddress=*/true);
-    return;
-  }
-  LocalId ParamId = SrcId;
-  auto AliasIt = TempToEnsureInitParam.find(SrcId);
-  if (AliasIt != TempToEnsureInitParam.end())
-    ParamId = AliasIt->second;
-  noteAlias(ParamId, /*IsAddress=*/false);
+  for (LocalId P : Held.Params)
+    noteAlias(P);
+  for (LocalId P : Held.ParamAddresses)
+    noteAlias(P);
 }
 
 void InitAnalysis::checkEnsureInitPointeeRead(
-    const Place &P, const InitLattice &State,
-    const llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
-    SourceLocation Loc, SmallVectorImpl<InitDiagInfo> &Diags) const {
+    const Place &P, const InitLattice &State, SourceLocation Loc,
+    SmallVectorImpl<InitDiagInfo> &Diags) const {
   // Only a projection that dereferences the base reads the pointee.
   if (P.Projections.empty() ||
       !projectionLoadsPointer(P, 0, B.getLocal(P.Base).Ty))
@@ -1366,46 +1452,30 @@ void InitAnalysis::checkEnsureInitPointeeRead(
   // A terminator carries no location of its own; point at the read.
   if (P.Loc.isValid())
     Loc = P.Loc;
-  // Resolve temp alias to the original ensure_init param.
-  auto AliasIt = TempToEnsureInitParam.find(P.Base);
-  LocalId ParamId =
-      (AliasIt != TempToEnsureInitParam.end()) ? AliasIt->second : P.Base;
-  auto DerefIt = State.EnsureInitDerefStates.find(ParamId);
-  if (DerefIt == State.EnsureInitDerefStates.end() ||
-      DerefIt->second == InitState::Initialized)
-    return;
-
-  // A read of one field only needs that field, not the whole pointee.
-  if (P.Projections.size() > 1 &&
-      P.Projections[0].K == ProjectionElem::Deref) {
-    Place SubPlace(ParamId, P.Projections.slice(1), P.Ty, P.Loc);
-    if (auto FP = getFieldPathPrefix(SubPlace)) {
-      if (isVacuouslyInitialized(getFieldType(FP->Base, FP->Indices)))
-        return;
-      if (getFieldInitState(State, *FP) == InitState::Initialized)
-        return;
-      // A whole-struct write covers every path below it.
-      FieldPath Ancestor;
-      Ancestor.Base = FP->Base;
-      for (unsigned I = 0; I + 1 < FP->Indices.size(); ++I) {
-        Ancestor.Indices.push_back(FP->Indices[I]);
-        if (getFieldInitState(State, Ancestor) == InitState::Initialized)
-          return;
-      }
+  for (LocalId ParamId : mayHoldParam(P.Base)) {
+    auto DS = getDerefState(State, ParamId);
+    if (!DS || *DS == InitState::Initialized)
+      continue;
+    // A read of one field only needs that field, not the whole pointee.
+    if (P.Projections.size() > 1 &&
+        P.Projections[0].K == ProjectionElem::Deref) {
+      Place SubPlace(ParamId, P.Projections.slice(1), P.Ty, P.Loc);
+      if (auto FP = getFieldPathPrefix(SubPlace))
+        if (isFieldPathCovered(State, *FP))
+          continue;
     }
+    const LocalDecl &ParamLD = B.getLocal(ParamId);
+    if (ParamLD.Name.empty())
+      continue;
+    Diags.emplace_back(InitDiagKind::EnsureInitDerefReadUninit,
+                       Loc.isValid() ? Loc : ParamLD.DeclLoc, ParamLD.Name);
+    Diags.back().AttrSelect = getIfRetCondValue(ParamId) ? 1 : 0;
   }
-  const LocalDecl &ParamLD = B.getLocal(ParamId);
-  if (ParamLD.Name.empty())
-    return;
-  Diags.emplace_back(InitDiagKind::EnsureInitDerefReadUninit,
-                     Loc.isValid() ? Loc : ParamLD.DeclLoc, ParamLD.Name);
-  Diags.back().AttrSelect = getIfRetCondValue(ParamId) ? 1 : 0;
 }
 
 void InitAnalysis::checkEnsureInitDerefReads(
     const Statement &S, const InitLattice &State,
     const llvm::DenseSet<LocalId> &EnsureInitArgTemps,
-    const llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
     SmallVectorImpl<InitDiagInfo> &Diags) const {
   // Addressing the pointee for a contract callee delegates it, not reads it.
   if (S.getAssign().Dest.isLocal() &&
@@ -1415,34 +1485,8 @@ void InitAnalysis::checkEnsureInitDerefReads(
   forEachRvalueOperand(S.getAssign().Src, [&](const Operand &Op) {
     if (Op.K == Operand::Constant)
       return;
-    checkEnsureInitPointeeRead(Op.getPlace(), State, TempToEnsureInitParam,
-                               S.Loc, Diags);
+    checkEnsureInitPointeeRead(Op.getPlace(), State, S.Loc, Diags);
   });
-}
-
-
-llvm::DenseSet<unsigned>
-InitAnalysis::collectExemptArgIndices(
-    const Terminator::CallData &CD) const {
-  llvm::DenseSet<unsigned> ExemptArgIndices;
-  if (CD.Decl &&
-      CD.Decl->getBuiltinID() == Builtin::BI__assume_initialized) {
-    ExemptArgIndices.insert(0);
-  }
-  unsigned NumParams = CD.Decl
-                           ? CD.Decl->getNumParams()
-                           : (CD.CalleeProtoType
-                                  ? CD.CalleeProtoType->getNumParams()
-                                  : 0);
-  for (unsigned I = 0; I < NumParams; ++I) {
-    int Cond = 0;
-    if (classifyEnsureInit(CD.Decl, CD.CalleeProtoType, I, Cond) ==
-        EnsureInitKind::None)
-      continue;
-    if (I < CD.ArgPlaces.size() && CD.ArgPlaces[I])
-      ExemptArgIndices.insert(I);
-  }
-  return ExemptArgIndices;
 }
 
 void InitAnalysis::checkEnsureInitAtReturn(
@@ -1452,124 +1496,184 @@ void InitAnalysis::checkEnsureInitAtReturn(
     // Skip ensure_init_if params — checked separately per return path.
     if (getIfRetCondValue(Entry.first))
       continue;
-    const LocalDecl &LD = B.getLocal(Entry.first);
+    if (Entry.second == InitState::Initialized)
+      continue;
     SourceLocation DiagLoc = T.Loc.isValid()
         ? T.Loc
         : (B.SourceFD ? B.SourceFD->getBodyRBrace() : SourceLocation());
-    // When a re-point on this path is the cause, attribute the failure to it
-    // (clearer than "*param not initialized at return", since *param now
-    // denotes the new pointee). Keep the accurate not-init message otherwise.
-    bool Reassigned = State.ReassignedParams.count(Entry.first);
-    InitDiagInfo *Emitted = nullptr;
-    if (Entry.second == InitState::Uninitialized ||
-        Entry.second == InitState::MaybeInit) {
-      InitDiagKind K =
-          Reassigned ? InitDiagKind::EnsureInitReassigned
-          : Entry.second == InitState::Uninitialized
-              ? InitDiagKind::EnsureInitNotInit
-              : InitDiagKind::EnsureInitMaybeNotInit;
-      Diags.emplace_back(K, DiagLoc, LD.Name);
-      Emitted = &Diags.back();
-    }
-    if (Emitted) {
-      auto RpIt = State.ReassignedParams.find(Entry.first);
-      if (RpIt != State.ReassignedParams.end())
-        Emitted->NoteLocs.assign(RpIt->second.begin(), RpIt->second.end());
-    }
+    reportContract(State, Entry.first,
+                   contractFailureKind(/*IfRet=*/false,
+                                       State.ReassignedParams.count(Entry.first),
+                                       Entry.second),
+                   DiagLoc, 0, Diags);
   }
+}
+
+SmallVector<InitAnalysis::ReturnArm, 2>
+InitAnalysis::collectReturnArms(const DataflowResult<InitLattice> &Result,
+                                const InitLattice &PredState) const {
+  SmallVector<ReturnArm, 2> Arms;
+  auto whole = [&] {
+    Arms.clear();
+    Arms.push_back({PredState.RetValue, PredState});
+    // The local _0 copied may be dead by now; _0 carries its records.
+    Arms.back().RV.Src = LocalId{0};
+    return Arms;
+  };
+  const InitLattice::ReturnValue &Returned = PredState.RetValue;
+  if (Returned.K != InitLattice::ReturnValue::Local ||
+      !B.getLocal(Returned.Src).IsTemp)
+    return whole();
+
+  struct Cast {
+    QualType From, To;
+  };
+  struct Pending {
+    LocalId Temp;
+    // Innermost first.
+    SmallVector<Cast, 2> Casts;
+  };
+  SmallVector<Pending, 4> Worklist;
+  llvm::DenseSet<LocalId> Seen;
+  Worklist.push_back({Returned.Src, {}});
+  Seen.insert(Returned.Src);
+
+  while (!Worklist.empty()) {
+    Pending P = Worklist.pop_back_val();
+    auto addArm = [&](InitLattice::ReturnValue RV, InitLattice State) {
+      RV.Loc = Returned.Loc;
+      if (RV.K == InitLattice::ReturnValue::Constant)
+        for (const Cast &C : P.Casts)
+          RV.Const = convertedTo(RV.Const, C.To);
+      if (RV.K == InitLattice::ReturnValue::Local) {
+        SmallVector<InitLattice::PendingCondInit, 2> Kept;
+        for (InitLattice::PendingCondInit PCI : State.PendingCondInits)
+          if (PCI.RetLocal != RV.Src ||
+              llvm::all_of(P.Casts, [&](const Cast &C) {
+                return recordFollowsCast(PCI, C.From, C.To);
+              }))
+            Kept.push_back(PCI);
+        State.PendingCondInits = std::move(Kept);
+      }
+      Arms.push_back({RV, std::move(State)});
+    };
+
+    bool Defined = false;
+    for (const BasicBlock &BB : B.Blocks) {
+      auto EntryIt = Result.EntryStates.find(BB.Id);
+      if (EntryIt == Result.EntryStates.end())
+        continue;
+      InitLattice State = EntryIt->second;
+      for (const Statement &S : BB.Statements) {
+        transferStatement(S, State);
+        if (S.K != Statement::Assign || !S.getAssign().Dest.isLocal() ||
+            S.getAssign().Dest.Base != P.Temp)
+          continue;
+        Defined = true;
+        const Rvalue &Src = S.getAssign().Src;
+        InitLattice::ReturnValue RV = classifyReturned(Src);
+        if (RV.K == InitLattice::ReturnValue::Local &&
+            B.getLocal(RV.Src).IsTemp) {
+          if (!Seen.insert(RV.Src).second)
+            return whole();
+          Pending Next{RV.Src, P.Casts};
+          if (Src.K == Rvalue::Cast)
+            Next.Casts.insert(Next.Casts.begin(),
+                              {Src.getCast().Op.getPlace().Ty,
+                               Src.getCast().Ty});
+          Worklist.push_back(std::move(Next));
+          continue;
+        }
+        // The temp carries the records copied from a named source.
+        if (RV.K == InitLattice::ReturnValue::Local)
+          RV.Src = P.Temp;
+        addArm(RV, State);
+      }
+      if (BB.Term.K != Terminator::Call)
+        continue;
+      const auto &CD = BB.Term.getCall();
+      if (!CD.Dest.isLocal() || CD.Dest.Base != P.Temp)
+        continue;
+      Defined = true;
+      InitLattice::ReturnValue RV;
+      RV.K = InitLattice::ReturnValue::Local;
+      RV.Src = P.Temp;
+      addArm(RV, transferTerminator(BB.Term, State, CD.Successor));
+    }
+    if (!Defined)
+      return whole();
+  }
+  return Arms;
 }
 
 void InitAnalysis::checkEnsureInitIfRetAtReturn(
     const DataflowResult<InitLattice> &Result,
     SmallVectorImpl<InitDiagInfo> &Diags) const {
-  if (!B.SourceFD)
-    return;
   // ensure_init_if_ret params are a per-decl constant; collect them once.
   SmallVector<std::pair<LocalId, int>, 2> IfRetParams;
-  for (unsigned PI = 0; PI < B.SourceFD->getNumParams(); ++PI)
-    if (auto *A = B.SourceFD->getParamDecl(PI)->getAttr<EnsureInitIfRetAttr>())
-      IfRetParams.push_back({LocalId{PI + 1}, A->getCondValue()});
+  for (unsigned I = 1; I <= B.NumParams; ++I)
+    if (auto Cond = getIfRetCondValue(LocalId{I}))
+      IfRetParams.push_back({LocalId{I}, *Cond});
   if (IfRetParams.empty())
     return;
 
-  // Check each predecessor of each return block. Do NOT filter on the
-  // terminator kind: a Drop (resource cleanup) can precede the return,
-  // and filtering on Goto skipped the contract for resource-owning fns.
+  // Returns true when the arm breaks the contract of \p ParamId.
+  auto checkArm = [&](const ReturnArm &Arm, LocalId ParamId, int CondValue) {
+    const InitLattice::ReturnValue &RV = Arm.RV;
+    SourceLocation DiagLoc = RV.Loc.isValid() ? RV.Loc
+                             : B.SourceFD    ? B.SourceFD->getBodyRBrace()
+                                             : SourceLocation();
+    InitState DS =
+        getDerefState(Arm.State, ParamId).value_or(InitState::Uninitialized);
+
+    // Delegation credit: returning an inner ensure_init_if_ret call's
+    // result with the same cond inits *param on this path.
+    if (DS != InitState::Initialized &&
+        RV.K == InitLattice::ReturnValue::Local) {
+      for (const auto &PCI : Arm.State.PendingCondInits) {
+        if (PCI.Out.Pointee && PCI.Out.Path.Base == ParamId &&
+            PCI.Out.Path.Indices.empty() && PCI.CondValue == CondValue &&
+            PCI.RetLocal == RV.Src) {
+          DS = InitState::Initialized;
+          break;
+        }
+      }
+    }
+    if (DS == InitState::Initialized)
+      return false;
+
+    if (RV.K == InitLattice::ReturnValue::Constant) {
+      if (asReturnedValue(RV.Const) != CondValue)
+        return false;
+      reportContract(Arm.State, ParamId,
+                     contractFailureKind(
+                         /*IfRet=*/true,
+                         Arm.State.ReassignedParams.count(ParamId), DS),
+                     DiagLoc, CondValue, Diags);
+    } else {
+      // The runtime value may equal arg, so *p must already be init.
+      reportContract(Arm.State, ParamId,
+                     InitDiagKind::EnsureInitIfRetNonConstReturn, DiagLoc,
+                     CondValue, Diags);
+    }
+    return true;
+  };
+
+  // Check every predecessor of a return block, whatever its terminator: a
+  // Drop can precede the return.
   for (const BasicBlock &BB : B.Blocks) {
     if (BB.Term.K != Terminator::Return)
       continue;
-
     for (BasicBlockId PredId : B.getPredecessors(BB.Id)) {
       auto ExitIt = Result.ExitStates.find(PredId);
       if (ExitIt == Result.ExitStates.end())
         continue;
-      // ExitStates[PredId] is pre-terminator; cleanup terminators don't
-      // touch deref states, so it is the deref state at the return.
-      const InitLattice &PredState = ExitIt->second;
-
-      const InitLattice::ReturnValue &RV = PredState.RetValue;
-      SourceLocation DiagLoc = RV.Loc.isValid()
-          ? RV.Loc
-          : B.SourceFD->getBodyRBrace();
-
-      for (const auto &IRP : IfRetParams) {
-        LocalId ParamId = IRP.first;
-        int CondValue = IRP.second;
-
-        auto DerefIt = PredState.EnsureInitDerefStates.find(ParamId);
-        InitState DS = (DerefIt != PredState.EnsureInitDerefStates.end())
-                           ? DerefIt->second
-                           : InitState::Uninitialized;
-
-        // Delegation credit: returning an inner ensure_init_if_ret call's
-        // result with the same cond inits *param on this path. Apply only
-        // when the returned value IS that inner result (the recorded PCI).
-        if (DS != InitState::Initialized &&
-            RV.K == InitLattice::ReturnValue::Local) {
-          for (const auto &PCI : PredState.PendingCondInits) {
-            if (PCI.OutParamLocal == ParamId && PCI.OutFieldIndices.empty() &&
-                PCI.Pointee && PCI.CondValue == CondValue &&
-                PCI.RetLocal == RV.Src) {
-              DS = InitState::Initialized;
-              break;
-            }
-          }
-        }
-
-        // When a re-point on this path is the cause, attribute the failure to
-        // it instead of the misleading "*p not initialized at return" (after a
-        // re-point *p denotes the new pointee). Accurate message otherwise.
-        bool Reassigned = PredState.ReassignedParams.count(ParamId);
-        InitDiagInfo *Emitted = nullptr;
-        if (RV.K == InitLattice::ReturnValue::Constant) {
-          if (RV.Const != CondValue)
-            continue;
-          if (DS == InitState::Uninitialized || DS == InitState::MaybeInit) {
-            InitDiagKind K =
-                Reassigned ? InitDiagKind::EnsureInitIfRetReassigned
-                : DS == InitState::Uninitialized
-                    ? InitDiagKind::EnsureInitIfRetNotInit
-                    : InitDiagKind::EnsureInitIfRetMaybeNotInit;
-            Diags.emplace_back(K, DiagLoc, B.getLocal(ParamId).Name, CondValue);
-            Emitted = &Diags.back();
-          }
-        } else {
-          // Non-constant return: the runtime value may equal arg, so *p
-          // must already be init on this path. Over-fulfilment (always
-          // init) silently satisfies the contract.
-          if (DS != InitState::Initialized) {
-            Diags.emplace_back(InitDiagKind::EnsureInitIfRetNonConstReturn,
-                               DiagLoc, B.getLocal(ParamId).Name, CondValue);
-            Emitted = &Diags.back();
-          }
-        }
-        if (Emitted) {
-          auto RpIt = PredState.ReassignedParams.find(ParamId);
-          if (RpIt != PredState.ReassignedParams.end())
-            Emitted->NoteLocs.assign(RpIt->second.begin(),
-                                     RpIt->second.end());
-        }
-      }
+      SmallVector<ReturnArm, 2> Arms =
+          collectReturnArms(Result, ExitIt->second);
+      for (const auto &IRP : IfRetParams)
+        for (const ReturnArm &Arm : Arms)
+          if (checkArm(Arm, IRP.first, IRP.second))
+            break;
     }
   }
 }
@@ -1590,75 +1694,36 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
 
     InitLattice State = EntryIt->second;
 
-    // Collect ensure_init/assume_initialized exempt arg temps for this block.
-    llvm::DenseSet<LocalId> EnsureInitArgTemps =
-        collectEnsureInitArgTemps(BB);
-
-    // Track block-local temp aliases of ensure_init params for deref checking.
-    llvm::DenseMap<LocalId, LocalId> TempToEnsureInitParam;
-    llvm::DenseMap<LocalId, LocalId> TempToEnsureInitParamAddr;
+    // Arguments a contract callee or __assume_initialized takes the address
+    // for are delegated, not read.
+    llvm::DenseSet<unsigned> ContractArgs;
+    llvm::DenseSet<LocalId> EnsureInitArgTemps;
+    if (BB.Term.K == Terminator::Call) {
+      ContractArgs = contractArgIndices(BB.Term.getCall());
+      EnsureInitArgTemps = contractArgTemps(BB.Term.getCall(), ContractArgs);
+    }
 
     for (const Statement &S : BB.Statements) {
       // Check operands used in this statement
       if (S.K == Statement::Assign) {
         // Only check uses in _Safe zones
         if (CheckAllZones || S.IsSafe) {
-          // Check the source operands
           const Rvalue &Src = S.getAssign().Src;
-          switch (Src.K) {
-          case Rvalue::Use:
-            checkOperand(Src.getUse().Op, State, S.Loc, Diags);
-            break;
-          case Rvalue::BinaryOp:
-            checkOperand(Src.getBinOp().LHS, State, S.Loc, Diags);
-            checkOperand(Src.getBinOp().RHS, State, S.Loc, Diags);
-            break;
-          case Rvalue::UnaryOp:
-            checkOperand(Src.getUnOp().Sub, State, S.Loc, Diags);
-            break;
-          case Rvalue::Cast:
-            checkOperand(Src.getCast().Op, State, S.Loc, Diags);
-            break;
-          case Rvalue::Aggregate:
-            for (const Operand &Field : Src.getAgg().Fields)
-              checkOperand(Field, State, S.Loc, Diags);
-            break;
-          case Rvalue::Array:
-            for (const Operand &El : Src.getArray().Elements)
-              checkOperand(El, State, S.Loc, Diags);
-            break;
-          case Rvalue::Ref: {
-            const Place &P = Src.getRef().P;
-            // Exempt if dest temp feeds an ensure_init/__assume_initialized arg.
+          if (const Place *P = addressedPlace(Src)) {
+            // Taking the address for a contract callee delegates, not reads.
             if (!S.getAssign().Dest.isLocal() ||
                 !EnsureInitArgTemps.count(S.getAssign().Dest.Base))
-              checkOperand(Operand::createCopy(P), State, S.Loc, Diags);
-            break;
+              checkOperand(Operand::createCopy(*P), State, S.Loc, Diags);
+          } else {
+            forEachRvalueOperand(Src, [&](const Operand &Op) {
+              checkOperand(Op, State, S.Loc, Diags);
+            });
           }
-          case Rvalue::AddressOf: {
-            const Place &P = Src.getAddrOf().P;
-            if (!S.getAssign().Dest.isLocal() ||
-                !EnsureInitArgTemps.count(S.getAssign().Dest.Base))
-              checkOperand(Operand::createCopy(P), State, S.Loc, Diags);
-            break;
-          }
-          case Rvalue::NullPtr:
-          case Rvalue::SizeOf:
-            break;
-          }
-
-          // Check destination for implicit reads through Deref/Index
-          // projections. Writing to (*_1.p) or _1.p[i] reads _1.p to compute the
-          // address; the prefix before such a projection must be initialized.
-          // Indexing a real array (not a pointer) reads no pointer, so it is
-          // exempt.
         }
 
         // Callee-side ensure_init checks (zone-independent).
-        checkEnsureInitAssign(S, State, TempToEnsureInitParam,
-                              TempToEnsureInitParamAddr, Diags);
-        checkEnsureInitDerefReads(S, State, EnsureInitArgTemps,
-                                  TempToEnsureInitParam, Diags);
+        checkEnsureInitAssign(S, State, Diags);
+        checkEnsureInitDerefReads(S, State, EnsureInitArgTemps, Diags);
 
         // Each prefix a later projection dereferences is itself read.
         const Place &Dest = S.getAssign().Dest;
@@ -1674,8 +1739,7 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
             checkOperand(Operand::createCopy(Prefix), State, S.Loc, Diags);
           // The prefix before projection 0 is the parameter itself.
           if (I > 0)
-            checkEnsureInitPointeeRead(Prefix, State, TempToEnsureInitParam,
-                                       S.Loc, Diags);
+            checkEnsureInitPointeeRead(Prefix, State, S.Loc, Diags);
         }
       }
 
@@ -1683,45 +1747,30 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
       transferStatement(S, State);
     }
 
-    // Check terminator operands
+    // Terminator operands are read like assignment operands: the uninit check
+    // in checked zones, the pointee read check everywhere.
     const Terminator &T = BB.Term;
-    if (T.K == Terminator::Call && (CheckAllZones || T.IsSafe)) {
-      const auto &CD = T.getCall();
-      checkOperand(CD.Callee, State, T.Loc, Diags);
-      llvm::DenseSet<unsigned> ExemptArgIndices = collectExemptArgIndices(CD);
-      for (unsigned I = 0; I < CD.Args.size(); ++I) {
-        if (!ExemptArgIndices.count(I))
-          checkOperand(CD.Args[I], State, T.Loc, Diags);
-      }
-    }
-
-    if (T.K == Terminator::SwitchInt && (CheckAllZones || T.IsSafe))
-      checkOperand(T.getSwitchInt().Discriminant, State, T.Loc, Diags);
-
-    // A terminator operand reads the pointee just as an assignment does.
+    bool Checked = CheckAllZones || T.IsSafe;
+    auto readOperand = [&](const Operand &Op) {
+      if (Checked)
+        checkOperand(Op, State, T.Loc, Diags);
+      if (Op.K != Operand::Constant)
+        checkEnsureInitPointeeRead(Op.getPlace(), State, T.Loc, Diags);
+    };
     if (T.K == Terminator::Call) {
       const auto &CD = T.getCall();
       // An indirect call loads its callee, so that load reads the pointee too.
-      if (CD.Callee.K != Operand::Constant)
-        checkEnsureInitPointeeRead(CD.Callee.getPlace(), State,
-                                   TempToEnsureInitParam, T.Loc, Diags);
-      llvm::DenseSet<unsigned> ExemptArgIndices = collectExemptArgIndices(CD);
-      for (unsigned I = 0; I < CD.Args.size(); ++I) {
-        if (ExemptArgIndices.count(I) || CD.Args[I].K == Operand::Constant)
-          continue;
-        checkEnsureInitPointeeRead(CD.Args[I].getPlace(), State,
-                                   TempToEnsureInitParam, T.Loc, Diags);
-      }
+      readOperand(CD.Callee);
+      for (unsigned I = 0; I < CD.Args.size(); ++I)
+        if (!ContractArgs.count(I))
+          readOperand(CD.Args[I]);
     } else if (T.K == Terminator::SwitchInt) {
-      const Operand &Disc = T.getSwitchInt().Discriminant;
-      if (Disc.K != Operand::Constant)
-        checkEnsureInitPointeeRead(Disc.getPlace(), State,
-                                   TempToEnsureInitParam, T.Loc, Diags);
+      readOperand(T.getSwitchInt().Discriminant);
     }
 
     // Check return slot at Return terminator
-    if (T.K == Terminator::Return && (CheckAllZones || T.IsSafe)) {
-      if (!B.Locals[0].Ty->isVoidType()) {
+    if (T.K == Terminator::Return) {
+      if ((CheckAllZones || T.IsSafe) && !B.Locals[0].Ty->isVoidType()) {
         InitState RetState = getInitState(State, LocalId{0});
         // The implicit fall-off return has no source location; anchor the
         // diagnostic at the function's closing brace instead.
@@ -1738,12 +1787,9 @@ void InitAnalysis::run(SmallVectorImpl<InitDiagInfo> &Diags) const {
                                         : "<return>");
         }
       }
+      // The contract binds in every zone, unlike the return slot above.
       checkEnsureInitAtReturn(T, State, Diags);
     }
-
-    // Also check ensure_init contract at Return outside _Safe zones
-    if (T.K == Terminator::Return && !T.IsSafe)
-      checkEnsureInitAtReturn(T, State, Diags);
   }
 
   // Check ensure_init_if contract per return-path predecessor.

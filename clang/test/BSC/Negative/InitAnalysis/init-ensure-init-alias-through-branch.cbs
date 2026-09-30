@@ -1,0 +1,149 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// A pointer that reaches a name through a branch escapes like a direct copy.
+
+void g(int *q);
+_Safe void sg(int *_Borrow q);
+
+void both_arms(int *__attribute__((ensure_init)) out, int c) {
+    int *p = c ? out : out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 7;
+    g(p);
+}
+
+void one_arm(int *__attribute__((ensure_init)) out, int c, int *other) {
+    int *p = c ? out : other; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 7;
+    g(p);
+}
+
+void other_arm(int *__attribute__((ensure_init)) out, int c, int *other) {
+    int *p = c ? other : out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 7;
+    g(p);
+}
+
+int if_ret_through_branch(int *__attribute__((ensure_init_if_ret(0))) out,
+                          int c) {
+    int *p = c ? out : out; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    g(p);
+    return 1;
+}
+
+// A statement branch reaches the same join.
+void if_else_statement(int *__attribute__((ensure_init)) out, int c) {
+    int *p;
+    if (c)
+        p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    else
+        p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 7;
+    g(p);
+}
+
+// Each arm may reborrow the parameter rather than copy it.
+_Safe void safe_both_arms(int *_Borrow __attribute__((ensure_init)) out, int c) {
+    int *_Borrow p = c ? out : out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    sg(p);
+    *out = 7;
+}
+
+_Safe int safe_if_ret_both_arms(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int *_Borrow p = c ? out : out; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    sg(p);
+    return 1;
+}
+
+// A branch may carry either of two parameters; each is checked.
+void second_param_uninitialized(int *__attribute__((ensure_init)) a,
+                                int *__attribute__((ensure_init)) b, int c) {
+    *a = 1;
+    int *p = c ? a : b; // expected-error {{__attribute__((ensure_init)) parameter 'b' cannot be reassigned or aliased before '*b' is initialized}}
+    *b = 2;
+    g(p);
+}
+
+void first_param_uninitialized(int *__attribute__((ensure_init)) a,
+                               int *__attribute__((ensure_init)) b, int c) {
+    *a = 1;
+    int *p = c ? b : a; // expected-error {{__attribute__((ensure_init)) parameter 'b' cannot be reassigned or aliased before '*b' is initialized}}
+    *b = 2;
+    g(p);
+}
+
+void nested_branch(int *__attribute__((ensure_init)) out, int c, int d, int *o) {
+    int *p = c ? (d ? out : o) : o; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 7;
+    g(p);
+}
+
+int if_ret_nested_branch(int *__attribute__((ensure_init_if_ret(0))) out, int c, int d, int *o) {
+    int *p = c ? o : (d ? o : out); // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    g(p);
+    return 1;
+}
+
+void converted_through_branch(int *__attribute__((ensure_init)) out, int c) {
+    void *q = c ? out : out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 7;
+    (void)q;
+}
+
+// Credit needs a value that is the parameter on every path.
+void init(int *__attribute__((ensure_init)) p);
+int try_init(int *__attribute__((ensure_init_if_ret(0))) p);
+int *get(void);
+
+void write_maybe_other(int *__attribute__((ensure_init)) out, int *other, int c) {
+    *(c ? out : other) = 1;
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+void delegate_maybe_other(int *__attribute__((ensure_init)) out, int *other, int c) {
+    init(c ? out : other);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+void delegate_call_result(int *__attribute__((ensure_init)) out, int c) {
+    init(c ? out : get());
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+int if_ret_delegate_maybe_other(int *__attribute__((ensure_init_if_ret(0))) out, int *other, int c) {
+    return try_init(c ? out : other); // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+// A pointer loaded through an address that may be another object's is not
+// the parameter, however many branches it took to get there.
+void delegate_loaded_maybe_other(int *__attribute__((ensure_init)) out, int *other, int c, int d) {
+    init(c ? *(d ? &out : &other) : out);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+void delegate_loaded_maybe_local(int *__attribute__((ensure_init)) out, int c, int d) {
+    int local = 0;
+    int *lp = &local;
+    init(c ? *(d ? &out : &lp) : out);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+int if_ret_delegate_loaded_maybe_other(int *__attribute__((ensure_init_if_ret(0))) out, int *other, int c, int d) {
+    int r = try_init(c ? *(d ? &out : &other) : out);
+    if (r == 0)
+        return 0; // expected-error {{'*out' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+    return 1;
+}
+
+void write_loaded_maybe_other(int *__attribute__((ensure_init)) out, int *other, int c, int d) {
+    *(c ? *(d ? &out : &other) : out) = 1;
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// A read or an address flow through a branch is followed as well.
+int read_maybe_other(int *__attribute__((ensure_init)) out, int *other, int c) {
+    int v = *(c ? out : other); // expected-error {{use of uninitialized '*out' in __attribute__((ensure_init)) function}}
+    *out = 1;
+    return v;
+}
+
+void address_through_branch(int *__attribute__((ensure_init)) out, int c) {
+    int **pp = c ? &out : &out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    int *q = *pp;
+    *out = 1;
+    (void)q;
+}

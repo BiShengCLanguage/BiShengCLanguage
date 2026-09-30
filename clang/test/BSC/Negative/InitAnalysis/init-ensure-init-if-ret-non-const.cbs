@@ -14,8 +14,17 @@ _Safe int ret_local(int a, int *_Borrow __attribute__((ensure_init_if_ret(0))) o
     return 0;
 }
 
+// Each arm of a returned conditional expression is its own return.
 _Safe int ret_ternary(int c, int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
-    return c ? 1 : 2; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+    return c ? 1 : 2;
+}
+
+_Safe int ret_ternary_cond_arm(int c, int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return c ? 0 : 2; // expected-error {{'*out' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+}
+
+_Safe int ret_ternary_local_arm(int c, int a, int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return c ? a : 2; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
 }
 
 _Safe int ret_arith_on_local(int a, int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {

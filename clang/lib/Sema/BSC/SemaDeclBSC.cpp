@@ -313,10 +313,9 @@ void Sema::CheckBSCEnsureInitIfRetOnFunctionDecl(FunctionDecl *FD) {
   if (!HasAttr)
     return;
   QualType RT = FD->getReturnType();
-  // Dependent / compile-time return types are checked at instantiation, not on
-  // the template pattern (like the other BSC return-type checks).
-  if (RT->isDependentType() || RT->isBSCCalculatedTypeInCompileTime() ||
-      RT->isIntegerType())
+  // A dependent return type is checked at instantiation, not on the template
+  // pattern (like the other BSC return-type checks).
+  if (RT->isDependentType())
     return;
   // Emit once across redeclarations: skip if an earlier decl already carried
   // the attribute (and was thus already diagnosed).
@@ -325,10 +324,32 @@ void Sema::CheckBSCEnsureInitIfRetOnFunctionDecl(FunctionDecl *FD) {
     for (ParmVarDecl *PVD : Prev->parameters())
       if (PVD->hasAttr<EnsureInitIfRetAttr>())
         return;
-  SourceLocation Loc = FD->getReturnTypeSourceRange().getBegin();
-  if (!Loc.isValid())
-    Loc = FD->getLocation();
-  Diag(Loc, diag::err_ensure_init_if_ret_bad_return_type) << RT;
+  // isBSCCalculatedTypeInCompileTime covers the builtin integer types and
+  // _BitInt, so the two together are "the return type can hold an integer".
+  if (!RT->isIntegerType() && !RT->isBSCCalculatedTypeInCompileTime()) {
+    SourceLocation Loc = FD->getReturnTypeSourceRange().getBegin();
+    if (!Loc.isValid())
+      Loc = FD->getLocation();
+    Diag(Loc, diag::err_ensure_init_if_ret_bad_return_type) << RT;
+    return;
+  }
+  // A cond value the return type cannot hold makes the contract dead: no
+  // return can equal it, so nothing would ever be verified.
+  unsigned Width = Context.getIntWidth(RT);
+  bool Signed = RT->isSignedIntegerOrEnumerationType();
+  for (ParmVarDecl *PVD : FD->parameters()) {
+    auto *A = PVD->getAttr<EnsureInitIfRetAttr>();
+    if (!A)
+      continue;
+    llvm::APSInt Cond(llvm::APInt(64, (uint64_t)(int64_t)A->getCondValue(),
+                                  true),
+                      /*isUnsigned=*/false);
+    bool Fits = Signed ? Cond.isSignedIntN(Width)
+                       : Cond.isNonNegative() && Cond.isIntN(Width);
+    if (!Fits)
+      Diag(A->getLocation(), diag::err_ensure_init_if_ret_cond_unrepresentable)
+          << A->getCondValue() << RT << (RT->isBooleanType() ? 1 : 0);
+  }
 }
 
 bool Sema::CheckBSCEnsureInitIfRetRedecl(FunctionDecl *Old, FunctionDecl *New) {

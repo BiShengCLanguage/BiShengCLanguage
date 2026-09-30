@@ -1,7 +1,8 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
 // expected-no-diagnostics
 
-// Test: function parameters are always initialized.
+// Test: function parameters and all their subobjects are always initialized.
 
 _Safe void test_scalar_param(int x) {
     int y = x + 1;
@@ -27,4 +28,12 @@ _Safe void test_nested_struct_param(struct Outer o) {
 // Multiple parameters
 _Safe void test_multi_params(int a, int b, struct Point p) {
     int sum = a + b + p.x + p.y;
+}
+
+int unsafe_scalar_param(int x) {
+    return x + 1;
+}
+
+int unsafe_nested_struct_param(struct Outer o) {
+    return o.inner.a + o.inner.b + o.c;
 }

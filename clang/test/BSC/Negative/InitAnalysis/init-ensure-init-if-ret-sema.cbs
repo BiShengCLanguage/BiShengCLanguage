@@ -3,7 +3,7 @@
 // Sema-level rules for __attribute__((ensure_init_if_ret(arg))):
 //   - attribute may only appear on a function formal parameter
 //   - function return type must be integer or _Bool
-//   - arg must be an integer literal
+//   - arg must be an integer literal, representable in the return type
 //   - mutually exclusive with __attribute__((ensure_init))
 
 
@@ -114,3 +114,24 @@ int dup_conflict(int *__attribute__((ensure_init_if_ret(0))) __attribute__((ensu
 
 // Exact repeat → redundant-attribute warning.
 int dup_same(int *__attribute__((ensure_init_if_ret(0))) __attribute__((ensure_init_if_ret(0))) out); // expected-warning {{attribute 'ensure_init_if_ret' is already applied}}
+
+// --- arg must be representable in the return type ---------------------------
+// A value the return type cannot hold makes the contract dead: no return can
+// ever equal it, so nothing would be verified.
+
+struct S { int a; };
+
+_Bool bool_two(struct S *__attribute__((ensure_init_if_ret(2))) o); // expected-error {{__attribute__((ensure_init_if_ret)) argument 2 is not representable in return type '_Bool', so no return can ever satisfy the contract; use a value of 0 or 1}}
+char char_128(struct S *__attribute__((ensure_init_if_ret(128))) o); // expected-error {{__attribute__((ensure_init_if_ret)) argument 128 is not representable in return type 'char', so no return can ever satisfy the contract; use a value in the range of 'char'}}
+char char_minus_129(struct S *__attribute__((ensure_init_if_ret(-129))) o); // expected-error {{__attribute__((ensure_init_if_ret)) argument -129 is not representable in return type 'char', so no return can ever satisfy the contract; use a value in the range of 'char'}}
+
+// In range, so accepted: the signedness and width of the return type decide.
+_Bool bool_one(struct S *__attribute__((ensure_init_if_ret(1))) o);
+char char_127(struct S *__attribute__((ensure_init_if_ret(127))) o);
+char char_minus_one(struct S *__attribute__((ensure_init_if_ret(-1))) o);
+unsigned char uchar_200(struct S *__attribute__((ensure_init_if_ret(200))) o);
+short short_max(struct S *__attribute__((ensure_init_if_ret(32767))) o);
+int int_minus_one(struct S *__attribute__((ensure_init_if_ret(-1))) o);
+
+unsigned long wide_unsigned_negative(int *__attribute__((ensure_init_if_ret(-1))) p); // expected-error {{__attribute__((ensure_init_if_ret)) argument -1 is not representable in return type 'unsigned long', so no return can ever satisfy the contract; use a value in the range of 'unsigned long'}}
+long long wide_signed_negative(int *__attribute__((ensure_init_if_ret(-1))) p);

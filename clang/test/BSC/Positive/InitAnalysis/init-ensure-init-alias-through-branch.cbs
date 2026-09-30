@@ -1,0 +1,113 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// Across a branch, nothing is reported after the contract or for other pointers.
+
+void g(int *q);
+_Safe void sg(int *_Borrow q);
+
+void both_arms_after_init(int *__attribute__((ensure_init)) out, int c) {
+    *out = 7;
+    int *p = c ? out : out;
+    g(p);
+}
+
+void if_else_after_init(int *__attribute__((ensure_init)) out, int c) {
+    int *p;
+    *out = 7;
+    if (c)
+        p = out;
+    else
+        p = out;
+    g(p);
+}
+
+void unrelated_through_branch(int *__attribute__((ensure_init)) out, int c,
+                              int *a, int *b) {
+    int *p = c ? a : b;
+    g(p);
+    *out = 7;
+}
+
+// The value selected by the branch is a fresh local, not the parameter.
+void local_through_branch(int *__attribute__((ensure_init)) out, int c) {
+    int x = 1;
+    int y = 2;
+    int *p = c ? &x : &y;
+    g(p);
+    *out = 7;
+}
+
+// Handing the parameter straight to a contract callee is delegation, even
+// when the call sits on one arm of a branch.
+void init_int(int *__attribute__((ensure_init)) x);
+
+void delegate_on_one_arm(int *__attribute__((ensure_init)) out, int c) {
+    if (c)
+        init_int(out);
+    else
+        init_int(out);
+}
+
+_Safe void safe_both_arms_after_init(int *_Borrow __attribute__((ensure_init)) out, int c) {
+    *out = 7;
+    int *_Borrow p = c ? out : out;
+    sg(p);
+}
+
+_Safe int safe_if_ret_both_arms_after_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    *out = 7;
+    int *_Borrow p = c ? out : out;
+    sg(p);
+    return 0;
+}
+
+void both_params_initialized(int *__attribute__((ensure_init)) a,
+                             int *__attribute__((ensure_init)) b, int c) {
+    *a = 1;
+    *b = 2;
+    int *p = c ? a : b;
+    g(p);
+}
+
+_Safe void safe_unrelated_through_branch(int *_Borrow __attribute__((ensure_init)) out, int c,
+                                         int *_Borrow a, int *_Borrow b) {
+    int *_Borrow p = c ? a : b;
+    sg(p);
+    *out = 7;
+}
+
+// A value that is the parameter on every path is credited like the parameter.
+int try_init(int *__attribute__((ensure_init_if_ret(0))) p);
+_Safe void safe_init(int *_Borrow __attribute__((ensure_init)) p);
+
+void write_through_branch(int *__attribute__((ensure_init)) out, int c) {
+    *(c ? out : out) = 1;
+}
+
+void delegate_through_branch(int *__attribute__((ensure_init)) out, int c) {
+    init_int(c ? out : out);
+}
+
+int if_ret_delegate_through_branch(int *__attribute__((ensure_init_if_ret(0))) out, int c) {
+    return try_init(c ? out : out);
+}
+
+_Safe void safe_write_through_branch(int *_Borrow __attribute__((ensure_init)) out, int c) {
+    *(c ? out : out) = 1;
+}
+
+_Safe void safe_delegate_through_branch(int *_Borrow __attribute__((ensure_init)) out, int c) {
+    safe_init(c ? out : out);
+}
+
+// A pointer loaded through an address that is the parameter's on every path
+// is the parameter.
+void delegate_loaded_through_branch(int *__attribute__((ensure_init)) out, int c, int d) {
+    init_int(c ? *(d ? &out : &out) : out);
+}
+
+void write_loaded_through_branch(int *__attribute__((ensure_init)) out, int c, int d) {
+    *(c ? *(d ? &out : &out) : out) = 1;
+}

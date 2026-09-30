@@ -1,11 +1,13 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
 
 // Test ensure_init callee side: pointer reassignment and deref-read-before-write
 // checks replace the old implicit-const approach.
 
 void callee_reassign(int *__attribute__((ensure_init)) out) {
     int local;
-    out = &local; // expected-note {{'out' was re-pointed here without initializing '*out' first}}
+    out = &local; // expected-note {{'out' was re-pointed here without initializing '*out' first}} \
+                  // all-error {{use of uninitialized value: 'local'}}
 } // expected-error {{__attribute__((ensure_init)) not satisfied: 'out' is reassigned before '*out' is initialized}}
 
 // Dereferencing to write through the pointer is allowed.
@@ -45,3 +47,38 @@ void callee_alias_after_init(int *__attribute__((ensure_init)) out) {
     *out = 42;
     int *p = out; // ok: *out already initialized
 } // no error
+
+// Element zero of a pointer is the pointee, so writing it fulfils the contract.
+void callee_elem_zero(int *__attribute__((ensure_init)) out) {
+    out[0] = 42;
+} // no error: out[0] is *out
+
+// Any other element is not the pointee.
+void callee_elem_one(int *__attribute__((ensure_init)) out) {
+    out[1] = 42;
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+void callee_elem_variable(int *__attribute__((ensure_init)) out, int i) {
+    out[i] = 42;
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// Delegating with the address of element zero delegates the pointee.
+void init_int(int *__attribute__((ensure_init)) x);
+
+void callee_delegate_elem_zero(int *__attribute__((ensure_init)) out) {
+    init_int(&out[0]);
+} // no error: &out[0] is &*out
+
+void callee_delegate_elem_one(int *__attribute__((ensure_init)) out) {
+    init_int(&out[1]);
+} // expected-error {{'*out' not initialized at return in __attribute__((ensure_init)) function}}
+
+// Reading element zero after writing it is fine.
+void callee_elem_zero_read_after(int *__attribute__((ensure_init)) out) {
+    out[0] = 42;
+    int x = out[0];
+    (void)x;
+} // no error
+
+// A safe zone has no twin: subscripting a `_Borrow` is not allowed there, so
+// the element spelling needs a raw pointer.

@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
 // expected-no-diagnostics
 
 // Test: struct parameters have all nested fields initialized.
@@ -8,5 +9,9 @@ struct Inner { int a; int b; };
 struct Outer { struct Inner inner; int c; };
 
 _Safe int test_param_nested(struct Outer o) {
+    return o.inner.a + o.inner.b + o.c; // no error: params are initialized
+}
+
+int unsafe_param_nested(struct Outer o) {
     return o.inner.a + o.inner.b + o.c; // no error: params are initialized
 }

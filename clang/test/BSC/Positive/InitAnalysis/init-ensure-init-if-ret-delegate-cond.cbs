@@ -1,0 +1,322 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// Each arm of a returned conditional expression is checked as its own
+// return: a constant that is not the cond value owes nothing, and a
+// delegating call carries the inner contract.
+
+int inner_zero(int *__attribute__((ensure_init_if_ret(0))) out);
+
+// Conditional expression: the false arm returns -1, never the cond 0.
+int delegate_cond(int *__attribute__((ensure_init_if_ret(0))) out, int c) {
+    return c ? inner_zero(out) : -1;
+}
+
+// The delegating call on the false arm instead.
+int delegate_cond_false_arm(int *__attribute__((ensure_init_if_ret(0))) out,
+                            int c) {
+    return c ? -1 : inner_zero(out);
+}
+
+// A constant expression on the other arm counts like a literal.
+int delegate_cond_const_expr(int *__attribute__((ensure_init_if_ret(0))) out,
+                             int c) {
+    return c ? inner_zero(out) : 1 - 2;
+}
+
+// Non-zero cond value.
+int inner_one(int *__attribute__((ensure_init_if_ret(1))) out);
+
+int delegate_cond_one(int *__attribute__((ensure_init_if_ret(1))) out, int c) {
+    return c ? inner_one(out) : 0;
+}
+
+_Safe int safe_inner_zero(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+_Safe void init(int *_Borrow __attribute__((ensure_init)) p);
+
+_Safe int safe_delegate_cond(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    return c ? safe_inner_zero(out) : -1;
+}
+
+int sw_returns_per_case(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    switch (c) {
+    case 1: return inner_zero(p);
+    default: return -1;
+    }
+}
+
+// Both arms delegate, so the credit is carried on both.
+int both_arms_call(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    return c ? inner_zero(p) : inner_zero(p);
+}
+
+int nested_ternary_call_inside(int *__attribute__((ensure_init_if_ret(0))) p, int c, int d) {
+    return c ? (d ? inner_zero(p) : -1) : -1;
+}
+
+int nested_ternary_constants(int *__attribute__((ensure_init_if_ret(0))) p, int c, int d) {
+    return c ? inner_zero(p) : (d ? -1 : -2);
+}
+
+int comma_before_join(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    return (void)0, (c ? inner_zero(p) : -1);
+}
+
+// The pointee is initialized before the branch, so no path owes anything.
+int other(void);
+
+int pointee_init_before_join(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    *p = 7;
+    return c ? other() : 0;
+}
+
+int join_local_and_constant(int *__attribute__((ensure_init_if_ret(0))) p, int d) {
+    int r = inner_zero(p);
+    return d ? r : -1;
+}
+
+int written_cast_on_other_arm(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    return c ? inner_zero(p) : (int)-1;
+}
+
+// The guard may sit inside the function that owes the contract.
+int guard_inside_then_return(int *__attribute__((ensure_init_if_ret(0))) p) {
+    int r = inner_zero(p);
+    if (r == 0) {
+        *p = 1;
+    }
+    return r;
+}
+
+// Other return types and cond values.
+unsigned int inner_unsigned(int *__attribute__((ensure_init_if_ret(0))) p);
+_Bool inner_bool_one(int *__attribute__((ensure_init_if_ret(1))) p);
+int inner_neg_one(int *__attribute__((ensure_init_if_ret(-1))) p);
+int inner_pointer_to_pointer(int **__attribute__((ensure_init_if_ret(0))) pp);
+
+unsigned int unsigned_return(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    return c ? inner_unsigned(p) : 7u;
+}
+
+_Bool bool_return_cond_one(int *__attribute__((ensure_init_if_ret(1))) p, int c) {
+    return c ? inner_bool_one(p) : 0;
+}
+
+int negative_cond_value(int *__attribute__((ensure_init_if_ret(-1))) p, int c) {
+    return c ? inner_neg_one(p) : 0;
+}
+
+int pointer_to_pointer_pointee(int **__attribute__((ensure_init_if_ret(0))) pp, int c) {
+    return c ? inner_pointer_to_pointer(pp) : -1;
+}
+
+// Two contract parameters discharged by one call.
+int inner_both(int *__attribute__((ensure_init_if_ret(0))) p,
+               int *__attribute__((ensure_init_if_ret(0))) q);
+
+int two_params_one_call(int *__attribute__((ensure_init_if_ret(0))) p,
+                        int *__attribute__((ensure_init_if_ret(0))) q, int c) {
+    return c ? inner_both(p, q) : -1;
+}
+
+// ----- every path to the return runs the call ------------------------------
+
+int dowhile_carries(int *__attribute__((ensure_init_if_ret(0))) p, int n) {
+    int r = -1;
+    int i = 0;
+    do {
+        r = inner_zero(p);
+        i++;
+    } while (i < n);
+    return r;
+}
+
+// ----- delegation through two levels -------------------------------------
+
+int mid_delegate(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    return c ? inner_zero(p) : -1;
+}
+
+int outer_two_levels(int *__attribute__((ensure_init_if_ret(0))) p, int c, int d) {
+    return d ? mid_delegate(p, c) : -2;
+}
+
+// ----- cond value at the top of the range Sema accepts -------------------
+
+int inner_max(int *__attribute__((ensure_init_if_ret(32767))) q);
+
+int max_cond_other_small(int *__attribute__((ensure_init_if_ret(32767))) p, int c) {
+    return c ? inner_max(p) : 0;
+}
+
+// ----- two contract params resolved by their own guards -------------------
+// Each callee promises on its own cond value, so each guard credits only the
+// param whose callee it belongs to. Both must hold at a return of the cond
+// value.
+
+int foo1(int *__attribute__((ensure_init_if_ret(1))) p);
+int foo2(int *__attribute__((ensure_init_if_ret(0))) p);
+
+int two_params_nested_guards(int *__attribute__((ensure_init_if_ret(0))) a,
+                             int *__attribute__((ensure_init_if_ret(0))) b) {
+    int r1 = foo1(a);
+    int r2 = foo2(b);
+    if (r2 == 0) {
+        if (r1 == 1)
+            return 0;
+    }
+    return -1;
+}
+
+_Safe int safe_foo1(int *_Borrow __attribute__((ensure_init_if_ret(1))) p);
+_Safe int safe_foo2(int *_Borrow __attribute__((ensure_init_if_ret(0))) p);
+
+_Safe int safe_two_params_nested_guards(
+    int *_Borrow __attribute__((ensure_init_if_ret(0))) a,
+    int *_Borrow __attribute__((ensure_init_if_ret(0))) b) {
+    int r1 = safe_foo1(a);
+    int r2 = safe_foo2(b);
+    if (r2 == 0) {
+        if (r1 == 1)
+            return 0;
+    }
+    return -1;
+}
+
+// ----- both paths carry both associations ----------------------------------
+int both_arms_both_calls(int *__attribute__((ensure_init_if_ret(0))) a,
+                         int *__attribute__((ensure_init_if_ret(0))) b, int c) {
+    int r1, r2;
+    if (c) {
+        r1 = foo1(a);
+        r2 = foo2(b);
+    } else {
+        r2 = foo2(b);
+        r1 = foo1(a);
+    }
+    if (r2 == 0) {
+        if (r1 == 1)
+            return 0;
+    }
+    return -1;
+}
+
+_Safe int safe_both_arms_both_calls(
+    int *_Borrow __attribute__((ensure_init_if_ret(0))) a,
+    int *_Borrow __attribute__((ensure_init_if_ret(0))) b, int c) {
+    int r1, r2;
+    if (c) {
+        r1 = safe_foo1(a);
+        r2 = safe_foo2(b);
+    } else {
+        r2 = safe_foo2(b);
+        r1 = safe_foo1(a);
+    }
+    if (r2 == 0) {
+        if (r1 == 1)
+            return 0;
+    }
+    return -1;
+}
+
+// ----- a recognised comparison credits whatever branch it drives -----------
+// The four forms constrain the comparison, not the statement it is the
+// condition of.
+
+_Safe int try_init_cond(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+_Safe void sink_cond(int v);
+
+_Safe void ternary_over_comparison(void) {
+    int x;
+    int r = try_init_cond(&_Mut x);
+    int v = (r == 0) ? x : 0;
+    sink_cond(v);
+}
+
+// ----- the returned value changes integer type ------------------------------
+// A conversion that does not shrink the width keeps every value identifiable:
+// only the cond value converts onto the cond value. The association follows
+// it, so the delegation is still verified and a guard on the converted copy is
+// still credited.
+
+int inner_neg_one(int *__attribute__((ensure_init_if_ret(-1))) out);
+unsigned inner_unsigned_zero(int *__attribute__((ensure_init_if_ret(0))) out);
+
+unsigned delegate_to_unsigned(int *__attribute__((ensure_init_if_ret(0))) out) {
+    return inner_zero(out);
+}
+
+unsigned delegate_to_unsigned_cond_one(int *__attribute__((ensure_init_if_ret(1))) out) {
+    return inner_one(out);
+}
+
+int delegate_from_unsigned(int *__attribute__((ensure_init_if_ret(0))) out) {
+    return inner_unsigned_zero(out);
+}
+
+int delegate_through_unsigned(int *__attribute__((ensure_init_if_ret(0))) out) {
+    return (unsigned)inner_zero(out);
+}
+
+long delegate_to_long(int *__attribute__((ensure_init_if_ret(0))) out) {
+    return inner_zero(out);
+}
+
+unsigned long delegate_to_unsigned_long(int *__attribute__((ensure_init_if_ret(0))) out) {
+    return inner_zero(out);
+}
+
+// The guard compares the copy's value, so -1 held in an unsigned copy is
+// 4294967295, however it is spelled.
+unsigned guard_on_unsigned_copy(int *__attribute__((ensure_init_if_ret(0))) out) {
+    unsigned r = inner_zero(out);
+    if (r == 0) {
+        int v = *out;
+        return v;
+    }
+    return r;
+}
+
+void guard_neg_one_on_unsigned_copy(void) {
+    int a;
+    unsigned r = inner_neg_one(&a);
+    if (r == -1) {
+        int b = a;
+        (void)b;
+    }
+    unsigned s = inner_neg_one(&a);
+    if (s == 4294967295u) {
+        int b = a;
+        (void)b;
+    }
+}
+
+// Widening and converting back to the callee's type restore the value.
+void guard_after_round_trip(void) {
+    int a;
+    long wide = inner_neg_one(&a);
+    int back = wide;
+    if (back == -1) {
+        int b = a;
+        (void)b;
+    }
+}
+
+// A safe zone requires the conversion to be written.
+_Safe unsigned safe_delegate_to_unsigned(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return (unsigned)safe_inner_zero(out);
+}
+
+_Safe long safe_delegate_to_long(int *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    return (long)safe_inner_zero(out);
+}
+
+_Safe void safe_guard_on_unsigned_copy(void) {
+    int a;
+    unsigned r = (unsigned)safe_inner_zero(&_Mut a);
+    if (r == 0u) {
+        int b = a;
+        (void)b;
+    }
+}

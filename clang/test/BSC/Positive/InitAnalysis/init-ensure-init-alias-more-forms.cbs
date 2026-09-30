@@ -1,0 +1,158 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+// expected-no-diagnostics
+
+// Once the contract is fulfilled, every spelling that escaped before is free.
+
+struct Pair { int a; int b; };
+void g(int *q);
+
+int written_cast_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    void *p = (void *)out;
+    (void)p;
+    return 0;
+}
+
+int implicit_conversion_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    void *p = out;
+    (void)p;
+    return 0;
+}
+
+int address_of_element_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    int *q = &out[0];
+    (void)q;
+    return 0;
+}
+
+int address_of_field_after_init(struct Pair *__attribute__((ensure_init)) out) {
+    out->a = 1;
+    out->b = 2;
+    int *q = &out->a;
+    (void)q;
+    return 0;
+}
+
+void through_a_branch_after_init(int *__attribute__((ensure_init)) out, int c) {
+    *out = 7;
+    int *p = c ? out : out;
+    g(p);
+}
+
+// A pointer unrelated to the contract is not an escape at any point.
+void unrelated_pointer(int *__attribute__((ensure_init)) out, int *other,
+                       int c) {
+    int *p = other;
+    int *q = &other[0];
+    int *r = c ? other : other;
+    g(p);
+    g(q);
+    g(r);
+    *out = 1;
+}
+
+// Handing the address straight to a contract callee is delegation, not an
+// escape, whichever spelling addresses the pointee.
+void init_int(int *__attribute__((ensure_init)) x);
+
+void delegate_whole(int *__attribute__((ensure_init)) out) {
+    init_int(&*out);
+}
+
+void delegate_value(int *__attribute__((ensure_init)) out) {
+    init_int(out);
+}
+
+int if_ret_every_spelling_after_init(struct Pair *__attribute__((ensure_init_if_ret(0))) out) {
+    out->a = 1;
+    out->b = 2;
+    void *p = out;
+    int *q = &out->a;
+    struct Pair *r = &out[0];
+    (void)p;
+    (void)q;
+    (void)r;
+    return 0;
+}
+
+_Safe void safe_after_init(struct Pair *_Borrow __attribute__((ensure_init)) out) {
+    out->a = 1;
+    out->b = 2;
+    void *_Borrow p = out;
+    (void)p;
+    int *_Borrow q = &_Mut out->a;
+    (void)q;
+}
+
+_Safe int safe_if_ret_after_init(struct Pair *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    out->a = 1;
+    out->b = 2;
+    int *_Borrow q = &_Mut out->a;
+    (void)q;
+    return 0;
+}
+
+struct IntHolder { int *p; int n; };
+
+void initializers_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    struct IntHolder h = { out, 0 };
+    int *arr[1] = { out };
+    (void)h;
+    (void)arr;
+}
+
+// Arithmetic on an unrelated pointer carries nothing.
+void other_pointer_arithmetic(int *__attribute__((ensure_init)) out, int *o) {
+    int *p = o + 1;
+    (void)p;
+    *out = 1;
+}
+
+// Arithmetic after the pointee is initialized is free, like any other alias.
+void arithmetic_after_init(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    int *p = out + 1;
+    (void)p;
+}
+
+// Reading through the pointee, not the pointer, is not an escape.
+void arithmetic_on_pointee(int *__attribute__((ensure_init)) out) {
+    *out = 1;
+    int v = *out + 1;
+    (void)v;
+}
+
+// ----- a truth value computed from the pointer is not an alias -------------
+
+void sink_truth(int v);
+
+void null_check_stored(int *__attribute__((ensure_init)) out) {
+    int valid = out != (int *)0;
+    sink_truth(valid);
+    *out = 1;
+}
+
+void compared_with_other(int *__attribute__((ensure_init)) out, int *other) {
+    int same = out == other;
+    sink_truth(same);
+    *out = 1;
+}
+
+void negated(int *__attribute__((ensure_init)) out) {
+    int missing = !out;
+    sink_truth(missing);
+    *out = 1;
+}
+
+struct Truth { int ok; };
+int truth_stored_in_field(int *__attribute__((ensure_init_if_ret(0))) out) {
+    struct Truth t;
+    t.ok = out != (int *)0;
+    sink_truth(t.ok);
+    *out = 1;
+    return 0;
+}

@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
 // expected-no-diagnostics
 
 // Globals and file-scope statics are assumed initialized (zero-initialized by C).

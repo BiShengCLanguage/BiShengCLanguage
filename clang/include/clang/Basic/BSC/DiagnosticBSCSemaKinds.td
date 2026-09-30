@@ -395,6 +395,11 @@ def err_ensure_init_if_ret_bad_return_type : Error<
   "__attribute__((ensure_init_if_ret)) requires an integer or '_Bool' "
   "return type, but function returns %0">,
   BSCDiag<"INIT", 21>;
+def err_ensure_init_if_ret_cond_unrepresentable : Error<
+  "__attribute__((ensure_init_if_ret)) argument %0 is not representable in "
+  "return type %1, so no return can ever satisfy the contract; use a value "
+  "%select{in the range of %1|of 0 or 1}2">,
+  BSCDiag<"INIT", 34>;
 def err_ensure_init_if_ret_redecl_mismatch : Error<
   "conflicting __attribute__((ensure_init_if_ret)) on parameter %0 "
   "in redeclaration of %1">,

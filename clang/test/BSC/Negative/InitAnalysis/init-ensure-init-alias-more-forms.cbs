@@ -1,0 +1,150 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify %s
+
+// A converted copy and the address of a field or element all escape like `int *p = out;`.
+
+struct Pair { int a; int b; };
+struct VoidHolder { void *p; };
+void g(int *q);
+
+// A conversion does not stop it being the same pointer.
+int written_cast(int *__attribute__((ensure_init)) out) {
+    void *p = (void *)out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)p;
+    return 0;
+}
+
+int implicit_conversion(int *__attribute__((ensure_init)) out) {
+    void *p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)p;
+    return 0;
+}
+
+// `&out[0]` is the pointer itself: indexing a pointer dereferences it.
+int address_of_element(int *__attribute__((ensure_init)) out) {
+    int *q = &out[0]; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)q;
+    return 0;
+}
+
+// The address of a field points into the same uninitialized pointee.
+int address_of_field(struct Pair *__attribute__((ensure_init)) out) {
+    int *q = &out->a; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    out->a = 1;
+    out->b = 2;
+    (void)q;
+    return 0;
+}
+
+int field_reborrow(struct Pair *__attribute__((ensure_init_if_ret(0))) out) {
+    int *_Borrow q = &_Mut out->a; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)q;
+    return 1;
+}
+
+// A conversion stored into a field escapes the same way.
+void conversion_into_field(int *__attribute__((ensure_init)) out) {
+    struct VoidHolder h;
+    h.p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)h;
+}
+
+int if_ret_implicit_conversion(int *__attribute__((ensure_init_if_ret(0))) out) {
+    void *p = out; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)p;
+    return 0;
+}
+
+int if_ret_address_of_element(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int *q = &out[0]; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)q;
+    return 0;
+}
+
+int if_ret_address_of_field(struct Pair *__attribute__((ensure_init_if_ret(0))) out) {
+    int *q = &out->a; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    out->a = 1;
+    out->b = 2;
+    (void)q;
+    return 0;
+}
+
+_Safe void safe_implicit_conversion(int *_Borrow __attribute__((ensure_init)) out) {
+    void *_Borrow p = out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)p;
+    *out = 1;
+}
+
+_Safe void safe_field_reborrow(struct Pair *_Borrow __attribute__((ensure_init)) out) {
+    int *_Borrow q = &_Mut out->a; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)q;
+    out->a = 1;
+    out->b = 2;
+}
+
+_Safe int safe_if_ret_field_reborrow(struct Pair *_Borrow __attribute__((ensure_init_if_ret(0))) out) {
+    int *_Borrow q = &_Mut out->a; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)q;
+    return 1;
+}
+
+// An initializer stores into a field or element just as an assignment does.
+struct IntHolder { int *p; int n; };
+
+void aggregate_initializer(int *__attribute__((ensure_init)) out) {
+    struct IntHolder h = { out, 0 }; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)h;
+}
+
+void array_initializer(int *__attribute__((ensure_init)) out) {
+    int *arr[1] = { out }; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)arr;
+}
+
+int if_ret_aggregate_initializer(int *__attribute__((ensure_init_if_ret(0))) out) {
+    struct IntHolder h = { out, 0 }; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    *out = 1;
+    (void)h;
+    return 0;
+}
+
+// Arithmetic on the pointer hands it on just as a copy does.
+int pointer_arithmetic(int *__attribute__((ensure_init)) out) {
+    int *p = out + 1; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)p;
+    *out = 1;
+    return 0;
+}
+
+int pointer_arithmetic_zero(int *__attribute__((ensure_init)) out) {
+    int *p = out - 0; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)p;
+    *out = 1;
+    return 0;
+}
+
+// Laundering it through an integer is the same escape.
+int through_integer(int *__attribute__((ensure_init)) out) {
+    unsigned long u = (unsigned long)out; // expected-error {{__attribute__((ensure_init)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)u;
+    *out = 1;
+    return 0;
+}
+
+int if_ret_pointer_arithmetic(int *__attribute__((ensure_init_if_ret(0))) out) {
+    int *p = out + 1; // expected-error {{__attribute__((ensure_init_if_ret)) parameter 'out' cannot be reassigned or aliased before '*out' is initialized}}
+    (void)p;
+    *out = 1;
+    return 0;
+}
+
+// A safe zone has no twin for these two: `_Borrow` supports neither arithmetic
+// nor a conversion to an integer, so both escapes need a raw pointer.

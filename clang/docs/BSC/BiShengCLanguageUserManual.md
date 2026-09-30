@@ -6451,7 +6451,7 @@ _Safe void rule3_ok(int cond) {
 }
 ```
 
-4. 取地址操作（`&_Mut`、`&_Const`、`&`）被视为对变量的使用。对未初始化的变量取地址会报错。例外：作为 `ensure_init` 参数或 `__assume_initialized` 参数的取地址表达式不受此限制（详见 3.7.4 和 3.7.5）。
+4. 取地址操作（`&_Mut`、`&_Const`、`&`）被视为对变量的使用。对未初始化的变量取地址会报错。例外：作为 `ensure_init`、`ensure_init_if_ret` 参数或 `__assume_initialized` 参数的取地址表达式不受此限制（详见 3.7.4、3.7.5 和 3.7.6）。
 
 ```c
 _Safe void rule4(void) {
@@ -6476,7 +6476,7 @@ _Safe int rule5(int cond) {
 } // error: return value of `rule5` may not be initialized on all paths
 ```
 
-6. 数组元素的逐个赋值**不会**将数组标记为已初始化。数组必须通过初始化列表或在 `_Unsafe` 区域中使用 `__assume_initialized` 来初始化（详见 3.7.5）。此规则同样适用于结构体中的数组字段——对数组元素的逐个写入不会将该字段标记为已初始化。
+6. 数组元素的逐个赋值**不会**将数组标记为已初始化。数组必须通过初始化列表或在 `_Unsafe` 区域中使用 `__assume_initialized` 来初始化（详见 3.7.6）。此规则同样适用于结构体中的数组字段——对数组元素的逐个写入不会将该字段标记为已初始化。
 
 ```c
 _Safe void rule6_error(void) {
@@ -6616,6 +6616,25 @@ _Safe void rule9(void) {
 }
 ```
 
+10. 形参在函数入口视为已初始化，包含其所有子对象：调用方负责传入已初始化的实参，而在安全区中传参本身就是一次使用。
+
+```c
+struct Pair { int a; int b; };
+
+_Safe int rule10(struct Pair s) {
+    return s.a + s.b; // ok: 形参及其所有子对象在入口即已初始化
+}
+```
+
+11. 复合赋值（`+=`、`|=` 等）以及 `++`、`--` 先读取对象再写回，因此它们是对该对象的一次使用，不能用于初始化。
+
+```c
+_Safe void rule11(void) {
+    int x;
+    x += 1; // error: use of uninitialized value: 'x'
+}
+```
+
 #### 3.7.4. `__attribute__((ensure_init))`
 
 `__attribute__((ensure_init))` 是一个参数属性，用于标注指针参数，建立初始化契约：
@@ -6657,7 +6676,7 @@ _Safe void field_level(void) {
 }
 ```
 
-当 `ensure_init` 指针所指向的类型没有可初始化存储（空结构体或递归地只含空结构体字段的结构体，见 3.6.3）时，该契约被自动视为已履行：被调用端即使不写入 `*param` 也不会在返回处报错。
+当 `ensure_init` 指针所指向的类型没有可初始化存储（空结构体或递归地只含空结构体字段的结构体，见 3.7.3 规则 2）时，该契约被自动视为已履行：被调用端即使不写入 `*param` 也不会在返回处报错。
 
 ```c
 struct Empty { };
@@ -6855,13 +6874,15 @@ _Safe _Bool test2(int *_Borrow __attribute__((ensure_init_if_ret(1))), int);   /
 _Safe float test3(float *_Borrow __attribute__((ensure_init_if_ret(1))), int); // error：返回类型不符合
 ```
 
-**4. `arg` 必须是整数字面量（整数类型，可为负）。**
+**4. `arg` 必须是整数字面量（整数类型，可为负），且必须能被函数返回类型表示。** 返回类型表示不了的 `arg` 会使契约永远无法成立——任何返回值都不等于它，调用方也写不出能命中它的判断。
 
 ```c
 _Safe int   test1(int *_Borrow __attribute__((ensure_init_if_ret(1))), int);    // ok
-_Safe _Bool test2(int *_Borrow __attribute__((ensure_init_if_ret(-1))), int);   // ok
+_Safe int   test2(int *_Borrow __attribute__((ensure_init_if_ret(-1))), int);   // ok
 _Safe int   test4(int *_Borrow __attribute__((ensure_init_if_ret(-1.0f))), int);// error：arg 不是整数字面量
 _Safe int   test5(int *_Borrow __attribute__((ensure_init_if_ret('s'))), int);  // error：arg 不是整数字面量
+_Safe _Bool test6(int *_Borrow __attribute__((ensure_init_if_ret(2))), int);    // error：_Bool 只能是 0 或 1
+_Safe char  test7(int *_Borrow __attribute__((ensure_init_if_ret(128))), int);  // error：超出 char 的表示范围
 ```
 
 **5. 函数指针赋值兼容。** 不允许把「无 `ensure_init_if_ret`」的函数指针类型赋给「有」的；反向（强契约赋给弱契约）允许。两端都有时，对应形参的 `arg` 必须相同。
@@ -6920,10 +6941,10 @@ _Safe void goo(void) {
 }
 ```
 
-返回值判断支持四种形式：`e == value`、`e != value`、`value == e`、`value != e`（`value` 为整数 / `_Bool` 字面量）。其中 `e` 可以是：
+返回值判断支持四种形式：`e == value`、`e != value`、`value == e`、`value != e`（`value` 为整数常量表达式）。判断必须写出被比较的值：真值测试（`if (res)`、`if (!res)`）不是对返回值的判断，它只能区分 0 与非 0，无法判定返回值是否等于某个非 0 的 `arg`。其中 `e` 可以是：
 
 - 带 `ensure_init_if_ret` 入参的函数调用 `foo(...)`；
-- 与该调用关联的变量 `a`——「关联」指 `a` 在判断时的值是由「直接把 `foo(...)` 的返回值赋给 `a`」得到，且从赋值到判断之间 `a` 未被取地址、取可变借用或重新赋值。
+- 与该调用关联的变量 `a`——「关联」指 `a` 在判断时的值是由「直接把 `foo(...)` 的返回值赋给 `a`」得到，且从赋值到判断之间 `a` 未被取地址、取可变借用或重新赋值。赋值途中允许整数类型转换（隐式或显式），条件是目标类型的位宽不小于源类型且不是 `_Bool`，或者转换回 `foo` 的返回类型；此时 `value` 与 `arg` 都按 `a` 的类型比较。收窄转换和转换到 `_Bool` 会把多个返回值映射到同一个值上，关联随之失效。
 
 ```c
 _Safe int bar(int *_Borrow __attribute__((ensure_init_if_ret(0))));
@@ -6936,6 +6957,52 @@ _Safe void goo(void) {
     if (0 == res) ;           // ok
     if (bar(&_Mut a) != 0) ;  // ok（直接用调用）
     if (0 == bar(&_Mut a)) ;  // ok
+    if (!res) ;               // 不是对返回值的判断：真值测试未写出被比较的值
+    if (res) ;                // 同上
+    if (!(res != 0)) ;        // 同上
+}
+
+_Safe int neg(int *_Borrow __attribute__((ensure_init_if_ret(-1))));
+_Safe void conv(void) {
+    int a;
+    unsigned u = (unsigned)neg(&_Mut a);
+    if (u == 4294967295u) { int b = a; }       // ok：换符号不丢值，-1 在 unsigned 中是 4294967295
+    long l = (long)neg(&_Mut a);
+    if (l == -1) { int b = a; }                // ok：加宽
+    unsigned char c = (unsigned char)neg(&_Mut a);
+    if (c == 255) { int b = a; }               // error：收窄后 255 也可能来自返回值 255，关联失效
+}
+```
+
+**执行路径交汇处的关联**：在分支、条件表达式或循环语句结束后的执行路径交汇处，仅当每条执行路径上 `r` 都与同一个调用关联时，交汇后 `r` 仍与该调用关联；否则关联在交汇处失效。其余路径上 `r` 的值是否可能等于 `arg`、对象是否已被初始化，都不改变这一点。需要时把判断写在调用所在的分支内。
+
+```c
+_Safe int bar(int *_Borrow __attribute__((ensure_init_if_ret(0))));
+
+_Safe void bad(int c) {
+    int a;
+    int r = c ? bar(&_Mut a) : -1;
+    if (r == 0) {
+        int b = a;              // error：只有一条路径上 r 与调用关联，关联在交汇处失效
+    }
+}
+_Safe void ok(int c) {
+    int a;
+    if (c) {
+        int r = bar(&_Mut a);
+        if (r == 0) {
+            int b = a;          // ok：判断与调用在同一条路径上
+        }
+    }
+}
+_Safe void loop(int n) {
+    int a;
+    int r = 1;
+    for (int i = 0; i < n; i++)
+        r = bar(&_Mut a);
+    if (r == 0) {
+        int b = a;              // error：循环执行 0 次的路径上 r 未与调用关联
+    }
 }
 ```
 
@@ -6955,6 +7022,36 @@ _Safe unsigned int bad(int a, S *_Borrow __attribute__((ensure_init_if_ret(0))) 
     if (a == 2) { p->a = 0; p->b = 0; return 1; } // ok
     p->a = 1;
     return 0;                   // error：(*p).b 未初始化
+}
+```
+
+**返回条件表达式**：`return` 的操作数是条件表达式时，每个分支按各自的 `return` 检查，即 `return c ? x : y;` 与 `if (c) return x; else return y;` 的检查结果相同。把条件表达式的值先存入变量再返回则不是这种情形，该变量在交汇处不再与调用关联。
+
+```c
+_Safe int inner(int *_Borrow __attribute__((ensure_init_if_ret(0))) p);
+
+_Safe int f1(int c, int *_Borrow __attribute__((ensure_init_if_ret(0))) p) {
+    return c ? inner(p) : -1;   // ok：一个分支返回 inner 的结果，另一个分支返回的 -1 不等于 arg
+}
+_Safe int f2(int c, int *_Borrow __attribute__((ensure_init_if_ret(0))) p) {
+    return c ? inner(p) : 0;    // error：返回 0 的分支上 *p 未初始化
+}
+_Safe int f3(int c, int *_Borrow __attribute__((ensure_init_if_ret(0))) p) {
+    int r = c ? inner(p) : -1;
+    return r;                   // error：r 不是整数常量，且在交汇处不再与调用关联
+}
+```
+
+**转发带 `ensure_init_if_ret` 的调用结果**：直接返回与调用关联的值时，该路径由被调函数的契约保证——被调函数返回 `arg` 即已初始化 `*p`，前提是两者的 `arg` 相同。返回类型不同时沿用调用端的转换规则：位宽不减且不转到 `_Bool` 的整数转换保持关联，收窄转换使关联失效。
+
+```c
+_Safe int inner(int *_Borrow __attribute__((ensure_init_if_ret(0))) p);
+
+_Safe unsigned g1(int *_Borrow __attribute__((ensure_init_if_ret(0))) p) {
+    return (unsigned)inner(p);  // ok：换符号不丢值
+}
+_Safe short g2(int *_Borrow __attribute__((ensure_init_if_ret(0))) p) {
+    return (short)inner(p);     // error：收窄后返回 0 的可能不止 inner 返回 0 这一种情形
 }
 ```
 
@@ -7088,7 +7185,7 @@ _Safe void array_subscript_example(void) {
 | 模式 | 行为 |
 |------|------|
 | `none` | 禁用初始化分析 |
-| `safeonly`（默认） | 仅在 `_Safe` 区域内检查，或函数具有 `ensure_init` 参数时检查 |
+| `safeonly`（默认） | 仅在 `_Safe` 区域内检查普通变量；初始化契约不受区域限制 |
 | `all` | 在所有代码区域内检查（包括非安全区） |
 
 注：只要启用了初始化分析（即模式不为 `none`）, 则`ensure_init` 契约验证生效（包括非安全区）。

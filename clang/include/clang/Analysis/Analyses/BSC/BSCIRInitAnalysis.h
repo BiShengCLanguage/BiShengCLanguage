@@ -40,6 +40,16 @@ enum class InitState : uint8_t {
   Initialized    // Definitely initialized on all paths
 };
 
+/// What an `&`-origin argument addresses, leading Deref resolved away.
+struct AddressedPlace {
+  bool Recognised = false;
+  bool Pointee = false; // came through a Deref, so a re-point invalidates it
+  FieldPath Path;       // Base always set; Indices empty for a whole object
+  bool operator==(const AddressedPlace &O) const {
+    return Recognised == O.Recognised && Pointee == O.Pointee && Path == O.Path;
+  }
+};
+
 /// Lattice for initialization analysis.
 /// Tracks which locals/places are definitely initialized.
 struct InitLattice {
@@ -61,19 +71,16 @@ struct InitLattice {
 
   /// Caller-side pending init: `ret = f(&x[.field])` with ensure_init_if_ret(V)
   /// records {x[.field], ret, V} until a SwitchInt edge resolves it.
-  /// OutFieldIndices is empty when the whole local was addressed.
   struct PendingCondInit {
-    LocalId OutParamLocal;
-    SmallVector<unsigned, 2> OutFieldIndices;
+    AddressedPlace Out;
     LocalId RetLocal;
-    int CondValue;
-    /// True when the argument addressed a pointee, not the local itself.
-    bool Pointee = false;
+    /// The cond value as RetLocal's type holds it, converted along with copies.
+    int64_t CondValue;
+    /// The callee's return type: converting back to it cannot change the value.
+    QualType RetTy;
     bool operator==(const PendingCondInit &O) const {
-      return OutParamLocal == O.OutParamLocal &&
-             OutFieldIndices == O.OutFieldIndices &&
-             RetLocal == O.RetLocal && CondValue == O.CondValue &&
-             Pointee == O.Pointee;
+      return Out == O.Out && RetLocal == O.RetLocal &&
+             CondValue == O.CondValue && RetTy == O.RetTy;
     }
   };
   SmallVector<PendingCondInit, 2> PendingCondInits;
@@ -163,7 +170,9 @@ class InitAnalysis
     : public DataflowAnalysis<Direction::Forward, InitLattice> {
 public:
   InitAnalysis(const Body &B, bool CheckAllZones = false)
-      : B(B), CheckAllZones(CheckAllZones) {}
+      : B(B), CheckAllZones(CheckAllZones) {
+    collectContractPointerFlow();
+  }
 
   InitLattice entryState(const Body &B) const override;
   bool transferStatement(const Statement &S, InitLattice &State) const override;
@@ -181,12 +190,34 @@ private:
   const Body &B;
   bool CheckAllZones;
 
-  /// What an `&`-origin argument addresses, leading Deref resolved away.
-  struct AddressedPlace {
-    bool Recognised = false;
-    bool Pointee = false; // came through a Deref, so a re-point invalidates it
-    FieldPath Path;       // Base always set; Indices empty for a whole object
+  /// What a value may hold of the contract parameters: their pointers, their
+  /// own addresses, or something else.
+  struct ContractPointerFlow {
+    SmallVector<LocalId, 1> Params;
+    SmallVector<LocalId, 1> ParamAddresses;
+    bool Other = false;
   };
+
+  /// Per temp, from every assignment in the body.
+  llvm::DenseMap<LocalId, ContractPointerFlow> TempFlows;
+
+  void collectContractPointerFlow();
+
+  /// What \p Src may hold, given the flows collected so far.
+  ContractPointerFlow flowOf(const Rvalue &Src) const;
+
+  /// The local whose pointer \p Src hands on, if any.
+  llvm::Optional<LocalId> pointerHandedOn(const Rvalue &Src) const;
+
+  /// The parameter at \p Id when it carries ensure_init or ensure_init_if_ret.
+  const ParmVarDecl *contractParamDecl(LocalId Id) const;
+  bool isContractParam(LocalId Id) const { return contractParamDecl(Id); }
+
+  /// Contract parameters whose pointer \p L may hold.
+  SmallVector<LocalId, 1> mayHoldParam(LocalId L) const;
+
+  /// The contract parameter whose pointer \p L holds on every path, if any.
+  llvm::Optional<LocalId> surelyHoldsParam(LocalId L) const;
 
   AddressedPlace classifyAddressedPlace(const Place &P) const;
 
@@ -206,48 +237,81 @@ private:
   /// from the parameter's attribute (a per-decl constant, not lattice state).
   llvm::Optional<int> getIfRetCondValue(LocalId Id) const;
 
-  /// Check if a local/place is initialized in the given state.
+  /// State of a whole local; a local with no entry reads as uninitialized.
   InitState getInitState(const InitLattice &State, LocalId Id) const;
 
-  /// Mark a local as initialized.
-  void markInit(InitLattice &State, LocalId Id) const;
+  /// Set a whole local's state, flagging \p Changed when it moves.
+  void setInitState(InitLattice &State, LocalId Id, InitState S,
+                    bool *Changed = nullptr) const;
 
-  /// Mark a local as uninitialized (e.g., on StorageDead).
-  void markUninit(InitLattice &State, LocalId Id) const;
+  /// State of `*Id`, or None when \p Id is not a contract parameter.
+  llvm::Optional<InitState> getDerefState(const InitLattice &State,
+                                          LocalId Id) const;
+
+  /// Mark a local and every field below it initialized.
+  void markLocalFullyInit(InitLattice &State, LocalId Id, bool &Changed) const;
+
+  /// Mark the whole object \p Base names initialized, in whichever map holds it.
+  void markWholeObjectInit(InitLattice &State, LocalId Base,
+                           bool &Changed) const;
+
+  /// Report a contract failure, with the re-point sites on this path as notes.
+  void reportContract(const InitLattice &State, LocalId ParamId,
+                      InitDiagKind K, SourceLocation Loc, int CondValue,
+                      SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Check an operand for use of uninitialized values.
   void checkOperand(const Operand &Op, const InitLattice &State,
                     SourceLocation Loc,
                     SmallVectorImpl<InitDiagInfo> &Diags) const;
 
-  /// Collect ensure_init/assume_initialized exempt arg temps for a block.
-  llvm::DenseSet<LocalId>
-  collectEnsureInitArgTemps(const BasicBlock &BB) const;
+  /// Indices of the arguments passed as `&place` to a contract parameter, and
+  /// every argument of __assume_initialized.
+  llvm::DenseSet<unsigned>
+  contractArgIndices(const Terminator::CallData &CD) const;
 
-  /// Check ensure_init constraints on an assignment (reassignment + aliasing).
-  /// Block-local temp aliases of a param's pointer value and of its address.
-  void checkEnsureInitAssign(
-      const Statement &S, const InitLattice &State,
-      llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
-      llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParamAddr,
-      SmallVectorImpl<InitDiagInfo> &Diags) const;
+  /// The temps those arguments pass.
+  llvm::DenseSet<LocalId>
+  contractArgTemps(const Terminator::CallData &CD,
+                   const llvm::DenseSet<unsigned> &ContractArgs) const;
+
+  /// Check ensure_init constraints on an assignment (aliasing).
+  void checkEnsureInitAssign(const Statement &S, const InitLattice &State,
+                             SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Check deref reads of ensure_init params (*out before init).
   void checkEnsureInitDerefReads(
       const Statement &S, const InitLattice &State,
       const llvm::DenseSet<LocalId> &EnsureInitArgTemps,
-      const llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
       SmallVectorImpl<InitDiagInfo> &Diags) const;
 
   /// Diagnose \p P reading the uninitialized pointee of a contract param.
-  void checkEnsureInitPointeeRead(
-      const Place &P, const InitLattice &State,
-      const llvm::DenseMap<LocalId, LocalId> &TempToEnsureInitParam,
-      SourceLocation Loc, SmallVectorImpl<InitDiagInfo> &Diags) const;
+  void checkEnsureInitPointeeRead(const Place &P, const InitLattice &State,
+                                  SourceLocation Loc,
+                                  SmallVectorImpl<InitDiagInfo> &Diags) const;
 
-  /// Collect exempt ensure_init arg indices for a call terminator.
-  llvm::DenseSet<unsigned>
-  collectExemptArgIndices(const Terminator::CallData &CD) const;
+  /// Carries \p PCI through a cast of its value from \p From to \p To, or
+  /// returns false when the converted value no longer identifies the original.
+  bool recordFollowsCast(InitLattice::PendingCondInit &PCI, QualType From,
+                         QualType To) const;
+
+  /// What \p V becomes once converted to \p Ty.
+  int64_t convertedTo(int64_t V, QualType Ty) const;
+
+  /// What \p V becomes once converted to this function's return type.
+  int64_t asReturnedValue(int64_t V) const;
+
+  /// One value a return may yield, with the state where it was produced.
+  struct ReturnArm {
+    InitLattice::ReturnValue RV;
+    InitLattice State;
+  };
+
+  /// The arms of the conditional expression \p PredState returns, or that
+  /// state alone when it returns anything else.
+  SmallVector<ReturnArm, 2>
+  collectReturnArms(const DataflowResult<InitLattice> &Result,
+                    const InitLattice &PredState) const;
 
   /// Check ensure_init contract at return.
   void checkEnsureInitAtReturn(const Terminator &T, const InitLattice &State,
@@ -265,15 +329,11 @@ private:
   InitState getFieldInitState(const InitLattice &State,
                               const FieldPath &FP) const;
 
+  /// Whether \p FP reads as initialized: no storage, or it or an ancestor is.
+  bool isFieldPathCovered(const InitLattice &State, const FieldPath &FP) const;
+
   /// Mark a field path as initialized, then recursively promote parents.
   void markFieldInit(InitLattice &State, const FieldPath &FP,
-                     bool &Changed) const;
-
-  /// Mark `P` as initialized iff it names a FieldPath (no Deref/Index in
-  /// its projection chain). Silently does nothing otherwise — writing
-  /// through a pointer does not initialize the pointer's containing
-  /// allocation.
-  void markFieldInit(InitLattice &State, const Place &P,
                      bool &Changed) const;
 
   /// Clear all field states for a local (on StorageLive/Dead).
@@ -297,9 +357,18 @@ private:
   /// Get the QualType at a given field path prefix for a local.
   QualType getFieldType(LocalId Id, ArrayRef<unsigned> Path) const;
 
-  /// Recursively mark all leaf fields of a struct type as Initialized.
-  void markAllFieldsInit(InitLattice &State, LocalId Base,
-                         QualType Ty, SmallVector<unsigned, 4> &Prefix) const;
+  /// The type field paths under \p Id index into: the pointee for a contract
+  /// parameter, the local's own type otherwise.
+  QualType trackedRootType(LocalId Id) const;
+
+  /// Call \p F(RD, FD, Depth) for each field \p Path selects under \p Base,
+  /// stopping at a non-record, a missing field, or when \p F returns false.
+  template <class Fn>
+  void walkFieldPath(LocalId Base, ArrayRef<unsigned> Path, Fn F) const;
+
+  /// Mark every field below \p Ty initialized.
+  void markAllFieldsInit(InitLattice &State, LocalId Base, QualType Ty,
+                         bool &Changed) const;
 
   /// Mark the whole pointee of an ensure_init pointer param as initialized:
   /// updates the deref state and, for struct pointees, all nested fields.

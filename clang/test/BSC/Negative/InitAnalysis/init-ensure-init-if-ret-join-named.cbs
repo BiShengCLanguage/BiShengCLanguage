@@ -1,0 +1,361 @@
+// RUN: %clang_cc1 -fsyntax-only -verify %s
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=all -verify=expected,all %s
+
+// An association survives a join only when every incoming path carries it.
+// A path that reaches the join with a constant, or with the pointee already
+// written, does not carry it, so a variable assigned on several paths loses
+// the association. Returning from each path keeps the contract checkable.
+
+int inner_zero(int *__attribute__((ensure_init_if_ret(0))) out);
+
+int delegate_if_else(int *__attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c)
+        r = inner_zero(out);
+    else
+        r = -1;
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+int delegate_or_write(int *__attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c) {
+        r = inner_zero(out);
+    } else {
+        *out = 1;
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+_Safe int safe_inner_zero(int *_Borrow __attribute__((ensure_init_if_ret(0))) out);
+_Safe void init(int *_Borrow __attribute__((ensure_init)) p);
+
+_Safe int safe_delegate_if_else(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c)
+        r = safe_inner_zero(out);
+    else
+        r = -1;
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+_Safe int safe_delegate_or_write(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c) {
+        r = safe_inner_zero(out);
+    } else {
+        *out = 1;
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+_Safe int safe_delegate_or_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c) {
+        r = safe_inner_zero(out);
+    } else {
+        init(out);
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+int delegate_or_init(int *_Borrow __attribute__((ensure_init_if_ret(0))) out, int c) {
+    int r;
+    if (c) {
+        r = safe_inner_zero(out);
+    } else {
+        init(out);
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*out': return value is not an integer constant, so the runtime value may equal the cond value — '*out' must be initialized on this path}}
+}
+
+int sw_default_non_cond(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    switch (c) {
+    case 1: r = inner_zero(p); break;
+    default: r = -1;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int sw_many_cases(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    switch (c) {
+    case 1: r = inner_zero(p); break;
+    case 2: r = -1; break;
+    case 3: r = -2; break;
+    default: r = -3;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int sw_no_default_seeded(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = -1;
+    switch (c) {
+    case 1: r = inner_zero(p); break;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int sw_fallthrough_into_call(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = -1;
+    switch (c) {
+    case 1:
+    case 2: r = inner_zero(p); break;
+    default: r = -1;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int sw_call_falls_through(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = -1;
+    switch (c) {
+    case 1: r = inner_zero(p);
+    default: break;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int sw_nested(int *__attribute__((ensure_init_if_ret(0))) p, int c, int d) {
+    int r = -1;
+    switch (c) {
+    case 1:
+        switch (d) {
+        case 2: r = inner_zero(p); break;
+        default: r = -2;
+        }
+        break;
+    default: r = -3;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+_Safe int safe_sw_default_non_cond(int *_Borrow __attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    switch (c) {
+    case 1: r = safe_inner_zero(p); break;
+    default: r = -1;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- a conditional expression stored in a variable -----------------------
+
+int copy_then_return(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = c ? inner_zero(p) : -1;
+    int s = r;
+    return s; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int return_parens(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = c ? inner_zero(p) : -1;
+    return (r); // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int return_cast(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = c ? inner_zero(p) : -1;
+    return (int)r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- the other path discharges the contract its own way ------------------
+
+struct Fields { int a; int b; };
+int inner_fields(struct Fields *__attribute__((ensure_init_if_ret(0))) p);
+
+int other_path_assume_initialized(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c) {
+        r = inner_zero(p);
+    } else {
+        _Unsafe { __assume_initialized(&*p); }
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int other_path_writes_all_fields(struct Fields *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c) {
+        r = inner_fields(p);
+    } else {
+        p->a = 1;
+        p->b = 2;
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int other_path_guards_its_own_call(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c) {
+        r = inner_zero(p);
+    } else {
+        if (inner_zero(p) != 0)
+            return -1;
+        r = 0;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- loops: the seed meets the association at the header -----------------
+
+int loop_nonc_seed(int *__attribute__((ensure_init_if_ret(0))) p, int n) {
+    int r = -1;
+    for (int i = 0; i < n; i++)
+        r = inner_zero(p);
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int loop_break_carries(int *__attribute__((ensure_init_if_ret(0))) p, int n) {
+    int r = -1;
+    for (int i = 0; i < n; i++) {
+        if (i == 3) {
+            r = inner_zero(p);
+            break;
+        }
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int loop_continue_carries(int *__attribute__((ensure_init_if_ret(0))) p, int n) {
+    int r = -1;
+    for (int i = 0; i < n; i++) {
+        if (i == 3)
+            continue;
+        r = inner_zero(p);
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+_Safe int safe_loop_nonc_seed(int *_Borrow __attribute__((ensure_init_if_ret(0))) p,
+                              int n) {
+    int r = -1;
+    for (int i = 0; i < n; i++)
+        r = safe_inner_zero(p);
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- a forward goto reaches the join ------------------------------------
+
+int goto_join(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c) {
+        r = inner_zero(p);
+        goto done;
+    }
+    r = -1;
+done:
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- the call is not on the first arm ------------------------------------
+
+int last_carrier_one_const(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    switch (c) {
+    case 1: r = -1; break;
+    default: r = inner_zero(p); break;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int last_carrier_diff_const(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c == 1)
+        r = -1;
+    else if (c == 2)
+        r = -2;
+    else
+        r = inner_zero(p);
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int last_carrier_same_const(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c == 1)
+        r = -1;
+    else if (c == 2)
+        r = -1;
+    else
+        r = inner_zero(p);
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int no_default_first_carrier(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r = -1;
+    switch (c) {
+    case 1: r = inner_zero(p); break;
+    case 2: r = -2; break;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- constants on the other arms -----------------------------------------
+
+int wide_constant_int_return(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    if (c)
+        r = inner_zero(p);
+    else
+        r = 256;
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+int eight_constants(int *__attribute__((ensure_init_if_ret(0))) p, int c) {
+    int r;
+    switch (c) {
+    case 1: r = -1; break;
+    case 2: r = -2; break;
+    case 3: r = -3; break;
+    case 4: r = -4; break;
+    case 5: r = -5; break;
+    case 6: r = -6; break;
+    case 7: r = -7; break;
+    case 8: r = -8; break;
+    default: r = inner_zero(p); break;
+    }
+    return r; // expected-error {{cannot verify __attribute__((ensure_init_if_ret(0))) contract for '*p': return value is not an integer constant, so the runtime value may equal the cond value — '*p' must be initialized on this path}}
+}
+
+// ----- two params whose associations meet at a join ------------------------
+
+int foo1(int *__attribute__((ensure_init_if_ret(1))) p);
+int foo2(int *__attribute__((ensure_init_if_ret(0))) p);
+
+int one_arm_calls_other_writes(int *__attribute__((ensure_init_if_ret(0))) a,
+                               int *__attribute__((ensure_init_if_ret(0))) b,
+                               int c) {
+    int r1;
+    int r2 = foo2(b);
+    if (c) {
+        r1 = foo1(a);
+    } else {
+        *a = 7;
+        r1 = 1;
+    }
+    if (r2 == 0) {
+        if (r1 == 1)
+            return 0; // expected-error {{'*a' may not be initialized on all paths at return in __attribute__((ensure_init_if_ret(0))) function}}
+    }
+    return -1;
+}
+
+int each_arm_one_call(int *__attribute__((ensure_init_if_ret(0))) a,
+                      int *__attribute__((ensure_init_if_ret(0))) b, int c) {
+    int r1 = -1;
+    int r2 = -1;
+    if (c)
+        r1 = foo1(a);
+    else
+        r2 = foo2(b);
+    if (r2 == 0) {
+        if (r1 == 1)
+            return 0; // expected-error {{'*a' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}} expected-error {{'*b' not initialized at return in __attribute__((ensure_init_if_ret(0))) function}}
+    }
+    return -1;
+}
+
