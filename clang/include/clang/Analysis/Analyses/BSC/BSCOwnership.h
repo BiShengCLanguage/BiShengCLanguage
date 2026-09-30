@@ -36,9 +36,9 @@ namespace clang {
 // move-semantic record (a struct that contains _Owned members). These arrays
 // are tracked as whole-array aggregates by ownership analysis, and element
 // ownership transfer is only allowed inside qualifying for-loops.
-// The element is inspected one array level at a time:
-// isOwnedPointerOrOwnedStruct() answers for a pointer or an owned struct, not
-// for an array of them.
+// The element is inspected one array level at a time: an owned pointer element
+// or an element record that itself contains owned fields answers true, an
+// array of them does not until the walk reaches the element level.
 static inline bool IsOwnedElementArrayType(QualType type) {
   while (const auto *AT = type->getAsArrayTypeUnsafe()) {
     QualType Elem = AT->getElementType();
@@ -566,12 +566,6 @@ public:
       const VarState *VS = lookupVar(VD);
       return VS && VS->Kind == K;
     }
-    // Whether one field path of a tracked variable is currently in state S.
-    bool fieldInState(const VarDecl *VD, const bsc::Place *P, Status S) const {
-      const VarState *VS = lookupVar(VD);
-      return VS && (VS->Cells.lookup(P) & S) != None;
-    }
-
     // The static schema of a tracked variable.
     FieldSet &allFields(const VarDecl *VD) {
       assert(Vars[VD].Kind != HostKind::Unset && "untracked variable");
@@ -609,7 +603,6 @@ public:
     const OwnershipSet *bitsOf(const VarDecl *VD) const;
     bool canAssign(const VarDecl *VD) const;
     void set(const VarDecl *VD, Status S);
-    void reset(const VarDecl *VD, Status S);
     void resetAll(const VarDecl *VD);
     // Methods that build field-path places from the AST take the ASTContext
     // (arena + PlaceBuilder) as a parameter: OwnershipStatus itself holds no
@@ -632,9 +625,8 @@ public:
     // path ("arr[]", "arr[].p"); `S` is the target state (Owned / Null /
     // Moved).
     void setArrayAggregate(const VarDecl *VD, const bsc::Place *Field, Status S);
-    // Shared by setArrayAggregate's field-path cases: after erasing / inserting
-    // Field (and its `Field.` prefix children) in the per-VD owned set, refresh
-    // the aggregate bit state from the owned count vs the static field count.
+    // Shared by setArrayAggregate's field-path cases: refresh the aggregate bit
+    // state from the owned-field count vs the static field count.
     void refreshArrayFieldState(const VarDecl *VD, size_t OwnedCount,
                                 size_t AllCount);
     // Whether the aggregate is (possibly) uninitialized, or owns nothing (the
@@ -740,10 +732,8 @@ public:
     // root variable (nullptr at the root). Field keys are Field chains from
     // the root; nested owned pointer keys are Deref(Field(...)); array-field
     // levels are Index.
-    void initOPS(const RecordDecl *RD, const VarDecl *VD, ASTContext &Ctx,
-                 int depth = 10, const bsc::Place *Parent = nullptr);
-    void initS(const RecordDecl *RD, const VarDecl *VD, ASTContext &Ctx,
-               int depth = 10, const bsc::Place *Parent = nullptr);
+    void initStruct(const RecordDecl *RD, const VarDecl *VD, ASTContext &Ctx,
+                    int depth = 10, const bsc::Place *Parent = nullptr);
     void initBOP(QualType QT, const VarDecl *VD, ASTContext &Ctx, int depth = 10,
                  const bsc::Place *Parent = nullptr);
     // The __assume_null / __forget transitions over an explicit key set: the
@@ -752,8 +742,6 @@ public:
     void assumeFieldsNull(const VarDecl *VD, const FieldSet &Keys);
     void forgetFields(const VarDecl *VD, const FieldSet &Keys);
     std::string collectMovedFields(const VarDecl *VD);
-
-    friend class OwnerShip;
   };
 };
 

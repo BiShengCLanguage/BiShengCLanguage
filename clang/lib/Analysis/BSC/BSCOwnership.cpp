@@ -539,13 +539,6 @@ static const VarDecl *PeelArrayElemBase(const Expr *E) {
   return nullptr;
 }
 
-
-// A transfer site whose base is an owned-element array or a _Owned
-// _ArrayElem pointer: element ownership transfer applies.
-static bool IsArrayTransferBase(const VarDecl *VD, bool IsArrElemPtr) {
-  return IsOwnedElementArrayType(VD->getType()) || IsArrElemPtr;
-}
-
 // Peel an owned-element *array field* access (w.arr[i] / o.w.arr[i]) to the
 // host and the "arr[]" / "w.arr[]" path. Returns false for plain nested
 // fields (no `[]`) or non-array fields. Used by the subscript / cast
@@ -785,7 +778,7 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD, ASTContext &Ctx) {
     if (const RecordType *RT = dyn_cast<RecordType>(
             VDType->getPointeeType().getCanonicalType())) {
       Vars[VD].Kind = HostKind::OPS;
-      initOPS(RT->getDecl(), VD, Ctx, 10, Root);
+      initStruct(RT->getDecl(), VD, Ctx, 10, Root);
     } else {
       Vars[VD].Kind = HostKind::BOP;
       initBOP(VDType, VD, Ctx, 10, Root);
@@ -810,7 +803,7 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD, ASTContext &Ctx) {
       if (!RT)
         return;
       Vars[VD].Kind = HostKind::S;
-      initS(RT->getDecl(), VD, Ctx, 10, Root);
+      initStruct(RT->getDecl(), VD, Ctx, 10, Root);
     } else {
       return;
     }
@@ -819,7 +812,7 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD, ASTContext &Ctx) {
     if (!RT)
       return;
     Vars[VD].Kind = HostKind::S;
-    initS(RT->getDecl(), VD, Ctx, 10, Root);
+    initStruct(RT->getDecl(), VD, Ctx, 10, Root);
   }
   Vars[VD].Root = Uninitialized;
   // A struct value's owned fields start out never-assigned.
@@ -829,8 +822,8 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD, ASTContext &Ctx) {
 
 // Strip the array levels of a field type, appending one Index projection
 // ("[]", index-free) per level to the key place and returning the element
-// type. Returns false when the field is not an array. Shared by initS /
-// initOPS (the historical path used `[]` for each array level).
+// type. Returns false when the field is not an array. Used by initStruct (the
+// historical path used `[]` for each array level).
 static bool StripArrayFieldLevels(bsc::PlaceBuilder &PB, QualType FieldTy,
                                   FieldKey &FieldPlace, SourceLocation Loc,
                                   QualType &ElemTy) {
@@ -864,9 +857,16 @@ static const RecordDecl *RegisterArrayField(FieldSet &AllSet,
   return nullptr;
 }
 
-void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
-                                         const VarDecl *VD, ASTContext &Ctx,
-                                         int depth, const bsc::Place *Parent) {
+// Record every owned field of VD's record into its schema, depth-first. One
+// walk serves all three host families: a nested owned-pointer-to-struct field
+// recurses into the pointee's fields, a record field into its own fields, and
+// an array field one Index level at a time. The historical OPS and S walks
+// were byte-identical, so they are one function. Only a bare owned-pointer
+// chain (initBOP) is a separate shape.
+void Ownership::OwnershipStatus::initStruct(const RecordDecl *RD,
+                                            const VarDecl *VD, ASTContext &Ctx,
+                                            int depth,
+                                            const bsc::Place *Parent) {
   if (depth == 0) {
     return;
   }
@@ -879,16 +879,17 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
     QualType FT = it->getType();
     FieldKey FieldPlace = PB.BuildField(Parent, *it, it->getLocation());
     if (IsTrackedType(FT)) {
-      // Array fields (e.g. struct S { int *_Owned arr[2]; }): the key uses
-      // an Index projection ("[]") for the array level and recurses into the
-      // element type, so the tracked field becomes "arr[]" (owned pointers) /
-      // "arr[].a" (records).
+      // Array fields (e.g. struct S { int *_Owned arr[2]; } or
+      // struct Wrap { struct S arr[2]; }): the key uses an Index projection
+      // ("[]") for the array level and recurses into the element type, so the
+      // tracked field becomes "arr[]" (owned pointers) / "arr[].a" (records)
+      // instead of just "arr".
       QualType FieldTy;
       if (StripArrayFieldLevels(PB, FT, FieldPlace, it->getLocation(),
                                 FieldTy)) {
         if (const RecordDecl *RT =
                 RegisterArrayField(allFields(VD), FieldPlace, FieldTy))
-          initOPS(RT, VD, Ctx, depth - 1, FieldPlace);
+          initStruct(RT, VD, Ctx, depth - 1, FieldPlace);
         continue;
       }
       if (!FT->isRecordType() || FT->isOwnedStruct())
@@ -905,7 +906,7 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
             allFields(VD).insert(PB.BuildDeref(FieldPlace, FT->getPointeeType(),
                                                it->getLocation()));
           }
-          initOPS(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
+          initStruct(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
         } else {
           initBOP(FT, VD, Ctx, depth - 1, FieldPlace);
         }
@@ -913,62 +914,7 @@ void Ownership::OwnershipStatus::initOPS(const RecordDecl *RD,
       if (const RecordType *RT = dyn_cast<RecordType>(FT.getCanonicalType())) {
         if (RT->isOwnedStruct())
           allFields(VD).insert(FieldPlace);
-        initS(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
-      }
-    }
-  }
-}
-
-void Ownership::OwnershipStatus::initS(const RecordDecl *RD, const VarDecl *VD,
-                                       ASTContext &Ctx, int depth,
-                                       const bsc::Place *Parent) {
-  if (depth == 0) {
-    return;
-  }
-  bsc::PlaceBuilder PB(Ctx);
-
-  // record all owned fields of VD in the variable's schema
-  for (RecordDecl::field_iterator it = RD->field_begin(), ei = RD->field_end();
-       it != ei; ++it) {
-    // Use the sugared type: canonicalizing an array type drops the local
-    // _Owned qualifier of its element (int *_Owned arr[2]).
-    QualType FT = it->getType();
-    FieldKey FieldPlace = PB.BuildField(Parent, *it, it->getLocation());
-    if (IsTrackedType(FT)) {
-      // Array fields (e.g. struct Wrap { struct S arr[2]; }): the key uses
-      // an Index projection ("[]") for the array level and recurses into the
-      // element type, so the tracked field becomes "arr[].a" instead of just
-      // "arr".
-      QualType FieldTy;
-      if (StripArrayFieldLevels(PB, FT, FieldPlace, it->getLocation(),
-                                FieldTy)) {
-        if (const RecordDecl *RT =
-                RegisterArrayField(allFields(VD), FieldPlace, FieldTy))
-          initS(RT, VD, Ctx, depth - 1, FieldPlace);
-        continue;
-      }
-      if (!FT->isRecordType() || FT->isOwnedStruct())
-        allFields(VD).insert(FieldPlace);
-
-      // recursively record all owned fields
-      if (FT.isOwnedPointer()) {
-        if (const RecordType *RT =
-                dyn_cast<RecordType>(FT->getPointeeType().getCanonicalType())) {
-          if (RT->isOwnedStruct()) {
-            // The historical key "fieldName + '*'" is a Deref projection
-            // over the field.
-            allFields(VD).insert(PB.BuildDeref(FieldPlace, FT->getPointeeType(),
-                                               it->getLocation()));
-          }
-          initOPS(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
-        } else {
-          initBOP(FT, VD, Ctx, depth - 1, FieldPlace);
-        }
-      }
-      if (const RecordType *RT = dyn_cast<RecordType>(FT.getCanonicalType())) {
-        if (RT->isOwnedStruct())
-          allFields(VD).insert(FieldPlace);
-        initS(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
+        initStruct(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
       }
     }
   }
@@ -998,11 +944,6 @@ void Ownership::OwnershipStatus::initBOP(QualType QT, const VarDecl *VD,
 void Ownership::OwnershipStatus::set(const VarDecl *VD, Status S) {
   if (isTracked(VD))
     Vars[VD].Root |= S;
-}
-
-void Ownership::OwnershipStatus::reset(const VarDecl *VD, Status S) {
-  if (isTracked(VD))
-    Vars[VD].Root &= ~S;
 }
 
 void Ownership::OwnershipStatus::resetAll(const VarDecl *VD) {
@@ -1107,8 +1048,8 @@ void Ownership::OwnershipStatus::setToNull(const VarDecl *VD) {
 }
 
 // Mark a single owned field of an owned-pointer-to-struct (an OPS host) as
-// null: remove it from OwnedOwned, add it to NullOwned, and propagate to any
-// fields nested below it (field descendants).
+// null: drop the Owned bit of the field's cell and set its Null bit, and
+// propagate to any fields nested below it (field descendants).
 void Ownership::OwnershipStatus::setOwnedFieldNull(const VarDecl *VD,
                                                    FieldKey FieldPath) {
   if (!isHost(VD, HostKind::OPS))
@@ -1930,7 +1871,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSUse(
                             VD->getNameAsString(), collectMovedFields(VD)));
     } else if (is(VD, Ownership::Status::AllMoved)) {
       // Allow consuming the whole pointer when every owned field was dropped
-      // via __assume_null (sits in NullOwned) rather than genuinely moved out.
+      // via __assume_null (its cell carries Null) rather than genuinely moved
+      // out.
       // Such fields are null/handled, not moved, so moving the struct pointer
       // is safe; only report AllMoved when some field is neither owned nor
       // assumed-null.
@@ -2008,8 +1950,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
 
   // check condition 3
   // if fullFieldName has been moved, report error. Pass the Null set so
-  // a field dropped via __assume_null (moved out of OwnedOwned into
-  // NullOwned) is not mistaken for a moved field on a later borrow —
+  // a field dropped via __assume_null (its cell dropped the Owned bit and
+  // gained Null) is not mistaken for a moved field on a later borrow —
   // mirroring the S-path call below, which already passes the Null set.
   FieldSet NullSet = nullFields(VD);
   FieldKey movedFieldName =
@@ -2030,8 +1972,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSFieldUse(
       fieldQueryPrefixes(allFields(VD), fullFieldName, IsAggregateAccess);
   FieldSet ownedPrefixStrs =
       fieldQueryPrefixes(ownedFields(VD), fullFieldName, IsAggregateAccess);
-  // A sub-field dropped via __assume_null (moved out of OwnedOwned into
-  // NullOwned) is null/handled, not moved — it must not count as a
+  // A sub-field dropped via __assume_null (its cell dropped the Owned bit and
+  // gained Null) is null/handled, not moved — it must not count as a
   // partially-moved child of the accessed field (mirrors the AllMoved
   // exemption in checkOPSUse).
   FieldSet nullPrefixStrs =
@@ -2362,8 +2304,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
       fieldQueryPrefixes(allFields(VD), fullFieldName, IsAggregateAccess);
   FieldSet ownedPrefixStrs =
       fieldQueryPrefixes(ownedFields(VD), fullFieldName, IsAggregateAccess);
-  // A sub-field dropped via __assume_null (moved out of OwnedOwned into
-  // NullOwned) is null/handled, not moved — it must not count as a
+  // A sub-field dropped via __assume_null (its cell dropped the Owned bit and
+  // gained Null) is null/handled, not moved — it must not count as a
   // partially-moved child of the accessed field.
   FieldSet nullPrefixStrs =
       fieldQueryPrefixes(nullFields(VD), fullFieldName, IsAggregateAccess);
@@ -3261,9 +3203,10 @@ public:
 
   // helpers for owned-element array element access.
   // Peel an expression that may be a[i], a[i][j] or s[i].f / s[i].a[j] down
-  // to the base VarDecl of an owned-element array; returns the array variable
-  // (or nullptr). If the base is a T *_Owned _ArrayElem pointer, IsArrElemPtr
-  // is set (element transfer is always forbidden for those).
+  // to the base VarDecl of an owned-element array. A non-null return is always
+  // a valid element-transfer base (an owned-element array, or a _Owned
+  // _ArrayElem pointer with IsArrElemPtr set), so callers need no further
+  // check.
   const VarDecl *peelArrayBase(const Expr *E, bool &IsArrElemPtr) const;
   // Check that a transfer site is allowed; emit ArrayElemTransferForbidden
   // otherwise. Returns true if the transfer is allowed.
@@ -3299,6 +3242,14 @@ public:
                                 QualType MemberTy) const;
   // Record a transfer-forbidden diagnostic for ArrVD at Loc.
   void emitArrayElemForbidden(SourceLocation Loc, const VarDecl *ArrVD);
+  /// Diagnose a borrow or a read of an owned-element array aggregate that has
+  /// lost its ownership (uninitialized or moved). \p Field selects the
+  /// aggregate the same way setArrayAggregate does: nullptr for the whole
+  /// array, otherwise the host-relative array-field path. On a mutable borrow
+  /// the aggregate is promoted back to owned — the borrow may write values
+  /// through it — so a scope exit without freeing still reports a leak.
+  void checkArrayAggregateRead(const VarDecl *VD, const bsc::Place *Field,
+                               SourceLocation Loc, bool IsAddrMut);
 };
 } // namespace
 
@@ -3382,7 +3333,7 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
   // historical "" key).
   bool IsArrElemPtr = false;
   const VarDecl *ArrVD = peelArrayBase(ASE, IsArrElemPtr);
-  if (ArrVD && IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+  if (ArrVD) {
     bsc::PlaceBuilder PB(OS.ctx);
     FieldKey WholePlace = PB.Build(ArrVD, ArrVD->getLocation());
     if (op == Move || op == Assign) {
@@ -3408,36 +3359,8 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
       }
       applyArrayElemTransition(ASE->getExprLoc(), ArrVD, WholePlace, op == Assign);
     } else if (op == GetAddr || op == None) {
-      // Borrowing (mutable or immutable) or reading a _Owned array that has
-      // lost its ownership is forbidden: the for-loop may already have moved
-      // every element out (manual: cannot borrow/use a moved _Owned value).
-      bool Moved = false;
-      if (stat.isHost(ArrVD, HostKind::BOP))
-        Moved = stat.is(ArrVD, Ownership::Status::Moved);
-      else
-        Moved = ArrayFieldPathMoved(stat, ArrVD, WholePlace);
-      if (stat.arrayAggregateUninit(ArrVD)) {
-        OwnershipDiagInfo DI(ASE->getExprLoc(),
-                             OwnershipDiagKind::InvalidUseOfUninit,
-                             ArrVD->getNameAsString());
-        reporter.addDiagInfo(DI);
-        Visit(ASE->getIdx());
-        return;
-      }
-      if (Moved) {
-        OwnershipDiagInfo DI(ASE->getExprLoc(),
-                             OwnershipDiagKind::InvalidUseOfMoved,
-                             ArrVD->getNameAsString());
-        reporter.addDiagInfo(DI);
-        Visit(ASE->getIdx());
-        return;
-      }
-      // Taking a mutable borrow (&_Mut a[i]) exposes the element to writes
-      // through the borrow, so the array is no longer known to be all-null:
-      // it may now own values. Promote the aggregate to owned (conservative),
-      // so a scope exit without freeing reports a leak.
-      if (isAddrMut)
-        stat.setArrayAggregate(ArrVD, nullptr, Ownership::Status::Owned);
+      checkArrayAggregateRead(ArrVD, /*Field=*/nullptr, ASE->getExprLoc(),
+                              isAddrMut);
     }
     // Read-only accesses (comparisons, deref, borrows) do not change the
     // aggregate state; just visit the index and return.
@@ -3460,27 +3383,8 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
           return;
         }
       } else if (op == GetAddr || op == None) {
-          // Borrowing (mutable or immutable) or reading an array field whose
-          // aggregate has lost its ownership is forbidden (mirror of the
-          // local-array rule): the qualifying loop may already have moved every
-          // element out.
-          bool Moved = ArrayFieldPathMoved(stat, HostVD, FieldPlace);
-          if (stat.arrayAggregateUninit(HostVD)) {
-            OwnershipDiagInfo DI(ASE->getExprLoc(),
-                                 OwnershipDiagKind::InvalidUseOfUninit,
-                                 HostVD->getNameAsString());
-            reporter.addDiagInfo(DI);
-          } else if (Moved) {
-            OwnershipDiagInfo DI(ASE->getExprLoc(),
-                                 OwnershipDiagKind::InvalidUseOfMoved,
-                                 HostVD->getNameAsString());
-            reporter.addDiagInfo(DI);
-          } else if (isAddrMut) {
-            // A mutable borrow (&_Mut w.arr[i]) exposes the field to writes
-            // through the borrow, so promote the aggregate to owned.
-            stat.setArrayAggregate(HostVD, FieldPlace,
-                                   Ownership::Status::Owned);
-          }
+          checkArrayAggregateRead(HostVD, FieldPlace, ASE->getExprLoc(),
+                                  isAddrMut);
         }
         Visit(ASE->getIdx());
         return;
@@ -3607,15 +3511,14 @@ bool TransferFunctions::isArrayElemForgetAllowed(const Expr *Arg) {
   return true;
 }
 
-// True when the owned-field place `fieldName` of the struct-array `ArrVD`
-// names a whole array-typed field (a plain single field projection directly
-// under the root variable, e.g. `s[i].f` where f is an array). Field-level
-// tracking treats such a field as one aggregate, so element-granularity
-// use-after-move cannot be distinguished here; it is skipped (element tracking
-// is a future refinement). Paths with `[]` levels or nested fields (the
-// historical "arr[]" / "arr[].a" spellings) never matched a field name and
-// returned false.
-static bool isArrayField(const VarDecl *ArrVD, FieldKey fieldName) {
+// True when the owned-field place `fieldName` names a whole array-typed field
+// (a plain single field projection directly under the root variable, e.g.
+// `s[i].f` where f is an array). Field-level tracking treats such a field as
+// one aggregate, so element-granularity use-after-move cannot be distinguished
+// here; it is skipped (element tracking is a future refinement). Paths with
+// `[]` levels or nested fields (the historical "arr[]" / "arr[].a" spellings)
+// never matched a field name and returned false.
+static bool isArrayField(FieldKey fieldName) {
   return fieldName &&
          fieldName->getKind() == bsc::Place::Kind::Field &&
          fieldName->getBase()->getKind() == bsc::Place::Kind::Var &&
@@ -3731,12 +3634,12 @@ void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
       AlreadyMoved = stat.movedFields(ArrVD).count(fieldName) ||
                      (!stat.ownedFields(ArrVD).count(fieldName) &&
                       !stat.nullFields(ArrVD).count(fieldName) &&
-                      !isArrayField(ArrVD, fieldName));
+                      !isArrayField(fieldName));
     else if (stat.isHost(ArrVD, HostKind::OPS))
       AlreadyMoved = stat.movedFields(ArrVD).count(fieldName) ||
                      (!stat.ownedFields(ArrVD).count(fieldName) &&
                       !stat.nullFields(ArrVD).count(fieldName) &&
-                      !isArrayField(ArrVD, fieldName));
+                      !isArrayField(fieldName));
   }
   // A move-out of an uninitialized aggregate / field is a use of an
   // uninitialized value (mirror of the scalar cast-uninit check), not a
@@ -3871,6 +3774,39 @@ void TransferFunctions::emitArrayElemForbidden(SourceLocation Loc,
   reporter.addDiagInfo(DI);
 }
 
+// Borrowing (mutable or immutable) or reading an owned-element array aggregate
+// that has lost its ownership is forbidden: the qualifying loop may already
+// have moved every element out (manual: cannot borrow/use a moved _Owned
+// value). Shared by the four aggregate read sites — a local array (`a[i]`) and
+// a host aggregate's array-field path (`w.arr[i]`, `w.arr[i].a`), under either
+// a subscript or a member expression.
+void TransferFunctions::checkArrayAggregateRead(const VarDecl *VD,
+                                                const bsc::Place *Field,
+                                                SourceLocation Loc,
+                                                bool IsAddrMut) {
+  // A BOP host tracks "moved" as a root bit; the field-tracking hosts (S, OPS)
+  // as field state. A whole-aggregate query is a null Field for both.
+  const bool Moved = stat.isHost(VD, HostKind::BOP)
+                         ? stat.is(VD, Ownership::Status::Moved)
+                         : ArrayFieldPathMoved(stat, VD, Field);
+  OwnershipDiagKind Kind;
+  if (stat.arrayAggregateUninit(VD)) {
+    Kind = OwnershipDiagKind::InvalidUseOfUninit;
+  } else if (Moved) {
+    Kind = OwnershipDiagKind::InvalidUseOfMoved;
+  } else {
+    if (IsAddrMut)
+      // Taking a mutable borrow (&_Mut a[i]) exposes the element to writes
+      // through the borrow, so the aggregate is no longer known to be
+      // all-null: it may now own values. Promote it to owned (conservative),
+      // so a scope exit without freeing reports a leak.
+      stat.setArrayAggregate(VD, Field, Ownership::Status::Owned);
+    return;
+  }
+  OwnershipDiagInfo DI(Loc, Kind, VD->getNameAsString());
+  reporter.addDiagInfo(DI);
+}
+
 bool TransferFunctions::memberAccessTouchesOwned(
     const VarDecl *VD, FieldKey FieldPath, QualType MemberTy) const {
   auto IsOwnedConsuming = [](QualType T) {
@@ -3897,8 +3833,7 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
   // string keys).
   bool IsArrElemPtr = false;
   const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
-  if (ArrVD &&
-      IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+  if (ArrVD) {
     bsc::PlaceBuilder PB(OS.ctx);
     FieldKey ArrFieldPlace = nullptr;
     PeelHostAndFieldPlace(PB, ME, ArrFieldPlace);
@@ -3921,31 +3856,8 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
         return;
       applyArrayElemTransition(ME->getExprLoc(), ArrVD, ArrFieldPlace, op == Assign);
     } else if (op == GetAddr || op == None) {
-      // Borrowing (mutable or immutable) or reading a field of an owned-element
-      // array that has lost its ownership is forbidden: the qualifying loop may
-      // already have moved every element's field out.
-      bool Moved = false;
-      if (stat.isHost(ArrVD, HostKind::BOP))
-        Moved = stat.is(ArrVD, Ownership::Status::Moved);
-      else
-        Moved = ArrayFieldPathMoved(stat, ArrVD, ArrFieldPlace);
-      if (stat.arrayAggregateUninit(ArrVD)) {
-        OwnershipDiagInfo DI(ME->getExprLoc(),
-                             OwnershipDiagKind::InvalidUseOfUninit,
-                             ArrVD->getNameAsString());
-        reporter.addDiagInfo(DI);
-        return;
-      }
-      if (Moved) {
-        OwnershipDiagInfo DI(ME->getExprLoc(),
-                             OwnershipDiagKind::InvalidUseOfMoved,
-                             ArrVD->getNameAsString());
-        reporter.addDiagInfo(DI);
-        return;
-      }
-      if (isAddrMut)
-        stat.setArrayAggregate(ArrVD, ArrFieldPlace,
-                               Ownership::Status::Owned);
+      checkArrayAggregateRead(ArrVD, ArrFieldPlace, ME->getExprLoc(),
+                              isAddrMut);
     }
     return;
   }
@@ -3966,22 +3878,7 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
         return;
       tryTransferArrayField(ME, HostVD, FieldPlace, op == Assign);
     } else if (op == GetAddr || op == None) {
-      // Same borrow/read rule as the local array: borrowing or reading an
-      // array-field path whose aggregate has lost ownership is forbidden.
-      bool Moved = ArrayFieldPathMoved(stat, HostVD, FieldPlace);
-      if (stat.arrayAggregateUninit(HostVD)) {
-        OwnershipDiagInfo DI(ME->getExprLoc(),
-                             OwnershipDiagKind::InvalidUseOfUninit,
-                             HostVD->getNameAsString());
-        reporter.addDiagInfo(DI);
-      } else if (Moved) {
-        OwnershipDiagInfo DI(ME->getExprLoc(),
-                             OwnershipDiagKind::InvalidUseOfMoved,
-                             HostVD->getNameAsString());
-        reporter.addDiagInfo(DI);
-      } else if (isAddrMut) {
-        stat.setArrayAggregate(HostVD, FieldPlace, Ownership::Status::Owned);
-      }
+      checkArrayAggregateRead(HostVD, FieldPlace, ME->getExprLoc(), isAddrMut);
     }
     return;
   }
@@ -4344,8 +4241,7 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
       // Struct-array member move-out: (void *_Owned)s[i].f.
       bool IsArrElemPtr = false;
       const VarDecl *ArrVD = peelArrayBase(ME, IsArrElemPtr);
-      if (ArrVD &&
-          IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+      if (ArrVD) {
         bsc::PlaceBuilder PB(OS.ctx);
         FieldKey MemberFieldPlace = nullptr;
         PeelHostAndFieldPlace(PB, ME, MemberFieldPlace);
@@ -4392,8 +4288,7 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
                  dyn_cast<ArraySubscriptExpr>(InnerE)) {
       bool IsArrElemPtr = false;
       const VarDecl *ArrVD = peelArrayBase(ASE, IsArrElemPtr);
-      if (ArrVD &&
-          IsArrayTransferBase(ArrVD, IsArrElemPtr)) {
+      if (ArrVD) {
         // Null aggregate releases nothing (free(null) is a no-op).
         bsc::PlaceBuilder PB(OS.ctx);
         FieldKey WholePlace = PB.Build(ArrVD, ArrVD->getLocation());

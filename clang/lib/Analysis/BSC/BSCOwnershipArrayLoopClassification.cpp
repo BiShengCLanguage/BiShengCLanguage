@@ -102,8 +102,7 @@ static bool IsIncrementByOne(const ASTContext &Context, const Expr *Inc,
 // Recognize `i < sizeof(arr)/sizeof(arr[0])` (also `sizeof(arr)/sizeof(*arr)`)
 // as an array-length bound and return the array variable it refers to, or
 // nullptr when the expression does not have that shape.
-static const VarDecl *GetSizeofArrayBound(const ASTContext &Context,
-                                          const Expr *E) {
+static const VarDecl *GetSizeofArrayBound(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   const BinaryOperator *BO = dyn_cast<BinaryOperator>(E);
   if (!BO || BO->getOpcode() != BO_Div)
@@ -141,7 +140,7 @@ static const VarDecl *GetSizeofArrayBound(const ASTContext &Context,
 // is not a simple variable.
 static const VarDecl *GetSizeofArrayLengthVar(const ASTContext &Context,
                                               const Expr *E) {
-  const VarDecl *ArrVD = GetSizeofArrayBound(Context, E);
+  const VarDecl *ArrVD = GetSizeofArrayBound(E);
   if (!ArrVD)
     return nullptr;
   if (const auto *VAT = dyn_cast_or_null<VariableArrayType>(
@@ -567,7 +566,7 @@ static void CheckBoundVarModification(
 }
 
 static void FindBoundVarModifications(
-    ASTContext &Context, const FunctionDecl *FD,
+    const FunctionDecl *FD,
     const llvm::SmallPtrSetImpl<const VarDecl *> &AllBoundVars,
     llvm::DenseMap<const VarDecl *, SourceLocation> &ModLocs) {
   CheckBoundVarModification(FD->getBody(), AllBoundVars, ModLocs);
@@ -1592,7 +1591,7 @@ public:
       return;
     llvm::SmallPtrSet<const VarDecl *, 4> AllBoundVars;
     CollectLoopBoundVars(Context, FD, AllBoundVars);
-    FindBoundVarModifications(Context, FD, AllBoundVars,
+    FindBoundVarModifications(FD, AllBoundVars,
                              BoundVarModLocs);
     CollectLoopCounterVars(FD->getBody(), LoopOfCounter);
     scanForLoops(FD->getBody());
