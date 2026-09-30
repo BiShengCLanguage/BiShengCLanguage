@@ -514,6 +514,45 @@ static FieldKey getMemberFieldPlace(const MemberExpr *ME, ASTContext &Ctx) {
   return Place;
 }
 
+// A `*`-chain expression peeled down to its root variable. Place is the
+// outermost Deref projection over it (**q is Deref(Deref(Var(q))), the
+// historical "suffix" of trailing '*' markers), null when the base is not a
+// variable; Leaf is the expression left under the derefs; Tys holds the deref
+// types outermost-first.
+struct DerefChain {
+  FieldKey Place = nullptr;
+  const Expr *Leaf = nullptr;
+  llvm::SmallVector<QualType, 4> Tys;
+};
+
+static DerefChain PeelDerefChain(const UnaryOperator *UO, ASTContext &Ctx) {
+  DerefChain Chain;
+  const Expr *e = UO;
+  while (true) {
+    if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(e)) {
+      e = ICE->getSubExpr();
+    } else if (const UnaryOperator *uo = dyn_cast<UnaryOperator>(e)) {
+      if (uo->getOpcode() != UO_Deref)
+        break;
+      Chain.Tys.push_back(uo->getType());
+      e = uo->getSubExpr()->IgnoreParenImpCasts();
+    } else {
+      break;
+    }
+  }
+  Chain.Leaf = e;
+  const VarDecl *VD = nullptr;
+  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(e))
+    VD = dyn_cast<VarDecl>(DRE->getDecl());
+  if (VD && !Chain.Tys.empty()) {
+    bsc::PlaceBuilder PB(Ctx);
+    Chain.Place = PB.Build(VD, VD->getLocation());
+    for (QualType Ty : Chain.Tys)
+      Chain.Place = PB.BuildDeref(Chain.Place, Ty, UO->getExprLoc());
+  }
+  return Chain;
+}
+
 // Peel an array-element expression a[i] / a[i][j] / s[i].f / s[i].a[j] down
 // to the base VarDecl (of an array or of a _ArrayElem pointer); nullptr if the
 // expression is not such an element access. Shared by the dataflow transfer
@@ -1098,6 +1137,29 @@ void Ownership::OwnershipStatus::assumeFieldsNull(const VarDecl *VD,
   }
 }
 
+void Ownership::OwnershipStatus::dropBOPDerefField(const VarDecl *RootVD,
+                                                   FieldKey DerefPlace) {
+  if (!isHost(RootVD, HostKind::BOP))
+    return;
+  if (!allFields(RootVD).count(DerefPlace))
+    return;
+  ownedFields(RootVD).erase(DerefPlace);
+  for (FieldKey Str : derefDescendants(allFields(RootVD), DerefPlace))
+    ownedFields(RootVD).erase(Str);
+  if (allFields(RootVD).size() != ownedFields(RootVD).size()) {
+    if (!is(RootVD, Moved)) {
+      resetAll(RootVD);
+      set(RootVD, PartialMoved);
+    }
+  }
+  if (ownedFields(RootVD).empty()) {
+    if (!is(RootVD, Moved)) {
+      resetAll(RootVD);
+      set(RootVD, AllMoved);
+    }
+  }
+}
+
 // __forget on a struct-typed target: abandon every owned field in `Keys` (and
 // its field descendants) — Moved semantics, the counterpart of
 // assumeFieldsNull (the fields are not asserted null, they are abandoned). On
@@ -1228,76 +1290,28 @@ void Ownership::OwnershipStatus::setToNull(const Expr *E, ASTContext &Ctx) {
     }
   }
   if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
-    // Build the deref-chain place over the root variable: **q is
-    // Deref(Deref(Var(q))), the historical "suffix" of trailing '*' markers.
-    // First pass: peel casts and derefs down to the root variable, collecting
-    // each deref's type outermost-first.
-    llvm::SmallVector<QualType, 4> DerefTys;
-    const Expr *e = UO;
-    const VarDecl *VD = nullptr;
-    while (true) {
-      if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(e)) {
-        e = ICE->getSubExpr();
-      } else if (const UnaryOperator *uo = dyn_cast<UnaryOperator>(e)) {
-        if (uo->getOpcode() != UO_Deref)
-          break;
-        DerefTys.push_back(uo->getType());
-        e = uo->getSubExpr()->IgnoreParenImpCasts();
-      } else {
-        break;
-      }
-    }
-    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(e))
-      VD = dyn_cast<VarDecl>(DRE->getDecl());
-    FieldKey DerefPlace = nullptr;
-    if (VD && !DerefTys.empty()) {
-      bsc::PlaceBuilder PB(Ctx);
-      DerefPlace = PB.Build(VD, VD->getLocation());
-      for (QualType QualTy : DerefTys)
-        DerefPlace = PB.BuildDeref(DerefPlace, QualTy, UO->getExprLoc());
-    }
-    if (DerefPlace) {
-      const VarDecl *RootVD = DerefPlace->getRoot();
+    DerefChain Chain = PeelDerefChain(UO, Ctx);
+    if (Chain.Place) {
+      const VarDecl *RootVD = Chain.Place->getRoot();
       // __assume_null(*s) on an owned struct pointer (`struct S *_Owned s`):
       // drop ownership of every _Nullable owned field. Sema has already
       // rejected structs with a _Nonnull field, so every trackable owned field
       // here is _Nullable.
-      if (DerefPlace->getBase()->getKind() == bsc::Place::Kind::Var &&
+      if (Chain.Place->getBase()->getKind() == bsc::Place::Kind::Var &&
           isHost(RootVD, HostKind::OPS)) {
         QualType PointeeTy = RootVD->getType()->getPointeeType();
         if (PointeeTy->isRecordType())
           assumeFieldsNull(RootVD, allFields(RootVD));
       }
-      if (isHost(RootVD, HostKind::BOP)) {
-        if (allFields(RootVD).count(DerefPlace)) {
-          ownedFields(RootVD).erase(DerefPlace);
-          auto allPrefixStrs = derefDescendants(allFields(RootVD), DerefPlace);
-          for (FieldKey str : allPrefixStrs) {
-            ownedFields(RootVD).erase(str);
-          }
-          if (allFields(RootVD).size() !=
-              ownedFields(RootVD).size()) {
-            if (!is(RootVD, Moved)) {
-              resetAll(RootVD);
-              set(RootVD, PartialMoved);
-            }
-          }
-          if (ownedFields(RootVD).empty()) {
-            if (!is(RootVD, Moved)) {
-              resetAll(RootVD);
-              set(RootVD, AllMoved);
-            }
-          }
-        }
-      }
+      dropBOPDerefField(RootVD, Chain.Place);
     }
     // __assume_null(*h->sp) / __assume_null(*t.sp): the field form of
     // __assume_null(*s) above — deref of an owned struct-pointer field. Drop
     // ownership of the pointee's owned fields (the field descendants of the
     // member place on the host variable) by assuming them null; the field
     // itself keeps owning the pointee allocation.
-    if (DerefTys.size() == 1) {
-      if (const MemberExpr *ME = dyn_cast<MemberExpr>(e)) {
+    if (Chain.Tys.size() == 1) {
+      if (const MemberExpr *ME = dyn_cast<MemberExpr>(Chain.Leaf)) {
         QualType PointeeTy = ME->getType()->getPointeeType();
         if (PointeeTy->isRecordType()) {
           FieldKey FieldPlace = getMemberFieldPlace(ME, Ctx);
@@ -1450,65 +1464,16 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
   // changes); __forget(*q) on a pointer-to-owned-pointer (int *_Owned *q)
   // forgets the inner owned pointer tracked as the "*" field of the BOP host.
   if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
-    // Build the deref-chain place over the root variable: **q is
-    // Deref(Deref(Var(q))), the historical "suffix" of trailing '*' markers.
-    // First pass: peel casts and derefs down to the root variable, collecting
-    // each deref's type outermost-first.
-    llvm::SmallVector<QualType, 4> DerefTys;
-    const Expr *e = UO;
-    const VarDecl *VD = nullptr;
-    while (true) {
-      if (const ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(e)) {
-        e = ICE->getSubExpr();
-      } else if (const UnaryOperator *uo = dyn_cast<UnaryOperator>(e)) {
-        if (uo->getOpcode() != UO_Deref)
-          break;
-        DerefTys.push_back(uo->getType());
-        e = uo->getSubExpr()->IgnoreParenImpCasts();
-      } else {
-        break;
-      }
-    }
-    if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(e))
-      VD = dyn_cast<VarDecl>(DRE->getDecl());
-    FieldKey DerefPlace = nullptr;
-    if (VD && !DerefTys.empty()) {
-      bsc::PlaceBuilder PB(Ctx);
-      DerefPlace = PB.Build(VD, VD->getLocation());
-      for (QualType QualTy : DerefTys)
-        DerefPlace = PB.BuildDeref(DerefPlace, QualTy, UO->getExprLoc());
-    }
-    if (DerefPlace) {
-      const VarDecl *RootVD = DerefPlace->getRoot();
-      if (DerefPlace->getBase()->getKind() == bsc::Place::Kind::Var &&
+    DerefChain Chain = PeelDerefChain(UO, Ctx);
+    if (Chain.Place) {
+      const VarDecl *RootVD = Chain.Place->getRoot();
+      if (Chain.Place->getBase()->getKind() == bsc::Place::Kind::Var &&
           isHost(RootVD, HostKind::OPS)) {
         QualType PointeeTy = RootVD->getType()->getPointeeType();
         if (PointeeTy->isRecordType())
           forgetFields(RootVD, allFields(RootVD));
       }
-      if (isHost(RootVD, HostKind::BOP)) {
-        if (allFields(RootVD).count(DerefPlace)) {
-          ownedFields(RootVD).erase(DerefPlace);
-          auto allPrefixStrs =
-              derefDescendants(allFields(RootVD), DerefPlace);
-          for (FieldKey str : allPrefixStrs) {
-            ownedFields(RootVD).erase(str);
-          }
-          if (allFields(RootVD).size() !=
-              ownedFields(RootVD).size()) {
-            if (!is(RootVD, Moved)) {
-              resetAll(RootVD);
-              set(RootVD, PartialMoved);
-            }
-          }
-          if (ownedFields(RootVD).empty()) {
-            if (!is(RootVD, Moved)) {
-              resetAll(RootVD);
-              set(RootVD, AllMoved);
-            }
-          }
-        }
-      }
+      dropBOPDerefField(RootVD, Chain.Place);
     }
     // __forget(*h->sp) / __forget(*t.sp): the field form of __forget(*s)
     // above — deref of an owned struct-pointer field. The pointee's owned
@@ -1516,8 +1481,8 @@ void Ownership::OwnershipStatus::setToMoved(const Expr *E, ASTContext &Ctx) {
     // variable; forget them while the field itself keeps owning the pointee
     // allocation (it must still be freed or moved, so no aggregate bit
     // changes).
-    if (DerefTys.size() == 1) {
-      if (const MemberExpr *ME = dyn_cast<MemberExpr>(e)) {
+    if (Chain.Tys.size() == 1) {
+      if (const MemberExpr *ME = dyn_cast<MemberExpr>(Chain.Leaf)) {
         QualType PointeeTy = ME->getType()->getPointeeType();
         if (PointeeTy->isRecordType()) {
           FieldKey FieldPlace = getMemberFieldPlace(ME, Ctx);
@@ -3113,6 +3078,12 @@ public:
   void VisitCStyleCastExpr(CStyleCastExpr *CSCE);
   void VisitDeclRefExpr(DeclRefExpr *DRE);
   void VisitDeclRefExprPlace(FieldKey Place, SourceLocation Loc);
+  /// Given the base expression \p E peeled out of a subscript / deref chain
+  /// and the number of `*` levels that chain contributed, build the
+  /// host-relative place and hand it to VisitDeclRefExprPlace. Returns false
+  /// when E is neither a member access nor a variable reference, so the caller
+  /// falls through to its own handling.
+  bool visitDerefChainBase(Expr *E, unsigned DerefLevels);
   void VisitDeclStmt(DeclStmt *DS);
   void VisitInitListExpr(InitListExpr *ILE);
   void VisitMemberExpr(MemberExpr *ME);
@@ -3250,6 +3221,10 @@ public:
   /// through it — so a scope exit without freeing still reports a leak.
   void checkArrayAggregateRead(const VarDecl *VD, const bsc::Place *Field,
                                SourceLocation Loc, bool IsAddrMut);
+  /// The tracked aggregate place under a Deref projection of \p Place — the
+  /// historical "trailing '*' replaced by '.'" re-check — or nullptr when
+  /// \p Place is not a deref or its base is not a tracked field of \p VD.
+  FieldKey aggregateUnderDeref(const VarDecl *VD, FieldKey Place) const;
 };
 } // namespace
 
@@ -3402,33 +3377,8 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
     ASE = ase;
   }
 
-  if (MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
-    if (FieldKey BasePlace = getMemberFieldPlace(ME, OS.ctx)) {
-      bsc::PlaceBuilder PB(OS.ctx);
-      FieldKey Place = BasePlace;
-      // A subscript on the pointee dereferences the (pointer-valued) base,
-      // like the historical "*"-suffix appended to the member field path.
-      while (DerefLevels--) {
-        QualType PT =
-            Place->getType() ? Place->getType()->getQualType() : QualType();
-        Place = PB.BuildDeref(Place, pointeeOrElem(PT), ME->getExprLoc());
-      }
-      VisitDeclRefExprPlace(Place, ME->getExprLoc());
-      return;
-    }
-  }
-  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
-    const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
-    if (VD) {
-      bsc::PlaceBuilder PB(OS.ctx);
-      FieldKey Place = PB.Build(VD, VD->getLocation());
-      while (DerefLevels--)
-        Place = PB.BuildDeref(Place, pointeeOrElem(VD->getType()),
-                              DRE->getLocation());
-      VisitDeclRefExprPlace(Place, DRE->getLocation());
-      return;
-    }
-  }
+  if (visitDerefChainBase(E, DerefLevels))
+    return;
 
   Visit(ASE->getBase());
 }
@@ -3585,10 +3535,7 @@ void TransferFunctions::applyArrayElemAssign(SourceLocation Loc,
         HoldsOwned = !stat.ownedFields(ArrVD).empty() &&
                      !stat.has(ArrVD, Ownership::Status::Uninitialized);
     } else {
-      if (stat.isHost(ArrVD, HostKind::S))
-        HoldsOwned = stat.ownedFields(ArrVD).count(fieldName) &&
-                     !stat.has(ArrVD, Ownership::Status::Uninitialized);
-      else if (stat.isHost(ArrVD, HostKind::OPS))
+      if (stat.isHost(ArrVD, HostKind::S) || stat.isHost(ArrVD, HostKind::OPS))
         HoldsOwned = stat.ownedFields(ArrVD).count(fieldName) &&
                      !stat.has(ArrVD, Ownership::Status::Uninitialized);
     }
@@ -3630,12 +3577,7 @@ void TransferFunctions::applyArrayElemMoveOut(SourceLocation Loc,
     // use-after-move, so detect it uniformly: explicitly moved on some path
     // (the moved field sets are unions over the paths), or gone entirely
     // (absent from both the owned and the null sets).
-    if (stat.isHost(ArrVD, HostKind::S))
-      AlreadyMoved = stat.movedFields(ArrVD).count(fieldName) ||
-                     (!stat.ownedFields(ArrVD).count(fieldName) &&
-                      !stat.nullFields(ArrVD).count(fieldName) &&
-                      !isArrayField(fieldName));
-    else if (stat.isHost(ArrVD, HostKind::OPS))
+    if (stat.isHost(ArrVD, HostKind::S) || stat.isHost(ArrVD, HostKind::OPS))
       AlreadyMoved = stat.movedFields(ArrVD).count(fieldName) ||
                      (!stat.ownedFields(ArrVD).count(fieldName) &&
                       !stat.nullFields(ArrVD).count(fieldName) &&
@@ -3812,11 +3754,9 @@ bool TransferFunctions::memberAccessTouchesOwned(
   auto IsOwnedConsuming = [](QualType T) {
     return T.isOrContainsOwned(BSCLookThrough::NoPointer);
   };
-  if (stat.isHost(VD, HostKind::S))
-    return FieldPath &&
-           overlapsOwnedFields(stat.allFields(VD), FieldPath) &&
-           IsOwnedConsuming(MemberTy);
-  if (stat.isHost(VD, HostKind::OPS))
+  // The S and OPS hosts track field paths the same way; a BOP host has no
+  // field-level ownership, so any owned-consuming member touches it.
+  if (stat.isHost(VD, HostKind::S) || stat.isHost(VD, HostKind::OPS))
     return FieldPath &&
            overlapsOwnedFields(stat.allFields(VD), FieldPath) &&
            IsOwnedConsuming(MemberTy);
@@ -3899,14 +3839,7 @@ void TransferFunctions::VisitDeclRefExpr(DeclRefExpr *DRE) {
   if (!VD)
     return;
   bsc::PlaceBuilder PB(OS.ctx);
-  FieldKey VarPlace = PB.Build(VD, VD->getLocation());
-  if (op == Assign) {
-    HandleDREPlaceAssign(VarPlace, DRE->getLocation());
-  }
-
-  if (op == Move || op == GetAddr) {
-    HandleDREPlaceUse(VarPlace, DRE->getLocation());
-  }
+  VisitDeclRefExprPlace(PB.Build(VD, VD->getLocation()), DRE->getLocation());
 }
 
 void TransferFunctions::VisitDeclRefExprPlace(FieldKey Place,
@@ -3918,6 +3851,37 @@ void TransferFunctions::VisitDeclRefExprPlace(FieldKey Place,
   if (op == Move || op == GetAddr) {
     HandleDREPlaceUse(Place, Loc);
   }
+}
+
+bool TransferFunctions::visitDerefChainBase(Expr *E, unsigned DerefLevels) {
+  if (MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
+    if (FieldKey BasePlace = getMemberFieldPlace(ME, OS.ctx)) {
+      bsc::PlaceBuilder PB(OS.ctx);
+      FieldKey Place = BasePlace;
+      // A subscript on the pointee dereferences the (pointer-valued) base,
+      // like the historical "*"-suffix appended to the member field path.
+      while (DerefLevels--) {
+        QualType PT =
+            Place->getType() ? Place->getType()->getQualType() : QualType();
+        Place = PB.BuildDeref(Place, pointeeOrElem(PT), ME->getExprLoc());
+      }
+      VisitDeclRefExprPlace(Place, ME->getExprLoc());
+      return true;
+    }
+  }
+  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
+    const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    if (VD) {
+      bsc::PlaceBuilder PB(OS.ctx);
+      FieldKey Place = PB.Build(VD, VD->getLocation());
+      while (DerefLevels--)
+        Place = PB.BuildDeref(Place, pointeeOrElem(VD->getType()),
+                              DRE->getLocation());
+      VisitDeclRefExprPlace(Place, DRE->getLocation());
+      return true;
+    }
+  }
+  return false;
 }
 
 void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
@@ -3936,31 +3900,9 @@ void TransferFunctions::VisitUnaryOperator(UnaryOperator *UO) {
     E = E->IgnoreParens();
   }
 
-  if (MemberExpr *ME = dyn_cast<MemberExpr>(E)) {
-    if (FieldKey BasePlace = getMemberFieldPlace(ME, OS.ctx)) {
-      bsc::PlaceBuilder PB(OS.ctx);
-      FieldKey Place = BasePlace;
-      while (DerefLevels--) {
-        QualType PT =
-            Place->getType() ? Place->getType()->getQualType() : QualType();
-        Place = PB.BuildDeref(Place, pointeeOrElem(PT), ME->getExprLoc());
-      }
-      VisitDeclRefExprPlace(Place, ME->getExprLoc());
-      return;
-    }
-  }
-  if (DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E)) {
-    const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
-    if (VD) {
-      bsc::PlaceBuilder PB(OS.ctx);
-      FieldKey Place = PB.Build(VD, VD->getLocation());
-      while (DerefLevels--)
-        Place = PB.BuildDeref(Place, pointeeOrElem(VD->getType()),
-                              DRE->getLocation());
-      VisitDeclRefExprPlace(Place, DRE->getLocation());
-      return;
-    }
-  }
+  if (visitDerefChainBase(E, DerefLevels))
+    return;
+
   // Write-through / read via deref does not transfer ownership of the pointer
   // (e.g. *p[i].ptr = 42 on an _Owned _ArrayElem base, or *a[i] = 42 inside a
   // qualifying loop on an owned-element array).
@@ -4628,6 +4570,14 @@ void TransferFunctions::VisitLifetimeEnds(VarDecl *VD, SourceLocation SL,
   reporter.addDiags(diags);
 }
 
+FieldKey TransferFunctions::aggregateUnderDeref(const VarDecl *VD,
+                                                FieldKey Place) const {
+  if (Place->getKind() != bsc::Place::Kind::Deref)
+    return nullptr;
+  FieldKey Aggregate = Place->getBase();
+  return stat.allFields(VD).count(Aggregate) ? Aggregate : nullptr;
+}
+
 void TransferFunctions::HandleDREPlaceAssign(FieldKey Place,
                                               SourceLocation Loc) {
   // for a field-path assign, there is 6 situations:
@@ -4651,17 +4601,12 @@ void TransferFunctions::HandleDREPlaceAssign(FieldKey Place,
       reporter.addDiags(diags);
     } else {
       // The historical trailing-'*' trick first re-checked the key with the
-      // trailing star replaced by a '.' (the aggregate under the pointer,
-      // i.e. the deref's base) when that aggregate is tracked, then always
-      // re-checked the key as-is.
-      if (Place->getKind() == bsc::Place::Kind::Deref) {
-        FieldKey Aggregate = Place->getBase();
-        if (stat.allFields(VD).count(Aggregate)) {
-          SmallVector<OwnershipDiagInfo> diags =
-              stat.checkOPSFieldAssign(VD, Loc, Aggregate,
-                                       /*IsAggregateAccess=*/true);
-          reporter.addDiags(diags);
-        }
+      // trailing star replaced by a '.' (the aggregate under the pointer),
+      // then always re-checked the key as-is.
+      if (FieldKey Aggregate = aggregateUnderDeref(VD, Place)) {
+        SmallVector<OwnershipDiagInfo> Diags = stat.checkOPSFieldAssign(
+            VD, Loc, Aggregate, /*IsAggregateAccess=*/true);
+        reporter.addDiags(Diags);
       }
       SmallVector<OwnershipDiagInfo> diags =
           stat.checkOPSFieldAssign(VD, Loc, Place);
@@ -4676,14 +4621,10 @@ void TransferFunctions::HandleDREPlaceAssign(FieldKey Place,
           stat.checkSAssign(VD, Loc);
       reporter.addDiags(diags);
     } else {
-      if (Place->getKind() == bsc::Place::Kind::Deref) {
-        FieldKey Aggregate = Place->getBase();
-        if (stat.allFields(VD).count(Aggregate)) {
-          SmallVector<OwnershipDiagInfo> diags =
-              stat.checkSFieldAssign(VD, Loc, Aggregate,
-                                     /*IsAggregateAccess=*/true);
-          reporter.addDiags(diags);
-        }
+      if (FieldKey Aggregate = aggregateUnderDeref(VD, Place)) {
+        SmallVector<OwnershipDiagInfo> Diags = stat.checkSFieldAssign(
+            VD, Loc, Aggregate, /*IsAggregateAccess=*/true);
+        reporter.addDiags(Diags);
       }
       SmallVector<OwnershipDiagInfo> diags =
           stat.checkSFieldAssign(VD, Loc, Place);
@@ -4727,14 +4668,13 @@ void TransferFunctions::HandleDREPlaceUse(FieldKey Place, SourceLocation Loc) {
           stat.checkOPSUse(VD, Loc, op == GetAddr, true, false);
       reporter.addDiags(diags);
     } else {
-      if (Place->getKind() == bsc::Place::Kind::Deref) {
-        FieldKey Aggregate = Place->getBase();
-        if (stat.allFields(VD).count(Aggregate)) {
-          SmallVector<OwnershipDiagInfo> diags = stat.checkOPSFieldUse(
-              VD, Loc, Aggregate, op == GetAddr,
-              /*IsAggregateAccess=*/true);
-          reporter.addDiags(diags);
-        }
+      // The historical trailing-'*' trick first re-checked the key with the
+      // trailing star replaced by a '.' (the aggregate under the pointer),
+      // then always re-checked the key as-is.
+      if (FieldKey Aggregate = aggregateUnderDeref(VD, Place)) {
+        SmallVector<OwnershipDiagInfo> Diags = stat.checkOPSFieldUse(
+            VD, Loc, Aggregate, op == GetAddr, /*IsAggregateAccess=*/true);
+        reporter.addDiags(Diags);
       }
       SmallVector<OwnershipDiagInfo> diags =
           stat.checkOPSFieldUse(VD, Loc, Place, op == GetAddr);
@@ -4750,14 +4690,10 @@ void TransferFunctions::HandleDREPlaceUse(FieldKey Place, SourceLocation Loc) {
       isAddrMut = false;
       reporter.addDiags(diags);
     } else {
-      if (Place->getKind() == bsc::Place::Kind::Deref) {
-        FieldKey Aggregate = Place->getBase();
-        if (stat.allFields(VD).count(Aggregate)) {
-          SmallVector<OwnershipDiagInfo> diags = stat.checkSFieldUse(
-              VD, Loc, Aggregate, op == GetAddr,
-              /*IsAggregateAccess=*/true);
-          reporter.addDiags(diags);
-        }
+      if (FieldKey Aggregate = aggregateUnderDeref(VD, Place)) {
+        SmallVector<OwnershipDiagInfo> Diags = stat.checkSFieldUse(
+            VD, Loc, Aggregate, op == GetAddr, /*IsAggregateAccess=*/true);
+        reporter.addDiags(Diags);
       }
       SmallVector<OwnershipDiagInfo> diags =
           stat.checkSFieldUse(VD, Loc, Place, op == GetAddr);

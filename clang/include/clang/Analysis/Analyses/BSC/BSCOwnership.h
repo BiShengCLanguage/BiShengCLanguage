@@ -741,6 +741,10 @@ public:
     // the field descendants of one path. Both dispatch on the host family.
     void assumeFieldsNull(const VarDecl *VD, const FieldSet &Keys);
     void forgetFields(const VarDecl *VD, const FieldSet &Keys);
+    // __assume_null(*q) / __forget(*q) on a pointer-to-owned-pointer
+    // (int *_Owned *q): drop the inner owned pointer tracked as the Deref field
+    // of a BOP host, then refresh its aggregate root state.
+    void dropBOPDerefField(const VarDecl *RootVD, const bsc::Place *DerefPlace);
     std::string collectMovedFields(const VarDecl *VD);
   };
 };
