@@ -30,3 +30,24 @@ void partial_copy_reports_only_owned_field(void) {
   a.p = __take_from_raw((int *)malloc(4));
   struct T b = a;
 } // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}
+
+// The field sets are unions over the paths reaching a point, so a field that
+// is owned on one path and null on another (Owned|Null) still owns a live
+// value: the copy duplicates that pointer and the destination must free or
+// move it. Only *must*-be-null fields are mirrored onto the destination.
+void copy_maybe_null_field_leaks(int c) {
+  struct S a = {};
+  if (c)
+    a.p = __take_from_raw((int *)malloc(4));
+  struct S b = a;
+} // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}
+
+// The assignment form mirrors from the source state captured before the
+// assignment consumes the source, so the same holds for `b = a;`.
+void assign_maybe_null_field_leaks(int c) {
+  struct S a = {};
+  if (c)
+    a.p = __take_from_raw((int *)malloc(4));
+  struct S b = {};
+  b = a;
+} // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}

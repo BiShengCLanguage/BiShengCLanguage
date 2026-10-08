@@ -259,18 +259,15 @@ bool Ownership::OwnershipStatus::FieldSet::operator==(
   return true;
 }
 
-// Whether Prefix names the same field as Path or a field enclosing it. The
-// old string version accepted a following '.' or '*' as the boundary but NOT
-// '[': "a.b" is a prefix of "a.b", "a.b.c" and "a.b*", but neither "a.bc"
-// nor "a" of "a[]". Structurally: Prefix occurs in Path's chain and the
-// projection first applied to it (the child on the walk from Path down to
-// Prefix) is a Field or Deref, not an Index.
+// Whether Prefix names the same field as Path or a field enclosing it: Prefix
+// occurs in Path's chain. The historical string test accepted a following
+// '.', '*' or '[' as the boundary ("a.b" prefixes "a.b", "a.b.c", "a.b*" and
+// "a.b[]", but not "a.bc"), i.e. every projection kind is a boundary — an
+// Index level ("arr[]") is reached from its own field just like a Field is.
 static bool isFieldPathPrefix(FieldKey Prefix, FieldKey Path) {
-  const bsc::Place *Child = nullptr;
-  for (const bsc::Place *Cur = Path; Cur; Child = Cur, Cur = Cur->getBase()) {
+  for (const bsc::Place *Cur = Path; Cur; Cur = Cur->getBase())
     if (Cur->equals(Prefix))
-      return Child == nullptr || Child->getKind() != bsc::Place::Kind::Index;
-  }
+      return true;
   return false;
 }
 
@@ -1100,7 +1097,7 @@ void Ownership::OwnershipStatus::assumeFieldsNull(const VarDecl *VD,
     // ownership; an aggregate __assume_null cannot drop them (the W001
     // warning already reports this in Sema). Skip them so a qualifying-loop
     // element transfer is not laundered as null.
-    if (placeToKeyString(Key).find("[]") != string::npos)
+    if (HasIndexProjection(Key))
       continue;
     if (!IsS) {
       dropOwnedField(Status::Null, VD, Key);
@@ -2617,13 +2614,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
     // aggregate, so element-granularity moved detection cannot distinguish
     // arr[0].a from arr[1].a; skip the error and keep erasing the aggregate
     // field.
-    bool ArrayFieldPath = false;
-    for (const bsc::Place *Cur = fullFieldName; Cur;
-         Cur = Cur->getBase())
-      if (Cur->getKind() == bsc::Place::Kind::Index) {
-        ArrayFieldPath = true;
-        break;
-      }
+    bool ArrayFieldPath = HasIndexProjection(fullFieldName);
     FieldKey movedFieldName =
         findExplicitMovedFieldKey(movedFields(VD), fullFieldName);
     if (movedFieldName && !ArrayFieldPath) {
@@ -2971,6 +2962,19 @@ public:
   void mirrorNullFieldsFromStructValue(const VarDecl *DstVD,
                                        const bsc::Place *DstPlace,
                                        const Expr *Src);
+  /// The must-be-null fields of \p VD. A field set is a union over the paths
+  /// reaching here, so a field that is null on one path but owned on another
+  /// (Owned|Null) still owns the value being copied: mirroring it as null
+  /// would leave the destination unowned and hide the leak of that value.
+  FieldSet mustNullFields(const VarDecl *VD) const;
+  /// The assignment form of the mirror: the destination is only updated after
+  /// the RHS has been consumed as a Move, which clears the source's own
+  /// state, so the caller captures the source place and its must-null fields
+  /// before the RHS is visited.
+  void mirrorNullFieldsFromStructValue(const VarDecl *DstVD,
+                                       const bsc::Place *DstPlace,
+                                       const bsc::Place *SrcPlace,
+                                       const FieldSet &SrcMustNull);
 
   /// Returns true if \p E is a must-be-null owned pointer expression: a
   /// DeclRefExpr referring to a tracked variable whose only OwnershipStatus
@@ -3815,6 +3819,17 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
 
     // Assignment consumes RHS only when destination is move semantic.
     QualType LHSType = LHS->getType().getCanonicalType();
+    // The source's must-null fields, captured before the RHS is consumed:
+    // visiting it as a Move clears the source's own state, after which a
+    // must-null field can no longer be told from one that is merely null on
+    // some path.
+    const bsc::Place *SrcPlace = nullptr;
+    FieldSet SrcMustNull;
+    if (LHSType->isRecordType()) {
+      SrcPlace = bsc::PlaceBuilder(OS.ctx).Build(RHS);
+      if (const VarDecl *SrcVD = SrcPlace ? SrcPlace->getRoot() : nullptr)
+        SrcMustNull = mustNullFields(SrcVD);
+    }
     op = IsTrackedType(LHSType) ? Move : GetAddr;
     Visit(RHS);
     op = None;
@@ -3830,11 +3845,13 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     } else if (IsCastFromVoidPointer(RHS)) {
       stat.setToAllMoved(LHS, OS.ctx);
     } else if (LHSType->isRecordType()) {
-      // `b = a;`: the same field-level mirror as the declaration form.
+      // `b = a;`: the same field-level mirror as the declaration form, from
+      // the source state captured before the move.
       bsc::PlaceBuilder PB(OS.ctx);
       const bsc::Place *DstPlace = PB.Build(LHS);
       if (DstPlace && DstPlace->getRoot())
-        mirrorNullFieldsFromStructValue(DstPlace->getRoot(), DstPlace, RHS);
+        mirrorNullFieldsFromStructValue(DstPlace->getRoot(), DstPlace,
+                                        SrcPlace, SrcMustNull);
     }
   } else {
     // for operators doesn't consume ownership, change the operation to GetAddr
@@ -4184,21 +4201,28 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
   op = SavedOp;
 }
 
+FieldSet TransferFunctions::mustNullFields(const VarDecl *VD) const {
+  FieldSet Result;
+  if (!stat.isTracked(VD))
+    return Result;
+  for (const bsc::Place *Key : stat.allFields(VD))
+    if (stat.nullFields(VD).count(Key) && !stat.ownedFields(VD).count(Key))
+      Result.insert(Key);
+  return Result;
+}
+
 void TransferFunctions::mirrorNullFieldsFromStructValue(
-    const VarDecl *DstVD, const bsc::Place *DstPlace, const Expr *Src) {
-  if (!DstPlace || !stat.isHost(DstVD, HostKind::S))
+    const VarDecl *DstVD, const bsc::Place *DstPlace,
+    const bsc::Place *SrcPlace, const FieldSet &SrcMustNull) {
+  if (!DstPlace || !SrcPlace || SrcMustNull.empty())
     return;
-  const bsc::Place *SrcPlace = bsc::PlaceBuilder(OS.ctx).Build(Src);
-  if (!SrcPlace)
-    return;
-  const VarDecl *SrcVD = SrcPlace->getRoot();
-  if (!SrcVD || !stat.isTracked(SrcVD) || stat.nullFields(SrcVD).empty())
+  if (!stat.isHost(DstVD, HostKind::S))
     return;
   // Walk the destination's tracked paths (the source may track paths the
   // destination does not, and vice versa; a shape mismatch leaves the
   // destination conservatively owned).
   for (const bsc::Place *DstKey : stat.allFields(DstVD)) {
-    for (const bsc::Place *SrcKey : stat.nullFields(SrcVD)) {
+    for (const bsc::Place *SrcKey : SrcMustNull) {
       if (!sameRelativePath(SrcKey, SrcPlace, DstKey, DstPlace))
         continue;
       stat.ownedFields(DstVD).erase(DstKey);
@@ -4206,6 +4230,16 @@ void TransferFunctions::mirrorNullFieldsFromStructValue(
       break;
     }
   }
+}
+
+void TransferFunctions::mirrorNullFieldsFromStructValue(
+    const VarDecl *DstVD, const bsc::Place *DstPlace, const Expr *Src) {
+  const bsc::Place *SrcPlace = bsc::PlaceBuilder(OS.ctx).Build(Src);
+  const VarDecl *SrcVD = SrcPlace ? SrcPlace->getRoot() : nullptr;
+  if (!SrcVD)
+    return;
+  mirrorNullFieldsFromStructValue(DstVD, DstPlace, SrcPlace,
+                                  mustNullFields(SrcVD));
 }
 
 void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {

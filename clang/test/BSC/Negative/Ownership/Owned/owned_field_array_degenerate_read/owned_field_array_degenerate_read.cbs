@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+
+// A degenerate read of a whole owned-element array FIELD (`w.arr`, the bare
+// field rather than an element of it) of an uninitialized struct value is a
+// use of an uninitialized value. An array field is registered under its Index
+// path ("arr[]"), while the bare field builds the Field place "arr", so the
+// prefix match has to accept an Index boundary — the historical string test
+// accepted '[' exactly like '.' and '*'.
+
+struct W {
+  int *_Owned q;
+  int *_Owned arr[2];
+};
+
+void degenerate_read_uninit_array_field(void) {
+  struct W w;
+  int *_Owned *x = w.arr; // expected-error {{use of uninitialized value: 'w.arr'}}
+}
+
+// The scalar sibling keeps being diagnosed (it never regressed).
+void read_uninit_scalar_field(void) {
+  struct W w;
+  int *_Owned v = w.q; // expected-error {{use of uninitialized value: 'w.q'}}
+} // expected-error {{memory leak because 'v' is not freed or moved before it goes out of scope}}
