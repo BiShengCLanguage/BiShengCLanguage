@@ -1427,8 +1427,7 @@ void Ownership::OwnershipStatus::setArrayAggregate(const VarDecl *VD,
     if (allFields(VD).count(Field)) {
       ownedFields(VD).insert(Field);
       nullFields(VD).erase(Field);
-      if (IsS)
-        movedFields(VD).erase(Field);
+      movedFields(VD).erase(Field);
       Found = true;
     }
     // A mutable borrow of an aggregate field path (e.g. "arr[]" or "inner")
@@ -1437,8 +1436,7 @@ void Ownership::OwnershipStatus::setArrayAggregate(const VarDecl *VD,
     for (FieldKey F : fieldDescendants(allFields(VD), Field)) {
       ownedFields(VD).insert(F);
       nullFields(VD).erase(F);
-      if (IsS)
-        movedFields(VD).erase(F);
+      movedFields(VD).erase(F);
       Found = true;
     }
     if (!Found)
