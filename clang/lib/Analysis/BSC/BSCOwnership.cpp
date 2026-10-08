@@ -838,7 +838,7 @@ void Ownership::OwnershipStatus::init(const VarDecl *VD, ASTContext &Ctx) {
       initStruct(RT->getDecl(), VD, Ctx, 10, Root);
     } else {
       Vars[VD].Kind = HostKind::BOP;
-      initBOP(VDType, VD, Ctx, 10, Root);
+      initBOP(VDType, VD, Ctx, allFields(VD), 10, Root);
     }
   } else if (const auto *AT = VDType->getAsArrayTypeUnsafe()) {
     // Whole-array tracking for owned-element arrays: the array
@@ -914,12 +914,27 @@ static const RecordDecl *RegisterArrayField(FieldSet &AllSet,
   return nullptr;
 }
 
-// Record every owned field of VD's record into its schema, depth-first. One
-// walk serves all three host families: a nested owned-pointer-to-struct field
-// recurses into the pointee's fields, a record field into its own fields, and
-// an array field one Index level at a time. The historical OPS and S walks
-// were byte-identical, so they are one function. Only a bare owned-pointer
-// chain (initBOP) is a separate shape.
+// The cap on how many owned field paths one variable's schema enumerates. The
+// walk in initStruct expands the record graph breadth-first, one whole nesting
+// level at a time, so the budget is spent level by level: level 1 (the
+// variable's own direct owned fields) is always recorded in full, and from
+// level 2 on a level is recorded in full or not at all. Without a budget a
+// recursive record — struct node { struct node *_Owned f0, ...; } — enumerates
+// sum(f^k, k=1..10) paths for f recursive fields (12,207,030 for five), and the
+// schema is then walked repeatedly (uninitFields = allFields, the leak checks,
+// the struct-copy mirror), which ran the analysis for minutes and allocated
+// gigabytes. Whole levels are what makes the budget predictable: a field is
+// tracked or not by its nesting depth, never by where it happens to sit inside
+// its record. The depth cap below stays as well — the depth-10 chains it
+// produced are what the historical diagnostics were written against.
+static const size_t MaxOwnedFieldPaths = 65536;
+
+// Record every owned field of VD's record into its schema, one nesting level at
+// a time. One walk serves all three host families: a nested
+// owned-pointer-to-struct field expands into the pointee's fields, a record
+// field into its own fields, and an array field one Index level at a time. The
+// historical OPS and S walks were byte-identical, so they are one function.
+// Only a bare owned-pointer chain (initBOP) is a separate shape.
 void Ownership::OwnershipStatus::initStruct(const RecordDecl *RD,
                                             const VarDecl *VD, ASTContext &Ctx,
                                             int depth,
@@ -927,73 +942,118 @@ void Ownership::OwnershipStatus::initStruct(const RecordDecl *RD,
   if (depth == 0) {
     return;
   }
+  // One record left to expand in the current level, with the place of the
+  // enclosing field chain and the remaining depth. A level's fields are all
+  // registered before any of their own sub-fields, so the walk is breadth-first.
+  struct Pending {
+    const RecordDecl *RD;
+    int Depth;
+    const bsc::Place *Parent;
+  };
+  llvm::SmallVector<Pending, 16> Queue;
+  Queue.push_back({RD, depth, Parent});
   bsc::PlaceBuilder PB(Ctx);
-  // record all owned fields of VD in the variable's schema
-  for (RecordDecl::field_iterator it = RD->field_begin(), ei = RD->field_end();
-       it != ei; ++it) {
-    // Use the sugared type: canonicalizing an array type drops the local
-    // _Owned qualifier of its element (int *_Owned arr[2]).
-    QualType FT = it->getType();
-    FieldKey FieldPlace = PB.BuildField(Parent, *it, it->getLocation());
-    if (IsTrackedType(FT)) {
-      // Array fields (e.g. struct S { int *_Owned arr[2]; } or
-      // struct Wrap { struct S arr[2]; }): the key uses an Index projection
-      // ("[]") for the array level and recurses into the element type, so the
-      // tracked field becomes "arr[]" (owned pointers) / "arr[].a" (records)
-      // instead of just "arr".
-      QualType FieldTy;
-      if (StripArrayFieldLevels(PB, FT, FieldPlace, it->getLocation(),
-                                FieldTy)) {
-        if (const RecordDecl *RT =
-                RegisterArrayField(allFields(VD), FieldPlace, FieldTy))
-          initStruct(RT, VD, Ctx, depth - 1, FieldPlace);
+  // One iteration per nesting level. Level 1 is kept whatever its width; from
+  // level 2 on a level is all-or-nothing, and the first level that would push
+  // the schema past the budget is dropped whole, along with every level below
+  // it.
+  for (size_t Level = 1; !Queue.empty(); ++Level) {
+    // This level's contributions, collected apart from the schema so that an
+    // over-budget level can be discarded as a whole.
+    FieldSet Cur;
+    llvm::SmallVector<Pending, 16> Next;
+    bool Overflow = false;
+    for (const Pending &P : Queue) {
+      if (P.Depth == 0)
         continue;
-      }
-      if (!FT->isRecordType() || FT->isOwnedStruct())
-        allFields(VD).insert(FieldPlace);
+      // record all owned fields of this record in the variable's schema
+      for (RecordDecl::field_iterator it = P.RD->field_begin(),
+                                      ei = P.RD->field_end();
+           it != ei; ++it) {
+        // Level 1 is unbounded; a deeper level stops as soon as it no longer
+        // fits, and is then discarded as a whole after the loop.
+        if (Level > 1 &&
+            allFields(VD).size() + Cur.size() > MaxOwnedFieldPaths) {
+          Overflow = true;
+          break;
+        }
+        // Use the sugared type: canonicalizing an array type drops the local
+        // _Owned qualifier of its element (int *_Owned arr[2]).
+        QualType FT = it->getType();
+        FieldKey FieldPlace = PB.BuildField(P.Parent, *it, it->getLocation());
+        if (!IsTrackedType(FT))
+          continue;
+        // Array fields (e.g. struct S { int *_Owned arr[2]; } or
+        // struct Wrap { struct S arr[2]; }): the key uses an Index projection
+        // ("[]") for the array level and expands into the element type, so the
+        // tracked field becomes "arr[]" (owned pointers) / "arr[].a" (records)
+        // instead of just "arr".
+        QualType FieldTy;
+        if (StripArrayFieldLevels(PB, FT, FieldPlace, it->getLocation(),
+                                  FieldTy)) {
+          if (const RecordDecl *RT =
+                  RegisterArrayField(Cur, FieldPlace, FieldTy))
+            Next.push_back({RT, P.Depth - 1, FieldPlace});
+          continue;
+        }
+        if (!FT->isRecordType() || FT->isOwnedStruct())
+          Cur.insert(FieldPlace);
 
-      // if FT has owned fields,
-      // recursively record all owned fields of FT in the variable's schema
-      if (FT.isOwnedPointer()) {
-        if (const RecordType *RT =
-                dyn_cast<RecordType>(FT->getPointeeType().getCanonicalType())) {
-          if (RT->isOwnedStruct()) {
-            // The historical key "fieldName + '*'" (the nested owned pointer
-            // of the field) is a Deref projection over the field.
-            allFields(VD).insert(PB.BuildDeref(FieldPlace, FT->getPointeeType(),
-                                               it->getLocation()));
+        // if FT has owned fields, record all owned fields of FT in the
+        // variable's schema as well
+        if (FT.isOwnedPointer()) {
+          if (const RecordType *RT = dyn_cast<RecordType>(
+                  FT->getPointeeType().getCanonicalType())) {
+            if (RT->isOwnedStruct()) {
+              // The historical key "fieldName + '*'" (the nested owned pointer
+              // of the field) is a Deref projection over the field.
+              Cur.insert(PB.BuildDeref(FieldPlace, FT->getPointeeType(),
+                                       it->getLocation()));
+            }
+            Next.push_back({RT->getDecl(), P.Depth - 1, FieldPlace});
+          } else {
+            initBOP(FT, VD, Ctx, Cur, P.Depth - 1, FieldPlace);
           }
-          initStruct(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
-        } else {
-          initBOP(FT, VD, Ctx, depth - 1, FieldPlace);
+        }
+        if (const RecordType *RT = dyn_cast<RecordType>(FT.getCanonicalType())) {
+          if (RT->isOwnedStruct())
+            Cur.insert(FieldPlace);
+          Next.push_back({RT->getDecl(), P.Depth - 1, FieldPlace});
         }
       }
-      if (const RecordType *RT = dyn_cast<RecordType>(FT.getCanonicalType())) {
-        if (RT->isOwnedStruct())
-          allFields(VD).insert(FieldPlace);
-        initStruct(RT->getDecl(), VD, Ctx, depth - 1, FieldPlace);
-      }
+      if (Overflow)
+        break;
     }
+    // Level 1 is kept however wide it is; a deeper level is kept only when it
+    // fits entirely in what remains of the budget.
+    if (Level > 1 && (Overflow ||
+                      allFields(VD).size() + Cur.size() > MaxOwnedFieldPaths))
+      break;
+    for (const bsc::Place *Entry : Cur)
+      allFields(VD).insert(Entry);
+    Queue = std::move(Next);
   }
 }
 
 void Ownership::OwnershipStatus::initBOP(QualType QT, const VarDecl *VD,
-                                         ASTContext &Ctx, int depth,
-                                         const bsc::Place *Parent) {
+                                         ASTContext &Ctx, FieldSet &Dest,
+                                         int depth, const bsc::Place *Parent) {
   if (depth == 0) {
     return;
   }
   bsc::PlaceBuilder PB(Ctx);
   // Each nested owned-pointer level is one Deref projection over the parent
   // chain: the historical keys were Parent + "*", Parent + "**", ... — at a
-  // BOP root that is "*", "**", ... (Deref(Var(p)) etc.).
+  // BOP root that is "*", "**", ... (Deref(Var(p)) etc.). A field reached from
+  // initStruct records into that nesting level's own set, so an over-budget
+  // level can be discarded as a whole.
   FieldKey Cur = Parent;
   QT = QT->getPointeeType().getCanonicalType();
   while (true) {
     Cur = PB.BuildDeref(Cur, QT, VD->getLocation());
     if (!QT.isOwnedPointer())
       break;
-    allFields(VD).insert(Cur);
+    Dest.insert(Cur);
     QT = QT->getPointeeType().getCanonicalType();
   }
 }

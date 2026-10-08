@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -verify %s
+
+// An owned field path is a chain of field projections from the variable
+// (m.f0.f0, m.f0.f0.f0, ...). The schema walk expands the record graph one
+// nesting level at a time and stops at a whole level once the paths enumerated
+// so far fill the budget, so a record whose owned pointers lead back to its own
+// type no longer enumerates sum(f^k, k=1..10) paths: with five self-referential
+// owned fields that was 12,207,030 paths, and the analysis then walked that
+// schema repeatedly (uninitFields = allFields, the leak checks, the struct-copy
+// mirror), taking minutes and gigabytes. Here levels 1..6 hold 5 + 25 + 125 +
+// 625 + 3125 + 15625 = 19530 paths; level 7 would add 78125 and is dropped as a
+// whole, so the schema stops at 19530 paths. This test is the reported shape;
+// without the path budget it does not finish.
+
+struct node {
+  struct node * _Owned f0;
+  struct node * _Owned f1;
+  struct node * _Owned f2;
+  struct node * _Owned f3;
+  struct node * _Owned f4;
+};
+
+_Safe void copy_leaks(struct node n) {
+  struct node m = n;
+} // expected-error {{memory leak because m.f0, m.f0.f0, m.f0.f0.f0, m.f0.f0.f0.f0, m.f0.f0.f0.f0.f0, m.f0.f0.f0.f0.f0.f0, m.f0.f0.f0.f0.f0.f1, m.f0.f0.f0.f0.f0.f2, m.f0.f0.f0.f0.f0.f3... are not freed or moved before 'm' goes out of scope}}

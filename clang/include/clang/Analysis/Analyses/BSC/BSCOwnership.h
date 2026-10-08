@@ -758,7 +758,8 @@ public:
     // levels are Index.
     void initStruct(const RecordDecl *RD, const VarDecl *VD, ASTContext &Ctx,
                     int depth = 10, const bsc::Place *Parent = nullptr);
-    void initBOP(QualType QT, const VarDecl *VD, ASTContext &Ctx, int depth = 10,
+    void initBOP(QualType QT, const VarDecl *VD, ASTContext &Ctx,
+                 FieldSet &Dest, int depth = 10,
                  const bsc::Place *Parent = nullptr);
     // The __assume_null / __forget transitions over an explicit key set: the
     // whole-object variants pass the static schema, the "under path" variants
