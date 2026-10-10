@@ -469,7 +469,6 @@ static bool PeelFieldIndexLevels(
   return true;
 }
 
-
 // Collect every VLA bound variable used in any for-loop condition (3.2.1
 // cond 2): they must not be modified / address-taken / mutably borrowed.
 static void CollectBoundVarInStmt(

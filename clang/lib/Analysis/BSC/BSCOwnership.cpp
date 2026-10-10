@@ -259,18 +259,6 @@ bool Ownership::OwnershipStatus::FieldSet::operator==(
   return true;
 }
 
-// Whether Prefix names the same field as Path or a field enclosing it: Prefix
-// occurs in Path's chain. The historical string test accepted a following
-// '.', '*' or '[' as the boundary ("a.b" prefixes "a.b", "a.b.c", "a.b*" and
-// "a.b[]", but not "a.bc"), i.e. every projection kind is a boundary — an
-// Index level ("arr[]") is reached from its own field just like a Field is.
-static bool isFieldPathPrefix(FieldKey Prefix, FieldKey Path) {
-  for (const bsc::Place *Cur = Path; Cur; Cur = Cur->getBase())
-    if (Cur->equals(Prefix))
-      return true;
-  return false;
-}
-
 // The strict descendants of Prefix in S reached through a Field projection
 // directly above it. This is the old `findPrefixStrings(S, prefix + ".")`:
 // string "in.ip" matched under "in" (and "in.ip*" below that), but the deref
@@ -348,7 +336,7 @@ static FieldSet strictDescendants(const FieldSet &S, FieldKey P) {
 // covers one ("a1" over "a1.b1").
 static bool overlapsOwnedFields(const FieldSet &OwnedFields, FieldKey Path) {
   for (FieldKey Owned : OwnedFields) {
-    if (isFieldPathPrefix(Owned, Path) || isFieldPathPrefix(Path, Owned))
+    if (Path->hasPrefix(Owned) || Owned->hasPrefix(Path))
       return true;
   }
   return false;
@@ -620,8 +608,7 @@ static bool ArrayFieldPathMoved(const Ownership::OwnershipStatus &Stat,
     }
   } else {
     for (FieldKey Key : VS->All) {
-      if (isFieldPathPrefix(FieldPath, Key) ||
-          isFieldPathPrefix(Key, FieldPath)) {
+      if (Key->hasPrefix(FieldPath) || FieldPath->hasPrefix(Key)) {
         HasTracked = true;
         if (IsOwnedOrNull(Key))
           HasOwnedOrNull = true;
@@ -1491,8 +1478,7 @@ bool Ownership::OwnershipStatus::arrayAggregateNull(
   // field (moving a null element out is a no-op).
   bool HasTracked = false;
   for (FieldKey Key : All) {
-    if (isFieldPathPrefix(fieldName, Key) ||
-        isFieldPathPrefix(Key, fieldName)) {
+    if (Key->hasPrefix(fieldName) || fieldName->hasPrefix(Key)) {
       HasTracked = true;
       if ((VS->Cells.lookup(Key) & Null) == None)
         return false;
@@ -1527,8 +1513,7 @@ bool Ownership::OwnershipStatus::arrayAggregateNotOwned(
   if (OwnedSet.count(fieldName))
     return false;
   for (FieldKey Key : OwnedSet) {
-    if (isFieldPathPrefix(fieldName, Key) ||
-        isFieldPathPrefix(Key, fieldName))
+    if (Key->hasPrefix(fieldName) || fieldName->hasPrefix(Key))
       return false;
   }
   return true;
@@ -2090,8 +2075,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSFieldUse(
                                                 IsAggregateAccess)));
   }
   // The aggregate form ("p.") only ever matched the field's own registered
-  // spelling through the historical isFieldPathPrefix, never an ancestor or
-  // descendant; the normal form ("p", "p*") uses the full overlap rules.
+  // spelling exactly, never an ancestor or descendant; the normal form
+  // ("p", "p*") uses the full overlap rules.
   bool OverlapsUninit =
       IsAggregateAccess
           ? uninitFields(VD).count(fullFieldName) != 0
@@ -2862,16 +2847,14 @@ static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
       }
     }
     if (AllNull) {
-      // Use isFieldPathPrefix so a field named "a" does not also null a
-      // sibling field named "ab".
       bsc::PlaceBuilder PB(Ctx);
       const bsc::Place *FieldPlace = PB.BuildField(
           PB.Build(VD, VD->getLocation()), FD, FD->getLocation());
       for (FieldKey Key : Stat.allFields(VD))
-        // hasPrefix (any projection below the field, Index levels included):
-        // the old string prefix accepted a '[' boundary, so the plain field
-        // name "arr" also nulled its array key "arr[]" — isFieldPathPrefix
-        // deliberately excludes the Index child and would miss it.
+        // hasPrefix matches the field itself and every place projected below
+        // it — Field, Deref and Index alike — so the plain field "arr" also
+        // reaches its own array key "arr[]". The chain match is level-exact,
+        // so a field named "a" does not also match a sibling named "ab".
         if (Key->hasPrefix(FieldPlace)) {
           Stat.ownedFields(VD).erase(Key);
           Stat.nullFields(VD).insert(Key);

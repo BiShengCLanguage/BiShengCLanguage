@@ -469,9 +469,26 @@ public:
       mutable llvm::SmallVector<const bsc::Place *, 16> Snapshot;
       mutable bool SnapshotValid = false;
 
+      // A view owns its snapshot cache, so a copy is a second cache over the
+      // same cells that nothing invalidates: mutating through one view would
+      // leave the other reporting stale fields. Copies are therefore kept
+      // private to OwnershipStatus -- which is all the by-value accessor chain
+      // (ownedFields() -> fieldsInState()) needs -- so every other caller has
+      // to use the view as a temporary expression.
+      FieldStateView(const FieldStateView &) = default;
+      friend class OwnershipStatus;
+
+      // The materialized set of fields in State, built once and reused by
+      // begin()/end(). Mirrors FieldSet's SortedCache/CacheValid pair: every
+      // mutator below invalidates it, and the rebuild clears the buffer first
+      // (push_back appends, so rebuilding into a dirty buffer would keep the
+      // stale entries and duplicate the fresh ones). The supported pattern is
+      // therefore iterate -> mutate -> iterate; as with FieldSet, a view must
+      // not be mutated while an iteration over it is still in flight.
       void buildSnapshot() const {
         if (SnapshotValid)
           return;
+        Snapshot.clear();
         for (const bsc::Place *P : All)
           if (count(P))
             Snapshot.push_back(P);
@@ -490,6 +507,7 @@ public:
         if ((C & State) != None)
           return false;
         C |= State;
+        SnapshotValid = false;
         return true;
       }
       bool erase(const bsc::Place *P) {
@@ -499,6 +517,7 @@ public:
         It->second &= ~State;
         if (It->second == None)
           Cells.erase(It);
+        SnapshotValid = false;
         return true;
       }
       void clear() {
