@@ -1,0 +1,19 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+struct W {
+  int *_Owned arr[2];
+};
+
+void safe_free(void *_Owned p);
+
+// `(*w).arr[i]` and `w->arr[i]` resolve to the same host-relative field path,
+// so a qualifying full-range for-loop over either spelling covers the field
+// array and the element transfers are allowed. Before PeelHostVar the paren
+// spelling resolved no host, so this very loop was rejected as non-qualifying
+// and the struct could not be released.
+void test_paren_deref_qualifying_loop(struct W *_Owned w) {
+  for (int i = 0; i < 2; i++)
+    safe_free((void *_Owned)(*w).arr[i]);
+  safe_free((void *_Owned)w);
+}

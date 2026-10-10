@@ -1,0 +1,65 @@
+// RUN: %clang_cc1 -verify %s
+
+// `(*w).f` and `w->f` name the same member of the same object, so both must
+// reach the ownership analysis as the same host-relative field path and both
+// must go through the qualifying-loop gate on an owned array-element transfer.
+//
+// PeelHostAndFieldPlace (BSCOwnership.h) used to stop at the
+// UnaryOperator(UO_Deref) that `(*w)` normalises to and then require a
+// DeclRefExpr, so the paren spelling resolved no host: the path was not
+// recognised as an owned-element array field and the gate was skipped. It now
+// peels the leading deref, like getMemberFieldPlace already did for the
+// member-only paths.
+
+int *_Owned safe_malloc(int value);
+void safe_free(int *_Owned);
+
+struct W {
+  int *_Owned arr[2];
+};
+
+void takeW(struct W *_Owned p);
+
+// The arrow spelling is gated. The trailing loop releases the elements and the
+// struct, leaving the gate as the only diagnostic.
+void arrow_spelling(struct W *_Owned w, int *_Owned v) {
+  w->arr[0] = v;
+  // expected-error@-1 {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  takeW(w);
+}
+
+// The parenthesis spelling is gated identically.
+void paren_spelling(struct W *_Owned w, int *_Owned v) {
+  (*w).arr[0] = v;
+  // expected-error@-1 {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  takeW(w);
+}
+
+// The classifier validates the paren spelling the same way it validates the
+// arrow spelling: a loop that does not cover the whole field array is still
+// rejected, with the rule that failed.
+void paren_spelling_partial_loop(struct W *_Owned w) {
+  for (int i = 0; i < 1; i++) // expected-note {{for-loop is not a qualifying for-loop: loop bound must equal the array length}}
+    (*w).arr[i] = safe_malloc(i); // expected-error {{cannot transfer ownership of array element `w` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+  takeW(w);
+}
+
+// On an *array-typed* host, `(*s)` is s[0] (C11 6.3.2.1p3 array decay), so the
+// deref spelling names the same element access as s[0].arr[j]: the implicit [0]
+// host level is iterated by no loop, so the access cannot cover the whole
+// `s.arr[]` aggregate, exactly as the s[0].arr[j] spelling cannot. Peeling the
+// deref without recording that level used to resolve the host as the whole
+// array, accept the loop as full-range coverage and mark all of s.arr[] moved
+// -- leaking row 1 with no diagnostic.
+struct SA {
+  int *_Owned arr[2];
+};
+
+void array_host_paren_deref(void) {
+  struct SA s[2];
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 2; j++)
+      s[i].arr[j] = safe_malloc(j);
+  for (int j = 0; j < 2; j++) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    _Unsafe { __forget((*s).arr[j]); } // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}

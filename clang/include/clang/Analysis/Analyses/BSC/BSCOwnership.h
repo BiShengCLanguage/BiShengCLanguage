@@ -102,6 +102,20 @@ static inline bool IsNullExpr(ASTContext &Context, const Expr *E) {
 // (BSCOwnershipArrayLoopClassification.cpp).
 //===----------------------------------------------------------------------===//
 
+// The host variable an already-walked base expression names, looking through a
+// leading deref: the base of `w->f`, the `w` of `w.f` and the `(*w)` of
+// `(*w).f` all yield `w`. Both spellings name the same member of the same
+// object, so every host walk must agree on them. Nullptr when the base is not
+// a variable reference.
+static inline const VarDecl *PeelHostVar(const Expr *E) {
+  E = E ? E->IgnoreParenImpCasts() : nullptr;
+  if (const auto *UO = dyn_cast_or_null<UnaryOperator>(E))
+    if (UO->getOpcode() == UO_Deref)
+      E = UO->getSubExpr()->IgnoreParenImpCasts();
+  const auto *DRE = dyn_cast<DeclRefExpr>(E);
+  return DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+}
+
 // Peel `w.arr[0].a` / `s[i].a` / `s[i].a[j]` to the host-relative projection
 // chain. Host-array indexes (the `i` of `s[i]`) are not part of the chain.
 // Returns false when the base is not a variable, when a member is not a plain
@@ -141,9 +155,11 @@ static inline bool PeelHostAndFieldPlace(bsc::PlaceBuilder &PB, const Expr *E,
       break;
     }
   }
-  const auto *DRE = dyn_cast<DeclRefExpr>(Cur);
-  const VarDecl *HostVD =
-      DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  // The walk above stops at the UnaryOperator(UO_Deref) that the `(*w).f`
+  // spelling normalises to; PeelHostVar looks through it so both spellings
+  // resolve the same host. Without this the paren spelling resolves no host
+  // and the whole path is silently dropped.
+  const VarDecl *HostVD = PeelHostVar(Cur);
   if (!HostVD)
     return false;
   Path = PB.Build(HostVD, HostVD->getLocation());

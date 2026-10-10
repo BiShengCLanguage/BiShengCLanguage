@@ -495,10 +495,10 @@ static FieldKey getMemberFieldPlace(const MemberExpr *ME, ASTContext &Ctx) {
     Fields.push_back(FD);
     Base = Cur->getBase();
   }
-  const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base);
-  if (!DRE)
-    return nullptr;
-  const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
+  // The loop above consumes every paren/cast and every deref (at any chain
+  // position), so the stop point is a plain variable reference: resolve it with
+  // the same shared host resolver the other field-path walks use.
+  const VarDecl *VD = PeelHostVar(Base);
   if (!VD)
     return nullptr;
   FieldKey Place = PB.Build(VD, VD->getLocation());

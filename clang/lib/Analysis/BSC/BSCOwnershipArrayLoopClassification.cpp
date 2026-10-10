@@ -477,6 +477,28 @@ static const Expr *FullRangeFieldChainInnermost(
   return Innermost;
 }
 
+// `*s` on an *array-typed* operand is the element access s[0] (C11 6.3.2.1p3
+// array decay), so the host-array walk of `(*s).arr[i]` must record the
+// implicit constant 0 host level -- exactly the level the `s[0].arr[i]`
+// spelling records -- or the access would cover the whole host array while only
+// row 0 is released. A pointer-typed operand (`(*w).arr[i]` with `w` a
+// pointer) contributes no level. The level is appended last, i.e. it is the
+// outermost host level after the caller's reverse.
+static void AppendImplicitHostLevel(
+    const ASTContext &Context, const Expr *HostBase,
+    SmallVectorImpl<std::pair<const Expr *, QualType>> &Levels) {
+  const auto *UO = dyn_cast_or_null<UnaryOperator>(
+      HostBase ? HostBase->IgnoreParenImpCasts() : nullptr);
+  if (!UO || UO->getOpcode() != UO_Deref)
+    return;
+  QualType LevelTy = UO->getSubExpr()->IgnoreParenImpCasts()->getType();
+  if (!LevelTy->isArrayType())
+    return;
+  Levels.push_back({IntegerLiteral::Create(Context, llvm::APInt(32, 0),
+                                           Context.IntTy, SourceLocation()),
+                    LevelTy});
+}
+
 // Peel `w.arr[i]` / `o.w[i].arr[j]` / `w.arr[i].a` to the host variable plus
 // the array-field levels [(MemberExpr, index)] outermost-first. Only *field*
 // array levels are collected (host-array indexes such as s[i] in s[i].a[j]
@@ -507,10 +529,7 @@ static bool PeelFieldIndexLevels(
       break;
     }
   }
-  if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Cur))
-    HostVD = dyn_cast<VarDecl>(DRE->getDecl());
-  else
-    return false;
+  HostVD = PeelHostVar(Cur);
   if (!HostVD)
     return false;
   for (auto It = Rev.rbegin(); It != Rev.rend(); ++It)
@@ -1337,15 +1356,20 @@ class OwnedArrayLoopClassifier {
               // iterated in full by its own loop, in the declared dimension
               // order.
               llvm::SmallVector<std::pair<const Expr *, QualType>, 4> Chain;
-              for (const Expr *HCur = FieldME->getBase()->IgnoreParenImpCasts();
-                   const ArraySubscriptExpr *A =
-                       dyn_cast<ArraySubscriptExpr>(HCur);) {
+              const Expr *HostBase = FieldME->getBase()->IgnoreParenImpCasts();
+              while (const ArraySubscriptExpr *A =
+                         dyn_cast<ArraySubscriptExpr>(HostBase)) {
                 Chain.push_back({A->getIdx()->IgnoreParenImpCasts(),
                                  A->getBase()
                                      ->IgnoreParenImpCasts()
                                      ->getType()});
-                HCur = A->getBase()->IgnoreParenImpCasts();
+                HostBase = A->getBase()->IgnoreParenImpCasts();
               }
+              // The host subscript walk stops at `*s` for the `(*s).arr[i]`
+              // spelling: record the implicit [0] level array decay puts
+              // there, so this access is rejected as a constant host index
+              // (like s[0].arr[i]) instead of covering the whole host array.
+              AppendImplicitHostLevel(Context, HostBase, Chain);
               std::reverse(Chain.begin(), Chain.end());
               // The field's own levels are the subscripts this expression peels
               // (`Idxs`; PeelSubscriptChain stops at the member access), one per
@@ -1554,20 +1578,17 @@ class OwnedArrayLoopClassifier {
           } else
             break;
         }
-        if (const DeclRefExpr *HostDRE = dyn_cast<DeclRefExpr>(HostBase)) {
-          if (const VarDecl *HostVD =
-                  dyn_cast<VarDecl>(HostDRE->getDecl())) {
-            if (llvm::is_contained(Covered, HostVD) && !Idxs.empty()) {
-              if (const DeclRefExpr *IdxDRE =
-                      dyn_cast<DeclRefExpr>(Idxs.front())) {
-                if (IsLoopIndex(IdxDRE, LoopVar)) {
-                  // Mirror of scanBody: if the field-array index (Idxs.front)
-                  // shares a variable with a host index (s[i].arr[i]), only
-                  // the diagonal is released -- do not allow the transfer.
-                  if (!FindReusedHostIndex(Idxs.front(), HostIdxs)) {
-                    LoopInfo.AllowedTransferExprs[FS].insert(ASE);
-                    LoopInfo.AllowedTransferExprs[FS].insert(FieldME);
-                  }
+        if (const VarDecl *HostVD = PeelHostVar(HostBase)) {
+          if (llvm::is_contained(Covered, HostVD) && !Idxs.empty()) {
+            if (const DeclRefExpr *IdxDRE =
+                    dyn_cast<DeclRefExpr>(Idxs.front())) {
+              if (IsLoopIndex(IdxDRE, LoopVar)) {
+                // Mirror of scanBody: if the field-array index (Idxs.front)
+                // shares a variable with a host index (s[i].arr[i]), only
+                // the diagonal is released -- do not allow the transfer.
+                if (!FindReusedHostIndex(Idxs.front(), HostIdxs)) {
+                  LoopInfo.AllowedTransferExprs[FS].insert(ASE);
+                  LoopInfo.AllowedTransferExprs[FS].insert(FieldME);
                 }
               }
             }
