@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value);
+void safe_free(void *_Owned p);
+
+struct S { int *_Owned arr[2][3]; };
+
+// Manual 3.3.3.1 cond 1 accepts both init spellings, so the dimension drivers
+// of a multi-dimensional qualifying loop may use the assignment form too. The
+// nested-loop matcher used to require the *inner* init to declare its variable
+// (dyn_cast<DeclStmt>), so the assignment form was never recognized as the
+// driver: the outer loop then failed its body-use rule and the element
+// transfer was rejected.
+void assignment_form_2d_local(void) {
+  int *_Owned a[2][3] = {{safe_malloc(1), safe_malloc(2), safe_malloc(3)},
+                         {safe_malloc(4), safe_malloc(5), safe_malloc(6)}};
+  int i, j;
+  for (i = 0; i < 2; i++)
+    for (j = 0; j < 3; j++)
+      safe_free((void *_Owned)a[i][j]);
+}
+
+void assignment_form_2d_field(struct S *_Owned s) {
+  int i, j;
+  for (i = 0; i < 2; i++)
+    for (j = 0; j < 3; j++)
+      safe_free((void *_Owned)s->arr[i][j]);
+  safe_free((void *_Owned)s);
+}

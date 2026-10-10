@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) { free(__move_to_raw(p)); }
+
+struct Inner {
+  int *_Owned p;
+};
+
+struct S {
+  struct Inner arr[2];
+};
+
+// The qualifying-loop head accepts the assignment-form init (`i = 0`) as well
+// as the declaration form, and the inner dimension-driver validation must use
+// the same rule. A field-array element transfer under an assignment-form head
+// visits every element exactly once and must be accepted.
+void assignment_form_local(void) {
+  int *_Owned a[2] = {safe_malloc(1), safe_malloc(2)};
+  int i;
+  for (i = 0; i < 2; ++i)
+    safe_free((void *_Owned)a[i]);
+}
+
+void assignment_form_field_array(void) {
+  struct S s = {{safe_malloc(3), safe_malloc(4)}};
+  int i;
+  for (i = 0; i < 2; ++i)
+    safe_free((void *_Owned)s.arr[i].p);
+}

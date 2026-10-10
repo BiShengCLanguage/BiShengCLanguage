@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) { free(__move_to_raw(p)); }
+
+// The qualifying for-loop requires a net step of exactly one (manual 3.3.3.1
+// cond 1). The implementation already accepts the non-literal net-+1 forms
+// `i = i + 1` and `i += 1`; the subtractive respellings with the same net
+// effect (`i = i - (-1)`, `i -= -1`) must qualify too, so the element
+// transfers inside the loop are accepted.
+
+void sub_negative_assign_increment(void) {
+  int *_Owned a[3] = {safe_malloc(1), safe_malloc(2), safe_malloc(3)};
+  for (int i = 0; i < 3; i = i - (-1))
+    safe_free((void *_Owned)a[i]);
+}
+
+void sub_negative_compound_increment(void) {
+  int *_Owned a[2] = {safe_malloc(4), safe_malloc(5)};
+  for (int i = 0; i < 2; i -= -1)
+    safe_free((void *_Owned)a[i]);
+}

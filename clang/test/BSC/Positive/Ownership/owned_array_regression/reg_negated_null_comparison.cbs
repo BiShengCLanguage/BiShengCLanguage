@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void sink(int *_Owned);
+int *_Owned mk(void);
+
+// `!(a[i] == nullptr)` is the negated respelling of the blessed
+// `a[i] != nullptr` null check. The array null-check branch narrowing must
+// recognize it, or the fall-through path keeps the element owned and the loop
+// exit is reported as an inconsistent element state.
+void negated_null_comparison(void) {
+  int *_Owned a[4];
+  for (int i = 0; i < 4; i = i + 1) {
+    a[i] = mk();
+  }
+  for (int i = 0; i < 4; i = i + 1) {
+    if (!(a[i] == nullptr)) {
+      sink(a[i]);
+    } else {
+      sink(a[i]);
+      sink(a[i]);
+    }
+  }
+}

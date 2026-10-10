@@ -1,0 +1,31 @@
+// RUN: %clang_cc1 -verify -fbsc-experimental %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned p) { free(__move_to_raw(p)); }
+
+// C11 6.5.1.1: a generic selection is dispatched on the type of the
+// controlling expression; the controlling expression is not evaluated and
+// only the selected association is. Here `c` has type `int`, so the `int:`
+// arm is always selected and `p` (the default arm) is never evaluated, never
+// moved and never aliased by q. Every free is safe, so the program compiles
+// clean -- the transfer walk must not visit the unselected arms.
+//
+// This also covers the Sema lowering: `_Generic` as the initializer of an
+// _Owned declaration used to hit an "unsupported expression" unreachable in
+// the borrow-checker prologue.
+void generic_selection_move(int c) {
+  int *_Owned p = safe_malloc(1);
+  int *_Owned p2 = safe_malloc(2);
+  int *_Owned q = _Generic(c, int: p2, default: p);
+  safe_free((void *_Owned)q);
+  safe_free((void *_Owned)p);
+}

@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// A GCC statement expression is transparent to the value it yields: only its
+// result expression matters. isExprRefToNullOwnedVar must peel it (like the
+// sibling BO_Comma and paren arms) so `r = ({ p; })` propagates the
+// must-be-null state of `p` and no leak is reported at scope end.
+
+void stmtexpr_copy(void) {
+  void *_Owned _Nullable p = 0;
+  void *_Owned _Nullable r = ({ p; });
+  (void)r;
+}
+
+void stmtexpr_multi_stmt(void) {
+  void *_Owned _Nullable p = 0;
+  void *_Owned _Nullable r = ({ (void)0; p; });
+  (void)r;
+}
+
+void stmtexpr_nested(void) {
+  void *_Owned _Nullable p = 0;
+  void *_Owned _Nullable r = ({ ({ p; }); });
+  (void)r;
+}

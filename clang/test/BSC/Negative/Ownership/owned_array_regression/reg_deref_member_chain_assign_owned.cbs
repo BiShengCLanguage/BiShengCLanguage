@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -verify %s
+
+_Safe T *_Owned safe_malloc<T>(T);
+_Safe void safe_free(void *_Owned);
+
+struct S {
+  int *_Owned p;
+};
+
+struct W {
+  struct S *_Owned pp;
+};
+
+// C11 6.5.2.3 makes `(*w->pp).p` and `w->pp->p` the same lvalue, so the two
+// spellings must resolve to the same field place. Overwriting a field that
+// still holds an owned value silently leaks it, and the diagnosis must not
+// depend on the spelling.
+void f(struct W *_Owned w) {
+  (*w->pp).p = safe_malloc<int>(1); // expected-error {{cannot assign to 'w.pp.p' because it still holds an _Owned value; move or free it first}}
+  safe_free((void *_Owned)w->pp->p);
+  safe_free((void *_Owned)w->pp);
+  safe_free((void *_Owned)w);
+}

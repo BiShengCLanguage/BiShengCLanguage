@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+_Safe void safe_free(void *_Owned _Nullable p);
+
+struct S { int *_Owned _Nullable p; };
+
+struct S *_Owned initS();
+
+// A field is a must-be-null fact only when it is null on *every* path reaching
+// the join. Here one path only releases r->p while the other releases it and
+// also sets it to 0, so after the join the field is null on one path but moved
+// on the other: reading it must report a use of a moved value, exactly like
+// the struct-value twin (which uses its explicit moved-field set for this
+// precision). Unioning the null set instead promoted the one-sided null mark
+// to all-paths truth and let the read through.
+_Safe int one_sided_null_join(int c) {
+  _Unsafe {
+    struct S *_Owned r = initS();
+    if (c) {
+      safe_free((void *_Owned _Nullable)r->p);
+    } else {
+      safe_free((void *_Owned _Nullable)r->p);
+      r->p = 0;
+    }
+    int eq = (r->p == 0); // expected-error {{use of moved value: 'r.p'}}
+    (void)eq;
+    __forget(r);
+    return 0;
+  }
+}

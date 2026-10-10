@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -verify -Wno-tautological-constant-out-of-range-compare %s
+
+int *_Owned mk(void);
+
+// Manual 3.3.3.1 rule 2: a qualifying loop's variable type must be able to
+// hold its bound, or the loop wraps and never terminates, so the
+// "every element visited exactly once" premise of the array ownership model is
+// false. The outer head enforces this; the inner dimension-driver loop of a
+// multi-dim nest must be held to it too. Here `unsigned char j < 256` wraps
+// 255 -> 0 and a[i][128..255] are never visited.
+void inner_too_small(void) {
+  int *_Owned _Nullable a[2][256] = {};
+  for (int i = 0; i < 2; i++)
+    // expected-note@+1 {{for-loop is not a qualifying for-loop: type of the loop variable is too small to hold the loop bound}}
+    for (unsigned char j = 0; j < 256; j++)
+      a[i][j] = mk(); // expected-error {{cannot transfer ownership of array element `a` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
+
+// Control: the same nest with a wide enough driver qualifies.
+void inner_ok(void) {
+  int *_Owned _Nullable b[2][4] = {};
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 4; j++) {
+      b[i][j] = mk();
+      __move_to_raw(b[i][j]);
+    }
+}

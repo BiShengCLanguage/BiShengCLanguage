@@ -59,14 +59,16 @@ static bool IsIncrementByOne(const ASTContext &Context, const Expr *Inc,
     return false;
   }
   if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(Inc)) {
-    if (BO->getOpcode() == BO_AddAssign) {
+    if (BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) {
       if (const DeclRefExpr *LHS = dyn_cast<DeclRefExpr>(
               BO->getLHS()->IgnoreParenImpCasts())) {
         if (LHS->getDecl() != LoopVar)
           return false;
         if (const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts()) {
           if (RHS->isIntegerConstantExpr(Context))
-            return RHS->EvaluateKnownConstInt(Context) == 1;
+            return BO->getOpcode() == BO_AddAssign
+                       ? RHS->EvaluateKnownConstInt(Context) == 1
+                       : RHS->EvaluateKnownConstInt(Context) == -1;
         }
       }
     }
@@ -77,7 +79,8 @@ static bool IsIncrementByOne(const ASTContext &Context, const Expr *Inc,
           return false;
         if (const BinaryOperator *Add =
                 dyn_cast<BinaryOperator>(BO->getRHS()->IgnoreParenImpCasts())) {
-          if (Add->getOpcode() != BO_Add)
+          const bool IsSub = Add->getOpcode() == BO_Sub;
+          if (Add->getOpcode() != BO_Add && !IsSub)
             return false;
           auto isLoopVar = [&](const Expr *E) {
             if (const DeclRefExpr *DRE =
@@ -85,13 +88,19 @@ static bool IsIncrementByOne(const ASTContext &Context, const Expr *Inc,
               return DRE->getDecl() == LoopVar;
             return false;
           };
-          auto isOne = [&](const Expr *E) {
+          // Net step of exactly one: `+1` for the Add form, `-(-1)` for the
+          // Sub form (`i = i - (-1)`).
+          auto isStep = [&](const Expr *E) {
             E = E->IgnoreParenImpCasts();
-            return E->isIntegerConstantExpr(Context) &&
-                   E->EvaluateKnownConstInt(Context) == 1;
+            if (!E->isIntegerConstantExpr(Context))
+              return false;
+            const llvm::APSInt V = E->EvaluateKnownConstInt(Context);
+            return IsSub ? V == -1 : V == 1;
           };
-          return (isLoopVar(Add->getLHS()) && isOne(Add->getRHS())) ||
-                 (isLoopVar(Add->getRHS()) && isOne(Add->getLHS()));
+          if (IsSub)
+            return isLoopVar(Add->getLHS()) && isStep(Add->getRHS());
+          return (isLoopVar(Add->getLHS()) && isStep(Add->getRHS())) ||
+                 (isLoopVar(Add->getRHS()) && isStep(Add->getLHS()));
         }
       }
     }
@@ -220,22 +229,49 @@ static bool LoopVarUntouchedOutsideIncr(const ForStmt *FS,
          !TouchesLoopVar(FS->getBody(), LoopVar, TouchedLoc);
 }
 
+// The loop variable a for-loop head introduces, plus its initial value, from
+// either spelling the qualifying-loop rules allow (manual 3.3.3.1 cond 1): the
+// declaration form `T i = 0` and the assignment form `i = 0` on a variable
+// declared outside the loop. Returns nullptr when the init is neither, or a
+// declaration introduces anything other than a single initialized variable.
+static const VarDecl *LoopVarFromInit(const Stmt *Init,
+                                      const Expr **InitVal = nullptr) {
+  const Expr *Val = nullptr;
+  const VarDecl *VD = nullptr;
+  if (const DeclStmt *DS = dyn_cast_or_null<DeclStmt>(Init)) {
+    if (!DS->isSingleDecl())
+      return nullptr;
+    VD = dyn_cast<VarDecl>(DS->getSingleDecl());
+    if (!VD || !VD->getInit())
+      return nullptr;
+    Val = VD->getInit();
+  } else if (const BinaryOperator *BO =
+                 dyn_cast_or_null<BinaryOperator>(Init)) {
+    if (BO->getOpcode() != BO_Assign)
+      return nullptr;
+    const DeclRefExpr *LHS = dyn_cast<DeclRefExpr>(
+        BO->getLHS()->IgnoreParenImpCasts());
+    VD = LHS ? dyn_cast<VarDecl>(LHS->getDecl()) : nullptr;
+    if (!VD)
+      return nullptr;
+    Val = BO->getRHS();
+  } else {
+    return nullptr;
+  }
+  if (InitVal)
+    *InitVal = Val;
+  return VD;
+}
+
 static bool InnerLoopShapeQualifies(const ASTContext &Context,
                                     const ForStmt *InnerFS) {
-  const Stmt *Init = InnerFS->getInit();
-  const VarDecl *InnerVar = nullptr;
-  if (const DeclStmt *DS = dyn_cast<DeclStmt>(Init)) {
-    if (!DS->isSingleDecl())
-      return false;
-    InnerVar = dyn_cast<VarDecl>(DS->getSingleDecl());
-    if (!InnerVar || !InnerVar->getInit())
-      return false;
-    if (!InnerVar->getInit()->isIntegerConstantExpr(Context) ||
-        InnerVar->getInit()->EvaluateKnownConstInt(Context) != 0)
-      return false;
-  } else {
+  const Expr *InnerInitVal = nullptr;
+  const VarDecl *InnerVar = LoopVarFromInit(InnerFS->getInit(), &InnerInitVal);
+  if (!InnerVar)
     return false;
-  }
+  if (!InnerInitVal->isIntegerConstantExpr(Context) ||
+      InnerInitVal->EvaluateKnownConstInt(Context) != 0)
+    return false;
   const Expr *Cond = InnerFS->getCond();
   const BinaryOperator *CBO =
       Cond ? dyn_cast<BinaryOperator>(Cond->IgnoreParens()) : nullptr;
@@ -245,6 +281,19 @@ static bool InnerLoopShapeQualifies(const ASTContext &Context,
       CBO->getLHS()->IgnoreParenImpCasts());
   if (!CLHS || CLHS->getDecl() != InnerVar)
     return false;
+  // The driver must be able to express its bound, or the loop wraps and never
+  // terminates -- the same containment rule the outer head enforces. Without
+  // it an inner `unsigned char j < 256` is accepted and the elements above 255
+  // are never visited, breaking the visit-every-element-once premise.
+  if (const Expr *BoundE = CBO->getRHS()) {
+    if (BoundE->isIntegerConstantExpr(Context)) {
+      const unsigned Bits = Context.getTypeSize(InnerVar->getType());
+      const unsigned MaxBits =
+          Bits - (InnerVar->getType()->isSignedIntegerType() ? 1 : 0);
+      if (BoundE->EvaluateKnownConstInt(Context).getActiveBits() > MaxBits)
+        return false;
+    }
+  }
   if (!IsIncrementByOne(Context, InnerFS->getInc(), InnerVar))
     return false;
   SourceLocation DummyLoc;
@@ -506,19 +555,25 @@ static void CollectLoopBoundVars(ASTContext &Context, const FunctionDecl *FD,
   CollectBoundVarInStmt(Context, FD->getBody(), Out);
 }
 
-// Collect the counter variable of every for-loop in Stmt (the variable declared
-// by the loop init) and the loop it belongs to. Used to require that the
-// enclosing subscript levels of a field-array element chain are driven by loops
-// that iterate those levels in full.
+// Collect the counter variable of every for-loop in Stmt (the variable the
+// loop init introduces or assigns) and the loop it belongs to. Used to require
+// that the enclosing subscript levels of a field-array element chain are driven
+// by loops that iterate those levels in full. A declaration-form counter is
+// unique to its loop, but the assignment form can reuse one variable for
+// several loops; no single loop can then be named, so drop the entry (the
+// lookup fails and the level is rejected conservatively).
 static void CollectLoopCounterVars(
     const Stmt *S, llvm::DenseMap<const VarDecl *, const ForStmt *> &Out) {
   if (!S)
     return;
   if (const ForStmt *FS = dyn_cast<ForStmt>(S)) {
-    if (const DeclStmt *DS = dyn_cast_or_null<DeclStmt>(FS->getInit()))
-      if (DS->isSingleDecl())
-        if (const VarDecl *VD = dyn_cast<VarDecl>(DS->getSingleDecl()))
-          Out[VD] = FS;
+    if (const VarDecl *VD = LoopVarFromInit(FS->getInit())) {
+      auto It = Out.find(VD);
+      if (It == Out.end())
+        Out[VD] = FS;
+      else if (It->second != FS)
+        It->second = nullptr;
+    }
   }
   for (const Stmt *Child : S->children())
     CollectLoopCounterVars(Child, Out);
@@ -640,6 +695,85 @@ class OwnedArrayLoopClassifier {
   const FunctionDecl *FD;
   OwnedArrayLoopInfo &LoopInfo;
 
+  // Whether the address of LoopVar is taken / it is mutably borrowed anywhere
+  // in the function. Manual 3.3.3.1 cond 3 forbids taking the loop variable's
+  // address or a mutable borrow of it anywhere in its lifetime, so this is a
+  // function-wide scan: an alias taken before the loop (`int *pi = &i;`) can
+  // advance the counter from inside the body without any DeclRefExpr of `i`,
+  // which the in-body scan cannot see, and one taken after the loop is still an
+  // address-take of the loop variable. The sibling VLA-bound guard is
+  // function-wide for the same reason. The loop increment itself is not an
+  // address-take, so it does not match.
+  bool AddressTakenInFunction(const VarDecl *LoopVar,
+                              SourceLocation &Loc) const {
+    if (!FD->getBody())
+      return false;
+    return AddressTakenIn(FD->getBody(), LoopVar, Loc);
+  }
+
+  static bool AddressTakenIn(const Stmt *S, const VarDecl *LoopVar,
+                             SourceLocation &Loc) {
+    if (!S)
+      return false;
+    if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(S)) {
+      if (UO->getOpcode() == UO_AddrOf || UO->getOpcode() == UO_AddrMut ||
+          UO->getOpcode() == UO_AddrConst) {
+        const DeclRefExpr *Sub = dyn_cast<DeclRefExpr>(
+            UO->getSubExpr()->IgnoreParenImpCasts());
+        if (Sub && IsLoopIndex(Sub, LoopVar)) {
+          Loc = S->getSourceRange().getBegin();
+          return true;
+        }
+      }
+    }
+    for (const Stmt *Child : S->children())
+      if (AddressTakenIn(Child, LoopVar, Loc))
+        return true;
+    return false;
+  }
+
+  // Whether a goto outside the loop jumps to a label inside its body. The
+  // one-visit model assumes the body is entered only through the header; such
+  // a jump runs the body with the pre-loop state and makes the exit state a
+  // lie. scanBody only classifies gotos *inside* the body, so the jump-in edge
+  // is checked here.
+  bool HasJumpIntoBody(const ForStmt *F) const {
+    const Stmt *Body = F->getBody();
+    if (!Body)
+      return false;
+    llvm::SmallPtrSet<const LabelDecl *, 4> InnerLabels;
+    std::function<void(const Stmt *)> Collect = [&](const Stmt *S) {
+      if (!S)
+        return;
+      if (const LabelStmt *LS = dyn_cast<LabelStmt>(S))
+        InnerLabels.insert(LS->getDecl());
+      for (const Stmt *C : S->children())
+        Collect(C);
+    };
+    Collect(Body);
+    if (InnerLabels.empty())
+      return false;
+    const SourceManager &SM = Context.getSourceManager();
+    std::function<bool(const Stmt *)> Scan = [&](const Stmt *S) -> bool {
+      if (!S)
+        return false;
+      if (const GotoStmt *GS = dyn_cast<GotoStmt>(S)) {
+        if (!InnerLabels.count(GS->getLabel()))
+          return false;
+        const SourceLocation L = S->getBeginLoc();
+        const bool InLoop =
+            SM.isBeforeInTranslationUnit(F->getBeginLoc(), L) &&
+            SM.isBeforeInTranslationUnit(L, F->getEndLoc());
+        return !InLoop;
+      }
+      for (const Stmt *C : S->children())
+        if (Scan(C))
+          return true;
+      return false;
+    };
+    return Scan(FD->getBody());
+  }
+
   // Function-wide state.
   llvm::DenseMap<const ArraySubscriptExpr *, SmallVector<const Expr *, 4>>
       SubscriptIdxsCache;
@@ -698,32 +832,9 @@ class OwnedArrayLoopClassifier {
     // check are deferred until after cond, which provides the bound (needed
     // to distinguish "type too small" from "initial value is not zero").
     const Expr *InitVal = nullptr;
-    const Stmt *InitStmt = FS->getInit();
-    if (!InitStmt)
+    LoopVar = LoopVarFromInit(FS->getInit(), &InitVal);
+    if (!LoopVar)
       return reject(NonQualifyingLoopReason::InitNotZero);
-    if (const DeclStmt *DS = dyn_cast<DeclStmt>(InitStmt)) {
-      if (!DS->isSingleDecl())
-        return reject(NonQualifyingLoopReason::InitNotZero);
-      LoopVar = dyn_cast<VarDecl>(DS->getSingleDecl());
-      if (!LoopVar || !LoopVar->getInit())
-        return reject(NonQualifyingLoopReason::InitNotZero);
-      InitVal = LoopVar->getInit();
-    } else if (const BinaryOperator *BO =
-                   dyn_cast<BinaryOperator>(InitStmt)) {
-      if (BO->getOpcode() != BO_Assign)
-        return reject(NonQualifyingLoopReason::InitNotZero);
-      if (const DeclRefExpr *LHS = dyn_cast<DeclRefExpr>(
-              BO->getLHS()->IgnoreParenImpCasts())) {
-        LoopVar = dyn_cast<VarDecl>(LHS->getDecl());
-        if (!LoopVar)
-          return reject(NonQualifyingLoopReason::InitNotZero);
-        InitVal = BO->getRHS();
-      } else {
-        return reject(NonQualifyingLoopReason::InitNotZero);
-      }
-    } else {
-      return reject(NonQualifyingLoopReason::InitNotZero);
-    }
     if (!LoopVar->getType()->isIntegerType())
       return reject(NonQualifyingLoopReason::InitNotZero);
 
@@ -833,10 +944,7 @@ class OwnedArrayLoopClassifier {
       } else {
         if (!InnerLoopShapeQualifies(Context, CurFS))
           return false;
-        const Stmt *Init = CurFS->getInit();
-        if (const DeclStmt *DS = dyn_cast<DeclStmt>(Init))
-          if (DS->isSingleDecl())
-            CurVar = dyn_cast<VarDecl>(DS->getSingleDecl());
+        CurVar = LoopVarFromInit(CurFS->getInit());
         if (!CurVar)
           return false;
       }
@@ -906,11 +1014,7 @@ class OwnedArrayLoopClassifier {
           if (!X || Next)
             return;
           if (const ForStmt *F = dyn_cast<ForStmt>(X)) {
-            const Stmt *Init = F->getInit();
-            const DeclStmt *DS = dyn_cast<DeclStmt>(Init);
-            const VarDecl *FVar = DS && DS->isSingleDecl()
-                                      ? dyn_cast<VarDecl>(DS->getSingleDecl())
-                                      : nullptr;
+            const VarDecl *FVar = LoopVarFromInit(F->getInit());
             if (FVar && WantedVar && FVar == WantedVar &&
                 InnerLoopShapeQualifies(Context, F)) {
               Next = F;
@@ -1000,11 +1104,7 @@ class OwnedArrayLoopClassifier {
       if (!S || Found)
         return;
       if (const ForStmt *F = dyn_cast<ForStmt>(S)) {
-        const DeclStmt *DS = dyn_cast_or_null<DeclStmt>(F->getInit());
-        const VarDecl *FV = DS && DS->isSingleDecl()
-                                ? dyn_cast<VarDecl>(DS->getSingleDecl())
-                                : nullptr;
-        if (FV == Wanted) {
+        if (LoopVarFromInit(F->getInit()) == Wanted) {
           Found = F;
           return;
         }
@@ -1518,6 +1618,16 @@ class OwnedArrayLoopClassifier {
     if (!LoopVarUntouchedOutsideIncr(FS, LoopVar, LoopVarTouchedLoc))
       return reject(NonQualifyingLoopReason::LoopVarModified,
                     LoopVarTouchedLoc);
+    // ...nor may the loop variable be aliased anywhere in the function: an
+    // address taken before the loop can advance the counter from inside the
+    // body with no DeclRefExpr of it, which the in-body scan cannot see.
+    SourceLocation AddrTakenLoc;
+    if (AddressTakenInFunction(LoopVar, AddrTakenLoc))
+      return reject(NonQualifyingLoopReason::LoopVarModified, AddrTakenLoc);
+    // The body must be entered only through the header; a jump in from outside
+    // runs it with the pre-loop state.
+    if (HasJumpIntoBody(FS))
+      return reject(NonQualifyingLoopReason::EarlyExit);
 
     if (!Body)
       return reject(NonQualifyingLoopReason::NotQualifying);

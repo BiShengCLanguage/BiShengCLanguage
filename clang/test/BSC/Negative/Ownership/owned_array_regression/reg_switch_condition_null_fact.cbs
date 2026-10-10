@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -verify -Wno-switch-bool %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+_Safe void safe_free(void *_Owned p);
+
+// The ownership branch narrowing applies a condition's null facts by the
+// true/false successor index. A SwitchStmt's successors are its case blocks in
+// CFG order, not true/false, so `switch (p == nullptr)` used to stamp the
+// null-owned state on the case-0 arm -- where the comparison is false and p
+// provably owns memory -- and the guaranteed leak went unreported. The
+// byte-equivalent if form is diagnosed.
+void leak_switch(void) {
+  int *_Owned p = safe_malloc(42);
+  switch (p == nullptr) {
+  case 0:
+    return; // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+  }
+  safe_free((void *_Owned)p);
+}

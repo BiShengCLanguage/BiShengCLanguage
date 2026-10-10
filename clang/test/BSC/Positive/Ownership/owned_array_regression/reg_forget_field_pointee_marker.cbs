@@ -1,0 +1,39 @@
+// RUN: %clang_cc1 -verify -fbsc-experimental %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+
+_Owned struct Node {
+  _Public:
+  int m;
+};
+
+struct Holder {
+  Node *_Owned _Nullable n;
+};
+
+struct Plain {
+  int m;
+};
+
+struct PlainHolder {
+  struct Plain *_Owned _Nullable n;
+};
+
+// __forget(h.n) on a field whose type is a pointer to an _Owned struct must
+// drop the pointee marker registered under the field ("n*") together with the
+// field itself; otherwise the marker stays owned and a spurious field leak is
+// reported at scope end. The whole-struct __forget already erases it.
+void forget_field_star(void) {
+  struct Holder h = {};
+  h.n = __take_from_raw((Node *)malloc(sizeof(Node)));
+  _Unsafe { __forget(h.n); }
+}
+
+// Control: the same shape with a plain struct pointee registers no pointee
+// marker, so it was already clean.
+void forget_field_plain(void) {
+  struct PlainHolder h = {};
+  h.n = __take_from_raw((struct Plain *)malloc(sizeof(struct Plain)));
+  _Unsafe { __forget(h.n); }
+}

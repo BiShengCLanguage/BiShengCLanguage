@@ -1,0 +1,27 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// The copy-channel must-be-null recognizer consults the per-field null state
+// for a struct *value* host, but for an owned-struct-*pointer* host it looked
+// only at the whole-pointer state. A field the analysis proved null
+// (__assume_null(s->p), or a null check) must let a copy of it own nothing,
+// exactly like the struct-value sibling, or the destination looks owned and
+// leaks at scope end.
+
+struct W { int *_Nullable _Owned p; };
+
+void safe_free(void *_Owned);
+
+void ops_field_null_copy(struct W *_Owned s) {
+  __assume_null(s->p);
+  int *_Owned _Nullable q = s->p;
+  safe_free((void *_Owned)s);
+}
+
+struct V { int *_Nullable _Owned p; };
+
+// The struct-value sibling (already handled) stays clean.
+void s_field_null_copy(struct V sv) {
+  __assume_null(sv.p);
+  int *_Owned _Nullable q2 = sv.p;
+}

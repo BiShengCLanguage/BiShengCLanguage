@@ -1,0 +1,24 @@
+// RUN: %clang_cc1 -verify -fbsc-experimental %s
+
+_Safe T *_Owned safe_malloc<T>(T t);
+_Safe void safe_free(void *_Owned p);
+
+_Owned struct S {
+_Public:
+  int *_Owned p;
+  ~S(This this) { safe_free((void *_Owned)this.p); }
+};
+
+// The injected destructor `if (!s_is_moved) ~S(s);` runs on every path and the
+// is-moved flag is only set for a whole-struct move, so a field moved on *one*
+// branch must be reported too: the destructor would free it again on that path
+// (a runtime double free). The field sets are unions over the paths, so the
+// moved field is still in the owned set after the join and the size test alone
+// cannot see it.
+void probe(_Bool c) {
+  S s = {.p = safe_malloc(42)};
+  if (c) {
+    int *_Owned q = s.p;
+    safe_free((void *_Owned)q);
+  }
+} // expected-error {{partially moved _Owned struct: 's' at scope end}}

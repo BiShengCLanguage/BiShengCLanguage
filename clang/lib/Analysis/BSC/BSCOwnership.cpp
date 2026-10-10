@@ -475,17 +475,25 @@ static FieldKey getMemberFieldPlace(const MemberExpr *ME, ASTContext &Ctx) {
   // Collect the member chain outermost-first (ME is the outermost).
   llvm::SmallVector<const FieldDecl *, 4> Fields;
   const Expr *Base = ME;
-  while (const MemberExpr *Cur = dyn_cast<MemberExpr>(Base)) {
-    if (const FieldDecl *FD = dyn_cast<FieldDecl>(Cur->getMemberDecl()))
-      Fields.push_back(FD);
-    else
+  while (true) {
+    Base = Base->IgnoreParenImpCasts();
+    // A deref may appear at any point of the chain: peek through it so the
+    // explicit-deref spelling `(*w->pp).p` resolves like its arrow twin
+    // `w->pp->p` (C11 6.5.2.3 makes them the same lvalue).
+    if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(Base)) {
+      if (UO->getOpcode() != UO_Deref)
+        return nullptr;
+      Base = UO->getSubExpr();
+      continue;
+    }
+    const MemberExpr *Cur = dyn_cast<MemberExpr>(Base);
+    if (!Cur)
+      break;
+    const FieldDecl *FD = dyn_cast<FieldDecl>(Cur->getMemberDecl());
+    if (!FD)
       return nullptr;
-    Base = Cur->getBase()->IgnoreParenImpCasts();
-  }
-  // Collapse a leading deref (`s->f`, `(*s).f`) to the root variable.
-  if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(Base)) {
-    if (UO->getOpcode() == UO_Deref)
-      Base = UO->getSubExpr()->IgnoreParenImpCasts();
+    Fields.push_back(FD);
+    Base = Cur->getBase();
   }
   const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(Base);
   if (!DRE)
@@ -728,7 +736,8 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
   // The state of a variable is a may-lattice: a join unions the states of the
   // incoming paths. A path uninitialized (or moved) on either branch stays
   // uninitialized (moved) after the join, and may simultaneously keep may-own
-  // state for leak checking.
+  // state for leak checking. The Null bit is the exception -- a must fact, so
+  // the Cells join intersects it below rather than unioning it.
   for (const auto &KV : statsB.Vars) {
     const VarDecl *VD = KV.first;
     const Ownership::OwnershipStatus::VarState &B = KV.second;
@@ -743,8 +752,33 @@ OwnershipImpl::merge(Ownership::OwnershipStatus statsA,
     A.Root |= B.Root;
     for (FieldKey P : B.All)
       A.All.insert(P);
-    for (const auto &Cell : B.Cells)
-      A.Cells[Cell.first] |= Cell.second;
+    // The ownership components are may facts (a field owned on either path
+    // keeps that ownership for leak checking), but the Null component is a
+    // must fact: a field the analysis proved null owns nothing only if that
+    // holds on *every* reaching path. Intersect it, so a field that is null
+    // on one path and moved out on another is not read as null after the
+    // join -- the moved path must still report a use of a moved value.
+    const Ownership::Status NullBit = Ownership::Status::Null;
+    for (const auto &Cell : B.Cells) {
+      auto AIt = A.Cells.find(Cell.first);
+      if (AIt == A.Cells.end()) {
+        // Absent on A's path, so not proved null there.
+        A.Cells[Cell.first] = Cell.second & ~NullBit;
+        continue;
+      }
+      const bool NullOnEveryPath =
+          (AIt->second & NullBit) != Ownership::Status::None &&
+          (Cell.second & NullBit) != Ownership::Status::None;
+      AIt->second |= Cell.second;
+      if (!NullOnEveryPath)
+        AIt->second &= ~NullBit;
+    }
+    for (auto &Cell : A.Cells) {
+      if (B.Cells.count(Cell.first))
+        continue;
+      // Absent on B's path, so not proved null there either.
+      Cell.second &= ~NullBit;
+    }
   }
 
   return statsA;
@@ -1186,6 +1220,19 @@ void Ownership::OwnershipStatus::dropOwnedField(Status S, const VarDecl *VD,
     if (IsS)
       uninitFields(VD).erase(Str);
   }
+  // The pointee markers registered under the field's Deref projection ("n*"
+  // for a field of type `Node *_Owned`): dropping the field drops the pointee
+  // it owns, so those keys must go too. The whole-struct drop and the
+  // basic-owned-pointer cast arm already erase them.
+  for (FieldKey Str : derefDescendants(allFields(VD), FieldPath)) {
+    ownedFields(VD).erase(Str);
+    if (IsNull)
+      nullFields(VD).insert(Str);
+    else
+      nullFields(VD).erase(Str);
+    if (IsS)
+      uninitFields(VD).erase(Str);
+  }
 }
 
 // The explicit ownership-drop walk shared by setToNull and setToMoved: both
@@ -1209,6 +1256,14 @@ void Ownership::OwnershipStatus::applyExplicitDrop(Status S, const Expr *E,
       // fieldDescendants() answers empty for a Var-kind prefix, which would
       // silently turn the whole-object form into a no-op.
       dropFields(S, VD, allFields(VD));
+      // __forget of the whole object abandons the variable itself, not just
+      // its fields: the manual mandates no diagnostic afterwards and the
+      // injected destructor must not run. Without consuming the variable the
+      // field stamps leave the object "partially moved" at scope end.
+      if (!ToNull) {
+        resetAll(VD);
+        set(VD, Ownership::Status::Moved);
+      }
       return;
     }
     if (ToNull)
@@ -1449,7 +1504,7 @@ void Ownership::OwnershipStatus::setArrayAggregate(const VarDecl *VD,
 bool Ownership::OwnershipStatus::arrayAggregateUninit(const VarDecl *VD) const {
   if (!isTracked(VD))
     return false;
-  return is(VD, Ownership::Status::Uninitialized);
+  return isOrHas(VD, Ownership::Status::Uninitialized);
 }
 
 bool Ownership::OwnershipStatus::arrayAggregateNull(
@@ -1973,10 +2028,16 @@ Ownership::OwnershipStatus::checkOPSFieldAssign(const VarDecl *VD,
   if (!is(VD, Ownership::Status::Moved)) {
     if (!IsAggregateAccess && allFields(VD).count(fullFieldName)) {
       ownedFields(VD).insert(fullFieldName);
+      // Re-taking ownership drops the field's must-null fact. A null bit left
+      // behind would make the field's cast exemption (checkCastField) read the
+      // freshly owned field as "provably null, releases nothing" and swallow a
+      // use-after-move. The S twin does the same in checkSFieldAssign.
+      nullFields(VD).erase(fullFieldName);
     }
     // add allPrefixStrs to the Owned set
     for (FieldKey str : allPrefixStrs) {
       ownedFields(VD).insert(str);
+      nullFields(VD).erase(str);
     }
   }
   if (allFields(VD).size() == ownedFields(VD).size()) {
@@ -2551,7 +2612,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
   SmallVector<OwnershipDiagInfo> diags;
 
   if (isHost(VD, HostKind::OPS)) {
-    if (!ownedFields(VD).count(fullFieldName) && diags.empty()) {
+    if (!ownedFields(VD).count(fullFieldName) &&
+        !nullFields(VD).count(fullFieldName) && diags.empty()) {
       OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
@@ -2607,7 +2669,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
           Loc, OwnershipDiagKind::InvalidCastMoved,
           moveAsterisksToFront(VD->getNameAsString() + "." +
                                placeToKeyString(movedFieldName))));
-    } else if (!ownedFields(VD).count(fullFieldName) && !ArrayFieldPath) {
+    } else if (!ownedFields(VD).count(fullFieldName) &&
+               !nullFields(VD).count(fullFieldName) && !ArrayFieldPath) {
       OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
@@ -2639,6 +2702,11 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
     for (FieldKey str : ownedPrefixStrs) {
       ownedFields(VD).erase(str);
     }
+    // The pointee markers under the field's Deref projection ("n*" for a field
+    // of type `Node *_Owned`): moving the field out releases the pointee it
+    // owns, so the marker must not stay owned (a spurious scope-end leak).
+    for (FieldKey str : derefDescendants(allFields(VD), fullFieldName))
+      ownedFields(VD).erase(str);
   }
 
   if (isHost(VD, HostKind::BOP)) {
@@ -2730,9 +2798,16 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkMemoryLeak(
             VD->getNameAsString()));
         ownedFields(VD).clear();
       } else {
-        if ((ownedFields(VD).size() + nullFields(VD).size() <
-             allFields(VD).size()) &&
-            !is(VD, Moved)) {
+        // The injected destructor `if (!s_is_moved) ~S(s)` runs on every path,
+        // and the is-moved flag is only set for a whole-struct move: a field
+        // moved on *some* path must be reported too, even though the union'd
+        // owned set still holds it (the other path owns it). The field sets
+        // are unions, so the size test alone cannot see that.
+        const bool FieldsMissing =
+            ownedFields(VD).size() + nullFields(VD).size() <
+            allFields(VD).size();
+        const bool MovedOnSomePath = !movedFields(VD).empty();
+        if ((FieldsMissing || MovedOnSomePath) && !is(VD, Moved)) {
           diags.push_back(OwnershipDiagInfo(
               Loc, OwnershipDiagKind::OwnedStructPartiallyMoved,
               VD->getNameAsString(),
@@ -2820,6 +2895,7 @@ static bool isAllNullInits(ASTContext &ctx, const InitListExpr *ILE,
 static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
                                          ASTContext &Ctx, const VarDecl *VD,
                                          RecordDecl *RD,
+                                         const bsc::Place *Parent,
                                          const InitListExpr *ILE,
                                          const NullInitTest &ExtraNull) {
   for (const FieldDecl *FD : RD->fields()) {
@@ -2848,8 +2924,7 @@ static void NullAllNullStructArrayFields(Ownership::OwnershipStatus &Stat,
     }
     if (AllNull) {
       bsc::PlaceBuilder PB(Ctx);
-      const bsc::Place *FieldPlace = PB.BuildField(
-          PB.Build(VD, VD->getLocation()), FD, FD->getLocation());
+      const bsc::Place *FieldPlace = PB.BuildField(Parent, FD, FD->getLocation());
       for (FieldKey Key : Stat.allFields(VD))
         // hasPrefix matches the field itself and every place projected below
         // it — Field, Deref and Index alike — so the plain field "arr" also
@@ -2925,6 +3000,7 @@ public:
   void VisitDeclStmt(DeclStmt *DS);
   void VisitInitListExpr(InitListExpr *ILE);
   void VisitMemberExpr(MemberExpr *ME);
+  void VisitGenericSelectionExpr(GenericSelectionExpr *GSE);
   void VisitReturnStmt(ReturnStmt *RS);
   void VisitLifetimeEnds(VarDecl *VD, SourceLocation SL, bool isDestructor);
   void VisitStmt(Stmt *S);
@@ -2970,6 +3046,19 @@ public:
       return true;
     if (const CStyleCastExpr *CSCE = dyn_cast<CStyleCastExpr>(E))
       return isExprRefToNullOwnedVar(CSCE->getSubExpr());
+    // GNU `x ?: y` reuses the common value via an OpaqueValueExpr whose source
+    // is the controlling expression; recurse into it so the both-arms-null
+    // conjunction sees the real operand (parity with the sibling visitor
+    // VisitBinaryConditionalOperator).
+    if (const OpaqueValueExpr *OVE = dyn_cast<OpaqueValueExpr>(E))
+      if (const Expr *Src = OVE->getSourceExpr())
+        return isExprRefToNullOwnedVar(Src);
+    // GCC statement expression: only the result expression is the value.
+    if (const StmtExpr *SE = dyn_cast<StmtExpr>(E))
+      if (const auto *VS =
+              dyn_cast<ValueStmt>(SE->getSubStmt()->getStmtExprResult()))
+        if (const Expr *RE = VS->getExprStmt())
+          return isExprRefToNullOwnedVar(RE);
     if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
       if (BO->getOpcode() == BO_Comma)
         return isExprRefToNullOwnedVar(BO->getRHS());
@@ -2998,6 +3087,15 @@ public:
           if (stat.isHost(SrcVD, HostKind::OPS) &&
               stat.is(SrcVD, Ownership::Status::Null))
             return true;
+          // Owned pointer to struct whose *field* the analysis proved null
+          // (__assume_null(s->p), null-check narrowing): that field access
+          // yields a must-be-null value, exactly like the struct-value sibling
+          // above. The field sets are unions over the paths, so require the
+          // field to own nothing on every path.
+          if (stat.isHost(SrcVD, HostKind::OPS) &&
+              stat.nullFields(SrcVD).count(FieldPlace) &&
+              !stat.ownedFields(SrcVD).count(FieldPlace))
+            return true;
         }
       }
       return false;
@@ -3012,6 +3110,16 @@ public:
       }
     }
     return false;
+  }
+
+  // Whether the RHS currently being visited is a "null assign" source: a
+  // syntactic null constant, or an owned pointer whose tracked state is
+  // must-be-null. The scalar assign and init consumers already accept both;
+  // the array-element null no-op gates must too, or a provably-null source is
+  // treated as an ownership transfer and gated on the qualifying-loop rules.
+  bool RHSIsNullAssign() const {
+    return CurRHS &&
+           (CurRHS->isNullExpr(OS.ctx) || isExprRefToNullOwnedVar(CurRHS));
   }
 
   // Extra null test for initializer lists: folds expressions that are
@@ -3151,6 +3259,20 @@ void TransferFunctions::VisitStmtExprResult(Expr *E) {
   Visit(E);
 }
 
+// C11 6.5.1.1: the controlling expression of a generic selection is not
+// evaluated and only the selected association is. The default StmtVisitor
+// recursion would walk the controlling expression and *every* association
+// arm, ascribing a move to operands that are never evaluated.
+void TransferFunctions::VisitGenericSelectionExpr(GenericSelectionExpr *GSE) {
+  if (GSE->isResultDependent()) {
+    // Error recovery: no association was selected, so there is no result
+    // expression to consume.
+    VisitStmt(GSE);
+    return;
+  }
+  VisitStmtExprResult(GSE->getResultExpr());
+}
+
 void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
   // Owned-element stack arrays and _Owned _ArrayElem bases:
   // element ownership transfer is only allowed inside a qualifying for-loop,
@@ -3173,7 +3295,7 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
       // A clear only needs no qualifying loop when the aggregate drops
       // nothing (no path still owns): clearing a null/moved aggregate just
       // records "also null", while clearing one that may own is a transfer.
-      if (op == Assign && CurRHS && CurRHS->isNullExpr(OS.ctx) &&
+      if (op == Assign && RHSIsNullAssign() &&
               stat.arrayAggregateNotOwned(ArrVD, WholePlace)) {
         Visit(ASE->getIdx());
         return;
@@ -3348,7 +3470,7 @@ bool TransferFunctions::tryTransferArrayField(const Expr *Site,
   // that is only possibly null (Moved|Null) is not a no-op though: its moved
   // paths are already released, so the release may double free. Clearing such a
   // field (`= nullptr`) stays harmless.
-  bool IsNullAssign = IsAssign && CurRHS && CurRHS->isNullExpr(OS.ctx);
+  bool IsNullAssign = IsAssign && RHSIsNullAssign();
   // Clearing (`= nullptr`) is a no-op when the aggregate drops nothing (no path
   // still owns it): it only records "also null". Clearing an aggregate that may
   // own is an ownership transfer, so it stays gated; a *release* of a field that
@@ -3374,13 +3496,13 @@ void TransferFunctions::applyArrayElemAssign(SourceLocation Loc,
   // an exactly-owned (already initialized) aggregate triggers this: a
   // possibly-uninitialized aggregate reached through a loop back edge must
   // not.
-    bool IsNullAssign = CurRHS && CurRHS->isNullExpr(OS.ctx);
+    bool IsNullAssign = RHSIsNullAssign();
     bool HoldsOwned = false;
     bool IsWholeAggregate =
         !fieldName || fieldName->getKind() == bsc::Place::Kind::Var;
     if (IsWholeAggregate) {
       if (stat.isHost(ArrVD, HostKind::BOP))
-        HoldsOwned = stat.is(ArrVD, Ownership::Status::Owned) &&
+        HoldsOwned = stat.isOrHas(ArrVD, Ownership::Status::Owned) &&
                      !stat.has(ArrVD, Ownership::Status::Uninitialized);
       else if (stat.isHost(ArrVD, HostKind::S))
         HoldsOwned = !stat.ownedFields(ArrVD).empty() &&
@@ -3639,7 +3761,7 @@ void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
       // (Moved|Null) is not a no-op, while clearing it remains harmless.
       if (op == Move && stat.arrayElemNullNoop(ArrVD, ArrFieldPlace))
         return;
-      if (op == Assign && CurRHS && CurRHS->isNullExpr(OS.ctx) &&
+      if (op == Assign && RHSIsNullAssign() &&
           stat.arrayAggregateNotOwned(ArrVD, ArrFieldPlace))
         return;
       bool Allowed = isArrayElemTransferAllowed(ME, ArrVD, IsArrElemPtr);
@@ -4141,18 +4263,27 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
           break;
         }
       }
-      if (const DeclRefExpr *DRE =
-              dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts())) {
-        const VarDecl *VD = dyn_cast<VarDecl>(DRE->getDecl());
-        if (VD) {
-          bsc::PlaceBuilder PB(OS.ctx);
-          FieldKey Place = PB.Build(VD, VD->getLocation());
-          for (QualType DerefTy : llvm::reverse(DerefTys))
-            Place = PB.BuildDeref(Place, DerefTy, DRE->getLocation());
-          SmallVector<OwnershipDiagInfo> diags =
-              stat.checkCastField(VD, DRE->getLocation(), Place);
-          reporter.addDiags(diags);
-        }
+      // The deref base is a variable (the `*pp` spelling) or a member access
+      // (the `*w.pp` spelling, a deref through a field): both resolve to a
+      // place over the host variable, with one Deref projection per `*`.
+      const Expr *BaseE = E->IgnoreParenImpCasts();
+      const VarDecl *VD = nullptr;
+      FieldKey Place = nullptr;
+      bsc::PlaceBuilder PB(OS.ctx);
+      if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(BaseE)) {
+        VD = dyn_cast<VarDecl>(DRE->getDecl());
+        if (VD)
+          Place = PB.Build(VD, VD->getLocation());
+      } else if (const MemberExpr *ME = dyn_cast<MemberExpr>(BaseE)) {
+        Place = getMemberFieldPlace(ME, OS.ctx);
+        VD = Place ? Place->getRoot() : nullptr;
+      }
+      if (VD) {
+        for (QualType DerefTy : llvm::reverse(DerefTys))
+          Place = PB.BuildDeref(Place, DerefTy, BaseE->getExprLoc());
+        SmallVector<OwnershipDiagInfo> diags =
+            stat.checkCastField(VD, BaseE->getExprLoc(), Place);
+        reporter.addDiags(diags);
       }
     }
     // @code
@@ -4269,8 +4400,10 @@ void TransferFunctions::VisitDeclStmt(DeclStmt *DS) {
               // every element is recorded as null even when another field
               // owns values.
               stat.setArrayAggregate(VD, nullptr, Ownership::Status::Owned);
-              NullAllNullStructArrayFields(stat, OS.ctx, VD, RT->getDecl(),
-                                           ILE, IsNullState);
+              bsc::PlaceBuilder LPB(OS.ctx);
+              NullAllNullStructArrayFields(
+                  stat, OS.ctx, VD, RT->getDecl(),
+                  LPB.Build(VD, VD->getLocation()), ILE, IsNullState);
             } else {
               stat.setArrayAggregate(VD, nullptr, Ownership::Status::Owned);
             }
@@ -4375,8 +4508,19 @@ void TransferFunctions::HandleInitListExpr(VarDecl *VD, RecordDecl *RD,
       if (!IsNullInit)
         if (const InitListExpr *FieldILE = dyn_cast<InitListExpr>(FieldInit))
           IsNullInit = isAllNullInits(OS.ctx, FieldILE, FieldTy, IsNullState);
-      if (IsNullInit)
+      if (IsNullInit) {
         markPrefixAsNull(ArrFieldPlace);
+      } else if (const InitListExpr *FieldILE =
+                     dyn_cast<InitListExpr>(FieldInit)) {
+        // Mixed struct-element array field: track each owned subfield
+        // independently, exactly like the local-array case, so a subfield that
+        // is null in every element owns nothing and may be transferred in a
+        // qualifying loop.
+        QualType ElemTy = FieldTy.getCanonicalType();
+        if (const RecordType *ElemRT = dyn_cast<RecordType>(ElemTy))
+          NullAllNullStructArrayFields(stat, OS.ctx, VD, ElemRT->getDecl(),
+                                       ArrFieldPlace, FieldILE, IsNullState);
+      }
       continue;
     }
 
@@ -4597,6 +4741,76 @@ void TransferFunctions::HandleDREPlaceUse(FieldKey Place, SourceLocation Loc) {
   }
 }
 
+// Distil a branch condition into the array-element null check it performs,
+// when it has that shape. `Elem` receives the checked element expression and
+// `NonNull` whether the *true* branch implies it is non-null. The
+// C11-equivalent respellings of a null check are peeled so the same check is
+// recognized however it is written: the bare form (`e` / `!e`), the explicit
+// comparison, a negation of a comparison (`!(e == nullptr)`), and a
+// comparison compared with a boolean constant (`(e == nullptr) == 0`,
+// C11 6.5.9p3).
+static void DistilElemNullCheck(ASTContext &Ctx, const Expr *E,
+                                const Expr *&Elem, bool &NonNull) {
+  E = E->IgnoreParenImpCasts();
+  if (const UnaryOperator *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() != UO_LNot)
+      return;
+    // `!X` negates the check X performs.
+    DistilElemNullCheck(Ctx, UO->getSubExpr(), Elem, NonNull);
+    if (Elem)
+      NonNull = !NonNull;
+    return;
+  }
+  if (const BinaryOperator *BO = dyn_cast<BinaryOperator>(E)) {
+    const bool Eq = BO->getOpcode() == BO_EQ;
+    if (!Eq && BO->getOpcode() != BO_NE)
+      return;
+    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+    // `(X) == 0/1` is the boolean-identity respelling of `!X` / `X`. This is
+    // tried first because `0` is also a null constant: `(e == nullptr) == 0`
+    // must be read as the negation of the inner check, not as a comparison of
+    // the comparison with a null pointer.
+    auto BoolConst = [&](const Expr *X, bool &Val) {
+      X = X->IgnoreParenImpCasts();
+      if (!X->isIntegerConstantExpr(Ctx))
+        return false;
+      const llvm::APSInt V = X->EvaluateKnownConstInt(Ctx);
+      if (V != 0 && V != 1)
+        return false;
+      Val = V == 1;
+      return true;
+    };
+    bool ConstVal = false;
+    const Expr *Inner = nullptr;
+    if (BoolConst(LHS, ConstVal))
+      Inner = RHS;
+    else if (BoolConst(RHS, ConstVal))
+      Inner = LHS;
+    if (Inner) {
+      DistilElemNullCheck(Ctx, Inner, Elem, NonNull);
+      if (Elem && (Eq ? !ConstVal : ConstVal))
+        NonNull = !NonNull;
+      return;
+    }
+    if (IsNullExpr(Ctx, RHS) && !IsNullExpr(Ctx, LHS)) {
+      Elem = LHS;
+      NonNull = !Eq;
+      return;
+    }
+    if (IsNullExpr(Ctx, LHS) && !IsNullExpr(Ctx, RHS)) {
+      Elem = RHS;
+      NonNull = !Eq;
+      return;
+    }
+    return;
+  }
+  // Bare element: `if (arr[i])` is an implicit != nullptr check. Non-element
+  // expressions are filtered by the caller (PeelArrayElemBase).
+  Elem = E;
+  NonNull = true;
+}
+
 void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
                                  Ownership::OwnershipStatus &status) {
   if (!block || !cur)
@@ -4614,33 +4828,7 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
   // whole-array aggregate.
   const Expr *ArrElem = nullptr;
   bool ArrElemNonNull = false;
-  if (const BinaryOperator *BO =
-          dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts())) {
-    if (BO->getOpcode() == BO_NE || BO->getOpcode() == BO_EQ) {
-      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
-      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-      if (IsNullExpr(ctx, RHS) && !IsNullExpr(ctx, LHS))
-        ArrElem = LHS;
-      else if (IsNullExpr(ctx, LHS) && !IsNullExpr(ctx, RHS))
-        ArrElem = RHS;
-      ArrElemNonNull = (BO->getOpcode() == BO_NE);
-    }
-  } else if (const UnaryOperator *UO =
-                 dyn_cast<UnaryOperator>(Cond->IgnoreParenImpCasts())) {
-    if (UO->getOpcode() == UO_LNot) {
-      // if (!arr[i]) -- implicit null check (arr[i] == nullptr)
-      ArrElem = UO->getSubExpr()->IgnoreParenImpCasts();
-      ArrElemNonNull = false;
-    } else {
-      // if (arr[i]) -- implicit null check (arr[i] != nullptr)
-      ArrElem = Cond->IgnoreParenImpCasts();
-      ArrElemNonNull = true;
-    }
-  } else {
-    // if (arr[i]) -- implicit null check (arr[i] != nullptr)
-    ArrElem = Cond->IgnoreParenImpCasts();
-    ArrElemNonNull = true;
-  }
+  DistilElemNullCheck(ctx, Cond, ArrElem, ArrElemNonNull);
   const VarDecl *ArrElemVD = ArrElem ? PeelArrayElemBase(ArrElem) : nullptr;
   bool ArrElemIsArray = ArrElemVD != nullptr;
   if (!ArrElemIsArray && ArrElem) {
@@ -4679,6 +4867,14 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
       S = Parent;
     }
   }
+
+  // The succ[0]/succ[1] polarity below is only defined for a two-way
+  // conditional terminator. A SwitchStmt's successors are its case blocks in
+  // CFG order, not true/false, so applying the null facts by successor index
+  // would stamp them on the wrong arm (laundering the leak).
+  if (const Stmt *Term = cur->getTerminatorStmt())
+    if (isa<SwitchStmt>(Term))
+      return;
 
   if (cur->succ_begin()[0] == block) {
     // block is True branch

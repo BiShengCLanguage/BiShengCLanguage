@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void abort(void);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  if (!p) abort();
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned _Nullable p) { free(__move_to_raw(p)); }
+
+// `(a[i] == nullptr) == 0` is the C11 boolean-identity respelling of the
+// blessed `a[i] != nullptr` (6.5.9p3, manual 3.4.3 rule 3). The null-check
+// branch narrowing must recognize it: the null path is the one that releases
+// nothing, so the element ends null there and moved on the other path.
+void bool_identity_null_comparison(void) {
+  int *_Owned _Nullable a[3] = {nullptr, safe_malloc(1), nullptr};
+  for (int i = 0; i < 3; i++) {
+    if ((a[i] == nullptr) == 0) {
+      safe_free((void *_Owned _Nullable)a[i]);
+    }
+  }
+}

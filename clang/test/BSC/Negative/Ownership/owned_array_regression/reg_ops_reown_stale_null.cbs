@@ -1,0 +1,43 @@
+// RUN: %clang_cc1 -verify %s
+
+void *malloc(unsigned long size);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned);
+
+struct S { int *_Owned _Nullable p; };
+
+// Re-taking ownership of an OPS-host field must clear its must-null fact.
+// __assume_null(s->p) leaves a Null bit on the field, and the re-owning
+// assignment only added the Owned bit, so the cell stayed {Owned, Null}. The
+// first consuming cast erased the Owned bit and the cast exemption then read
+// the field as "provably null, releases nothing", accepting the second cast --
+// a use-after-move double free. checkOPSFieldAssign now erases the field's
+// Null bit on re-own, like its struct-value twin checkSFieldAssign.
+void reown_then_double_cast(struct S *_Owned s) {
+  __assume_null(s->p);
+  s->p = safe_malloc(1);
+  safe_free((void *_Owned)s->p);
+  safe_free((void *_Owned)s->p); // expected-error {{cannot cast 's.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)s);
+}
+
+struct Inner { int *_Owned _Nullable p; };
+struct Outer { struct Inner *_Owned _Nullable inner; };
+
+// The same stale bit through a nested field path: the re-own of s->inner->p
+// must clear the pointee's Null bit as well.
+void reown_nested_then_double_cast(struct Outer *_Owned s) {
+  __assume_null(s->inner->p);
+  s->inner->p = safe_malloc(1);
+  safe_free((void *_Owned)s->inner->p);
+  safe_free((void *_Owned)s->inner->p); // expected-error {{cannot cast 's.inner.p' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)s->inner);
+  safe_free((void *_Owned)s);
+}

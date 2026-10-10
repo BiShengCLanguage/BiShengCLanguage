@@ -1,0 +1,20 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+_Safe void safe_free(void *_Owned _Nullable p);
+
+struct S { int *_Owned _Nullable p; };
+
+// Casting a field that is null (zero-initialized and never assigned) releases
+// nothing: free(NULL) is a no-op, exactly like the scalar twin
+// `int *_Owned _Nullable q = 0; safe_free((void *_Owned)q);`. The field cast
+// must consult the field's null state, not only the owned set, or the no-op is
+// rejected as a use of a moved value.
+
+_Safe int free_null_field(void) {
+  _Unsafe {
+    struct S s = {0};
+    safe_free((void *_Owned _Nullable)s.p);
+    return 0;
+  }
+}

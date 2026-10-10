@@ -351,6 +351,8 @@ public:
   // of the incoming paths ({Owned, Moved} means "owned on one path, moved on
   // another"). A single state is a one-element set: is(VD, S) asks for exactly
   // {S}, has(VD, S) for {S} plus at least one more. None is the empty set.
+  // Null is the one exception: it is a *must* fact, so a merge intersects it
+  // rather than unioning it (see OwnershipImpl::merge).
   enum Status : unsigned char {
     None = 0x0,
     Uninitialized = 0x1,
@@ -437,7 +439,10 @@ public:
 
     // The flow state of the tracked field paths of one variable: the may-set
     // of possible states of each path. A cell whose set empties out is erased,
-    // so an entry always holds a non-empty set.
+    // so an entry always holds a non-empty set. The ownership components are
+    // may facts unioned at a CFG merge; the Null component is a must fact
+    // intersected there, so a cell absent on either incoming path counts as
+    // not-proved-null (see OwnershipImpl::merge).
     using CellMap = llvm::DenseMap<const bsc::Place *, OwnershipSet>;
 
     // Everything tracked about one variable. The static schema of its owned

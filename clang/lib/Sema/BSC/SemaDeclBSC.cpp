@@ -1012,6 +1012,19 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       ExprIntoDest(Dest, SNTTP->getReplacement());
       return;
     }
+    case Stmt::GenericSelectionExprClass: {
+      // The value of a generic selection is its selected association
+      // expression (C11 6.5.1.1): lower that into the destination, like a
+      // transparent wrapper. A result-dependent (error) selection has no
+      // selected expression, so it cannot be lowered.
+      GenericSelectionExpr *GSE = cast<GenericSelectionExpr>(E);
+      if (GSE->isResultDependent()) {
+        PushAssignOrExpr(Dest, GSE);
+        return;
+      }
+      ExprIntoDest(Dest, GSE->getResultExpr());
+      return;
+    }
     case Stmt::StmtExprClass: {
       StmtExpr *SE = cast<StmtExpr>(E);
       StmtResult Res =

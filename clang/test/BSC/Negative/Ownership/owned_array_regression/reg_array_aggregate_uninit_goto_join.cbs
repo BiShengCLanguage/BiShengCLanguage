@@ -1,0 +1,23 @@
+// RUN: %clang_cc1 -verify %s
+
+// A goto that jumps over an owned-element array's declaration leaves the
+// aggregate possibly uninitialized at the join: the fallthrough path
+// null-initializes it while the goto path still carries the entry-seeded
+// Uninitialized state, so the merged state is {Uninitialized, Null} rather
+// than exactly Uninitialized. Reading an element across that join is a use of
+// a possibly-uninitialized value. The scalar sibling (checkBOPUse) has both
+// the exact and the possibly arms; the array-aggregate consumers must too.
+//
+// The element is checked with a null test rather than a dereference so the
+// test stays inside the non-null contract (the element is `_Nullable`, so
+// `*a[0]` would itself be a nullability violation); the read is the same.
+int read(int argc) {
+  if (argc)
+    goto L;
+  int *_Owned _Nullable a[2] = {};
+L:
+  ;
+  if (a[0] != nullptr) // expected-error {{use of uninitialized value: 'a'}}
+    return 1;
+  return 0;
+}

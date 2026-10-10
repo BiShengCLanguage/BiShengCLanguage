@@ -1,0 +1,37 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void abort(void);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  if (!p) abort();
+  *p = value;
+  return __take_from_raw(p);
+}
+
+void safe_free(void *_Owned _Nullable p) { free(__move_to_raw(p)); }
+
+struct S {
+  int *_Owned _Nullable a;
+  int *_Owned _Nullable b;
+};
+
+struct W { struct S arr[2]; };
+
+// A struct-element array that is itself a *field* of a host struct. Field `a`
+// is null in every element, so the `arr[].a` aggregate owns nothing and may be
+// assigned inside a qualifying for-loop -- the mirror of the local-array case
+// the same init tracking already accepts. Without the per-field nulling the
+// whole field aggregate stays owned and the assignment is a false positive.
+void host_struct_array_all_null_field(void) {
+  struct W w = {{{nullptr, safe_malloc(1)}, {nullptr, safe_malloc(2)}}};
+  for (int i = 0; i < 2; i++)
+    w.arr[i].a = safe_malloc(10 + i);
+  for (int i = 0; i < 2; i++) {
+    safe_free((void *_Owned _Nullable)w.arr[i].a);
+    safe_free((void *_Owned _Nullable)w.arr[i].b);
+  }
+}

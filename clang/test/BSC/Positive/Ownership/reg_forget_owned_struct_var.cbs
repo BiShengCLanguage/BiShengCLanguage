@@ -1,0 +1,38 @@
+// RUN: %clang_cc1 -verify -fbsc-experimental %s
+// expected-no-diagnostics
+
+void *malloc(unsigned long size);
+void abort(void);
+void free(void *ptr);
+
+T *_Owned safe_malloc<T>(T value) {
+  T *p = (T *)malloc(sizeof(T));
+  if (!p) abort();
+  *p = value;
+  return __take_from_raw(p);
+}
+
+_Safe void safe_free(void *_Owned _Nullable p);
+
+_Owned struct Payload {
+_Public:
+  int *_Owned _Nullable p;
+  int v;
+  ~Payload(This this) { safe_free((void *_Owned _Nullable)this.p); }
+};
+
+Payload make(int v) {
+  Payload r = {0, v};
+  r.p = safe_malloc(4);
+  *r.p = v;
+  return r;
+}
+
+// Manual 3.1.5 rule 4: forgetting a struct recursively forgets its owned
+// fields and mandates no diagnostic afterwards. The handler must consume the
+// *variable*, not only stamp its fields moved, or the scope-end
+// partially-moved gate condemns the manual-blessed pattern.
+void forget_struct_var(void) {
+  Payload t = make(1);
+  _Unsafe { __forget(t); }
+}

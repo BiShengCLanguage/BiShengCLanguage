@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// GNU `x ?: y` reuses the common value as an OpaqueValueExpr. The null-source
+// predicate isExprRefToNullOwnedVar must peek through that placeholder (its
+// sibling visitor VisitBinaryConditionalOperator already does) so a both-arms
+// must-be-null GNU conditional propagates Null like the plain ternary: the
+// destination owns nothing, so no leak is reported at scope end.
+
+void bincond_both_null(void) {
+  int *_Owned _Nullable p = 0;
+  int *_Owned _Nullable q = 0;
+  int *_Owned _Nullable r = p ?: q;
+  (void)r;
+}
+
+void bincond_chain(void) {
+  int *_Owned _Nullable p = 0;
+  int *_Owned _Nullable q = p ?: p;
+  int *_Owned _Nullable r = q ?: p;
+  (void)r;
+}
