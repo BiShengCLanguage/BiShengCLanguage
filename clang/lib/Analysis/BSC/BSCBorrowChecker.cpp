@@ -1201,6 +1201,7 @@ public:
       return BuildVar(cast<DeclRefExpr>(E));
     // Values without an addressable storage location have no place.
     case Stmt::CharacterLiteralClass:
+    case Stmt::CXXBoolLiteralExprClass:
     case Stmt::CXXNullPtrLiteralExprClass:
     case Stmt::FloatingLiteralClass:
     case Stmt::ImplicitValueInitExprClass:

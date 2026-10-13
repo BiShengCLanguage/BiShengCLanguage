@@ -1098,6 +1098,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       return;
     }
     case Stmt::CharacterLiteralClass:
+    case Stmt::CXXBoolLiteralExprClass:
     case Stmt::CXXNullPtrLiteralExprClass:
     case Stmt::DeclRefExprClass:
     case Stmt::FloatingLiteralClass:
@@ -1132,6 +1133,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
 
   ExprResult AsOperand(Expr *E) {
     switch (E->getStmtClass()) {
+    case Stmt::CXXBoolLiteralExprClass:
     case Stmt::CXXNullPtrLiteralExprClass:
     case Stmt::ImplicitValueInitExprClass:
     case Stmt::IntegerLiteralClass:

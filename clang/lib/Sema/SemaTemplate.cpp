@@ -1444,7 +1444,7 @@ QualType Sema::CheckNonTypeTemplateParameterType(QualType T,
 #if ENABLE_BSC
   if (getLangOpts().BSC &&
       (T->isPointerType() || T->isEnumeralType() ||
-       T->isBooleanType() || T->isArrayType() || T->isFunctionType())) {
+       T->isArrayType() || T->isFunctionType())) {
     Diag(Loc, diag::err_template_nontype_parm_bad_type) << T;
     return QualType();
   }

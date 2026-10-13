@@ -34,9 +34,6 @@ typedef enum E EA;
 // An alias must not hide an enum parameter type.
 struct U<EA N> {};             // expected-error {{a non-type template parameter cannot have type 'EA'}}
 
-void fn1<char C>(void);
-void fn2<_Bool B>(void);       // expected-error {{a non-type template parameter cannot have type '_Bool'}}
-
 void fn3<int V[2]>(void);     // expected-error {{a non-type template parameter cannot have type 'int[2]'}}
 typedef int Arr[2];
 void fn4<Arr N>(void);         // expected-error {{a non-type template parameter cannot have type 'Arr'}}

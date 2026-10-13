@@ -1,0 +1,52 @@
+// RUN: %clang -fbsc-experimental %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+#include <stdbool.h>
+
+// Returning a substituted boolean normalizes it into a destination.
+bool fn<bool N>(int *_Borrow p) {
+    return N;
+}
+
+// Conditions normalize the substituted boolean as an operand.
+void fn1<_Bool N>(int *_Borrow p) {
+    if (N)
+        *p = 1;
+    else
+        *p = 2;
+}
+
+// Struct constants also reach the prologue through method instantiation.
+struct S<_Bool N> {
+    int a;
+};
+
+int struct S<_Bool N>::get(This *this, int *_Borrow p) {
+    return N ? this->a : *p;
+}
+
+int main() {
+    int v = 0;
+    if (!fn<true>(&_Mut v))
+        return 1;
+    if (fn<false>(&_Mut v))
+        return 2;
+
+    fn1<true>(&_Mut v);
+    if (v != 1)
+        return 3;
+    fn1<false>(&_Mut v);
+    if (v != 2)
+        return 4;
+
+    struct S<true> s = {.a = 3};
+    struct S<false> t = {.a = 4};
+    if (s.get(&_Mut v) != 3)
+        return 5;
+    if (t.get(&_Mut v) != 2)
+        return 6;
+    return 0;
+}
