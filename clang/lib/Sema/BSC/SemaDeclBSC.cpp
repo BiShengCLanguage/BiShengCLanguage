@@ -561,8 +561,16 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
     }
   }
 
-  // CFG-based analyses (nullability, borrow check)
+  // CFG-based analyses (nullability, ownership, borrow check)
   if (RequireCFGAnalysis && FD && AC.getCFG()) {
+    // In exhaustive mode every analysis still runs even after an earlier one
+    // reported errors: the three analyses are independent (they share only the
+    // read-only CFG and exchange no state), so gating the later ones on the
+    // earlier ones' errors would only hide diagnostics. Default mode keeps the
+    // original cascade to avoid piling noise onto an already-broken function.
+    const bool Exhaustive =
+        getLangOpts().getBSCDiag() == LangOptions::BSCDiagExhaustive;
+
     // Step one: Run NullabilityCheck
     unsigned NumNullabilityCheckErrorsInCurrFD = 0;
     if (RequireNullabilityCheck) {
@@ -574,15 +582,16 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
           NullabilityCheckReporter.getNumErrors();
 
     }
-    // Step two: Run ownership analysis when there is no nullability errors in
-    // current function.
-    if (RequireBorrowCheck && !NumNullabilityCheckErrorsInCurrFD) {
+    // Step two: Run ownership analysis. Default mode runs it only when there
+    // are no nullability errors in the current function.
+    if (RequireBorrowCheck &&
+        (Exhaustive || !NumNullabilityCheckErrorsInCurrFD)) {
       OwnershipDiagReporter OwnershipReporter(*this);
       runOwnershipAnalysis(*FD, *AC.getCFG(), AC, OwnershipReporter, Context);
       OwnershipReporter.flushDiagnostics();
-      // Step three: Run borrow checker when there is no other ownership errors and
-      // nullability in current function.
-      if (!OwnershipReporter.getNumErrors()) {
+      // Step three: Run borrow checker. Default mode runs it only when there
+      // are no ownership errors either.
+      if (Exhaustive || !OwnershipReporter.getNumErrors()) {
         BSCBorrowChecker(const_cast<FunctionDecl *>(FD));
       }
     }
@@ -804,8 +813,45 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       return;
     }
     case Stmt::BinaryConditionalOperatorClass: {
+      // GNU `x ?: y` is `x ? x : y` with `x` evaluated exactly once. Normalize
+      // it like the three-operand form: materialize the common expression into
+      // a temporary, then turn the whole thing into an if/else over the result
+      // temporary. Passing the operator through verbatim would leave nested
+      // calls (e.g. in the false branch) un-normalized, and the borrow
+      // checker's place-builder cannot handle them.
       BinaryConditionalOperator *BCO = cast<BinaryConditionalOperator>(E);
-      PushAssignOrExpr(Dest, BCO);
+      VarDecl *CondVD = NewTempVar(BCO->getCommon()->getType());
+      ExprIntoDest(CreateTempRef(CondVD, BCO->getBeginLoc(), false),
+                   BCO->getCommon());
+      VarDecl *TempVD = Dest ? NewTempVar(BCO->getType()) : nullptr;
+
+      auto BuildBranch = [&](Expr *Branch) {
+        llvm::SaveAndRestore<StmtVector> StmtsRestore(Stmts, StmtVector());
+        Expr *BranchDest = nullptr;
+        if (TempVD)
+          BranchDest = CreateTempRef(TempVD, Branch->getBeginLoc(), false);
+        ExprIntoDest(BranchDest, Branch);
+        return CompoundStmt::Create(SemaRef.Context, Stmts, FPOptionsOverride(),
+                                    Branch->getBeginLoc(), Branch->getEndLoc());
+      };
+
+      // True branch reuses the materialized common value; the reference is a
+      // fresh node each time because AST nodes cannot be shared between uses.
+      CompoundStmt *TrueCS =
+          BuildBranch(CreateTempRef(CondVD, BCO->getBeginLoc(), true));
+      CompoundStmt *FalseCS = BuildBranch(BCO->getFalseExpr());
+
+      Expr *Cond = CreateTempRef(CondVD, BCO->getExprLoc(), true);
+      IfStmt *IS = IfStmt::Create(
+          SemaRef.Context, SourceLocation(), IfStatementKind::Ordinary,
+          nullptr, nullptr, Cond, SourceLocation(), SourceLocation(),
+          TrueCS, SourceLocation(), FalseCS);
+      Stmts.push_back(IS);
+
+      if (Dest) {
+        Expr *Result = CreateTempRef(TempVD, BCO->getExprLoc(), true);
+        PushAssignOrExpr(Dest, Result);
+      }
       return;
     }
     case Stmt::BinaryOperatorClass: {

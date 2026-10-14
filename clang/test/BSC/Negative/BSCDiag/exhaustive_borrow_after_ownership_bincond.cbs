@@ -1,0 +1,18 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
+
+// In exhaustive mode the borrow checker runs even after the ownership analysis
+// reported an error. It must tolerate the GNU `?:` (BinaryConditionalOperator):
+// the borrow-checker prologue normalizes it into a conditional over a
+// temporary, so the nested call in the false branch never reaches the
+// place-builder un-normalized (which used to trip
+// llvm_unreachable("unexpected expression for place")).
+
+int *_Owned mk(void);
+void safe_free(void *_Owned p);
+
+void bincond_after_ownership_error(void) {
+  int *_Owned q = mk();
+  int *_Owned p = q ?: __take_from_raw((int *)0);
+  safe_free((void *_Owned)p);
+  safe_free((void *_Owned)q); // expected-error {{cannot cast 'q' to 'void * _Owned' because it was moved}}
+}

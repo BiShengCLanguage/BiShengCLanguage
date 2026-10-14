@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -verify %s
+
+// In exhaustive mode the ownership analysis runs even after the nullability
+// check reported an error. It must not assert on a field path whose root
+// variable is untracked: here the path goes `w->d->in` through the raw pointer
+// field `d` under a `_Borrow` parameter, a hop the analyzer deliberately does
+// not follow, so there is no ownership state to drop.
+
+struct Inner { int *_Owned _Nullable p; };
+struct InnerE { struct Inner in; };
+struct OuterRaw { struct InnerE *d; };
+
+void borrow_through_raw_ptr_field(struct OuterRaw *_Borrow w) {
+  _Unsafe { __assume_null(w->d->in); } // expected-error {{cannot access the member through possibly-null status pointer 'd'}}
+}

@@ -1,0 +1,34 @@
+// RUN: %clang_cc1 -nullability-check=all -verify %s
+
+// Default mode keeps the original cascade: within a function, an error from one
+// analysis stops the later analyses. (The TU-global gate keeps running while
+// every error seen so far came from BSC analyses, so the second function here
+// is still analyzed.)
+
+void *malloc(unsigned long);
+int *_Owned make_owned(void);
+void sink(int *_Owned p);
+
+// The nullability error stops the ownership analysis: the second sink() is NOT
+// reported.
+void nullability_stops_ownership(void) {
+  int *q = (int *)malloc(sizeof(int));
+  *q = 1; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+  int *_Owned p = make_owned();
+  sink(p);
+  sink(p);
+}
+
+// The ownership error stops the borrow checker: the mutable-borrow use is NOT
+// reported.
+void ownership_stops_borrow(void) {
+  int local = 42;
+  int *_Borrow p = &_Mut local;
+  int *_Borrow q = p;
+  p = q;
+  int t = *q;
+  (void)t;
+  int *_Owned o = make_owned();
+  sink(o);
+  sink(o); // expected-error {{use of moved value: 'o'}}
+}

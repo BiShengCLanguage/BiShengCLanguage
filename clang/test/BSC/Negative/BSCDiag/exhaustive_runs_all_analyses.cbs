@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -nullability-check=all -verify %s
+
+// In exhaustive mode a later BSC analysis must still run -- and report -- after
+// an earlier analysis reported an error in the same function. The analyses
+// share only the read-only CFG and exchange no state, so an earlier diagnostic
+// does not invalidate a later analysis's input.
+
+void *malloc(unsigned long);
+int *_Owned make_owned(void);
+void sink(int *_Owned p);
+
+// Nullability error, then an ownership error: both must be reported.
+void nullability_then_ownership(void) {
+  int *q = (int *)malloc(sizeof(int));
+  *q = 1; // expected-error {{cannot dereference possibly-null status pointer 'q'}}
+  int *_Owned p = make_owned();
+  sink(p);
+  sink(p); // expected-error {{use of moved value: 'p'}}
+}
+
+// Ownership error, then a borrow-checker error: both must be reported.
+void ownership_then_borrow(void) {
+  int local = 42;
+  int *_Borrow p = &_Mut local;
+  int *_Borrow q = p;
+  p = q; // expected-note {{'*q' is borrowed here}}
+  int t = *q; // expected-error {{cannot use '*q' because it was mutably borrowed}}
+  (void)t;
+  int *_Owned o = make_owned();
+  sink(o);
+  sink(o); // expected-error {{use of moved value: 'o'}}
+}

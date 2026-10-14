@@ -1462,7 +1462,12 @@ void Ownership::OwnershipStatus::applyExplicitDrop(Status S, const Expr *E,
       // reaches it only via __assume_null. Pointer-typed members fall through
       // to the single-field drop below.
       if (E->getType()->isRecordType()) {
-        dropFields(S, VD, fieldDescendants(allFields(VD), FieldPlace));
+        // getMemberFieldPlace resolves the root variable of the path but does
+        // not check that it is tracked; a path through an untracked root (e.g.
+        // a raw-pointer hop under a borrow, which the analyzer deliberately
+        // does not follow) has no ownership state to drop.
+        if (isTracked(VD))
+          dropFields(S, VD, fieldDescendants(allFields(VD), FieldPlace));
         return;
       }
       if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::S))
@@ -1496,8 +1501,9 @@ void Ownership::OwnershipStatus::applyExplicitDrop(Status S, const Expr *E,
           FieldKey FieldPlace = getMemberFieldPlace(ME, Ctx);
           if (FieldPlace) {
             const VarDecl *HostVD = FieldPlace->getRoot();
-            dropFields(S, HostVD,
-                       fieldDescendants(allFields(HostVD), FieldPlace));
+            if (isTracked(HostVD))
+              dropFields(S, HostVD,
+                         fieldDescendants(allFields(HostVD), FieldPlace));
           }
         }
       }
