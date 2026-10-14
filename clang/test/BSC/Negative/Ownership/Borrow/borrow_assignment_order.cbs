@@ -1,0 +1,19 @@
+// RUN: %clang_cc1 -verify %s
+
+struct S { int x; };
+void use(struct S *_Borrow p);
+
+// A borrow used after the assignment must still conflict with its destination.
+void plain_live_borrow(void) {
+  struct S s = {1};
+  struct S *_Borrow p = &_Mut s; // expected-note {{first mut borrow occurs here}}
+  (&_Mut s)->x = p->x; // expected-error {{cannot borrow 's' as mutable more than once at a time}}
+  use(p);
+}
+
+void compound_live_borrow(void) {
+  struct S s = {1};
+  struct S *_Borrow p = &_Mut s; // expected-note {{first mut borrow occurs here}}
+  int result = ((&_Mut s)->x += p->x); // expected-error {{cannot borrow 's' as mutable more than once at a time}}
+  use(p);
+}

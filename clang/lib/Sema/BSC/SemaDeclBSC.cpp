@@ -819,12 +819,11 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
       }
 
       if (BO->getOpcode() == BO_Assign) {
-        ExprResult LHS = AsPlace(BO->getLHS());
-
         // A discarded assignment only performs the write; its result does not
         // need to be forwarded through a temporary.
         if (!Dest) {
           ExprResult RHS = AsOperand(BO->getRHS());
+          ExprResult LHS = AsPlace(BO->getLHS());
           PushAssignOrExpr(LHS.get(), RHS.get());
           return;
         }
@@ -834,6 +833,7 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
         VarDecl *TempVD = NewTempVar(BO->getType());
         Expr *LValue = CreateTempRef(TempVD, BO->getBeginLoc(), false);
         ExprIntoDest(LValue, BO->getRHS());
+        ExprResult LHS = AsPlace(BO->getLHS());
 
         Expr *LHSRValue =
             CreateTempRef(TempVD, BO->getBeginLoc(), true);
@@ -884,8 +884,8 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
     }
     case Stmt::CompoundAssignOperatorClass: {
       CompoundAssignOperator *CAO = cast<CompoundAssignOperator>(E);
-      ExprResult LHS = AsPlace(CAO->getLHS());
       ExprResult RHS = AsOperand(CAO->getRHS());
+      ExprResult LHS = AsPlace(CAO->getLHS());
 
       // Lower compound assignment to `Tmp = LHS op RHS; LHS = Tmp` and
       // forward Tmp into Dest only when the enclosing expression consumes the
