@@ -1106,12 +1106,19 @@ class PlaceBuilder {
   }
 
   const Place *BuildField(const MemberExpr *ME) {
-    const FieldDecl *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
-
-    const Place *Base = ME->isArrow()
-                            ? BuildDeref(ME->getBase(), ME->getOperatorLoc())
-                            : Build(ME->getBase());
-    return BuildField(Base, FD, ME->getMemberLoc());
+    if (const auto *VD = dyn_cast<VarDecl>(ME->getMemberDecl())) {
+      return BuildVar(VD, ME->getType(), ME->getMemberLoc());
+    }
+    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+      const Place *Base = ME->isArrow()
+                              ? BuildDeref(ME->getBase(), ME->getOperatorLoc())
+                              : Build(ME->getBase());
+      return BuildField(Base, FD, ME->getMemberLoc());
+    }
+    if (const auto *FD = dyn_cast<FunctionDecl>(ME->getMemberDecl())) {
+      return BuildVar(FD, ME->getType(), ME->getMemberLoc());
+    }
+    return nullptr;
   }
 
   const Place *BuildIndex(const ArraySubscriptExpr *ASE) {
@@ -1552,7 +1559,8 @@ public:
   }
 
   void VisitMemberExpr(const MemberExpr *ME) {
-    Sources.push_back(PB.Build(ME));
+    if (const Place *P = PB.Build(ME))
+      Sources.push_back(P);
   }
 
   void VisitOffsetOfExpr(const OffsetOfExpr *OOE) { (void)OOE; }

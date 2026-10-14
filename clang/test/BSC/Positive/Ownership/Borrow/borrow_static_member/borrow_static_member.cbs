@@ -1,0 +1,52 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang -fbsc-experimental %s -o %t
+// RUN: %t
+// expected-no-diagnostics
+
+_Owned struct W {
+_Public:
+  static int st;
+  static int values[2];
+  int x;
+};
+int W::st;
+int W::values[2];
+
+int sink(int value) { return value; }
+
+void read_member(W *_Borrow w) {
+  sink(w->st);
+  sink(w->x);
+}
+
+void access_member(W *_Borrow w) {
+  w->st = 1;
+  w->st += 2;
+  int *_Borrow p = &_Mut w->st;
+  *p = 4;
+  sink(*p);
+  const int *_Borrow q = &_Const w->st;
+  sink(*q);
+  w->values[0] = 5;
+  sink(w->values[0]);
+  (*w).st = 6;
+  sink((*w).st);
+}
+
+int calls;
+W *_Borrow get_w(W *_Borrow w) {
+  calls++;
+  return w;
+}
+
+int main(void) {
+  W w = {};
+  access_member(&_Mut w);
+  read_member(&_Mut w);
+  // The base must be evaluated exactly once, even for a static member.
+  int value = get_w(&_Mut w)->st;
+  get_w(&_Mut w)->st = value + 1;
+  get_w(&_Mut w)->st += 1;
+  int result = calls != 3 || W::st != 8 || W::values[0] != 5;
+  return result;
+}

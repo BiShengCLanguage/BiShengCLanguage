@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+// RUN: %clang -fbsc-experimental %s -o %t
+// RUN: %t
+// expected-no-diagnostics
+
+_Owned struct W {
+_Public:
+  enum E { K = 3 } e;
+  int f(This *_Borrow this) { return 7; }
+};
+
+int check(W *_Borrow w) {
+  // An enumerator supplies a value without a source storage place.
+  int value = w->K;
+  int values[2] = {w->K, (*w).K};
+  // Taking a method's address retains a MemberExpr outside a direct call.
+  int (*fp)(W *_Borrow) = w->f;
+  int result = fp(w);
+  return value != 3 || values[0] != 3 || values[1] != 3 || result != 7;
+}
+
+int main(void) {
+  W w = {};
+  return check(&_Mut w);
+}

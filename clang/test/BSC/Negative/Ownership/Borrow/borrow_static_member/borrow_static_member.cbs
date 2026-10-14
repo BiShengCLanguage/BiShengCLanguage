@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+
+_Owned struct W {
+_Public:
+  static int st;
+  int x;
+};
+int W::st;
+void use(int *_Borrow p);
+
+// Different base objects still designate the same static storage.
+void different_objects(W *_Borrow a, W *_Borrow b) {
+  int *_Borrow p = &_Mut a->st; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow q = &_Mut b->st; // expected-error {{cannot borrow 'st' as mutable more than once at a time}}
+  use(p);
+  use(q);
+}
+
+// Qualified and object-based access must have the same place identity.
+void qualified_access(W *_Borrow a) {
+  int *_Borrow p = &_Mut a->st; // expected-note {{first mut borrow occurs here}}
+  int *_Borrow q = &_Mut W::st; // expected-error {{cannot borrow 'st' as mutable more than once at a time}}
+  use(p);
+  use(q);
+}
