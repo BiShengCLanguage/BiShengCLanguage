@@ -260,7 +260,7 @@ static Expr *getCompoundLiteralInitElem(Expr *Base, Expr *IndexE,
     llvm::APInt V = ER.Val.getInt();
     if (V.isNegative())
       return nullptr;
-    Idx = (unsigned)V.getLimitedValue();
+    Idx = static_cast<unsigned>(V.getLimitedValue());
   }
   if (Idx >= ILE->getNumInits()) {
     // Omitted array elements are implicitly zero-initialized; Sema materializes
@@ -856,7 +856,8 @@ void TransferFunctions::CheckInit(Stmt *CheckSite, VarDecl *VD, QualType QT,
       }
       // check implicitly zero-initialized trailing elements
       if (auto *CAT = dyn_cast<ConstantArrayType>(AT)) {
-        unsigned ArraySize = (unsigned)CAT->getSize().getZExtValue();
+        unsigned ArraySize =
+            static_cast<unsigned>(CAT->getSize().getZExtValue());
         if (NumInits < ArraySize) {
           Place newPath = path ? PB.BuildIndex(
                                      path, ElemTy,

@@ -342,7 +342,7 @@ static int CheckCallAssignmentConstraints(Sema &S, FunctionDecl *FD,
       continue;
 
     if (!S.DoPointerTypesSatisfyAssignmentConstraints(ParamType, ArgType))
-      return (int)I;
+      return static_cast<int>(I);
   }
   return CallMatch_OK;
 }
@@ -358,11 +358,11 @@ void Sema::noteMixedModeCallCandidates(FunctionDecl *FD,
     if (R == CallMatch_ArgCount) {
       Diag(RFD->getLocation(),
            diag::note_bsc_mixed_mode_candidate_arg_count)
-          << (unsigned)ArgExprs.size() << RFD->getNumParams();
+          << static_cast<unsigned>(ArgExprs.size()) << RFD->getNumParams();
     } else if (R >= 0) {
       Diag(RFD->getLocation(),
            diag::note_bsc_mixed_mode_candidate_arg_mismatch)
-          << (unsigned)(R + 1) << ArgExprs[R]->getType()
+          << static_cast<unsigned>(R + 1) << ArgExprs[R]->getType()
           << RFD->getParamDecl(R)->getType();
     } else {
       Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate)

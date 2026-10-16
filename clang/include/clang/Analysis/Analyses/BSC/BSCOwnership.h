@@ -476,6 +476,7 @@ public:
       // (ownedFields() -> fieldsInState()) needs -- so every other caller has
       // to use the view as a temporary expression.
       FieldStateView(const FieldStateView &) = default;
+      FieldStateView &operator=(const FieldStateView &) = delete;
       friend class OwnershipStatus;
 
       // The materialized set of fields in State, built once and reused by

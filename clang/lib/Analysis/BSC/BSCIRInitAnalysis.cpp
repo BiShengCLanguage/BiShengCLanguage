@@ -54,7 +54,8 @@ static bool foldConstOperand(const Operand &Op, int64_t &Out) {
     const llvm::APSInt &I = Op.getConstVal().getInt();
     if (I.isUnsigned() ? I.getActiveBits() > 63 : I.getSignificantBits() > 64)
       return false;
-    Out = I.isUnsigned() ? (int64_t)I.getZExtValue() : I.getSExtValue();
+    Out = I.isUnsigned() ? static_cast<int64_t>(I.getZExtValue())
+                         : I.getSExtValue();
     return true;
   }
   return false;
@@ -577,10 +578,11 @@ int64_t InitAnalysis::convertedTo(int64_t V, QualType Ty) const {
   unsigned Width = B.SourceFD->getASTContext().getIntWidth(Ty);
   if (Width == 0 || Width >= 64)
     return V;
-  llvm::APInt Converted = llvm::APInt(64, (uint64_t)V).trunc(Width);
+  llvm::APInt Converted =
+      llvm::APInt(64, static_cast<uint64_t>(V)).trunc(Width);
   return Ty->isSignedIntegerOrEnumerationType()
              ? Converted.getSExtValue()
-             : (int64_t)Converted.getZExtValue();
+             : static_cast<int64_t>(Converted.getZExtValue());
 }
 
 int64_t InitAnalysis::asReturnedValue(int64_t V) const {

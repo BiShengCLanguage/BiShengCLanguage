@@ -140,13 +140,15 @@ private:
                        const VarDecl *Root) const {
     switch (K) {
     case Kind::Var:
-      return llvm::hash_combine((unsigned)K, (const void *)Root);
+      return llvm::hash_combine(static_cast<unsigned>(K),
+                                static_cast<const void *>(Root));
     case Kind::Field:
     case Kind::Index:
-      return llvm::hash_combine((unsigned)K, Name,
+      return llvm::hash_combine(static_cast<unsigned>(K), Name,
                                 Base ? Base->Hash : NullBaseSeed);
     case Kind::Deref:
-      return llvm::hash_combine((unsigned)K, Base ? Base->Hash : NullBaseSeed);
+      return llvm::hash_combine(static_cast<unsigned>(K),
+                                Base ? Base->Hash : NullBaseSeed);
     }
     llvm_unreachable("unknown place kind");
   }
@@ -294,7 +296,7 @@ template <> struct DenseMapInfo<const clang::bsc::Place *> {
   static unsigned getHashValue(Ptr P) {
     return P == getEmptyKey() || P == getTombstoneKey()
                ? 0
-               : (unsigned)P->hash();
+               : static_cast<unsigned>(P->hash());
   }
 
   static bool isEqual(Ptr A, Ptr B) {
