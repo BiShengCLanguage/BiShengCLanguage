@@ -1210,15 +1210,25 @@ void Ownership::OwnershipStatus::assumeFieldsNull(const VarDecl *VD,
   }
 }
 
-void Ownership::OwnershipStatus::dropBOPDerefField(const VarDecl *RootVD,
+void Ownership::OwnershipStatus::dropBOPDerefField(Status S,
+                                                   const VarDecl *RootVD,
                                                    FieldKey DerefPlace) {
   if (!isHost(RootVD, HostKind::BOP))
     return;
   if (!allFields(RootVD).count(DerefPlace))
     return;
+  // The Null family (__assume_null) asserts the cell null: record it so a later
+  // read of the cell is a null check, not a use-after-move. The Moved family
+  // (__forget) abandons it instead.
+  const bool ToNull = S == Ownership::Status::Null;
   ownedFields(RootVD).erase(DerefPlace);
-  for (FieldKey Str : derefDescendants(allFields(RootVD), DerefPlace))
+  if (ToNull)
+    nullFields(RootVD).insert(DerefPlace);
+  for (FieldKey Str : derefDescendants(allFields(RootVD), DerefPlace)) {
     ownedFields(RootVD).erase(Str);
+    if (ToNull)
+      nullFields(RootVD).insert(Str);
+  }
   if (allFields(RootVD).size() != ownedFields(RootVD).size()) {
     if (!is(RootVD, Moved)) {
       resetAll(RootVD);
@@ -1437,7 +1447,7 @@ void Ownership::OwnershipStatus::applyExplicitDrop(Status S, const Expr *E,
         if (PointeeTy->isRecordType())
           dropFields(S, RootVD, allFields(RootVD));
       }
-      dropBOPDerefField(RootVD, Chain.Place);
+      dropBOPDerefField(S, RootVD, Chain.Place);
     }
     // Deref of an owned struct-pointer field (*h->sp, *t.sp): drop the
     // pointee's owned fields (the field descendants of the member place on the
@@ -2491,7 +2501,8 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPFieldUse(
   // variable itself (the empty key) was never tested.
   for (const bsc::Place *A = fullFieldName->getBase();
        A && A->getKind() != bsc::Place::Kind::Var; A = A->getBase()) {
-    if (allFields(VD).count(A) && !ownedFields(VD).count(A)) {
+    if (allFields(VD).count(A) && !ownedFields(VD).count(A) &&
+        !nullFields(VD).count(A)) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfMoved,
           placeToKeyString(fullFieldName) + VD->getNameAsString()));
@@ -2519,14 +2530,18 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPFieldUse(
 
   // if the field is owned qualified, check the field and its child
   if (allFields(VD).count(fullFieldName)) {
-    // if fullFieldName has been moved, report error
-    if (!ownedFields(VD).count(fullFieldName) && diags.empty()) {
+    // if fullFieldName has been moved, report error. A cell dropped via
+    // __assume_null (it left the Owned set and gained Null) is null/handled,
+    // not moved.
+    if (!ownedFields(VD).count(fullFieldName) &&
+        !nullFields(VD).count(fullFieldName) && diags.empty()) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfMoved,
           placeToKeyString(fullFieldName) + VD->getNameAsString()));
     }
     // calculate the fields with fullFieldName prefix: the historical bare
-    // prefix query includes the key itself plus everything below it.
+    // prefix query includes the key itself plus everything below it. A
+    // sub-cell dropped via __assume_null must not count as partially moved.
     FieldSet allPrefixStrs =
         strictDescendants(allFields(VD), fullFieldName);
     allPrefixStrs.insert(fullFieldName);
@@ -2534,6 +2549,12 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkBOPFieldUse(
         strictDescendants(ownedFields(VD), fullFieldName);
     if (ownedFields(VD).count(fullFieldName))
       ownedPrefixStrs.insert(fullFieldName);
+    FieldSet nullPrefixStrs =
+        strictDescendants(nullFields(VD), fullFieldName);
+    if (nullFields(VD).count(fullFieldName))
+      nullPrefixStrs.insert(fullFieldName);
+    for (FieldKey P : nullPrefixStrs)
+      ownedPrefixStrs.insert(P);
     if (allPrefixStrs.size() != ownedPrefixStrs.size() && diags.empty()) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidUseOfPartiallyMoved,
@@ -2788,14 +2809,16 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
   }
 
   if (isHost(VD, HostKind::BOP)) {
-    if (!ownedFields(VD).count(fullFieldName) && diags.empty()) {
+    // A cell dropped via __assume_null is null/handled, not moved — the same
+    // exclusion the OPS and S arms above make with !nullFields(VD).count(...).
+    if (!ownedFields(VD).count(fullFieldName) &&
+        !nullFields(VD).count(fullFieldName) && diags.empty()) {
       OwnershipDiagKind Kind = isOrHas(VD, Uninitialized)
                                    ? InvalidCastUninit
                                    : InvalidCastMoved;
       diags.push_back(OwnershipDiagInfo(
           Loc, Kind,
-          moveAsterisksToFront(VD->getNameAsString() + "." +
-                               placeToKeyString(fullFieldName))));
+          placeToKeyString(fullFieldName) + VD->getNameAsString()));
     }
     // Check for deeper-level owned fields (e.g., when freeing **, check if *** exists)
     FieldSet ownedPrefixStrs =
@@ -2803,8 +2826,7 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkCastField(
     if (!ownedPrefixStrs.empty() && diags.empty()) {
       diags.push_back(OwnershipDiagInfo(
           Loc, OwnershipDiagKind::InvalidCastFieldOwned,
-          moveAsterisksToFront(VD->getNameAsString() + "." +
-                               placeToKeyString(fullFieldName)),
+          placeToKeyString(fullFieldName) + VD->getNameAsString(),
           concatFields(VD, ownedPrefixStrs)));
     }
     ownedFields(VD).erase(fullFieldName);

@@ -1,0 +1,59 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// __assume_null on the deref cell of a pointer-to-owned-pointer
+// (`int *_Owned _Nullable *_Owned pp`) asserts the cell null and gives up the
+// ownership it held. The drop must record the cell as assumed-null — like the
+// whole-variable and the OPS/S field forms do — so a later read of the cell
+// (the null check the manual mandates) is not mistaken for a use-after-move.
+
+int *_Owned _Nullable *_Owned make_pp(void);
+int *_Owned _Nullable make_int(void);
+void safe_free(void *_Owned p);
+
+// The assumed-null cell is read by its null check and freed under it.
+void assume_null_deref_cell(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  if (*pp != nullptr) {
+    safe_free((void *_Owned)*pp);
+  }
+  safe_free((void *_Owned)pp);
+}
+
+// Reading the assumed-null cell from a condition is only a null check.
+void assume_null_deref_cell_read_only(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  safe_free((void *_Owned)pp);
+}
+
+// A bare cast of the assumed-null cell follows the same rule.
+void assume_null_deref_cell_cast(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  safe_free((void *_Owned)*pp);
+  safe_free((void *_Owned)pp);
+}
+
+// Re-acquiring the cell after the assertion stays a plain assignment: the
+// assumed-null cell is not "moved", so it may be reassigned and freed.
+void assume_null_deref_cell_reassign(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  *pp = make_int();
+  safe_free((void *_Owned)*pp);
+  safe_free((void *_Owned)pp);
+}
+
+// Deeper deref levels: an asserted-null ancestor cell is not a moved ancestor,
+// so walking the deref chain of a deeper cell must not report a move either.
+// (Whether the program may dereference the asserted-null cell at all is the
+// nullability checker's business, not this analysis'.)
+int *_Owned _Nullable *_Owned _Nullable *_Owned make_ppp(void);
+
+void assume_null_nested_deref_cell(void) {
+  int *_Owned _Nullable *_Owned _Nullable *_Owned ppp = make_ppp();
+  __assume_null(*ppp);
+  safe_free((void *_Owned)ppp);
+}

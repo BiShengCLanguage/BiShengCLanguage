@@ -794,8 +794,11 @@ public:
     void applyExplicitDrop(Status S, const Expr *E, ASTContext &Ctx);
     // __assume_null(*q) / __forget(*q) on a pointer-to-owned-pointer
     // (int *_Owned *q): drop the inner owned pointer tracked as the Deref field
-    // of a BOP host, then refresh its aggregate root state.
-    void dropBOPDerefField(const VarDecl *RootVD, const bsc::Place *DerefPlace);
+    // of a BOP host, then refresh its aggregate root state. S distinguishes the
+    // two families: the Null family records the dropped cells as assumed-null,
+    // so a later read of the cell is a null check rather than a use-after-move.
+    void dropBOPDerefField(Status S, const VarDecl *RootVD,
+                           const bsc::Place *DerefPlace);
     std::string collectMovedFields(const VarDecl *VD);
   };
 };

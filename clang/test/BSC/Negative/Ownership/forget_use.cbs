@@ -241,3 +241,16 @@ void test_use_after_forget_deref_paren(void) {
   sink_field(s->p); // expected-error {{use of moved value: 's.p'}}
   safe_free((void *_Owned)s);
 }
+
+// __forget on the deref cell of a pointer-to-owned-pointer
+// (`int *_Owned _Nullable *_Owned pp`) forgets the cell: the Moved family, not
+// the Null family __assume_null uses, so using the cell afterwards is a
+// use-after-move. The cell is spelled `*pp` (not `*pp.`).
+int *_Owned _Nullable *_Owned make_pp(void);
+
+void test_use_after_forget_bop_deref_cell(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  _Unsafe { __forget(*pp); }
+  safe_free((void *_Owned)*pp); // expected-error {{cannot cast '*pp' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)pp);
+}
