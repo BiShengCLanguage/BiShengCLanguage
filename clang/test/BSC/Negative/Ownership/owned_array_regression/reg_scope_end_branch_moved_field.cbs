@@ -22,3 +22,18 @@ void probe(_Bool c) {
     safe_free((void *_Owned)q);
   }
 } // expected-error {{partially moved _Owned struct: 's' at scope end}}
+
+// A whole-object __forget on the other branch does not excuse the field
+// move-out: on the branch that only moved the field out the destructor still
+// runs over it. The whole-object forget contributes no field stamp of its own
+// (its root Moved bit is the whole signal), so the surviving stamp is the
+// genuine one.
+void probe_forget_on_other_branch(_Bool c) {
+  S s = {.p = safe_malloc(42)};
+  if (c) {
+    _Unsafe { __forget(s); }
+  } else {
+    int *_Owned q = s.p;
+    safe_free((void *_Owned)q);
+  }
+} // expected-error {{partially moved _Owned struct: 's' at scope end}}

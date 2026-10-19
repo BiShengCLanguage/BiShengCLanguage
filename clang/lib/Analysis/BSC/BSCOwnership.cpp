@@ -1346,6 +1346,16 @@ void Ownership::OwnershipStatus::applyExplicitDrop(Status S, const Expr *E,
       if (!ToNull) {
         resetAll(VD);
         set(VD, Ownership::Status::Moved);
+        // The root Moved bit is the whole-object signal: it flag-guards the
+        // injected destructor off and makes every later field use report
+        // use-of-moved on its own. The per-field moved stamps the drop just
+        // wrote carry the different claim "a field of this object was moved on
+        // some path", which the scope-end gate condemns because such a path
+        // would still run the destructor over the moved-out field. A
+        // whole-object __forget on one branch of an if is not that shape: the
+        // destructor is guarded off on the forget branch, so the stamp must
+        // not survive as a may-union over the join.
+        movedFields(VD).clear();
       }
       return;
     }

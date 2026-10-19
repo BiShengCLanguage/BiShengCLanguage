@@ -36,3 +36,16 @@ void forget_struct_var(void) {
   Payload t = make(1);
   _Unsafe { __forget(t); }
 }
+
+// The same forget on one branch of an if. The root Moved bit is a may fact at
+// the join (Moved|Owned) and the destructor stays guarded off on the forget
+// branch, so the object must not be condemned. What must NOT survive the join
+// is the per-field moved stamp the drop writes: that stamp claims "a field of
+// this object was moved on some path", the shape of the neighbouring negative
+// test (a field moved out on one branch, destructor still running there).
+void forget_struct_var_one_branch(_Bool c) {
+  Payload t = make(1);
+  if (c) {
+    _Unsafe { __forget(t); }
+  }
+}
