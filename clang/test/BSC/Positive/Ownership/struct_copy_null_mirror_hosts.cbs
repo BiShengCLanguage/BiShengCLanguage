@@ -1,0 +1,95 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// A struct-value copy carries the source's must-be-null fields, so a field that
+// owns nothing in the source owns nothing in the destination either. The mirror
+// must work for an owned-struct-pointer host on either side, and the copied
+// sub-object must be spelled the way the host's schema spells it: a pointer
+// host's schema is rooted directly at the variable, so `sp->o` is
+// Field(Var(sp), "o") and `*sp` — the whole pointee — is Var(sp). The paths
+// that Build would spell with an explicit Deref level (Deref(Var(sp)) as the
+// base of `sp->o`, and `*sp` itself) would never compare equal to those keys.
+
+T *_Owned safe_malloc<T>(T value);
+void safe_free(void *_Owned p);
+
+struct Inner { int *_Owned _Nullable p; };
+struct Outer { struct Inner o; };
+
+// --- Destination on an owned-struct-pointer host ---------------------------
+
+void ops_dest_field(void) {
+  struct Outer *_Owned sp = safe_malloc((struct Outer){});
+  __assume_null(sp->o.p);
+  struct Inner a = {};
+  sp->o = a;
+  safe_free((void *_Owned)sp);
+}
+
+// The same through the explicit-deref spelling of the destination.
+void ops_dest_paren(void) {
+  struct Outer *_Owned sp = safe_malloc((struct Outer){});
+  __assume_null((*sp).o.p);
+  struct Inner a = {};
+  (*sp).o = a;
+  safe_free((void *_Owned)sp);
+}
+
+// A nested destination path.
+struct Mid { struct Inner in; };
+struct Top { struct Mid m; };
+
+void ops_dest_nested(void) {
+  struct Top *_Owned tp = safe_malloc((struct Top){});
+  __assume_null(tp->m.in.p);
+  struct Inner a = {};
+  tp->m.in = a;
+  safe_free((void *_Owned)tp);
+}
+
+// --- Source on an owned-struct-pointer host --------------------------------
+
+// `struct W b = *sp;` — the source place is the whole pointee.
+struct W { int *_Owned _Nullable p; };
+
+void ops_src_deref_init(void) {
+  struct W w = {0};
+  struct W *_Owned sp = __take_from_raw(&w);
+  __assume_null(*sp);
+  struct W b = *sp;
+  __forget(sp);
+}
+
+// The assignment form of the same, where the source state is captured before
+// the assignment consumes the source.
+void ops_src_deref_assign(void) {
+  struct Inner *_Owned ip = safe_malloc((struct Inner){});
+  __assume_null(ip->p);
+  struct Inner b = {};
+  b = *ip;
+  safe_free((void *_Owned)ip);
+}
+
+// A member source on an owned-struct-pointer host.
+void ops_src_member(void) {
+  struct Outer *_Owned sp = safe_malloc((struct Outer){});
+  __assume_null(sp->o.p);
+  struct Inner b = sp->o;
+  safe_free((void *_Owned)sp);
+}
+
+// --- Struct-value twins (unchanged) ----------------------------------------
+
+void s_dest_field(void) {
+  struct Outer sp = {};
+  __assume_null(sp.o.p);
+  struct Inner a = {};
+  sp.o = a;
+  safe_free((void *_Owned)sp.o.p);
+}
+
+void s_src_init(void) {
+  struct Inner a = {};
+  struct Inner b = a;
+  safe_free((void *_Owned)b.p);
+}

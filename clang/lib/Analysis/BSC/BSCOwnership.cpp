@@ -507,6 +507,24 @@ static FieldKey getMemberFieldPlace(const MemberExpr *ME, ASTContext &Ctx) {
   return Place;
 }
 
+// The host-relative place of an lvalue expression, i.e. the spelling the host's
+// static schema (allFields(VD)) is built in. PlaceBuilder::Build spells a
+// pointer host's pointee with an explicit Deref level — `*sp` is Deref(Var(sp))
+// and the base of `sp->o` is Deref(Var(sp)) — while the schema is rooted
+// directly at the variable: `*sp`, the whole pointee, IS Var(sp), and `sp->o`
+// is Field(Var(sp), "o"). A walk that compares places against the schema (the
+// struct-copy null mirror) must therefore resolve through PeelHostAndFieldPlace
+// rather than Build, or Deref-anchored spellings of one cell never match their
+// key. Build is kept as the fallback for the shapes PeelHostAndFieldPlace
+// rejects (call results, cast bases, ...).
+static const bsc::Place *BuildHostRelativePlace(ASTContext &Ctx, const Expr *E) {
+  bsc::PlaceBuilder PB(Ctx);
+  const bsc::Place *Path = nullptr;
+  if (PeelHostAndFieldPlace(PB, E, Path))
+    return Path;
+  return PB.Build(E);
+}
+
 // A `*`-chain expression peeled down to its root variable. Place is the
 // outermost Deref projection over it (**q is Deref(Deref(Var(q))), the
 // historical "suffix" of trailing '*' markers), null when the base is not a
@@ -4041,7 +4059,7 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
     const bsc::Place *SrcPlace = nullptr;
     FieldSet SrcMustNull;
     if (LHSType->isRecordType()) {
-      SrcPlace = bsc::PlaceBuilder(OS.ctx).Build(RHS);
+      SrcPlace = BuildHostRelativePlace(OS.ctx, RHS);
       if (const VarDecl *SrcVD = SrcPlace ? SrcPlace->getRoot() : nullptr)
         SrcMustNull = mustNullFields(SrcVD);
     }
@@ -4061,9 +4079,10 @@ void TransferFunctions::VisitBinaryOperator(BinaryOperator *BO) {
       stat.setToAllMoved(LHS, OS.ctx);
     } else if (LHSType->isRecordType()) {
       // `b = a;`: the same field-level mirror as the declaration form, from
-      // the source state captured before the move.
-      bsc::PlaceBuilder PB(OS.ctx);
-      const bsc::Place *DstPlace = PB.Build(LHS);
+      // the source state captured before the move. The destination may be a
+      // sub-object of an owned struct pointer (`sp->o = a`), whose schema
+      // spelling is host-relative: resolve it the same way.
+      const bsc::Place *DstPlace = BuildHostRelativePlace(OS.ctx, LHS);
       if (DstPlace && DstPlace->getRoot())
         mirrorNullFieldsFromStructValue(DstPlace->getRoot(), DstPlace,
                                         SrcPlace, SrcMustNull);
@@ -4439,8 +4458,10 @@ void TransferFunctions::mirrorNullFieldsFromStructValue(
     const bsc::Place *SrcPlace, const FieldSet &SrcMustNull) {
   if (!DstPlace || !SrcPlace || SrcMustNull.empty())
     return;
-  if (!stat.isHost(DstVD, HostKind::S))
-    return;
+  // Both the struct-value (S) and the owned-struct-pointer (OPS) destination
+  // carry per-field state, and both spell the copied sub-object the same way on
+  // the schema (`sp->o` is Field(Var(sp), "o")), so the mirror applies to
+  // either. A BOP host never holds a record, so it cannot reach this path.
   // Walk the destination's tracked paths (the source may track paths the
   // destination does not, and vice versa; a shape mismatch leaves the
   // destination conservatively owned).
@@ -4457,7 +4478,7 @@ void TransferFunctions::mirrorNullFieldsFromStructValue(
 
 void TransferFunctions::mirrorNullFieldsFromStructValue(
     const VarDecl *DstVD, const bsc::Place *DstPlace, const Expr *Src) {
-  const bsc::Place *SrcPlace = bsc::PlaceBuilder(OS.ctx).Build(Src);
+  const bsc::Place *SrcPlace = BuildHostRelativePlace(OS.ctx, Src);
   const VarDecl *SrcVD = SrcPlace ? SrcPlace->getRoot() : nullptr;
   if (!SrcVD)
     return;

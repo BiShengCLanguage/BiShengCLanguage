@@ -51,3 +51,35 @@ void assign_maybe_null_field_leaks(int c) {
   struct S b = {};
   b = a;
 } // expected-error {{memory leak because b.p is not freed or moved before 'b' goes out of scope}}
+
+// An owned-struct-pointer destination (`sp->o = a`) receives the same mirror:
+// only the source's *must*-be-null fields are copied as null. A field that
+// genuinely owns a value in the source is duplicated by the copy, so the
+// destination still owns it and the pointer cannot be released.
+void free(void *ptr);
+
+void safe_free(void *_Owned p) { free(__move_to_raw(p)); }
+
+struct InnerO { int *_Owned _Nullable p; };
+struct OuterO { struct InnerO o; };
+
+void ops_copy_owned_field_leaks(void) {
+  struct OuterO *_Owned sp =
+      __take_from_raw((struct OuterO *)malloc(sizeof(struct OuterO)));
+  __assume_null(sp->o.p);
+  struct InnerO a = {};
+  a.p = __take_from_raw((int *)malloc(4));
+  sp->o = a;
+  safe_free((void *_Owned)sp); // expected-error {{cannot cast 'sp' to 'void * _Owned': sp.o.p is still _Owned; move it out first}}
+}
+
+void ops_copy_maybe_null_field_leaks(int c) {
+  struct OuterO *_Owned sp =
+      __take_from_raw((struct OuterO *)malloc(sizeof(struct OuterO)));
+  __assume_null(sp->o.p);
+  struct InnerO a = {};
+  if (c)
+    a.p = __take_from_raw((int *)malloc(4));
+  sp->o = a;
+  safe_free((void *_Owned)sp); // expected-error {{cannot cast 'sp' to 'void * _Owned': sp.o.p is still _Owned; move it out first}}
+}
