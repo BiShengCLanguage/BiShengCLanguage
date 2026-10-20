@@ -2421,6 +2421,13 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
         return ExprError();
       }
     } else if (ArgTy->isStructureType()) {
+      // The scan below needs the field list. An incomplete record has none, so
+      // it would pass the _Nonnull check and warn "no _Nullable pointer field"
+      // — both verdicts then depending on where the definition sits relative to
+      // the call.
+      if (RequireCompleteType(TheCall->getBeginLoc(), ArgTy,
+                              diag::err_incomplete_type))
+        return ExprError();
       const RecordType *RT = ArgTy->getAs<RecordType>();
       if (RT->hasNonnullFields()) {
         Diag(ArgE->getBeginLoc(), diag::err_assume_null_nonnull_field);

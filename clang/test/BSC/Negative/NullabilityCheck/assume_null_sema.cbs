@@ -112,6 +112,30 @@ _Safe void test_deref_nonnull_array_elem_struct(struct HasNonnullArrElem *_Owned
   _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
 }
 
+// === Incomplete records ===
+// The scan needs the field list, and an incomplete record has none: without a
+// completeness requirement the _Nonnull rejection and the "no _Nullable pointer
+// field" warning would both hinge on where the definition sits relative to the
+// call — the definition-after call would be accepted (and mis-warned) while the
+// definition-before call is rejected.
+
+struct IncBefore; // expected-note {{forward declaration of 'struct IncBefore'}}
+_Safe void test_incomplete_before_def(struct IncBefore *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{incomplete type 'struct IncBefore' where a complete type is required}}
+}
+struct IncBefore { int *_Nonnull p; };
+
+struct IncNever; // expected-note {{forward declaration of 'struct IncNever'}}
+_Safe void test_incomplete_never_defined(struct IncNever *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{incomplete type 'struct IncNever' where a complete type is required}}
+}
+
+// The definition-first order still rejects for the field it contains.
+struct IncAfter { int *_Nonnull q; };
+_Safe void test_complete_before_def(struct IncAfter *_Owned s) {
+  _Unsafe { __assume_null(*s); } // expected-error {{__assume_null is invalid because the struct contains a _Nonnull field}} expected-note {{a _Nonnull field cannot be assumed null}}
+}
+
 // An array of _Nullable pointers-to-struct: the _Nonnull field inside the
 // pointee is reachable only through the (separately allocated) pointee, so
 // the call is NOT rejected for that. The array's elements are _Nullable
