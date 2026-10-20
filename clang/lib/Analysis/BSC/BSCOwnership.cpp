@@ -711,6 +711,19 @@ static bool IsCastFromVoidPointer(Expr *E) {
   return false;
 }
 
+// Whether erasing a value of type \p T to `void * _Owned` (freeing it as void)
+// would drop owned content. The value's own pointer level is traversed — it is
+// the value being erased — but nothing below it: reachability through a
+// pointer pointee is a separate allocation, which the value does not own, so a
+// raw pointer field is not owned content of its struct. A null pointer
+// constant (`(void * _Owned)nullptr`) reaches here as a non-pointer type and
+// owns nothing.
+static bool ErasedTypeHasOwned(QualType T) {
+  if (!T->isPointerType())
+    return false;
+  return T->getPointeeType().isOrContainsOwned(BSCLookThrough::NoPointer);
+}
+
 //===----------------------------------------------------------------------===//
 // Operations and queries on OwnershipStatus.
 //===----------------------------------------------------------------------===//
@@ -4136,8 +4149,7 @@ void TransferFunctions::VisitCallExpr(CallExpr *CE) {
 
   for (auto it = CE->arg_begin(), ei = CE->arg_end(); it != ei; ++it) {
     Expr *Arg = *it;
-    if (IsCastFromVoidPointer(Arg) &&
-        Arg->getType()->containsOwned(BSCLookThrough::AnyPointer)) {
+    if (IsCastFromVoidPointer(Arg) && ErasedTypeHasOwned(Arg->getType())) {
       SmallVector<OwnershipDiagInfo> diags;
       diags.push_back(OwnershipDiagInfo(Arg->getExprLoc(),
                                         OwnershipDiagKind::PassCastToArgOrRet,
@@ -4349,7 +4361,7 @@ void TransferFunctions::VisitCStyleCastExpr(CStyleCastExpr *CSCE) {
     // @code
     // (void * owned)mkNested()
     // @endcode
-    else if (InnerE->getType()->containsOwned(BSCLookThrough::AnyPointer)) {
+    else if (ErasedTypeHasOwned(InnerE->getType())) {
       QualType InnerTy = InnerE->getType();
       SmallVector<OwnershipDiagInfo> diags;
       diags.push_back(OwnershipDiagInfo(
@@ -4634,8 +4646,7 @@ void TransferFunctions::VisitInitListExpr(InitListExpr *ILE) {
 
 void TransferFunctions::VisitReturnStmt(ReturnStmt *RS) {
   if (Expr *RV = RS->getRetValue()) {
-    if (IsCastFromVoidPointer(RV) &&
-        RV->getType()->containsOwned(BSCLookThrough::AnyPointer)) {
+    if (IsCastFromVoidPointer(RV) && ErasedTypeHasOwned(RV->getType())) {
       SmallVector<OwnershipDiagInfo> diags;
       diags.push_back(OwnershipDiagInfo(RV->getExprLoc(),
                                         OwnershipDiagKind::PassCastToArgOrRet,

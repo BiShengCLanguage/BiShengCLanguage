@@ -71,3 +71,24 @@ void test_struct_field_freed(void) {
   safe_free((void *_Owned)s->data);
   safe_free((void *_Owned)(0, s)); // expected-warning {{left operand of comma operator has no effect}}
 }
+
+// The pointee owns nothing: its only field is a *raw* pointer whose own pointee
+// is owned, so the `_Owned` sits one pointer level below the field and the
+// struct is not an owned container. Erasing it is fine — a reachability walk
+// that followed the raw pointer level reported a false "still _Owned".
+struct RawSlot {
+  int **_Owned *slot;
+};
+
+struct RawSlotHolder {
+  struct RawSlot *inner;
+};
+
+void test_raw_ptr_to_owned_field_rvalue(struct RawSlotHolder *_Borrow o) {
+  safe_free((void *_Owned)__take_from_raw(o->inner));
+}
+
+void test_raw_ptr_to_owned_field_var(void) {
+  struct RawSlot *_Owned s = safe_malloc((struct RawSlot){0});
+  safe_free((void *_Owned)s);
+}

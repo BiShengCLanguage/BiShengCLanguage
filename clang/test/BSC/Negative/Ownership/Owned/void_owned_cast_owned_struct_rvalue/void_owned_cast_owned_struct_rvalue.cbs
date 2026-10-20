@@ -1,0 +1,19 @@
+// RUN: %clang_cc1 -fbsc-experimental -verify %s
+
+_Safe T* _Owned safe_malloc<T>(T);
+_Safe void free_owned(void* _Owned);
+
+_Owned struct Box {
+_Public:
+    int value;
+};
+
+_Safe Box* _Owned mkBox(void);
+
+// Erasing an owned pointer whose direct pointee is an _Owned struct skips that
+// struct's destructor, so it is rejected even though `Box` has no owned
+// *fields*: the pointee itself is owned content, exactly as when the struct is
+// held by value.
+_Safe void test_rvalue(void) {
+    free_owned((void* _Owned)mkBox()); // expected-error {{cannot cast '_Owned struct Box *_Owned' to 'void * _Owned': _Owned struct Box is still _Owned; move it out first}}
+}
