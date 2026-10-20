@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -nullability-check=all -verify %s
+// RUN: %clang_cc1 -nullability-check=all -verify -Wno-unused-value %s
 // expected-no-diagnostics
 
 int negated_eq(int *_Nullable p) {
@@ -17,4 +17,28 @@ int plain_ne(int *_Nullable p) {
   if (p != nullptr)
     return *p;
   return 0;
+}
+
+// The same negation carried by a comma (C11 6.5.17: `(..., e)` ≡ `e`). The
+// top-level `!` is peeled by NullCheckInfo::init, but the extractor's comma /
+// assignment carriers recurse into sub-expressions that peel never reaches, so
+// the flip has to happen inside the extractor as well.
+int negated_eq_under_comma(int flag, int *_Nullable p) {
+  if (flag, !(p == nullptr))
+    return *p;
+  return 0;
+}
+
+// Doubled negation under a comma cancels out.
+int double_negation_under_comma(int flag, int *_Nullable p) {
+  if (flag, !!(!(p == nullptr)))
+    return *p;
+  return 0;
+}
+
+// The negated form of the null test still means "null" on its true edge.
+int negated_ne_under_comma_means_null(int flag, int *_Nullable p) {
+  if (flag, !(p != nullptr))
+    return 0;
+  return *p;
 }

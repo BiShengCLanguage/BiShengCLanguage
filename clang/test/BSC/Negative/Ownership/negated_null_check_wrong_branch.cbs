@@ -1,0 +1,28 @@
+// RUN: %clang_cc1 -verify %s
+
+// The mirror image of Positive/Ownership/negated_null_check_release.cbs: now
+// that the negated check IS understood, the opposite edge holds a live value,
+// and assigning over it must still be rejected. These are the cases the fix
+// must not swallow.
+
+int *_Owned make_int(void);
+
+void negated_eq_true_edge_is_nonnull(int flag) {
+  int *_Owned p = make_int();
+  if (flag, !(p == nullptr)) { // expected-warning {{left operand of comma operator has no effect}}
+    p = make_int(); // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
+  } else {
+    _Unsafe { __forget(p); }
+  }
+  _Unsafe { __forget(p); }
+}
+
+void negated_ne_false_edge_is_nonnull(int flag) {
+  int *_Owned p = make_int();
+  if (flag, !(p != nullptr)) { // expected-warning {{left operand of comma operator has no effect}}
+    _Unsafe { __forget(p); }
+  } else {
+    p = make_int(); // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
+  }
+  _Unsafe { __forget(p); }
+}

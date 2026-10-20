@@ -158,6 +158,18 @@ const Expr *extractDistinguishedTrackablePtr(const Expr *Cond, ASTContext &Ctx,
       return PtrExpr;
     }
   }
+  // `!(e)` flips e's distinguished null-ness. NullCheckInfo::init peels a
+  // top-level `!`, but the comma / assignment carriers below recurse into
+  // sub-expressions that peel never reaches, so the flip has to happen here too.
+  if (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
+    if (UO->getOpcode() == UO_LNot) {
+      const Expr *PtrExpr =
+          extractDistinguishedTrackablePtr(UO->getSubExpr(), Ctx, NullNess);
+      if (PtrExpr)
+        NullNess = !NullNess;
+      return PtrExpr;
+    }
+  }
   if (const auto *BO = dyn_cast<BinaryOperator>(Cond)) {
     // comma expression's condition value is RHS, keep extracting from RHS.
     // for example: if (flag1, flag2, p) { p is present }

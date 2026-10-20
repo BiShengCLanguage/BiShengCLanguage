@@ -1,0 +1,41 @@
+// RUN: %clang_cc1 -verify -Wno-unused-value %s
+// expected-no-diagnostics
+
+// A negated null check reaches the ownership analysis through the extractor's
+// comma / assignment carriers, so the branch can re-take the pointer it proved
+// null: assigning over a _Owned pointer that holds nothing is not a leak.
+// `!(p != nullptr)` and `!(p)` both mean "p is null" on the true edge.
+
+int *_Owned make_int(void);
+
+void comma_negated_ne(int flag) {
+  int *_Owned p = make_int();
+  if (flag, !(p != nullptr)) {
+    p = make_int();
+  } else {
+    _Unsafe { __forget(p); }
+  }
+  _Unsafe { __forget(p); }
+}
+
+void comma_bare_not(int flag) {
+  int *_Owned p = make_int();
+  if (flag, !(p)) {
+    p = make_int();
+  } else {
+    _Unsafe { __forget(p); }
+  }
+  _Unsafe { __forget(p); }
+}
+
+// The negation under a logical operator keeps working (that path goes through
+// NullCheckInfo::init, which already peeled `!`).
+void negated_under_logical_and(int flag) {
+  int *_Owned p = make_int();
+  if (flag && (flag, !(p != nullptr))) {
+    p = make_int();
+  } else {
+    _Unsafe { __forget(p); }
+  }
+  _Unsafe { __forget(p); }
+}
