@@ -1815,13 +1815,18 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkOPSUse(
       // Such fields are null/handled, not moved, so moving the struct pointer
       // is safe; only report AllMoved when some field is neither owned nor
       // assumed-null.
+      // A GetAddr read (comparison, logical, address-of context) neither
+      // transfers ownership nor touches the shell's fields, so it is safe
+      // whatever dropped them; the __move_to_raw/__forget move-out idiom "null
+      // check the shell, then safe_free it" relies on this. Only ownership
+      // consumption of the hollow shell is rejected here.
       bool allFieldsAssumedNull = !allFields(VD).empty();
       for (FieldKey f : allFields(VD))
         if (!nullFields(VD).count(f)) {
           allFieldsAssumedNull = false;
           break;
         }
-      if (!allFieldsAssumedNull)
+      if (!allFieldsAssumedNull && !isGetAddr)
         diags.push_back(
             OwnershipDiagInfo(Loc, OwnershipDiagKind::InvalidUseOfAllMoved,
                               VD->getNameAsString(), collectMovedFields(VD)));

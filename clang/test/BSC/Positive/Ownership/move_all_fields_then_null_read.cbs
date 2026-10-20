@@ -1,0 +1,37 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Regression: after every _Owned field of an _Owned struct pointer was moved
+// out with __move_to_raw, the host is AllMoved. A pure read of the pointer
+// value (comparison / null check, visited with GetAddr) neither transfers
+// ownership nor touches the shell's fields, so it must be accepted --
+// matching __forget, whose explicit-drop path never flips the host aggregate
+// bit. "Move the fields out, null-check the shell, free the shell" is the
+// standard hand-written-destructor idiom. Consuming the hollow shell's
+// ownership elsewhere (passing it to a function, returning it) is still
+// rejected (see Negative/Ownership/RuleCheck/void_owned_cast_to_T_owned).
+
+T *_Owned safe_malloc<T>(T value);
+void safe_free(void *_Owned p);
+
+struct S {
+  int *_Owned _Nullable p;
+};
+
+void move_all_fields_then_null_read(struct S *_Owned _Nullable s) {
+  void *tmp = __move_to_raw(s->p);
+  (void)tmp;
+  if (nullptr != (s)) {
+    safe_free((void *_Owned)s);
+    s = nullptr;
+  }
+}
+
+// The __forget twin: same shape, same verdict.
+void forget_all_fields_then_null_read(struct S *_Owned _Nullable s) {
+  __forget(s->p);
+  if (nullptr != (s)) {
+    safe_free((void *_Owned)s);
+    s = nullptr;
+  }
+}
