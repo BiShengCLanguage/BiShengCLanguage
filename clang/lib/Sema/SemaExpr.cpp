@@ -14817,8 +14817,9 @@ static bool IsBehindConstBorrow(const Expr *E) {
     return CheckPointerProjection(ASE->getBase());
 
   if (const CastExpr *CE = dyn_cast<CastExpr>(E)) {
-    if (CE->getType().isBorrowPointer())
-      return IsBehindConstBorrow(CE->getSubExpr());
+    if (CE->getType().isBorrowPointer()) {
+      return CheckPointerProjection(CE->getSubExpr());
+    }
   }
 
   if (const StmtExpr *SE = dyn_cast<StmtExpr>(E)) {
@@ -14835,8 +14836,10 @@ static bool IsBehindConstBorrow(const Expr *E) {
     if (BO->getOpcode() == BO_Comma)
       return IsBehindConstBorrow(BO->getRHS());
     if (BO->isAdditiveOp() && BO->getType().isBorrowPointer()) {
-      return IsBehindConstBorrow(BO->getLHS()) ||
-             IsBehindConstBorrow(BO->getRHS());
+      const Expr *Pointer = BO->getLHS()->getType()->isPointerType()
+                                ? BO->getLHS()
+                                : BO->getRHS();
+      return CheckPointerProjection(Pointer);
     }
   } else if (const BinaryConditionalOperator *BCO =
                  dyn_cast<BinaryConditionalOperator>(E)) {

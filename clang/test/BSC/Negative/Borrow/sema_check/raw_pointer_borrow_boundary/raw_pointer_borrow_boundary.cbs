@@ -1,0 +1,30 @@
+// RUN: %clang_cc1 -verify %s
+
+void reject_borrow_of_raw_pointer_slot(int *const *_Borrow p) {
+  // The raw pointer object itself is still behind the immutable borrow.
+  (void)&_Mut *p; // expected-error {{expression cannot be mutably borrowed because it is behind an immutable borrow}}
+}
+
+void reject_borrow_without_raw_pointer(int *_Borrow const *_Borrow p) {
+  (void)&_Mut **p; // expected-error {{expression cannot be mutably borrowed because it is behind an immutable borrow}}
+}
+
+void reject_borrow_of_const_pointee(const int *const *_Borrow p) {
+  // Crossing a raw pointer does not remove the pointee's own const qualifier.
+  (void)&_Mut **p; // expected-error {{the expression after '&_Mut' must be modifiable}}
+}
+
+struct RawPointerMember {
+  int *m;
+};
+
+struct BorrowedInner {
+  struct RawPointerMember *_Borrow inner;
+};
+
+void reject_raw_member_access(const struct BorrowedInner *_Borrow p,
+                              int *replacement) {
+  // Accessing the pointer member itself does not cross a raw-pointer boundary.
+  p->inner->m = replacement; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  (void)&_Mut p->inner->m; // expected-error {{expression cannot be mutably borrowed because it is behind an immutable borrow}}
+}

@@ -1,0 +1,46 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+void test(int *const *_Borrow p) {
+  int *_Borrow q = &_Mut **p;
+  (void)q;
+}
+
+void borrow_parenthesized_raw_dereference(int *const *_Borrow p) {
+  int *_Borrow q = &_Mut (**p);
+  (void)q;
+}
+
+void borrow_raw_subscript(int *const *_Borrow p) {
+  int *_Borrow q = &_Mut (*p)[0];
+  (void)q;
+}
+
+struct RawPointerMember {
+  int *m;
+};
+
+void borrow_raw_member(const struct RawPointerMember *_Borrow p) {
+  int *_Borrow q = &_Mut *(p->m);
+  (void)q;
+}
+
+void reborrow_cast_raw_member(const struct RawPointerMember *_Borrow p) {
+  int *_Borrow q =
+      ((void)1, _Unsafe((int *_Borrow _ArrayElem)(int *)p->m));
+  (void)q;
+}
+
+void reborrow_raw_member(const struct RawPointerMember *_Borrow p) {
+  // Reading m already yields a raw pointer; no explicit raw cast is needed.
+  int *_Borrow q = ((void)1, _Unsafe((int *_Borrow _ArrayElem)p->m));
+  (void)q;
+}
+
+struct BorrowedInner {
+  struct RawPointerMember *_Borrow inner;
+};
+
+void write_through_raw_member(const struct BorrowedInner *_Borrow p) {
+  *p->inner->m = 1;
+}

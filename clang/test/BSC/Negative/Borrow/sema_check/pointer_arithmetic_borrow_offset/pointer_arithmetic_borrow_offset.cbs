@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -verify %s
+
+struct PointerAndOffset {
+  int *_Borrow _ArrayElem pointer;
+  int offset;
+};
+
+void reject_writes(const struct PointerAndOffset *_Borrow p) {
+  // The pointer operand's own access path must still be checked.
+  *(p->pointer + 1) = 1; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *(1 + p->pointer) = 2; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+  *(p->pointer - 1) = 3; // expected-error {{expression is not assignable because it is behind an immutable borrow}}
+}
+
+void reject_reborrows(const struct PointerAndOffset *_Borrow p) {
+  int *_Borrow _ArrayElem add = p->pointer + p->offset; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  int *_Borrow _ArrayElem reversed = p->offset + p->pointer; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  int *_Borrow _ArrayElem subtract = p->pointer - p->offset; // expected-error {{expression cannot be mutably reborrowed because it is behind an immutable borrow}}
+  (void)add;
+  (void)reversed;
+  (void)subtract;
+}

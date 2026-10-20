@@ -1,0 +1,33 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+struct Offset {
+  int value;
+};
+
+void write_with_shared_offset(const struct Offset *_Borrow offset,
+                              int *_Borrow _ArrayElem p) {
+  // Reading the offset does not restrict access through the mutable pointer.
+  *(p + offset->value) = 1;
+  *(offset->value + p) = 2;
+  *(p - offset->value) = 3;
+  p[offset->value] = 4;
+}
+
+void reborrow_add(const struct Offset *_Borrow offset,
+                  int *_Borrow _ArrayElem p) {
+  int *_Borrow _ArrayElem q = p + offset->value;
+  (void)q;
+}
+
+void reborrow_reversed_add(const struct Offset *_Borrow offset,
+                           int *_Borrow _ArrayElem p) {
+  int *_Borrow _ArrayElem q = offset->value + p;
+  (void)q;
+}
+
+void reborrow_subtract(const struct Offset *_Borrow offset,
+                       int *_Borrow _ArrayElem p) {
+  int *_Borrow _ArrayElem q = p - offset->value;
+  (void)q;
+}
