@@ -1,0 +1,81 @@
+// RUN: %clang_cc1 -fsyntax-only -verify -x bsc %s
+// expected-no-diagnostics
+
+// fabs: exact absolute value, no errno and no floating-point exceptions.
+_Safe double fabs_double(double x) { return __builtin_fabs(x); }
+_Safe float fabs_float(float x) { return __builtin_fabsf(x); }
+_Safe long double fabs_long_double(long double x) {
+  return __builtin_fabsl(x);
+}
+_Safe _Float16 fabs_f16(_Float16 x) {
+  __fp16 h = (__fp16)x;
+  __fp16 r = __builtin_fabsf16(h);
+  return (_Float16)r;
+}
+_Safe __float128 fabs_f128(__float128 x) { return __builtin_fabsf128(x); }
+
+// copysign: exact sign copy, no errno and no floating-point exceptions.
+_Safe double copysign_double(double x, double y) {
+  return __builtin_copysign(x, y);
+}
+_Safe float copysign_float(float x, float y) {
+  return __builtin_copysignf(x, y);
+}
+_Safe long double copysign_long_double(long double x, long double y) {
+  return __builtin_copysignl(x, y);
+}
+_Safe _Float16 copysign_f16(_Float16 x, _Float16 y) {
+  __fp16 hx = (__fp16)x;
+  __fp16 hy = (__fp16)y;
+  __fp16 r = __builtin_copysignf16(hx, hy);
+  return (_Float16)r;
+}
+_Safe __float128 copysign_f128(__float128 x, __float128 y) {
+  return __builtin_copysignf128(x, y);
+}
+
+// fmin: exact minimum, no errno and no floating-point exceptions.
+_Safe double fmin_double(double x, double y) {
+  return __builtin_fmin(x, y);
+}
+_Safe float fmin_float(float x, float y) { return __builtin_fminf(x, y); }
+_Safe long double fmin_long_double(long double x, long double y) {
+  return __builtin_fminl(x, y);
+}
+_Safe _Float16 fmin_f16(_Float16 x, _Float16 y) {
+  __fp16 hx = (__fp16)x;
+  __fp16 hy = (__fp16)y;
+  __fp16 r = __builtin_fminf16(hx, hy);
+  return (_Float16)r;
+}
+_Safe __float128 fmin_f128(__float128 x, __float128 y) {
+  return __builtin_fminf128(x, y);
+}
+
+// fmax: exact maximum, no errno and no floating-point exceptions.
+_Safe double fmax_double(double x, double y) {
+  return __builtin_fmax(x, y);
+}
+_Safe float fmax_float(float x, float y) { return __builtin_fmaxf(x, y); }
+_Safe long double fmax_long_double(long double x, long double y) {
+  return __builtin_fmaxl(x, y);
+}
+_Safe _Float16 fmax_f16(_Float16 x, _Float16 y) {
+  __fp16 hx = (__fp16)x;
+  __fp16 hy = (__fp16)y;
+  __fp16 r = __builtin_fmaxf16(hx, hy);
+  return (_Float16)r;
+}
+_Safe __float128 fmax_f128(__float128 x, __float128 y) {
+  return __builtin_fmaxf128(x, y);
+}
+
+// nearbyint: rounds without raising the inexact exception.
+_Safe double nearbyint_double(double x) { return __builtin_nearbyint(x); }
+_Safe float nearbyint_float(float x) { return __builtin_nearbyintf(x); }
+_Safe long double nearbyint_long_double(long double x) {
+  return __builtin_nearbyintl(x);
+}
+_Safe __float128 nearbyint_f128(__float128 x) {
+  return __builtin_nearbyintf128(x);
+}

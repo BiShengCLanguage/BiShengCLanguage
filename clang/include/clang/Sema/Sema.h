@@ -12408,6 +12408,10 @@ public:
                      SourceLocation *InvalidLoc = nullptr) const;
   bool IsInSafeZone() const;
   bool IsInEvaluatedSafeZone() const;
+  /// Returns true if the builtin is on the whitelist of builtins that may be
+  /// called from a safe zone. The list is intentionally explicit; all other
+  /// builtins keep the default "_Unsafe call" restriction.
+  bool isSafeZoneBuiltin(unsigned BuiltinID) const;
   bool IsSafeBuiltinTypeConversion(const ASTContext &Ctx, QualType SrcType,
                                    QualType DestType);
   bool IsSafeConversion(QualType DestType, Expr *E, bool IsExplicitCast = false);

@@ -7773,7 +7773,8 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
       if (CalleeTy->isFunctionPointerType())
         CalleeTy = CalleeTy->getPointeeType();
       const auto *Proto = CalleeTy->getAs<FunctionProtoType>();
-      if (IsInEvaluatedSafeZone() && Proto && !Proto->isSafe()) {
+      if (IsInEvaluatedSafeZone() && !isSafeZoneBuiltin(BuiltinID) && Proto &&
+          !Proto->isSafe()) {
         Diag(Fn->getBeginLoc(), diag::err_unsafe_action)
             << "_Unsafe function call";
       }

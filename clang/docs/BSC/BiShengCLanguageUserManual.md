@@ -5946,7 +5946,7 @@ int main() { return 0; }
 
 ##### 3.6.4.1. 内存安全基本规则
 
-1. 安全区内被调用的函数或函数指针必须是`_Safe`的函数签名，不允许调用非安全函数或函数指针。有关同名函数重声明的调用解析，详见 [3.6.5 节](#365-函数的重声明与混合模式)。
+1. 安全区内被调用的函数或函数指针必须是`_Safe`的函数签名，不允许调用非安全函数或函数指针。有关同名函数重声明的调用解析，详见 [3.6.5 节](#365-函数的重声明与混合模式)。作为例外，不会破坏安全区约束的内置函数可以在安全区内调用，完整白名单见 [附录D](#附录d-安全区可调用的内置函数)。
 
 ```c
 _Safe void safe_foo(void) {}
@@ -10113,3 +10113,59 @@ _external-declaration :
 - [Referring to a Type with typeof](https://gcc.gnu.org/onlinedocs/gcc/Typeof.html)
 - [Conditionals with Omitted Operands](https://gcc.gnu.org/onlinedocs/gcc/Conditionals.html)
 - [Statements and Declarations in Expressions](https://gcc.gnu.org/onlinedocs/gcc/Statement-Exprs.html)
+
+### 附录D. 安全区可调用的内置函数
+
+安全区禁止调用非 `_Safe` 函数。对于不涉及内存访问、不会分配或释放内存、也不会构造或暴露地址的编译器内置函数，毕昇C编译器维护了一份白名单，白名单中的内置函数可以在安全区内直接调用。
+
+白名单只解除“被调用函数必须是 `_Safe` 函数”这一限制，内置函数的实参和返回值仍须符合安全区的其他规则。内置函数的使用者仍需保证其前置条件成立，例如 `__builtin_clz`、`__builtin_ctz` 的参数不能为 0，否则仍可能触发未定义行为。
+
+当前实现的白名单按类别说明如下。
+
+#### D.1. 分支与优化提示
+
+- `__builtin_expect`：提示编译器某个表达式的期望取值。
+- `__builtin_expect_with_probability`：带概率地提示编译器某个表达式的期望取值。
+- `__builtin_unpredictable`：提示编译器该分支或表达式的取值不可预测。
+
+#### D.2. 整数运算与位操作
+
+- `__builtin_abs`、`__builtin_labs`、`__builtin_llabs`：求整数绝对值。
+- `__builtin_bswap16`、`__builtin_bswap32`、`__builtin_bswap64`：按字节反转整数。
+- `__builtin_bitreverse8`、`__builtin_bitreverse16`、`__builtin_bitreverse32`、`__builtin_bitreverse64`：按位反转整数。
+- `__builtin_rotateleft8`、`__builtin_rotateleft16`、`__builtin_rotateleft32`、`__builtin_rotateleft64`：向左循环移位。
+- `__builtin_rotateright8`、`__builtin_rotateright16`、`__builtin_rotateright32`、`__builtin_rotateright64`：向右循环移位。
+- `__builtin_clzs`、`__builtin_clz`、`__builtin_clzl`、`__builtin_clzll`：计算前导零的个数。
+- `__builtin_ctzs`、`__builtin_ctz`、`__builtin_ctzl`、`__builtin_ctzll`：计算尾随零的个数。
+- `__builtin_ffs`、`__builtin_ffsl`、`__builtin_ffsll`：查找最低位 1 的位置。
+- `__builtin_parity`、`__builtin_parityl`、`__builtin_parityll`：计算二进制表示中 1 的个数的奇偶性。
+- `__builtin_popcount`、`__builtin_popcountl`、`__builtin_popcountll`：统计二进制表示中 1 的个数。
+- `__builtin_clrsb`、`__builtin_clrsbl`、`__builtin_clrsbll`：计算前导符号位的个数。
+
+#### D.3. 浮点分类与比较
+
+- `__builtin_isnan`、`__builtin_isinf`、`__builtin_isinf_sign`、`__builtin_isfinite`、`__builtin_isnormal`：对浮点值进行分类判断。
+- `__builtin_signbit`、`__builtin_signbitf`、`__builtin_signbitl`：判断浮点值的符号位。
+- `__builtin_fpclassify`：按调用方给出的分类值对浮点值进行分类。
+- `__builtin_isgreater`、`__builtin_isgreaterequal`、`__builtin_isless`、`__builtin_islessequal`、`__builtin_islessgreater`、`__builtin_isunordered`：对浮点值进行比较，并正确处理 NaN。
+
+#### D.4. 浮点常量
+
+- `__builtin_huge_val`、`__builtin_huge_valf`、`__builtin_huge_vall`、`__builtin_huge_valf16`、`__builtin_huge_valf128`：生成相应浮点类型的无穷大常量。
+- `__builtin_inf`、`__builtin_inff`、`__builtin_infl`、`__builtin_inff16`、`__builtin_inff128`：生成相应浮点类型的无穷大值。
+
+#### D.5. 浮点规范化
+
+- `__builtin_canonicalize`、`__builtin_canonicalizef`、`__builtin_canonicalizef16`、`__builtin_canonicalizel`：将浮点值转换为相应的规范形式。
+
+#### D.6. 纯数学函数
+
+以下函数在正常浮点输入下不会设置 `errno`，也不会触发浮点异常；它们可能由编译器降级为外部 libm 调用。
+
+- `__builtin_fabs`、`__builtin_fabsf`、`__builtin_fabsl`、`__builtin_fabsf16`、`__builtin_fabsf128`：求浮点值的绝对值。
+- `__builtin_copysign`、`__builtin_copysignf`、`__builtin_copysignf16`、`__builtin_copysignl`、`__builtin_copysignf128`：将第二个参数的符号复制到第一个参数。
+- `__builtin_fmin`、`__builtin_fminf`、`__builtin_fminf16`、`__builtin_fminl`、`__builtin_fminf128`：求两个浮点值中的较小值。
+- `__builtin_fmax`、`__builtin_fmaxf`、`__builtin_fmaxf16`、`__builtin_fmaxl`、`__builtin_fmaxf128`：求两个浮点值中的较大值。
+- `__builtin_nearbyint`、`__builtin_nearbyintf`、`__builtin_nearbyintl`、`__builtin_nearbyintf128`：按当前舍入方向取整，且不触发 inexact 异常。
+
+可能触发 `FE_INEXACT` 的 `__builtin_ceil`、`__builtin_floor`、`__builtin_trunc`、`__builtin_round`、`__builtin_rint`、`__builtin_cbrt`，以及可能设置 `errno` 或触发其他浮点异常的 `__builtin_sqrt`、`__builtin_fmod`、`__builtin_fma`、`__builtin_ldexp` 等，当前不纳入白名单。

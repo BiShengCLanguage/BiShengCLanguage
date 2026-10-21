@@ -48,6 +48,123 @@ bool Sema::IsInEvaluatedSafeZone() const {
   return IsInSafeZone() && !isUnevaluatedContext();
 }
 
+bool Sema::isSafeZoneBuiltin(unsigned BuiltinID) const {
+  // Whitelist of builtins that are safe to call from a safe zone. Add an entry
+  // only after confirming the builtin cannot violate safe-zone guarantees.
+  switch (BuiltinID) {
+  // Branch and optimization hints.
+  case Builtin::BI__builtin_expect:
+  case Builtin::BI__builtin_expect_with_probability:
+  case Builtin::BI__builtin_unpredictable:
+
+  // Integer arithmetic and bit manipulation.
+  case Builtin::BI__builtin_abs:
+  case Builtin::BI__builtin_labs:
+  case Builtin::BI__builtin_llabs:
+  case Builtin::BI__builtin_bswap16:
+  case Builtin::BI__builtin_bswap32:
+  case Builtin::BI__builtin_bswap64:
+  case Builtin::BI__builtin_bitreverse8:
+  case Builtin::BI__builtin_bitreverse16:
+  case Builtin::BI__builtin_bitreverse32:
+  case Builtin::BI__builtin_bitreverse64:
+  case Builtin::BI__builtin_rotateleft8:
+  case Builtin::BI__builtin_rotateleft16:
+  case Builtin::BI__builtin_rotateleft32:
+  case Builtin::BI__builtin_rotateleft64:
+  case Builtin::BI__builtin_rotateright8:
+  case Builtin::BI__builtin_rotateright16:
+  case Builtin::BI__builtin_rotateright32:
+  case Builtin::BI__builtin_rotateright64:
+  case Builtin::BI__builtin_clzs:
+  case Builtin::BI__builtin_clz:
+  case Builtin::BI__builtin_clzl:
+  case Builtin::BI__builtin_clzll:
+  case Builtin::BI__builtin_ctzs:
+  case Builtin::BI__builtin_ctz:
+  case Builtin::BI__builtin_ctzl:
+  case Builtin::BI__builtin_ctzll:
+  case Builtin::BI__builtin_ffs:
+  case Builtin::BI__builtin_ffsl:
+  case Builtin::BI__builtin_ffsll:
+  case Builtin::BI__builtin_parity:
+  case Builtin::BI__builtin_parityl:
+  case Builtin::BI__builtin_parityll:
+  case Builtin::BI__builtin_popcount:
+  case Builtin::BI__builtin_popcountl:
+  case Builtin::BI__builtin_popcountll:
+  case Builtin::BI__builtin_clrsb:
+  case Builtin::BI__builtin_clrsbl:
+  case Builtin::BI__builtin_clrsbll:
+
+  // Floating-point classification and comparison.
+  case Builtin::BI__builtin_isnan:
+  case Builtin::BI__builtin_isinf:
+  case Builtin::BI__builtin_isinf_sign:
+  case Builtin::BI__builtin_isfinite:
+  case Builtin::BI__builtin_isnormal:
+  case Builtin::BI__builtin_signbit:
+  case Builtin::BI__builtin_signbitf:
+  case Builtin::BI__builtin_signbitl:
+  case Builtin::BI__builtin_fpclassify:
+  case Builtin::BI__builtin_isgreater:
+  case Builtin::BI__builtin_isgreaterequal:
+  case Builtin::BI__builtin_isless:
+  case Builtin::BI__builtin_islessequal:
+  case Builtin::BI__builtin_islessgreater:
+  case Builtin::BI__builtin_isunordered:
+
+  // Floating-point constants.
+  case Builtin::BI__builtin_huge_val:
+  case Builtin::BI__builtin_huge_valf:
+  case Builtin::BI__builtin_huge_vall:
+  case Builtin::BI__builtin_huge_valf16:
+  case Builtin::BI__builtin_huge_valf128:
+  case Builtin::BI__builtin_inf:
+  case Builtin::BI__builtin_inff:
+  case Builtin::BI__builtin_infl:
+  case Builtin::BI__builtin_inff16:
+  case Builtin::BI__builtin_inff128:
+
+  // Floating-point canonicalization.
+  case Builtin::BI__builtin_canonicalize:
+  case Builtin::BI__builtin_canonicalizef:
+  case Builtin::BI__builtin_canonicalizef16:
+  case Builtin::BI__builtin_canonicalizel:
+
+  // Pure math functions that neither set errno nor raise floating-point
+  // exceptions. Functions that may raise FE_INEXACT (e.g. ceil/floor/trunc/
+  // rint) are deliberately excluded.
+  case Builtin::BI__builtin_fabs:
+  case Builtin::BI__builtin_fabsf:
+  case Builtin::BI__builtin_fabsl:
+  case Builtin::BI__builtin_fabsf16:
+  case Builtin::BI__builtin_fabsf128:
+  case Builtin::BI__builtin_copysign:
+  case Builtin::BI__builtin_copysignf:
+  case Builtin::BI__builtin_copysignf16:
+  case Builtin::BI__builtin_copysignl:
+  case Builtin::BI__builtin_copysignf128:
+  case Builtin::BI__builtin_fmin:
+  case Builtin::BI__builtin_fminf:
+  case Builtin::BI__builtin_fminf16:
+  case Builtin::BI__builtin_fminl:
+  case Builtin::BI__builtin_fminf128:
+  case Builtin::BI__builtin_fmax:
+  case Builtin::BI__builtin_fmaxf:
+  case Builtin::BI__builtin_fmaxf16:
+  case Builtin::BI__builtin_fmaxl:
+  case Builtin::BI__builtin_fmaxf128:
+  case Builtin::BI__builtin_nearbyint:
+  case Builtin::BI__builtin_nearbyintf:
+  case Builtin::BI__builtin_nearbyintl:
+  case Builtin::BI__builtin_nearbyintf128:
+    return true;
+  default:
+    return false;
+  }
+}
+
 bool Sema::IsSafeZoneIncDecVoidExpr(Expr *E) {
   if (!E || !E->getType()->isVoidType())
     return false;

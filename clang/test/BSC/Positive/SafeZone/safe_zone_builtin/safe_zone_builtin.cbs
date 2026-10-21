@@ -1,0 +1,137 @@
+// RUN: %clang_cc1 -fsyntax-only -verify -x bsc %s
+// expected-no-diagnostics
+
+// Branch and optimization hints.
+_Safe long branch_hints(long x) {
+  long a = __builtin_expect(x, 1);
+  long b = __builtin_expect_with_probability(x, 1, 0.8);
+  long c = __builtin_unpredictable(x);
+  return a + b + c;
+}
+
+// Integer arithmetic.
+_Safe int abs_int(int x) { return __builtin_abs(x); }
+_Safe long abs_long(long x) { return __builtin_labs(x); }
+_Safe long long abs_long_long(long long x) { return __builtin_llabs(x); }
+
+// Byte swapping, bit reversal, and rotation.
+_Safe unsigned short swap16(unsigned short x) {
+  return __builtin_bswap16(x);
+}
+_Safe unsigned int swap32(unsigned int x) { return __builtin_bswap32(x); }
+_Safe unsigned long long swap64(unsigned long long x) {
+  return __builtin_bswap64(x);
+}
+
+_Safe unsigned char reverse8(unsigned char x) {
+  return __builtin_bitreverse8(x);
+}
+_Safe unsigned short reverse16(unsigned short x) {
+  return __builtin_bitreverse16(x);
+}
+_Safe unsigned int reverse32(unsigned int x) {
+  return __builtin_bitreverse32(x);
+}
+_Safe unsigned long long reverse64(unsigned long long x) {
+  return __builtin_bitreverse64(x);
+}
+
+_Safe unsigned char rotl8(unsigned char x, unsigned char n) {
+  return __builtin_rotateleft8(x, n);
+}
+_Safe unsigned short rotl16(unsigned short x, unsigned short n) {
+  return __builtin_rotateleft16(x, n);
+}
+_Safe unsigned int rotl32(unsigned int x, unsigned int n) {
+  return __builtin_rotateleft32(x, n);
+}
+_Safe unsigned long long rotl64(unsigned long long x, unsigned long long n) {
+  return __builtin_rotateleft64(x, n);
+}
+_Safe unsigned char rotr8(unsigned char x, unsigned char n) {
+  return __builtin_rotateright8(x, n);
+}
+_Safe unsigned short rotr16(unsigned short x, unsigned short n) {
+  return __builtin_rotateright16(x, n);
+}
+_Safe unsigned int rotr32(unsigned int x, unsigned int n) {
+  return __builtin_rotateright32(x, n);
+}
+_Safe unsigned long long rotr64(unsigned long long x, unsigned long long n) {
+  return __builtin_rotateright64(x, n);
+}
+
+// Bit counting and scanning.
+_Safe int bit_counts(unsigned short us, unsigned int ui, unsigned long ul,
+                     unsigned long long ull, int si, long sl, long long sll) {
+  int r = 0;
+  r += __builtin_clzs(us);
+  r += __builtin_clz(ui);
+  r += __builtin_clzl(ul);
+  r += __builtin_clzll(ull);
+  r += __builtin_ctzs(us);
+  r += __builtin_ctz(ui);
+  r += __builtin_ctzl(ul);
+  r += __builtin_ctzll(ull);
+  r += __builtin_ffs(si);
+  r += __builtin_ffsl(sl);
+  r += __builtin_ffsll(sll);
+  r += __builtin_parity(ui);
+  r += __builtin_parityl(ul);
+  r += __builtin_parityll(ull);
+  r += __builtin_popcount(ui);
+  r += __builtin_popcountl(ul);
+  r += __builtin_popcountll(ull);
+  r += __builtin_clrsb(si);
+  r += __builtin_clrsbl(sl);
+  r += __builtin_clrsbll(sll);
+  return r;
+}
+
+// Floating-point classification and comparison.
+_Safe int fp_classification(double d, float f, long double ld) {
+  int r = 0;
+  r += __builtin_isnan(d);
+  r += __builtin_isinf(d);
+  r += __builtin_isinf_sign(d);
+  r += __builtin_isfinite(d);
+  r += __builtin_isnormal(d);
+  r += __builtin_signbit(d);
+  r += __builtin_signbitf(f);
+  r += __builtin_signbitl(ld);
+  r += __builtin_fpclassify(0, 1, 2, 3, 4, d);
+  r += __builtin_isgreater(d, 0.0);
+  r += __builtin_isgreaterequal(d, 0.0);
+  r += __builtin_isless(d, 0.0);
+  r += __builtin_islessequal(d, 0.0);
+  r += __builtin_islessgreater(d, 0.0);
+  r += __builtin_isunordered(d, 0.0);
+  return r;
+}
+
+// Floating-point constants.
+_Safe double fp_constants(void) {
+  (void)__builtin_huge_val();
+  (void)__builtin_huge_valf();
+  (void)__builtin_huge_vall();
+  (void)__builtin_huge_valf16();
+  (void)__builtin_huge_valf128();
+  (void)__builtin_inf();
+  (void)__builtin_inff();
+  (void)__builtin_infl();
+  (void)__builtin_inff16();
+  (void)__builtin_inff128();
+  return __builtin_huge_val();
+}
+
+// Floating-point canonicalization.
+_Safe double canonicalize(double x) { return __builtin_canonicalize(x); }
+_Safe float canonicalizef(float x) { return __builtin_canonicalizef(x); }
+_Safe _Float16 canonicalizef16(_Float16 x) {
+  __fp16 h = (__fp16)x;
+  __fp16 r = __builtin_canonicalizef16(h);
+  return (_Float16)r;
+}
+_Safe long double canonicalizel(long double x) {
+  return __builtin_canonicalizel(x);
+}
