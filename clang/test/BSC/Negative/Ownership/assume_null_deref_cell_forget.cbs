@@ -1,0 +1,76 @@
+// RUN: %clang_cc1 -verify %s
+
+// An `__assume_null(*pp)` null bit must not survive a later `__forget(*pp)` —
+// neither directly nor through a re-taking assignment in between. Once the
+// cell is forgotten it is moved and every use must be diagnosed: a stale
+// assumed-null bit would make the read-side exemptions (checkBOPFieldUse,
+// checkCastField) treat the forgotten cell as "null/handled" and swallow a
+// use-after-move or a double free. The wordings below are the plain-forget
+// contract pinned by forget_use.cbs.
+
+int *_Owned _Nullable *_Owned make_pp(void);
+int *_Owned _Nullable make_int(void);
+void safe_free(void *_Owned p);
+
+// __forget straight after __assume_null (no re-take): the cell is moved.
+void use_after_forget_no_retake(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  _Unsafe { __forget(*pp); }
+  int *_Owned _Nullable q = *pp; // expected-error {{use of moved value: '*pp'}}
+  safe_free((void *_Owned)q);
+  safe_free((void *_Owned)pp);
+}
+
+// __forget after re-taking the cell: the re-take must clear the assumed-null
+// bit, so the forget lands on a plain moved cell and the read is a
+// use-after-move.
+void use_after_forget_after_retake(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  *pp = make_int();
+  _Unsafe { __forget(*pp); }
+  int *_Owned _Nullable q = *pp; // expected-error {{use of moved value: '*pp'}}
+  safe_free((void *_Owned)q);
+  safe_free((void *_Owned)pp);
+}
+
+// Cast form: after re-take + forget, casting the cell reports moved — the same
+// as the plain forget without the __assume_null prefix.
+void cast_after_forget_after_retake(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  *pp = make_int();
+  _Unsafe { __forget(*pp); }
+  safe_free((void *_Owned)*pp); // expected-error {{cannot cast '*pp' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)pp);
+}
+
+// No __forget at all: re-take, move the cell out, free it — a second free of
+// the same cell is a double free and must be diagnosed. The re-taken cell is
+// owned, so consuming it clears the (stale) null claim.
+void double_free_after_retake(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  *pp = make_int();
+  int *_Owned _Nullable q = *pp;
+  safe_free((void *_Owned)q);
+  safe_free((void *_Owned)*pp); // expected-error {{cannot cast '*pp' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)pp);
+}
+
+// Whole-*variable* re-take (`pp = fresh`), as against the cell re-takes above:
+// that path re-owns every cell through checkPointerAssign, which must drop the
+// stale assumed-null bit as well — otherwise the cell moved out below still
+// reads as "provably null/handled" and the second free is swallowed.
+void double_free_after_whole_var_retake(void) {
+  int *_Owned _Nullable *_Owned pp = make_pp();
+  __assume_null(*pp);
+  safe_free((void *_Owned)pp);   // release the outer allocation, then re-take
+  int *_Owned _Nullable *_Owned fresh = make_pp();
+  pp = fresh;
+  int *_Owned _Nullable q = *pp; // move the cell out
+  safe_free((void *_Owned)q);
+  safe_free((void *_Owned)*pp);  // expected-error {{cannot cast '*pp' to 'void * _Owned' because it was moved}}
+  safe_free((void *_Owned)pp);
+}

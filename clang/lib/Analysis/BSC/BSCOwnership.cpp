@@ -1100,8 +1100,10 @@ void Ownership::OwnershipStatus::resetAll(const VarDecl *VD) {
 }
 
 void Ownership::OwnershipStatus::setToOwned(const VarDecl *VD) {
-  // The pointer families (OPS / BOP) share one transition: the null-field set
-  // is always empty for a BOP host, so clearing it is a no-op there.
+  // The pointer families (OPS / BOP) share one transition. Clearing the null
+  // set is not a formality for a BOP host: a deref cell can carry an
+  // assumed-null bit (the __assume_null drop records it), and a whole-variable
+  // re-take must not let such a fact survive onto a freshly owned cell.
   if (isHost(VD, HostKind::OPS) || isHost(VD, HostKind::BOP)) {
     resetAll(VD);
     set(VD, Ownership::Status::Owned);
@@ -1237,15 +1239,21 @@ void Ownership::OwnershipStatus::dropBOPDerefField(Status S,
     return;
   // The Null family (__assume_null) asserts the cell null: record it so a later
   // read of the cell is a null check, not a use-after-move. The Moved family
-  // (__forget) abandons it instead.
+  // (__forget) abandons it instead — and clears any stale assumed-null bit, so
+  // a forget after an earlier __assume_null converges on the plain-forget state
+  // (the family split dropOwnedField maintains).
   const bool ToNull = S == Ownership::Status::Null;
   ownedFields(RootVD).erase(DerefPlace);
   if (ToNull)
     nullFields(RootVD).insert(DerefPlace);
+  else
+    nullFields(RootVD).erase(DerefPlace);
   for (FieldKey Str : derefDescendants(allFields(RootVD), DerefPlace)) {
     ownedFields(RootVD).erase(Str);
     if (ToNull)
       nullFields(RootVD).insert(Str);
+    else
+      nullFields(RootVD).erase(Str);
   }
   if (allFields(RootVD).size() != ownedFields(RootVD).size()) {
     if (!is(RootVD, Moved)) {
@@ -2029,9 +2037,15 @@ Ownership::OwnershipStatus::checkPointerAssign(const VarDecl *VD,
                             VD->getNameAsString()));
     }
   }
-  // change the status to owned
+  // change the status to owned. Re-taking the whole variable must drop every
+  // stale fact about it: a deref cell can carry an assumed-null bit (the
+  // __assume_null drop records one), and a surviving null bit would let the
+  // read-side exemptions (checkBOPFieldUse, checkCastField) read a later
+  // moved-out cell as "provably null/handled" and swallow a use-after-move.
+  // Same invariant as setToOwned and checkBOPFieldAssign's per-cell re-take.
   ownedFields(VD) = allFields(VD);
   movedFields(VD).clear();
+  nullFields(VD).clear();
   resetAll(VD);
   set(VD, Ownership::Status::Owned);
 
@@ -2668,10 +2682,18 @@ Ownership::OwnershipStatus::checkBOPFieldAssign(const VarDecl *VD,
     if (!is(VD, Ownership::Status::Moved)) {
       if (allFields(VD).count(fullFieldName)) {
         ownedFields(VD).insert(fullFieldName);
+        // Re-taking ownership drops the cell's must-null fact. A null bit left
+        // behind would make the read-side exemptions (checkBOPFieldUse,
+        // checkCastField) read the freshly owned cell as "provably null,
+        // releases nothing" and swallow a use-after-move once the cell is
+        // forgotten. The OPS twin checkOPSFieldAssign and the S twin
+        // checkSFieldAssign do the same.
+        nullFields(VD).erase(fullFieldName);
       }
       // add allPrefixStrs to the Owned set
       for (FieldKey str : allPrefixStrs) {
         ownedFields(VD).insert(str);
+        nullFields(VD).erase(str);
       }
     }
     if (allFields(VD).size() == ownedFields(VD).size()) {
