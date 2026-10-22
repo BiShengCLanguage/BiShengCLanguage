@@ -20,20 +20,7 @@ namespace bsc {
 constexpr uint64_t Place::NullBaseSeed;
 
 Ty *Ty::Create(const ASTContext &Ctx, QualType QT) {
-  QT = QT.getCanonicalType();
-
-  if (QT->isPointerType())
-    return Ty::CreatePointer(Ctx, QT,
-                             Ty::Create(Ctx, QT->getPointeeType()));
-
-  if (QT->isArrayType())
-    return Ty::CreateArray(Ctx, QT, Ty::Create(Ctx, QT->getAsArrayTypeUnsafe()
-                                                        ->getElementType()));
-
-  if (QT->getAs<RecordType>())
-    return Ty::CreateStruct(Ctx, QT);
-
-  return Ty::CreateBase(Ctx, QT);
+  return new (Ctx) Ty(QT.getCanonicalType());
 }
 
 void Place::print(llvm::raw_ostream &OS) const {

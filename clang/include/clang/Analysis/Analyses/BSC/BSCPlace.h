@@ -38,68 +38,25 @@ class FieldDecl;
 
 namespace bsc {
 
-/// AST-level type node. Simplified from `borrow::Ty`: it keeps the same
-/// Base/Pointer/Struct/Array shape but carries no region parameters, so it can
-/// be built from a QualType alone without an Environment.
+/// AST-level type of a place cell. Simplified from `borrow::Ty`: it carries
+/// only the cell's `QualType`, so it can be built from a QualType alone without
+/// an Environment.
+///
+/// Unlike `borrow::Ty` it holds no structural tree, because no consumer of this
+/// `Place` walks one. Materializing the pointee tree on every projection made
+/// building a depth-d place chain allocate Θ(d^2) nodes; the cell type is
+/// needed once per projection, so only that is kept.
 class Ty {
-public:
-  enum class TyKind : unsigned char { Base, Pointer, Struct, Array };
-
-private:
-  TyKind Kind;
   QualType QT;
 
-  /// Valid only for pointer nodes. Arena-owned, never freed individually.
-  const Ty *Pointee = nullptr;
-
-  /// Valid only for array nodes. Arena-owned, see `Pointee`.
-  const Ty *Element = nullptr;
-
-  Ty(TyKind Kind, QualType QT) : Kind(Kind), QT(QT) {}
-
-  static Ty *CreateBase(const ASTContext &Ctx, QualType QT) {
-    return new (Ctx) Ty(TyKind::Base, QT);
-  }
-
-  static Ty *CreateStruct(const ASTContext &Ctx, QualType QT) {
-    return new (Ctx) Ty(TyKind::Struct, QT);
-  }
+  Ty(QualType QT) : QT(QT) {}
 
 public:
-  /// Build the `Ty` tree for `QT` (Pointers recurse into pointees, arrays into
-  /// elements, records into struct nodes, everything else into base nodes).
+  /// Build the `Ty` for `QT`. The type is canonicalized, as `borrow::Ty` does
+  /// for the nodes it exposes.
   static Ty *Create(const ASTContext &Ctx, QualType QT);
 
-  static Ty *CreatePointer(const ASTContext &Ctx, QualType QT,
-                           const Ty *PointeeTy) {
-    Ty *T = new (Ctx) Ty(TyKind::Pointer, QT);
-    T->Pointee = PointeeTy;
-    return T;
-  }
-
-  static Ty *CreateArray(const ASTContext &Ctx, QualType QT,
-                         const Ty *ElementTy) {
-    Ty *T = new (Ctx) Ty(TyKind::Array, QT);
-    T->Element = ElementTy;
-    return T;
-  }
-
-  TyKind getKind() const { return Kind; }
   QualType getQualType() const { return QT; }
-
-  bool isPointerType() const { return Kind == TyKind::Pointer; }
-  bool isArrayType() const { return Kind == TyKind::Array; }
-  bool isRecordType() const { return Kind == TyKind::Struct; }
-
-  const Ty *getPointee() const {
-    assert(Kind == TyKind::Pointer && "only pointer type has a pointee");
-    return Pointee;
-  }
-
-  const Ty *getElement() const {
-    assert(Kind == TyKind::Array && "only array type has an element");
-    return Element;
-  }
 };
 
 /// A memory place: a root variable followed by a chain of projections.
