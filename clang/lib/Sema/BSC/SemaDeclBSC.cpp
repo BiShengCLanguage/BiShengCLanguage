@@ -457,6 +457,14 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
   }
 
   // Init analysis (BSCIR-based, independent of CFG)
+  // What the init analysis reports for this function, keyed the way the
+  // ownership reporter keys its own diagnostics. The two analyses overlap on
+  // "use of an uninitialized value" for the values the ownership analysis
+  // tracks (_Owned pointers and aggregates) and share the diagnostic ids, so
+  // the ownership flush below drops the sites the init analysis already named.
+  // Scoped to this call, not to the Sema: two instantiations of a template
+  // report the same source location and each of them must be kept.
+  std::set<OwnershipDiagReporter::EmittedDiagKey> EmittedInitDiags;
   bool RequireInitCheck = false;
   switch (getLangOpts().getUninitCheck()) {
   case LangOptions::UC_NONE:
@@ -535,6 +543,7 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
           DiagId = diag::err_ensure_init_if_ret_non_const_return;
           break;
         }
+        EmittedInitDiags.insert({RawLoc, DiagId, D.VarName});
         if (D.Kind == bscir::InitDiagKind::EnsureInitIfRetNotInit ||
             D.Kind == bscir::InitDiagKind::EnsureInitIfRetMaybeNotInit ||
             D.Kind == bscir::InitDiagKind::EnsureInitIfRetReassigned ||
@@ -588,10 +597,16 @@ void Sema::BSCDataflowAnalysis(const Decl *D) {
         (Exhaustive || !NumNullabilityCheckErrorsInCurrFD)) {
       OwnershipDiagReporter OwnershipReporter(*this);
       runOwnershipAnalysis(*FD, *AC.getCFG(), AC, OwnershipReporter, Context);
+      // Count before suppressing the duplicates: a use the init analysis
+      // already reported still means the function is broken, so the cascade
+      // gate below keeps the behaviour it had when the message was printed
+      // twice.
+      unsigned NumOwnershipErrors = OwnershipReporter.getNumErrors();
+      OwnershipReporter.suppressAlreadyEmitted(EmittedInitDiags);
       OwnershipReporter.flushDiagnostics();
       // Step three: Run borrow checker. Default mode runs it only when there
       // are no ownership errors either.
-      if (Exhaustive || !OwnershipReporter.getNumErrors()) {
+      if (Exhaustive || !NumOwnershipErrors) {
         BSCBorrowChecker(const_cast<FunctionDecl *>(FD));
       }
     }

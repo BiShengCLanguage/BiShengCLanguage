@@ -1,0 +1,14 @@
+// RUN: %clang_cc1 -fsyntax-only -uninit-check=none -verify %s
+
+// Test: -uninit-check=none disables the init analysis, but a use of an
+// uninitialized _Owned value is still reported — the ownership analysis
+// tracks it too. The ownership flush only drops what the init analysis
+// already reported, so turning the init analysis off must not lose the
+// diagnostic.
+
+_Safe void consume(int *_Owned p);
+
+_Safe void test_owned_ptr_uninit(void) {
+    int *_Owned p;
+    consume(p); // expected-error {{use of uninitialized value: 'p'}}
+}

@@ -4,10 +4,18 @@
 
 _Safe void consume(int *_Owned p);
 
-// _Owned pointer used without init → error (emitted twice: call + arg).
+// _Owned pointer used without init → one error. The init analysis and the
+// ownership analysis both track this value and share the diagnostic ids, so
+// the ownership flush drops the copy the init analysis already reported.
 _Safe void test_owned_ptr_uninit(void) {
     int *_Owned p;
-    consume(p); // expected-error 2 {{use of uninitialized value: 'p'}}
+    consume(p); // expected-error {{use of uninitialized value: 'p'}}
+}
+
+// Same for a use in a null comparison.
+_Safe void test_owned_ptr_uninit_null_check(void) {
+    int *_Owned p;
+    if (p != nullptr) { } // expected-error {{use of uninitialized value: 'p'}}
 }
 
 // _Owned pointer init on one branch → maybe-uninit.
@@ -32,7 +40,7 @@ _Safe void test_owned_struct_partial(void) {
 // _Owned pointer passed to consume without init → error.
 _Safe void test_owned_consume_uninit(void) {
     int *_Owned q;
-    consume(q); // expected-error 2 {{use of uninitialized value: 'q'}}
+    consume(q); // expected-error {{use of uninitialized value: 'q'}}
 }
 
 // Whole struct uninit.

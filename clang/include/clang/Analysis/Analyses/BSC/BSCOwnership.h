@@ -27,7 +27,9 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include <cassert>
+#include <set>
 #include <string>
+#include <tuple>
 
 namespace clang {
 
@@ -842,6 +844,11 @@ class OwnershipDiagReporter {
   std::vector<OwnershipDiagInfo> DIV;
 
 public:
+  /// Identity of an already reported diagnostic: raw source location,
+  /// diagnostic id, reported name. Only the same message at the same location
+  /// shares a key, so suppressing by it cannot hide a different finding.
+  using EmittedDiagKey = std::tuple<unsigned, unsigned, std::string>;
+
   OwnershipDiagReporter(Sema &S) : S(S) {}
 
   void addDiags(llvm::SmallVector<OwnershipDiagInfo> &diags) {
@@ -869,6 +876,17 @@ public:
                static_cast<unsigned>(OwnershipDiagKind::OwnershipMaxDiagKind) &&
            "Unknown error type");
     return OwnershipDiagIdList[index];
+  }
+
+  /// Drop the pending diagnostics some earlier BSC analysis already emitted
+  /// (see \c EmittedDiagKey). Must be called before flushDiagnostics().
+  void suppressAlreadyEmitted(const std::set<EmittedDiagKey> &Emitted) {
+    if (Emitted.empty())
+      return;
+    llvm::erase_if(DIV, [&](const OwnershipDiagInfo &DI) {
+      return Emitted.count({DI.Loc.getRawEncoding(),
+                            getOwnershipDiagID(DI.Kind), DI.Name});
+    });
   }
 
   void flushDiagnostics() {
