@@ -1618,7 +1618,10 @@ public:
     // check on a result that the enclosing expression consumes.
     const Stmt *ExprResult = IsStmtExpr ? CS->getStmtExprResult() : nullptr;
     for (Stmt *S : CS->body()) {
-      BaseTransform::TransformStmt(
+      // Go through our own TransformStmt: the base one hands expression
+      // statements to ActOnExprStmt, which re-finalizes statements that were
+      // already parsed and so re-emits their statement-level warnings.
+      getDerived().TransformStmt(
           S, S == ExprResult ? SDK_StmtExprResult : SDK_Discarded);
     }
 

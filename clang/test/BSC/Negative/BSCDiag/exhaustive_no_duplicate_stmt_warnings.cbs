@@ -1,0 +1,15 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
+
+// Under -fbsc-diag=exhaustive the borrow checker also runs on functions that
+// already have ownership errors. The epilogue that restores the original AST
+// afterwards must not re-run statement semantics: handing each statement to
+// TreeTransform's generic path calls ActOnExprStmt, which re-emits the
+// statement-level warnings that parsing had already produced.
+
+void unused_value(int *_Owned p) {
+    *p; // expected-warning {{expression result unused}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}}
+
+void unused_comparison(int *_Owned p, int *_Owned q) {
+    p == q; // expected-warning {{equality comparison result unused}} expected-note {{use '=' to turn this equality comparison into an assignment}}
+} // expected-error {{memory leak because 'p' is not freed or moved before it goes out of scope}} expected-error {{memory leak because 'q' is not freed or moved before it goes out of scope}}
