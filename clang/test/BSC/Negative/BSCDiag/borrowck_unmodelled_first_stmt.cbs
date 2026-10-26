@@ -1,0 +1,26 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -verify %s
+
+// An expression the prologue reports as unsupported and drops must still leave
+// the statement stack consistent: the expression-statement path takes back
+// exactly one statement with pop_back_val(). As the first statement of a
+// compound it used to pop an empty stack and corrupt the SmallVector size
+// (`!empty()` assertion here, "SmallVector unable to grow" in the backend).
+
+int *_Owned mk(void);
+void take(int *_Owned p);
+
+void first_stmt_unsupported(void) {
+  2.0i; // expected-error {{this expression is not supported yet}} expected-warning {{expression result unused}}
+  int *_Owned p = mk();
+  take(p);
+  take(p); // expected-error {{use of moved value: 'p'}}
+}
+
+void nested_first_stmt_unsupported(void) {
+  int *_Owned p = mk();
+  take(p);
+  take(p); // expected-error {{use of moved value: 'p'}}
+  if (1) {
+    2.0i; // expected-error {{this expression is not supported yet}} expected-warning {{expression result unused}}
+  }
+}

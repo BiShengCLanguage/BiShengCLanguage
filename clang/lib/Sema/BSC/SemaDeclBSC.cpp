@@ -810,6 +810,16 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
     Stmts.push_back(Assign);
   }
 
+  /// Report an expression this prologue cannot lower, and keep the statement
+  /// stack consistent: the expression-statement path takes back exactly one
+  /// statement with pop_back_val(), so a lowering that emits nothing must still
+  /// push a placeholder. The dropped expression is not analysed; the caller
+  /// already has the diagnostic.
+  void ReportUnsupportedExpr(const Expr *E, const char *What) {
+    SemaRef.Diag(E->getExprLoc(), diag::err_bsc_unsupported) << What;
+    Stmts.push_back(new (SemaRef.Context) NullStmt(E->getBeginLoc()));
+  }
+
   /// Normalize E and emit an explicit assignment into Dest. Nested comma and
   /// assignment expressions emit their preceding writes into Stmts first, so
   /// every write is represented by its own CFG action site.
@@ -941,7 +951,8 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
         return;
       }
 
-      llvm_unreachable("unexpected binary operator");
+      ReportUnsupportedExpr(E, "this binary operator");
+      return;
     }
     case Stmt::CompoundAssignOperatorClass: {
       CompoundAssignOperator *CAO = cast<CompoundAssignOperator>(E);
@@ -1140,7 +1151,8 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
         return;
       }
 
-      llvm_unreachable("unexpected unary operator");
+      ReportUnsupportedExpr(E, "this unary operator");
+      return;
     }
     case Stmt::VAArgExprClass: {
       VAArgExpr *VAE = cast<VAArgExpr>(E);
@@ -1172,12 +1184,14 @@ class BorrowCheckerPrologue : public TreeTransform<BorrowCheckerPrologue> {
     case Stmt::UnaryExprOrTypeTraitExprClass:
       PushAssignOrExpr(Dest, E);
       return;
-    case Stmt::AwaitExprClass:
-      SemaRef.Diag(E->getBeginLoc(), diag::err_bsc_unimplemented)
-          << "borrow checking of '_Await' expressions";
-      return;
     default:
-      llvm_unreachable("unsupported expression");
+      // The prologue must lower every expression it is handed; an unmodelled
+      // kind cannot be analysed, so report it instead of aborting. Reached for
+      // constructs no lowering case covers (e.g. imaginary literals), including
+      // under -fbsc-diag=exhaustive where the prologue also runs on functions
+      // that already reported an analysis error.
+      ReportUnsupportedExpr(E, "this expression");
+      return;
     }
   }
 
@@ -1316,6 +1330,11 @@ public:
 #include "clang/AST/StmtNodes.inc"
       {
         AsDiscarded(cast<Expr>(S));
+        // Never pop an empty stack: a lowering path may legitimately emit no
+        // statement (see ReportUnsupportedExpr), and an empty pop corrupts the
+        // vector's size. Fall back to a placeholder for the dropped statement.
+        if (Stmts.empty())
+          return new (SemaRef.Context) NullStmt(cast<Expr>(S)->getBeginLoc());
         return Stmts.pop_back_val();
       }
     }
