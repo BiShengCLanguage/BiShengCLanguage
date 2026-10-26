@@ -432,62 +432,6 @@ void Sema::noteMixedModeCandidates(FunctionDecl *FD, bool IsCallerSafe) {
   });
 }
 
-// Sentinels for the internal call-match check.
-static constexpr int CallMatch_OK = -1;
-static constexpr int CallMatch_ArgCount = -2;
-
-// Returns CallMatch_OK if every arg satisfies its param; CallMatch_ArgCount
-// if param/arg counts don't match; otherwise the 0-based index of the first
-// failing arg.
-static int CheckCallAssignmentConstraints(Sema &S, FunctionDecl *FD,
-                                          MultiExprArg Args) {
-  unsigned NumParams = FD->getNumParams();
-  if (Args.size() < NumParams)
-    return CallMatch_ArgCount;
-  if (!FD->isVariadic() && Args.size() > NumParams)
-    return CallMatch_ArgCount;
-
-  for (unsigned I = 0; I < NumParams; ++I) {
-    QualType ParamType = FD->getParamDecl(I)->getType();
-    Expr *Arg = Args[I];
-    QualType ArgType = Arg->getType();
-
-    // A null pointer constant (nullptr, integer 0, or (void *)0 / NULL) is
-    // compatible with any pointer parameter, just like nullptr_t below.
-    if (ParamType->isPointerType() &&
-        Arg->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNull))
-      continue;
-
-    if (!S.DoPointerTypesSatisfyAssignmentConstraints(ParamType, ArgType))
-      return static_cast<int>(I);
-  }
-  return CallMatch_OK;
-}
-
-bool Sema::IsCallAssignmentCompatible(FunctionDecl *FD, MultiExprArg ArgExprs) {
-  return CheckCallAssignmentConstraints(*this, FD, ArgExprs) == CallMatch_OK;
-}
-
-void Sema::noteMixedModeCallCandidates(FunctionDecl *FD,
-                                            MultiExprArg ArgExprs) {
-  forEachZoneCallableRedecl(FD, IsInSafeZone(), [&](FunctionDecl *RFD) {
-    int R = CheckCallAssignmentConstraints(*this, RFD, ArgExprs);
-    if (R == CallMatch_ArgCount) {
-      Diag(RFD->getLocation(),
-           diag::note_bsc_mixed_mode_candidate_arg_count)
-          << static_cast<unsigned>(ArgExprs.size()) << RFD->getNumParams();
-    } else if (R >= 0) {
-      Diag(RFD->getLocation(),
-           diag::note_bsc_mixed_mode_candidate_arg_mismatch)
-          << static_cast<unsigned>(R + 1) << ArgExprs[R]->getType()
-          << RFD->getParamDecl(R)->getType();
-    } else {
-      Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate)
-          << RFD->getType();
-    }
-  });
-}
-
 /// Check if BSC pointer qualifiers are compatible between Dest and Src.
 /// For array sources, raw pointers and borrow pointers are compatible.
 /// For pointer sources, `_Owned` and `_Borrow` must match exactly, and
@@ -511,8 +455,9 @@ static bool AreBSCPointerQualifiersCompatible(QualType Dest, QualType Src,
 /// @param AllowImplicitConversions If true, allow implicit conversions for non-pointer types
 ///                                 (for function calls). If false, require strict compatibility
 ///                                 (for function pointer assignments).
-static bool DoPointerTypesSatisfyAssignmentConstraintsImpl(
-    Sema &S, QualType Dest, QualType Src, bool AllowImplicitConversions) {
+static bool
+DoPointerTypesSatisfyAssignmentConstraints(Sema &S, QualType Dest, QualType Src,
+                                           bool AllowImplicitConversions) {
   bool DestIsPtr = Dest->isPointerType();
   bool SrcIsPtr = Src->isPointerType();
   bool SrcIsArray = Src->isArrayType();
@@ -609,16 +554,63 @@ static bool DoPointerTypesSatisfyAssignmentConstraintsImpl(
   return true;
 }
 
-/// Public wrapper for function calls - allows implicit conversions.
-bool Sema::DoPointerTypesSatisfyAssignmentConstraints(QualType Dest, QualType Src) {
-  return DoPointerTypesSatisfyAssignmentConstraintsImpl(*this, Dest, Src,
-                                                         /*AllowImplicitConversions=*/true);
+namespace {
+struct CallMatch {
+  enum Kind { Ok, ArgCount, ArgMismatch } K;
+  unsigned ArgIndex = 0; // only meaningful for ArgMismatch
+};
+} // namespace
+
+static CallMatch CheckCallAssignmentConstraints(Sema &S, FunctionDecl *FD,
+                                                MultiExprArg Args) {
+  unsigned NumParams = FD->getNumParams();
+  if (Args.size() < NumParams)
+    return {CallMatch::ArgCount};
+  if (!FD->isVariadic() && Args.size() > NumParams)
+    return {CallMatch::ArgCount};
+
+  for (unsigned I = 0; I < NumParams; ++I) {
+    QualType ParamType = FD->getParamDecl(I)->getType();
+    Expr *Arg = Args[I];
+    QualType ArgType = Arg->getType();
+
+    // A null pointer constant (nullptr, integer 0, or (void *)0 / NULL) is
+    // compatible with any pointer parameter, just like nullptr_t below.
+    if (ParamType->isPointerType() &&
+        Arg->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNull))
+      continue;
+
+    if (!DoPointerTypesSatisfyAssignmentConstraints(
+            S, ParamType, ArgType, /*AllowImplicitConversions=*/true))
+      return {CallMatch::ArgMismatch, I};
+  }
+  return {CallMatch::Ok};
 }
 
-/// Public wrapper for function pointer assignment - strict, no implicit conversions.
-bool Sema::DoPointerTypesSatisfyAssignmentConstraintsStrict(QualType Dest, QualType Src) {
-  return DoPointerTypesSatisfyAssignmentConstraintsImpl(*this, Dest, Src,
-                                                         /*AllowImplicitConversions=*/false);
+bool Sema::IsCallAssignmentCompatible(FunctionDecl *FD, MultiExprArg ArgExprs) {
+  return CheckCallAssignmentConstraints(*this, FD, ArgExprs).K == CallMatch::Ok;
+}
+
+void Sema::noteMixedModeCallCandidates(FunctionDecl *FD,
+                                       MultiExprArg ArgExprs) {
+  forEachZoneCallableRedecl(FD, IsInSafeZone(), [&](FunctionDecl *RFD) {
+    CallMatch M = CheckCallAssignmentConstraints(*this, RFD, ArgExprs);
+    switch (M.K) {
+    case CallMatch::ArgCount:
+      Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate_arg_count)
+          << static_cast<unsigned>(ArgExprs.size()) << RFD->getNumParams();
+      break;
+    case CallMatch::ArgMismatch:
+      Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate_arg_mismatch)
+          << M.ArgIndex + 1 << ArgExprs[M.ArgIndex]->getType()
+          << RFD->getParamDecl(M.ArgIndex)->getType();
+      break;
+    case CallMatch::Ok:
+      Diag(RFD->getLocation(), diag::note_bsc_mixed_mode_candidate)
+          << RFD->getType();
+      break;
+    }
+  });
 }
 
 /// Helper function: Check if function pointer types satisfy assignment constraints.
@@ -630,8 +622,8 @@ static bool DoesFunctionPointerSatisfyConstraints(Sema &S,
   // Check return type constraints using strict checking (no implicit conversions).
   QualType DestRetType = DestType->getReturnType();
   QualType SrcRetType = SrcType->getReturnType();
-  if (!DoPointerTypesSatisfyAssignmentConstraintsImpl(S, DestRetType, SrcRetType,
-                                                       /*AllowImplicitConversions=*/false))
+  if (!DoPointerTypesSatisfyAssignmentConstraints(
+          S, DestRetType, SrcRetType, /*AllowImplicitConversions=*/false))
     return false;
 
   // Check parameter count.
@@ -642,8 +634,8 @@ static bool DoesFunctionPointerSatisfyConstraints(Sema &S,
   for (unsigned i = 0; i < DestType->getNumParams(); ++i) {
     QualType DestParamType = DestType->getParamType(i);
     QualType SrcParamType = SrcType->getParamType(i);
-    if (!DoPointerTypesSatisfyAssignmentConstraintsImpl(S, DestParamType, SrcParamType,
-                                                         /*AllowImplicitConversions=*/false))
+    if (!DoPointerTypesSatisfyAssignmentConstraints(
+            S, DestParamType, SrcParamType, /*AllowImplicitConversions=*/false))
       return false;
   }
 
