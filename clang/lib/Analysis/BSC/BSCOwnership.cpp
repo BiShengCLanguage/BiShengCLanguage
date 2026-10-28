@@ -2242,7 +2242,11 @@ SmallVector<OwnershipDiagInfo> Ownership::OwnershipStatus::checkSUse(
     }
   }
   if (!isGetAddr) {
-    movedFields(VD) = allFields(VD);
+    // Owned struct: root Moved is the whole-object signal, not a field stamp.
+    if (VD->getType()->isOwnedStruct())
+      movedFields(VD).clear();
+    else
+      movedFields(VD) = allFields(VD);
     ownedFields(VD).clear();
   }
   return diags;

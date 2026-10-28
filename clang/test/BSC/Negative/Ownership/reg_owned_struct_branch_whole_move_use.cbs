@@ -1,0 +1,53 @@
+// RUN: %clang_cc1 -verify -fbsc-experimental %s
+
+int g_flag1 = 1;
+int g_flag2 = 1;
+
+_Owned struct S1 {
+_Public:
+  ~S1(S1 this) { g_flag1--; }
+};
+
+_Owned struct S2 {
+_Public:
+  S1 s1;
+  ~S2(S2 this) { g_flag2--; }
+};
+
+void sink(S2 s);
+void sink1(S1 s);
+
+// The whole-object move on one branch is a may-moved fact at the join: the
+// root Moved bit carries it, so every later use still reports use-of-moved.
+int whole_use_after_branch_move(_Bool c) {
+  S1 s1 = {};
+  S2 s2 = {s1};
+  if (c) {
+    S2 s3 = s2;
+  }
+  sink(s2); // expected-error {{use of moved value: 's2'}}
+  return 0;
+}
+
+int field_use_after_branch_move(_Bool c) {
+  S1 s1 = {};
+  S2 s2 = {s1};
+  if (c) {
+    S2 s3 = s2;
+  }
+  S1 *p = &s2.s1; // expected-error {{use of moved value: 's2.s1'}}
+  return 0;
+}
+
+// A whole-object move on one branch does not excuse a field moved out on the
+// other: there the destructor still runs over the moved-out field.
+int field_move_on_other_branch(_Bool c) {
+  S1 s1 = {};
+  S2 s2 = {s1};
+  if (c) {
+    S2 s3 = s2;
+  } else {
+    sink1(s2.s1);
+  }
+  return 0; // expected-error {{partially moved _Owned struct: 's2' at scope end}}
+}

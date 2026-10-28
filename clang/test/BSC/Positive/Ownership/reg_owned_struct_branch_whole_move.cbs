@@ -1,0 +1,50 @@
+// RUN: %clang_cc1 -verify -fbsc-experimental %s
+// expected-no-diagnostics
+
+int g_flag1 = 1;
+int g_flag2 = 1;
+
+_Owned struct S1 {
+_Public:
+  ~S1(S1 this) { g_flag1--; }
+};
+
+_Owned struct S2 {
+_Public:
+  S1 s1;
+  ~S2(S2 this) { g_flag2--; }
+};
+
+void sink(S2 s);
+
+// A whole-object move on one branch guards the injected destructor off on that
+// branch through the is-moved flag, so the object must not be condemned at
+// scope end as partially moved: no field of it is ever moved under a running
+// destructor.
+int move_on_one_branch(void) {
+  S1 s1 = {};
+  S2 s2 = {s1};
+  if (g_flag1) {
+    S2 s3 = s2;
+  }
+  return 0;
+}
+
+int move_to_call_on_one_branch(_Bool c) {
+  S1 s1 = {};
+  S2 s2 = {s1};
+  if (c)
+    sink(s2);
+  return 0;
+}
+
+int move_on_either_branch(_Bool c) {
+  S1 s1 = {};
+  S2 s2 = {s1};
+  if (c) {
+    S2 s3 = s2;
+  } else {
+    sink(s2);
+  }
+  return 0;
+}
