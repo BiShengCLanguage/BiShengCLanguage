@@ -7372,7 +7372,11 @@ ExprResult Sema::CheckTemplateArgument(NonTypeTemplateParmDecl *Param,
     //      enumeration type, integral promotions (4.5) and integral
     //      conversions (4.7) are applied.
 
+#if ENABLE_BSC
+    if (getLangOpts().CPlusPlus11 || getLangOpts().BSC) {
+#else
     if (getLangOpts().CPlusPlus11) {
+#endif
       // C++ [temp.arg.nontype]p1:
       //   A template-argument for a non-type, non-template template-parameter
       //   shall be one of:

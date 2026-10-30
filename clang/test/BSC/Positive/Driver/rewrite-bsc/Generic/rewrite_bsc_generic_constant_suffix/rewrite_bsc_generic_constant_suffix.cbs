@@ -54,7 +54,7 @@ int main() {
     int a5_1 = foo5<-5>();
     foo6<5, 10>();
     int a8_0 = foo8<true>();
-    int a8_1 = foo8<-5>();
+    int a8_1 = foo8<1>();
     int a8_2 = foo8<0>();
     struct S<5> s;
     s.bar();

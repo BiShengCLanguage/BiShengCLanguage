@@ -310,7 +310,12 @@ static const Expr *IgnoreNarrowingConversion(ASTContext &Ctx,
 NarrowingKind StandardConversionSequence::getNarrowingKind(
     ASTContext &Ctx, const Expr *Converted, APValue &ConstantValue,
     QualType &ConstantType, bool IgnoreFloatToIntegralConversion) const {
+#if ENABLE_BSC
+  assert((Ctx.getLangOpts().CPlusPlus || Ctx.getLangOpts().BSC) &&
+         "narrowing check outside C++ or BSC");
+#else
   assert(Ctx.getLangOpts().CPlusPlus && "narrowing check outside C++");
+#endif
 
   // C++11 [dcl.init.list]p7:
   //   A narrowing conversion is an implicit conversion ...
@@ -5723,8 +5728,13 @@ static ExprResult CheckConvertedConstantExpression(Sema &S, Expr *From,
                                                    Sema::CCEKind CCE,
                                                    bool RequireInt,
                                                    NamedDecl *Dest) {
+#if ENABLE_BSC
+  assert((S.getLangOpts().CPlusPlus11 || S.getLangOpts().BSC) &&
+         "converted constant expression outside C++11 or BSC");
+#else
   assert(S.getLangOpts().CPlusPlus11 &&
          "converted constant expression outside C++11");
+#endif
 
   if (checkPlaceholderForOverload(S, From))
     return ExprError();

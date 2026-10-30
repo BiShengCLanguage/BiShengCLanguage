@@ -1,13 +1,13 @@
 // RUN: %clang_cc1  -verify %s
 
-typedef conditional<int C, T, F> = __conditional(C, T, F); //expected-note{{template is declared here}} expected-note{{template is declared here}} expected-note{{template is declared here}} expected-note{{template is declared here}} expected-note{{template parameter is declared here}}
+typedef conditional<int C, T, F> = __conditional(C, T, F); //expected-note{{template is declared here}} expected-note{{template is declared here}} expected-note{{template is declared here}} expected-note{{template is declared here}}
 
 int foo<int N, T>() {
     conditional<N> a;     //expected-error{{too few template arguments for alias template 'conditional'}}
     conditional<N, T> b;  //expected-error{{too few template arguments for alias template 'conditional'}}
     
     int c = 5;
-    conditional<c, T, T> d; //expected-error{{non-type template argument of type 'int' is not an integral constant expression}}
+    conditional<c, T, T> d; //expected-error{{non-type template argument is not a constant expression}}
 }
 
 int bar() {
@@ -20,9 +20,9 @@ int main() {
     foo<5, int>();
     
     int c = 5;
-    conditional<c, int, float> d; //expected-error{{non-type template argument of type 'int' is not an integral constant expression}}
-    conditional<bar(), int, float> e; //expected-error{{non-type template argument of type 'int' is not an integral constant expression}}
+    conditional<c, int, float> d; //expected-error{{non-type template argument is not a constant expression}}
+    conditional<bar(), int, float> e; //expected-error{{non-type template argument is not a constant expression}}
     
-    conditional<0.5, int, float> f;  //expected-error{{non-type template argument of type 'double' must have an integral or enumeration type}}
+    conditional<0.5, int, float> f;  //expected-error{{conversion from 'double' to 'int' is not allowed in a converted constant expression}}
     return 0;
 }

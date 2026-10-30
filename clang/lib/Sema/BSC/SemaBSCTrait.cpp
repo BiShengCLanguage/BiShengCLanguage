@@ -39,6 +39,26 @@ NamedDecl *findConflictingTraitDesugarTagDecl(Sema &S,
   return R.getRepresentativeDecl()->getUnderlyingDecl();
 }
 
+/// Use checked arguments when mapping between a trait and its desugared structs.
+/// The non-canonical type preserves expressions that may already be wrapped in
+/// ConstantExpr, so checking those expressions again would lose their checked
+/// Integral representation.
+static ArrayRef<TemplateArgument>
+getCheckedTraitTemplateArguments(const TemplateSpecializationType *TST) {
+  const Type *Canonical = TST->getCanonicalTypeInternal().getTypePtr();
+  if (const auto *Injected = dyn_cast<InjectedClassNameType>(Canonical))
+    Canonical = Injected->getInjectedSpecializationType().getTypePtr();
+  if (const auto *RT = dyn_cast<RecordType>(Canonical))
+    return cast<ClassTemplateSpecializationDecl>(RT->getDecl())
+        ->getTemplateArgs().asArray();
+  if (const auto *TT = dyn_cast<TraitType>(Canonical))
+    return cast<TraitTemplateSpecializationDecl>(TT->getDecl())
+        ->getTemplateArgs().asArray();
+
+  // Dependent specializations also retain converted, non-dependent arguments.
+  return cast<TemplateSpecializationType>(Canonical)->template_arguments();
+}
+
 /// Create the desugared struct RecordDecl for \p TD, optionally as a class
 /// template matching the trait's template head, and push it (or the template)
 /// onto the scope chain. Does not start the struct definition.
@@ -364,7 +384,7 @@ static bool IsImplTraitDeclIllegal(Sema &S, QualType TraitQT, QualType &ImplQT,
     ClassTemplateDecl *CTD = VT->getDescribedClassTemplate();
     void *InsertPos = nullptr;
     TemplateArgumentListInfo Args(TypeLoc, TypeLoc);
-    for (auto T : TST->template_arguments())
+    for (const auto &T : getCheckedTraitTemplateArguments(TST))
       Args.addArgument(S.getTrivialTemplateArgumentLoc(T, QualType(), TypeLoc));
     SmallVector<TemplateArgument, 4> Converted;
     S.CheckTemplateArgumentList(CTD, CTD->getBeginLoc(), Args, false, Converted,
@@ -448,7 +468,7 @@ QualType Sema::CompleteTraitType(QualType QT) {
             QT->getLocallyUnqualifiedSingleStepDesugaredType());
     if (!TST)
       return QT;
-    for (auto T : TST->template_arguments())
+    for (const auto &T : getCheckedTraitTemplateArguments(TST))
       Args.addArgument(
           getTrivialTemplateArgumentLoc(T, QualType(), TTD->getBeginLoc()));
     TraitQT = CheckTemplateIdType(TemplateName(TTD), TTD->getBeginLoc(), Args);
@@ -477,7 +497,7 @@ QualType Sema::CompleteRecordType(RecordDecl *RD, SourceLocation BL,
       QT->getLocallyUnqualifiedSingleStepDesugaredType());
   if (!TST)
     return QualType();
-  for (auto T : TST->template_arguments())
+  for (const auto &T : getCheckedTraitTemplateArguments(TST))
     Args.addArgument(getTrivialTemplateArgumentLoc(T, QualType(), BL));
   QualType TraitQT = CheckTemplateIdType(TemplateName(CTD), BL, Args);
   if (TraitQT.isNull())

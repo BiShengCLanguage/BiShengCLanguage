@@ -1,0 +1,41 @@
+// RUN: %clang -fbsc-experimental %s -o %t.output
+// RUN: %t.output
+// RUN: %clang -fbsc-experimental -rewrite-bsc %s -o %t-rw.c
+// RUN: %clang -fbsc-experimental %t-rw.c -o %t-rw.output
+// RUN: %t-rw.output
+
+_Trait F<T, unsigned int N, _Bool B> {
+  T get(This *this);
+};
+
+int int::get(int *this) {
+  return *this;
+}
+
+// All aliases name the same specialization after constant conversion.
+typedef _Trait F<int, (1 + 1), 1> Concrete;
+typedef Alias<T, unsigned int N> = _Trait F<T, N, 1>;
+typedef Fixed<T> = _Trait F<T, (1 + 1), 1>;
+
+_Impl Concrete for int;
+
+int read(Concrete *p) {
+  return p->get();
+}
+
+// Completing a trait parameter must use the checked constant arguments.
+int forward(Concrete *p) {
+  return read(p);
+}
+
+// Type and value dependent arguments still need substitution.
+void check_dependent<T, unsigned int N>(Alias<T, N> *p) {}
+
+int main(void) {
+  int v = 7;
+  Concrete *a = &v;
+  Alias<int, 2> *b = &v;
+  Fixed<int> *c = &v;
+  check_dependent<int, 2>(b);
+  return read(a) != 7 || forward(b) != 7 || c->get() != 7;
+}

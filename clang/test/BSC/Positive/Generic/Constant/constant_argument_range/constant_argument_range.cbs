@@ -1,0 +1,45 @@
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -fbsc-experimental -fsyntax-only -verify %s
+// expected-no-diagnostics
+
+void value<T, T N>(void) {}
+
+struct Unsigned<unsigned int N> {};
+union Boolean<_Bool N> { int member; };
+typedef UnsignedAlias<unsigned int N> = int;
+
+// Value-dependent arguments are checked after substitution.
+void forward<int N>(void) {
+  struct Unsigned<N> u;
+  value<_Bool, N>();
+}
+
+void test(void) {
+  value<unsigned int, 0>();
+  value<unsigned int, 4294967295U>();
+  value<unsigned int, 1LL>();
+  value<int, -2147483647 - 1>();
+  value<int, 2147483647U>();
+  value<signed char, -128>();
+  value<signed char, 127>();
+  value<unsigned char, 255>();
+  value<long long, -9223372036854775807LL - 1>();
+  value<long long, 9223372036854775807ULL>();
+  value<unsigned long long, 18446744073709551615ULL>();
+  value<_Bool, 0>();
+  value<_Bool, 1>();
+
+  // Explicit conversions determine the value before generic argument checking.
+  value<unsigned int, (unsigned int)-1>();
+  value<_Bool, (_Bool)2>();
+  value<_Bool, (_Bool)-1>();
+
+  struct Unsigned<4294967295U> u;
+  union Boolean<1> b;
+  UnsignedAlias<4294967295U> alias;
+  forward<0>();
+  forward<1>();
+
+  // Ordinary conversions keep their existing behavior.
+  unsigned int ordinary_unsigned = -1;
+  _Bool ordinary_boolean = 2;
+}

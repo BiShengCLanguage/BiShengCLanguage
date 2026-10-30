@@ -1,0 +1,36 @@
+// RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -fbsc-experimental -fsyntax-only -verify %s
+
+void unsigned_value<unsigned int N>(void); // expected-note 2 {{candidate template ignored: invalid explicitly-specified argument for template parameter 'N'}}
+void boolean_value<_Bool N>(void); // expected-note 3 {{candidate template ignored: invalid explicitly-specified argument for template parameter 'N'}}
+void dependent_value<T, T N>(void); // expected-note 2 {{candidate template ignored: invalid explicitly-specified argument for template parameter 'N'}}
+
+struct Unsigned<unsigned int N> {};
+struct Signed<int N> {};
+struct Wide<long long N> {};
+union Boolean<_Bool N> { int member; };
+typedef UnsignedAlias<unsigned int N> = int;
+
+// The original dependent value must be checked before conversion to unsigned.
+void forward<int N>(void) {
+  struct Unsigned<N> u; // expected-error {{non-type template argument evaluates to -1, which cannot be narrowed to type 'unsigned int'}}
+}
+
+struct Unsigned<-1> negative; // expected-error {{non-type template argument evaluates to -1, which cannot be narrowed to type 'unsigned int'}}
+struct Unsigned<4294967296ULL> overflow; // expected-error {{non-type template argument evaluates to 4294967296, which cannot be narrowed to type 'unsigned int'}}
+struct Signed<2147483648U> signed_overflow; // expected-error {{non-type template argument evaluates to 2147483648, which cannot be narrowed to type 'int'}}
+struct Signed<-2147483649LL> signed_underflow; // expected-error {{non-type template argument evaluates to -2147483649, which cannot be narrowed to type 'int'}}
+struct Wide<18446744073709551615ULL> wide_overflow; // expected-error {{non-type template argument evaluates to 18446744073709551615, which cannot be narrowed to type 'long long'}}
+union Boolean<2> boolean_overflow; // expected-error {{non-type template argument evaluates to 2, which cannot be narrowed to type '_Bool'}}
+union Boolean<-1> boolean_negative; // expected-error {{non-type template argument evaluates to -1, which cannot be narrowed to type '_Bool'}}
+UnsignedAlias<-1> alias_negative; // expected-error {{non-type template argument evaluates to -1, which cannot be narrowed to type 'unsigned int'}}
+
+void test(void) {
+  unsigned_value<-1>(); // expected-error {{no matching function for call to 'unsigned_value'}}
+  unsigned_value<4294967296ULL>(); // expected-error {{no matching function for call to 'unsigned_value'}}
+  boolean_value<2>(); // expected-error {{no matching function for call to 'boolean_value'}}
+  boolean_value<-1>(); // expected-error {{no matching function for call to 'boolean_value'}}
+  boolean_value<-5>(); // expected-error {{no matching function for call to 'boolean_value'}}
+  dependent_value<unsigned int, -1>(); // expected-error {{no matching function for call to 'dependent_value'}}
+  dependent_value<_Bool, 2>(); // expected-error {{no matching function for call to 'dependent_value'}}
+  forward<-1>(); // expected-note {{in instantiation of function template specialization 'forward<-1>' requested here}}
+}
