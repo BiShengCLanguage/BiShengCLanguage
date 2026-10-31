@@ -15577,7 +15577,12 @@ QualType Sema::GetBorrowAddressOperandQualType(QualType resultType,
             << "'&_Mut'" << 0 << InputExpr->getSourceRange();
         Input = ExprError();
       }
-      if (IsInEvaluatedSafeZone()) {
+      // Only a directly written `&_Mut <lvalue>` mutably borrows that lvalue.
+      // A deref-reborrow (`&_Mut *p`, which also covers the implicit reborrow
+      // that initializes a borrow from another borrow) borrows the pointee,
+      // not the root the pointer was loaded from, so the global/static
+      // variable rule does not apply to it.
+      if (Opc == UO_AddrMut && IsInEvaluatedSafeZone()) {
         if (VarDecl *VD = dyn_cast_or_null<VarDecl>(getPrimaryDecl(
                 const_cast<Expr *>(InputExpr->IgnoreParenCasts())))) {
           if (VD->hasGlobalStorage())

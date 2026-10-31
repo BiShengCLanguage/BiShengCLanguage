@@ -1,0 +1,62 @@
+// RUN: %clang_cc1 -fbsc-diag=exhaustive -fsyntax-only -verify %s
+// expected-no-diagnostics
+//
+// Initializing, assigning, or passing a borrow value synthesizes an implicit
+// `&_Mut *` reborrow after the parser has restored the enclosing scope's
+// zone. That reborrow borrows the pointee, not the root the pointer was
+// loaded from, so it is not a mutable borrow of a global variable.
+
+struct S {
+  int *p;
+};
+
+struct S s;
+int *_Nonnull gp;
+static int *_Nonnull sp;
+unsigned int gi;
+
+_Safe void take(int *_Borrow p);
+
+_Safe void implicit_reborrow_init(void) {
+  int *_Borrow p = _Unsafe((int *_Borrow)(s.p));
+  (void)p;
+}
+
+_Safe void implicit_reborrow_nested_parens(void) {
+  int *_Borrow p = (_Unsafe((int *_Borrow)(s.p)));
+  (void)p;
+}
+
+_Safe void implicit_reborrow_assignment(void) {
+  int x = 0;
+  int *_Borrow p = &_Mut x;
+  p = _Unsafe((int *_Borrow)(s.p));
+  (void)p;
+}
+
+_Safe void implicit_reborrow_argument(void) {
+  take(_Unsafe((int *_Borrow)(s.p)));
+}
+
+// The pointer value may also come straight from a global or static pointer.
+_Safe void implicit_reborrow_global_pointer(void) {
+  int *_Borrow p = _Unsafe((int *_Borrow)gp);
+  (void)p;
+}
+
+_Safe void implicit_reborrow_static_pointer(void) {
+  int *_Borrow p = _Unsafe((int *_Borrow)sp);
+  (void)p;
+}
+
+// ... or even from a global scalar: the reborrow still targets the pointee.
+_Safe void implicit_reborrow_from_global_value(void) {
+  int *_Borrow p = _Unsafe((int *_Borrow)(int *)(unsigned long)gi);
+  (void)p;
+}
+
+// The written form the implicit reborrow is equivalent to.
+_Safe void written_deref_reborrow_of_global_pointer(void) {
+  int *_Borrow p = _Unsafe(&_Mut *gp);
+  (void)p;
+}
