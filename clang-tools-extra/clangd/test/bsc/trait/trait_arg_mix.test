@@ -1,0 +1,33 @@
+// RUN: cp %s %t.cbs
+// RUN: %clangd-bsc --check=%t.cbs 2>&1 | FileCheck %s
+
+// The trait<->struct mapping re-checks the template arguments. Value
+// arguments are re-checked in their already-converted form, type arguments
+// as written: canonical type arguments are declaration-less template
+// parameters, which must not reach a written type loc (the index reads
+// getDecl() on them and crashes).
+
+_Trait F<T, unsigned int N, _Bool B> {
+  T get(This *this);
+};
+
+int int::get(int *this) { return *this; }
+
+typedef _Trait F<int, (1 + 1), 1> Concrete;
+typedef Alias<T, unsigned int N> = _Trait F<T, N, 1>;
+
+_Impl Concrete for int;
+
+int read(Concrete *p) { return p->get(); }
+
+void check_dependent<T, unsigned int N>(Alias<T, N> *p) {}
+
+struct A<T> {
+  int a;
+};
+
+void struct A<T>::foo(struct A<T> *this, _Trait F<T, 1, 1> *f) {
+  this->a = 0;
+}
+
+// CHECK: All checks completed, 0 errors

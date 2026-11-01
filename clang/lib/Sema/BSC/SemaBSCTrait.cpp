@@ -39,24 +39,41 @@ NamedDecl *findConflictingTraitDesugarTagDecl(Sema &S,
   return R.getRepresentativeDecl()->getUnderlyingDecl();
 }
 
-/// Use checked arguments when mapping between a trait and its desugared structs.
-/// The non-canonical type preserves expressions that may already be wrapped in
-/// ConstantExpr, so checking those expressions again would lose their checked
-/// Integral representation.
-static ArrayRef<TemplateArgument>
+/// Arguments for mapping between a trait and its desugared structs: value
+/// arguments in their already-checked canonical form (re-checking a
+/// ConstantExpr-wrapped expression loses its Integral representation), all
+/// others as written.
+static llvm::SmallVector<TemplateArgument, 4>
 getCheckedTraitTemplateArguments(const TemplateSpecializationType *TST) {
   const Type *Canonical = TST->getCanonicalTypeInternal().getTypePtr();
   if (const auto *Injected = dyn_cast<InjectedClassNameType>(Canonical))
     Canonical = Injected->getInjectedSpecializationType().getTypePtr();
+  ArrayRef<TemplateArgument> Checked;
   if (const auto *RT = dyn_cast<RecordType>(Canonical))
-    return cast<ClassTemplateSpecializationDecl>(RT->getDecl())
-        ->getTemplateArgs().asArray();
-  if (const auto *TT = dyn_cast<TraitType>(Canonical))
-    return cast<TraitTemplateSpecializationDecl>(TT->getDecl())
-        ->getTemplateArgs().asArray();
+    Checked = cast<ClassTemplateSpecializationDecl>(RT->getDecl())
+                  ->getTemplateArgs().asArray();
+  else if (const auto *TT = dyn_cast<TraitType>(Canonical))
+    Checked = cast<TraitTemplateSpecializationDecl>(TT->getDecl())
+                  ->getTemplateArgs().asArray();
+  else
+    // Dependent specializations also retain converted, non-dependent arguments.
+    Checked = cast<TemplateSpecializationType>(Canonical)->template_arguments();
 
-  // Dependent specializations also retain converted, non-dependent arguments.
-  return cast<TemplateSpecializationType>(Canonical)->template_arguments();
+  // Everything but values keeps the as-written form: canonical type
+  // arguments are declaration-less template parameters and must not reach a
+  // written type loc.
+  llvm::SmallVector<TemplateArgument, 4> Mixed;
+  ArrayRef<TemplateArgument> Orig = TST->template_arguments();
+  for (unsigned I = 0, N = Orig.size(); I < N; ++I) {
+    if (I < Checked.size() &&
+        (Checked[I].getKind() == TemplateArgument::Integral ||
+         Checked[I].getKind() == TemplateArgument::Declaration ||
+         Checked[I].getKind() == TemplateArgument::NullPtr))
+      Mixed.push_back(Checked[I]);
+    else
+      Mixed.push_back(Orig[I]);
+  }
+  return Mixed;
 }
 
 /// Create the desugared struct RecordDecl for \p TD, optionally as a class
