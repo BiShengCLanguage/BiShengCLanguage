@@ -1132,6 +1132,8 @@ public:
 
   const Place *BuildField(const Place *Base, const FieldDecl *FD,
                           SourceLocation Loc) {
+    if (!Base)
+      return nullptr;
     Ty *T = Ty::CreateField(Env, Base->getType(), FD);
     return Place::CreateField(Ctx, Base, FD, T, Loc);
   }
@@ -1145,10 +1147,15 @@ public:
     if (BaseTy->getKind() == Ty::TyKind::Pointer)
       return Place::CreateIndex(Ctx, Base, BaseTy->getPointee(), Loc);
 
-    llvm_unreachable("unexpected base type for array subscript place");
+    // An unmodeled base (e.g. a vector): report and degrade to the base.
+    Ctx.getDiagnostics().Report(Loc, diag::err_bsc_unsupported)
+        << "borrow checking of this subscript";
+    return Base;
   }
 
   const Place *BuildDeref(const Place *Base, SourceLocation Loc) {
+    if (!Base)
+      return nullptr;
     const Ty *BaseTy = Base->getType();
 
     // Canonicalize `*arr` as `arr[_]` so an array element has one Place form.
@@ -1220,7 +1227,10 @@ public:
     default:
       break;
     }
-    llvm_unreachable("unexpected expression for place");
+    // An unmodeled expression: report and leave it unchecked.
+    Ctx.getDiagnostics().Report(E->getExprLoc(), diag::err_bsc_unsupported)
+        << "borrow checking of this expression";
+    return nullptr;
   }
 };
 } // namespace borrow
@@ -1673,8 +1683,9 @@ public:
 
   void VisitBinComma(const BinaryOperator *BO) {
     (void)BO;
-    llvm_unreachable(
-        "comma operator should be lowered by BorrowCheckerPrologue");
+    // The prologue skips VLA size expressions, so a comma can survive here.
+    Ctx.getDiagnostics().Report(BO->getExprLoc(), diag::err_bsc_unsupported)
+        << "borrow checking of this comma operator";
   }
 
   void VisitBinLAnd(const BinaryOperator *BO) {

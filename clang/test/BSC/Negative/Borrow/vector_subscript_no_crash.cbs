@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -verify %s
+
+// A vector subscript in a function that also declares
+// a tracked pointer used to crash the borrow checker; it now reports
+// err_bsc_unsupported. Controls come first: a Sema error suppresses the BSC
+// analyses of the remaining functions.
+
+typedef int v4 __attribute__((vector_size(16)));
+
+int test_no_tracked_decl(void) {
+  v4 a = {0};
+  return (int)a[0];
+}
+
+int test_sizeof_unevaluated(void) {
+  v4 a = {0};
+  int *_Owned p = 0;
+  return (int)sizeof(a[0]);
+}
+
+int test_vector_subscript(void) {
+  v4 a = {0};
+  int *_Owned p = 0;
+  return (int)a[0]; // expected-error {{borrow checking of this subscript is not supported yet}}
+}

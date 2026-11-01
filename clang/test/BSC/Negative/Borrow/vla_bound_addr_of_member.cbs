@@ -1,0 +1,37 @@
+// RUN: %clang_cc1 -verify %s
+
+// A VLA bound reading a member through an address-of
+// used to crash the borrow checker; it now reports err_bsc_unsupported.
+// Controls come first: a Sema error suppresses the BSC analyses of the
+// remaining functions.
+
+int test_const_bound(void) {
+  int n = 5;
+  int *_Borrow b = &_Mut n;
+  struct T { int *_Owned v; } arr[1];
+  arr[0].v = 0;
+  int w[5];
+  (void)w;
+  (void)b;
+  return 0;
+}
+
+int test_plain_var_bound(void) {
+  int n = 5;
+  int *_Borrow b = &_Mut n;
+  int w[n + 1];
+  (void)w;
+  (void)b;
+  return 0;
+}
+
+int test_addr_of_member_bound(void) {
+  int n = 5;
+  int *_Borrow b = &_Mut n;
+  struct T { int *_Owned v; } arr[1];
+  arr[0].v = 0;
+  int w[*(&arr[0])->v]; // expected-error {{borrow checking of this expression is not supported yet}}
+  (void)w;
+  (void)b;
+  return 0;
+}
