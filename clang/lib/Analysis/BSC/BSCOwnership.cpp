@@ -5037,16 +5037,40 @@ void OwnershipImpl::MaybeSetNull(const CFGBlock *block, const CFGBlock *cur,
     if (isa<SwitchStmt>(Term))
       return;
 
+  // A null check that proves the host non-null contradicts its Null ownership
+  // fact — it holds an allocation, so it owns. Re-take the whole variable
+  // (field-level null bits live in the per-field sets). Only statement
+  // conditions (`if`/`while`/`for`/`switch`, or their `&&`/`||` chains) do
+  // this; conditional expressions keep the null-source propagation semantics.
+  const bool StatementCondition = IsStatementConditionTerminator(
+      cur->getTerminatorStmt(), analysisContext.getParentMap());
+  auto RelearnNonNull = [&](const Expr *E) {
+    if (!E || !StatementCondition)
+      return;
+    bsc::PlaceBuilder PB(ctx);
+    const bsc::Place *Place = nullptr;
+    if (!PeelHostAndFieldPlace(PB, E, Place) ||
+        Place->getKind() != bsc::Place::Kind::Var)
+      return;
+    const VarDecl *VD = Place->getRoot();
+    if (status.is(VD, Ownership::Status::Null))
+      status.setToOwned(VD);
+  };
+
   if (cur->succ_begin()[0] == block) {
     // block is True branch
     for (const Expr *E : Info.nullCheckedExprs)
       status.setToNull(E, ctx);
+    for (const Expr *E : Info.presentCheckedExprs)
+      RelearnNonNull(E);
     if (ArrElemIsArray && !ArrElemNonNull && CoversWholeArray)
       status.setToNull(ArrElem, ctx);
   } else if (cur->succ_begin()[1] == block) {
     // block is False branch, inversely set present checked exprs to null
     for (const Expr *E : Info.presentCheckedExprs)
       status.setToNull(E, ctx);
+    for (const Expr *E : Info.nullCheckedExprs)
+      RelearnNonNull(E);
     if (ArrElemIsArray && ArrElemNonNull && CoversWholeArray)
       status.setToNull(ArrElem, ctx);
   }

@@ -135,7 +135,7 @@ void nullptr_equals() {
   } else {
     printf ("nullptr not equals q\n");
   }
-  p = safe_malloc<int>(4);
+  p = safe_malloc<int>(4); // expected-error {{cannot assign to 'p' because it still holds an _Owned value; move or free it first}}
   if (nullptr == p) {
     printf ("nullptr equals q\n");
   } else {

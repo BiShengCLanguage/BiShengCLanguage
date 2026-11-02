@@ -84,6 +84,11 @@ void null_branch_multi_use_local(void) {
     if (p == nullptr) {
         int *_Owned _Nullable q = p;
         int *_Owned _Nullable r = p;
+    } else {
+        // A failed null check proves p non-null, so the ownership analysis
+        // takes it as owning: release it on this path.
+        int *raw = __move_to_raw(p);
+        (void)raw;
     }
 }
 
@@ -147,6 +152,9 @@ void null_branch_cast_multi_use(void) {
     if (p == 0) {
         int *_Owned _Nullable q = (int *_Owned _Nullable)p;
         int *_Owned _Nullable r = (int *_Owned _Nullable)p;
+    } else {
+        int *raw = __move_to_raw(p);
+        (void)raw;
     }
 }
 

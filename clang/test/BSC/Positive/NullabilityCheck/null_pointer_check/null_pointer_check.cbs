@@ -37,6 +37,7 @@ _Safe int test(void) {
   int * _Owned _Nullable p = nullptr;
   RETURN_IF(nullptr == p, 1);
   int a = 1;
+  safe_free<int>(p);
   p = safe_malloc<int>(a);
   RETURN_IF(nullptr == p, 1);
   safe_free<int>(p);

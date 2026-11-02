@@ -171,8 +171,12 @@ int compare_owned(void) {
   int *_Owned _Nullable p = (void *)0;
   if (p == NULL)
     return 0;
-  if (p != NULL)
+  if (p != NULL) {
+    // A null check proves the pointer non-null on this path, so the ownership
+    // analysis takes it as owning: release it before leaving.
+    _Unsafe((void)__move_to_raw(p));
     return 1;
+  }
   return 2;
 }
 

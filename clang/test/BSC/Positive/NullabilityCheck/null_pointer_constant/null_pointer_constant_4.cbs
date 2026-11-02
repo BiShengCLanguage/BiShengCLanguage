@@ -29,6 +29,9 @@ _Safe int owned_is_null(void) {
   int *_Owned _Nullable p = NULL;
   if (p == NULL)
     return 1;
+  // The null check proves p non-null here, so the ownership analysis takes it
+  // as owning: release it on the continuing path.
+  _Unsafe((void)__move_to_raw(p));
   return 0;
 }
 

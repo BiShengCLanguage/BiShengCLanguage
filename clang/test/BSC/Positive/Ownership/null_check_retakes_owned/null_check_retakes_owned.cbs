@@ -1,0 +1,63 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// A null check that proves an OPS host non-null re-takes the host as Owned:
+// it then holds an allocation, so its owned fields are live and can be moved
+// out. The check may be the only evidence of a write the intra-procedural
+// analysis cannot see (f swaps the value in through an escaped `&m`); without
+// the re-take the host stays Null and the later field move-out is reported as
+// use-after-move.
+//
+// g is the same shape with no write at all: the null check makes the
+// dereference dead, but nothing folds it, so the analysis keeps the same
+// non-null continuation state.
+
+struct Node;
+typedef struct Node *PtrList;
+struct Mgr { PtrList _Owned _Nullable list; };
+typedef struct Mgr *HMgr;
+
+_Safe int DeleteList(PtrList _Owned _Nullable l);
+_Safe void consume(void *_Owned _Nullable p);
+_Safe HMgr _Owned _Nullable make(void);
+
+void safe_swap<T, U>(T _Nullable * left, U _Nullable * right) {
+  T _Nullable tmp = (T _Nullable)*left;
+  *left = (T _Nullable)*right;
+  *right = (U _Nullable)tmp;
+}
+
+_Safe void safe_swap2<T>(T* _Borrow left, T* _Borrow right) {
+  _Unsafe {
+    T tmp = *(T *_Nonnull)left;
+    *left = *(T *_Nonnull)right;
+    *right = tmp;
+  }
+}
+
+_Safe int f(HMgr _Owned _Nullable* _Borrow _Nullable n) {
+    HMgr _Owned _Nullable m = nullptr;
+    _Unsafe safe_swap(&m, &(*n));
+    if (nullptr == m) return 1;
+    (void) DeleteList(m->list);
+    (void) consume((void *_Owned)m);
+    return 0;
+}
+
+_Safe int g(void) {
+    HMgr _Owned _Nullable m = nullptr;
+    if (nullptr == m) return 1;
+    (void) DeleteList(m->list);
+    (void) consume((void *_Owned)m);
+    return 0;
+}
+
+_Safe int h(HMgr _Owned _Nullable* _Borrow _Nullable n) {
+    HMgr _Owned _Nullable m = nullptr;
+    if (nullptr == n) return 1;
+    safe_swap2(&_Mut m, n);
+    if (nullptr == m) return 1;
+    (void) DeleteList(m->list);
+    (void) consume((void *_Owned)m);
+    return 0;
+}
