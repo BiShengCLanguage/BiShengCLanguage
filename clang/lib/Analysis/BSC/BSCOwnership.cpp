@@ -4500,6 +4500,12 @@ void TransferFunctions::mirrorNullFieldsFromStructValue(
     const bsc::Place *SrcPlace, const FieldSet &SrcMustNull) {
   if (!DstPlace || !SrcPlace || SrcMustNull.empty())
     return;
+  // The destination record type may contain owned fields while its host
+  // variable is not tracked: `p->field = tmp` through a borrowed (or raw)
+  // pointer has no ownership state to mirror onto. The path resolves its root
+  // variable, but that says nothing about whether the analyzer follows it.
+  if (!stat.isTracked(DstVD))
+    return;
   // Both the struct-value (S) and the owned-struct-pointer (OPS) destination
   // carry per-field state, and both spell the copied sub-object the same way on
   // the schema (`sp->o` is Field(Var(sp), "o")), so the mirror applies to

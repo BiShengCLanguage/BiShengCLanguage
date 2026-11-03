@@ -47,6 +47,21 @@ void ops_dest_nested(void) {
   safe_free((void *_Owned)tp);
 }
 
+// --- Destination through an untracked borrow --------------------------------
+//
+// A borrowed pointer's host has no ownership state, so the mirror has nothing
+// to update. These copies must be accepted rather than assert in allFields.
+
+void borrow_dest_field(struct Outer *_Borrow bp) {
+  struct Inner a = {};
+  bp->o = a;
+}
+
+void borrow_dest_whole(struct Inner *_Borrow ip) {
+  struct Inner a = {};
+  *ip = a;
+}
+
 // --- Source on an owned-struct-pointer host --------------------------------
 
 // `struct W b = *sp;` — the source place is the whole pointee.

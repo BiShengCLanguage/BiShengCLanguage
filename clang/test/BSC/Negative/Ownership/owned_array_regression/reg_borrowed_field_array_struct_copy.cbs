@@ -1,0 +1,22 @@
+// RUN: %clang_cc1 -verify %s
+
+// Assigning a whole struct value to an element of an owned-field array is an
+// array-element transfer even when the array is reached through a borrowed
+// pointer, so the qualifying-loop rule gates it. The null-field mirror that
+// runs after the assignment must not assume the destination host is tracked:
+// a borrowed pointer has no ownership state to mirror onto. It used to call
+// OwnershipStatus::allFields on the borrowed host and assert.
+
+struct S1 {
+  unsigned v1;
+  unsigned *_Owned _ArrayElem _Nullable v2;
+};
+
+struct S2 {
+  struct S1 v3[28];
+};
+
+_Safe void f(struct S2 *_Borrow v4, unsigned v5) {
+  struct S1 v6 = {0, 0};
+  v4->v3[v5] = v6; // expected-error {{cannot transfer ownership of array element `v4` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
