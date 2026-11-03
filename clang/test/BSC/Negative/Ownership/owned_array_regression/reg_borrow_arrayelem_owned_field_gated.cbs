@@ -1,0 +1,25 @@
+// RUN: %clang_cc1 -verify %s
+
+// Refining the terminal-type check must not relax genuine ownership transfers
+// through a _Borrow host: moving or clearing an owned element/field still
+// requires a qualifying for-loop.
+
+struct A {
+  unsigned *_Owned _Nullable p;
+};
+
+struct B {
+  struct A v[2];
+};
+
+void f1(struct B *_Borrow c, unsigned *_Owned p) {
+  c->v[0].p = p; // expected-error {{cannot transfer ownership of array element `c` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
+
+void f2(struct B *_Borrow c) {
+  c->v[0].p = nullptr; // expected-error {{cannot transfer ownership of array element `c` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}
+
+void f3(struct B *_Borrow c, struct A e) {
+  c->v[0] = e; // expected-error {{cannot transfer ownership of array element `c` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+}

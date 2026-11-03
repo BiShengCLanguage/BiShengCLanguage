@@ -1,0 +1,44 @@
+// RUN: %clang_cc1 -verify %s
+// expected-no-diagnostics
+
+// Writing an element of a plain (non-owned) array field inside an element of
+// an owned-element array does not transfer ownership and must not require a
+// qualifying for-loop. The field path passes through the owned-element array,
+// but the accessed element type itself carries no ownership.
+
+struct A {
+  unsigned a[2];
+  unsigned *_Owned _Nullable p;
+};
+
+struct B {
+  struct A v[2];
+};
+
+_Safe void f1(struct B *_Borrow c) {
+  c->v[0].a[0] = 1;
+  c->v[0].a[1] += 1;
+}
+
+_Safe void f2(void) {
+  struct B x = {};
+  x.v[0].a[0] = 1;
+}
+
+struct C {
+  unsigned a[2];
+};
+
+struct D {
+  struct C in;
+  unsigned *_Owned _Nullable p;
+};
+
+struct E {
+  struct D v[2];
+};
+
+_Safe void f3(void) {
+  struct E x = {};
+  x.v[0].in.a[0] = 1;
+}

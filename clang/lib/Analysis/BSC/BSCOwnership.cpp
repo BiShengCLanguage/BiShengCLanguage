@@ -3486,6 +3486,14 @@ void TransferFunctions::VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
       FieldKey FieldPlace = FieldPath;
       const VarDecl *HostVD = FieldPath->getRoot();
       if (op == Move || op == Assign) {
+        // Only an element whose own type carries ownership can take part in
+        // an ownership transfer. A plain array field of an owned-element
+        // array (e.g. `w.arr[i].plain[j]` for `int plain[2]`) is reached
+        // through the same field path but holds no ownership.
+        if (!IsTrackedType(ASE->getType())) {
+          Visit(ASE->getIdx());
+          return;
+        }
         if (!tryTransferArrayField(ASE, HostVD, FieldPlace, op == Assign)) {
           Visit(ASE->getIdx());
           return;
@@ -3893,9 +3901,11 @@ bool TransferFunctions::memberAccessTouchesOwned(
     return FieldPath &&
            overlapsOwnedFields(stat.allFields(VD), FieldPath) &&
            IsOwnedConsuming(MemberTy);
-  if (stat.isHost(VD, HostKind::BOP))
-    return IsOwnedConsuming(MemberTy);
-  return true;
+  // BOP hosts and untracked roots (_Borrow / raw-pointer hops) have no
+  // field-level state: only the member's own type can decide whether the
+  // access transfers ownership. In particular, a plain non-owned member of
+  // an owned-element array element reached through a borrow is not a transfer.
+  return IsOwnedConsuming(MemberTy);
 }
 
 void TransferFunctions::VisitMemberExpr(MemberExpr *ME) {
