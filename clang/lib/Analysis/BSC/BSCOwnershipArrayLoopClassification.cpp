@@ -478,20 +478,31 @@ static const Expr *FullRangeFieldChainInnermost(
 }
 
 // `*s` on an *array-typed* operand is the element access s[0] (C11 6.3.2.1p3
-// array decay), so the host-array walk of `(*s).arr[i]` must record the
+// array decay), and so is `s->field` on an array-typed `s` (`s->f` is
+// `(*s).f`). The host-array walk of `(*s).arr[i]` / `s->arr[i]` must record the
 // implicit constant 0 host level -- exactly the level the `s[0].arr[i]`
 // spelling records -- or the access would cover the whole host array while only
 // row 0 is released. A pointer-typed operand (`(*w).arr[i]` with `w` a
 // pointer) contributes no level. The level is appended last, i.e. it is the
-// outermost host level after the caller's reverse.
+// outermost host level after the caller's reverse. An explicit host subscript
+// (`s[0].arr[i]`, `s[k].arr[i]`) already recorded its level, so no implicit one
+// is added then.
 static void AppendImplicitHostLevel(
     const ASTContext &Context, const Expr *HostBase,
     SmallVectorImpl<std::pair<const Expr *, QualType>> &Levels) {
-  const auto *UO = dyn_cast_or_null<UnaryOperator>(
-      HostBase ? HostBase->IgnoreParenImpCasts() : nullptr);
-  if (!UO || UO->getOpcode() != UO_Deref)
+  const Expr *Base = HostBase ? HostBase->IgnoreParenImpCasts() : nullptr;
+  if (!Base)
     return;
-  QualType LevelTy = UO->getSubExpr()->IgnoreParenImpCasts()->getType();
+  QualType LevelTy;
+  if (const auto *UO = dyn_cast<UnaryOperator>(Base)) {
+    if (UO->getOpcode() != UO_Deref)
+      return;
+    LevelTy = UO->getSubExpr()->IgnoreParenImpCasts()->getType();
+  } else {
+    if (!Levels.empty())
+      return;
+    LevelTy = Base->getType();
+  }
   if (!LevelTy->isArrayType())
     return;
   Levels.push_back({IntegerLiteral::Create(Context, llvm::APInt(32, 0),
@@ -1301,19 +1312,23 @@ class OwnedArrayLoopClassifier {
                   dyn_cast<VarDecl>(BaseDRE->getDecl())) {
             if (IsOwnedElementArrayType(ArrVD->getType())) {
               bool GoodIdx = false;
+              // `s->arr[j]` (array host) has no explicit host subscript, so
+              // MIdx is null; only the `s[i].arr[j]` spelling has one.
               if (const DeclRefExpr *IdxDRE =
-                      dyn_cast<DeclRefExpr>(MIdx))
+                      dyn_cast_or_null<DeclRefExpr>(MIdx))
                 GoodIdx = IsLoopIndex(IdxDRE, LoopVar);
-              // The subscripted member may itself be an array field
-              // (s[i].a[j]); its inner index must be a *variable* driven by
-              // some (possibly nested) loop. A constant inner index
-              // (s[i].a[0]) cannot be driven by any enclosing loop, so the
-              // loop would only partially cover the field array -- a
-              // partial element free must not silently mark the whole field
-              // aggregate as moved (manual rule 5 allows only a[i] /
-              // a[i][j] / a[i].f).
-              bool FieldIdxOk = true;
-              if (ME->getType()->isArrayType())
+              // The subscripted member must itself be an owned-element array
+              // (s[i].a[j] with an owned field array). A plain array member
+              // (s[i].plain[j]) transfers no ownership, so it must not count
+              // as coverage of the host's owned fields. Its inner index must
+              // also be a *variable* driven by some (possibly nested) loop: a
+              // constant inner index (s[i].a[0]) cannot be driven by any
+              // enclosing loop, so the loop would only partially cover the
+              // field array -- a partial element free must not silently mark
+              // the whole field aggregate as moved (manual rule 5 allows only
+              // a[i] / a[i][j] / a[i].f).
+              bool FieldIdxOk = false;
+              if (IsOwnedElementArrayType(ME->getType()))
                 FieldIdxOk = dyn_cast<DeclRefExpr>(Idxs.front()) != nullptr;
               if (GoodIdx && FieldIdxOk) {
                 // The field-array index must not be the same loop variable as
@@ -1322,7 +1337,11 @@ class OwnedArrayLoopClassifier {
                   setNotCovered(ArrVD, NonQualifyingLoopReason::IndexReused,
                                 MIdx->getExprLoc());
                 else
-                  ArrayOk[ArrVD] = true;
+                  // Preserve a sticky false from another access in the same
+                  // body: every access must use the loop index, so a later
+                  // full access must not revive an array a partial access
+                  // already rejected.
+                  setCovered(ArrVD, /*GoodIdx=*/true);
               }
               // A host-level mismatch (s[i].a[j] where i != LoopVar) does
               // NOT reject the array: the field-level branch below may
@@ -1389,7 +1408,9 @@ class OwnedArrayLoopClassifier {
                   DimTy = AT->getElementType();
                 }
                 if (validateLevelChain(Chain, HostVD)) {
-                  ArrayOk[HostVD] = true;
+                  // A previous partial access in this body already rejected
+                  // the array; a full one must not revive it.
+                  setCovered(HostVD, /*GoodIdx=*/true);
                   FieldArrayDone.insert(HostVD);
                 }
               }

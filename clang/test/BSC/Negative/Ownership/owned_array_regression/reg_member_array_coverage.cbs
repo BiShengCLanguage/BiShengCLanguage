@@ -1,0 +1,34 @@
+// RUN: %clang_cc1 -verify %s
+
+// An access to a plain (non-owned) array member transfers no ownership. It
+// must not mark the host array as covered: doing so used to hide a partial
+// owned-field access earlier in the same loop body.
+//
+// Coverage is also sticky in the other direction: once one access in the body
+// uses a non-loop index, a later full access to the same host must not revive
+// the array.
+
+_Safe int *_Owned make(void);
+
+struct S {
+  int *_Owned v1[2];
+  int v2[2];
+};
+
+void plain_member(void) {
+  struct S v3[2];
+  int v4 = 0;
+  for (int v5 = 0; v5 < 2; v5++) { // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    v3[0].v1[v5] = make(); // expected-error {{cannot transfer ownership of array element `v3` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    v3[v5].v2[v4] = 0;
+  }
+}
+
+void partial_then_full(void) {
+  struct S v3[2];
+  for (int v5 = 0; v5 < 2; v5++) { // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    v3[0].v1[v5] = make(); // expected-error {{cannot transfer ownership of array element `v3` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+    for (int v6 = 0; v6 < 2; v6++)
+      v3[v5].v1[v6] = make();
+  }
+} // expected-error {{memory leak because v3.v1[] is not freed or moved before 'v3' goes out of scope}}

@@ -63,3 +63,17 @@ void array_host_paren_deref(void) {
   for (int j = 0; j < 2; j++) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
     _Unsafe { __forget((*s).arr[j]); } // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
 } // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}
+
+// The arrow spelling normalizes to the same implicit [0] host access
+// (`s->arr[j]` is `(*s).arr[j]`), so it must be rejected and leak-reported
+// identically. Its implicit host level used to be missing: the classifier
+// accepted the j-loop while only row 0 was released, and the host-index scan
+// dereferenced a null index when looking for the absent `s[i]`.
+void array_host_arrow(void) {
+  struct SA s[2];
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 2; j++)
+      s[i].arr[j] = safe_malloc(j);
+  for (int j = 0; j < 2; j++) // expected-note {{for-loop is not a qualifying for-loop: array accesses in the body must use the loop index (a[i])}}
+    safe_free(s->arr[j]); // expected-error {{cannot transfer ownership of array element `s` outside a qualifying for-loop; use a full-range for-loop or safe_swap}}
+} // expected-error {{memory leak because s.arr[] is not freed or moved before 's' goes out of scope}}
